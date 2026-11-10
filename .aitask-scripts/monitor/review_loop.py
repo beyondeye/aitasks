@@ -48,6 +48,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Callable
+from dataclasses import dataclass
 
 try:
     from .ansi_utils import strip_ansi
@@ -1036,6 +1037,186 @@ def shadow_prompt_ready(raw_text: str | None, agent: str,
     if not hash_stable:
         return False
     return True
+
+
+# --- Composer payload (what an injected Enter would submit, t2211_4) --------
+#
+# `shadow_state == SHADOW_BUSY` says only that the composer holds SOME typed
+# text. A caller about to send Enter must know WHICH text: a search of the
+# whole tail cannot tell the composer from the transcript (an echoed request
+# beside a user's new draft reads exactly like "our text is there"), and it
+# cannot see text appended after ours. This reads the bottom-most composer
+# REGION, delimited by each agent's own grammar, and returns its complete
+# payload -- or None whenever the region cannot be delimited exactly. It is a
+# payload reader, not a second readiness detector: it answers only when
+# `shadow_state` already says BUSY.
+#
+# Grammar measured live on 2026-11-10 (claude 2.1.322, codex-cli 0.167.0,
+# opencode 1.18.34; captures in tests/sitrep_request_fixtures.py; W = pane
+# width):
+#   * claude   -- `❯`+NBSP line up to the next full-width `─` rule line, a rule
+#                 line directly above; continuation rows indented 2 spaces;
+#                 content width W-4; a word wraps iff line+1+word > W-4.
+#   * codex    -- the bottom-most `› ` line and its continuation rows (indented
+#                 2), then EXACTLY one blank row, then 1-2 positively identified
+#                 footer rows (colour-styled AND carrying ` · `: the model line,
+#                 the hints / warnings line). Typed input is never styled, so a
+#                 blank row typed into the composer followed by more text is NOT
+#                 mistaken for the gap before the footer. Content width W-3;
+#                 same wrap rule at W-3.
+#   * opencode -- the contiguous `┃` run above the `╹▀` border: EXACTLY one blank
+#                 padding row, the text rows (`┃` + 2 spaces), exactly one blank
+#                 padding row, the status row; content width = border length - 5;
+#                 a word wraps iff line+1+word > content-1 (one column short of a
+#                 hard break).
+
+@dataclass(frozen=True)
+class ComposerPayload:
+    """The current composer's text, as displayed.
+
+    ``lines``: the payload's display rows, prefix / indent and trailing
+    blanks removed. ``content_width``: the columns a hard (mid-token) break
+    fills. ``wrap_width``: a word moves to the next row iff ``row + 1 + word
+    > wrap_width``.
+    """
+
+    lines: tuple
+    content_width: int
+    wrap_width: int
+
+
+#: Agents whose composer grammar is measured and pinned by fixtures. A caller
+#: that must PROVE what it typed refuses any other agent before typing.
+PAYLOAD_GRAMMAR_AGENTS: tuple[str, ...] = ("claude", "codex", "opencode")
+
+_RULE_ROW_RE = re.compile("^─+$")
+_CONTINUATION_RE = re.compile("^  (\\S.*)$")
+#: Codex renders at most two footer rows below the composer's gap.
+_CODEX_FOOTER_MAX = 2
+#: A foreground colour / dim SGR: Codex styles every footer row, never typed text.
+_STYLED_RE = re.compile("\x1b\\[(?:[0-9;]*;)?(?:2|3[0-7]|9[0-7]|38;[0-9;]+)m")
+
+
+def _strip_trailing_blank(lines: list) -> list:
+    out = list(lines)
+    while out and not out[-1].strip():
+        out.pop()
+    return out
+
+
+def _continuations(rows: list) -> "list | None":
+    out = []
+    for row in rows:
+        m = _CONTINUATION_RE.match(row.rstrip())
+        if not m:
+            return None
+        out.append(m.group(1))
+    return out
+
+
+def _claude_payload(plain_lines: list, pane_width: "int | None") -> "ComposerPayload | None":
+    idx = next((i for i in range(len(plain_lines) - 1, -1, -1)
+                if _CLAUDE_COMPOSER_RE.match(plain_lines[i].rstrip())), None)
+    if idx is None or idx == 0:
+        return None
+    above = plain_lines[idx - 1].rstrip()
+    if not _RULE_ROW_RE.match(above):
+        return None
+    width = len(above)
+    if pane_width is not None and width != pane_width:
+        return None                      # resized under us: do not guess
+    close = next((j for j in range(idx + 1, len(plain_lines))
+                  if _RULE_ROW_RE.match(plain_lines[j].rstrip())), None)
+    if close is None or len(plain_lines[close].rstrip()) != width:
+        return None
+    first = plain_lines[idx].rstrip()[2:]
+    rest = _continuations(plain_lines[idx + 1:close])
+    if not first or first[:1].isspace() or rest is None:
+        return None
+    return ComposerPayload((first, *rest), width - 4, width - 4)
+
+
+def _codex_footer_row(plain: str, raw: str) -> bool:
+    return " · " in plain and bool(_STYLED_RE.search(raw))
+
+
+def _codex_payload(plain_lines: list, raw_lines: list,
+                   pane_width: "int | None") -> "ComposerPayload | None":
+    if pane_width is None or len(raw_lines) != len(plain_lines):
+        return None
+    lines = _strip_trailing_blank(plain_lines)
+    idx = next((i for i in range(len(lines) - 1, -1, -1)
+                if _CODEX_COMPOSER_RE.match(lines[i].rstrip())), None)
+    if idx is None or _CODEX_OPTION_ROW_RE.match(lines[idx]):
+        return None
+    # The footer, positively identified from the bottom up; above it exactly
+    # one blank row, and above that only the composer's own rows.
+    foot = len(lines)
+    while (foot - 1 > idx and len(lines) - foot < _CODEX_FOOTER_MAX
+           and lines[foot - 1].strip()
+           and _codex_footer_row(lines[foot - 1], raw_lines[foot - 1])):
+        foot -= 1
+    if foot == len(lines) or foot - 1 <= idx or lines[foot - 1].strip():
+        return None
+    gap = foot - 1
+    if any(not ln.strip() for ln in lines[idx + 1:gap]):
+        return None                      # a blank row typed into the composer
+    first = lines[idx].rstrip()[2:]
+    rest = _continuations(lines[idx + 1:gap])
+    if not first or first[:1].isspace() or rest is None:
+        return None
+    return ComposerPayload((first, *rest), pane_width - 3, pane_width - 3)
+
+
+def _opencode_payload(plain_lines: list) -> "ComposerPayload | None":
+    border = next((i for i in range(len(plain_lines) - 1, -1, -1)
+                   if _OPENCODE_BOX_BOTTOM_RE.match(plain_lines[i].rstrip())), None)
+    if border is None:
+        return None
+    rows = []
+    i = border - 1
+    while i >= 0 and _OPENCODE_GUTTER_RE.match(plain_lines[i]):
+        rows.append(plain_lines[i])
+        i -= 1
+    rows.reverse()
+    if len(rows) < 2 or not _OPENCODE_STATUS_ROW_RE.match(rows[-1]):
+        return None
+    bodies = [_OPENCODE_GUTTER_RE.match(r).group(1).rstrip() for r in rows[:-1]]
+    # Exactly the measured padding: one blank row above the text, one below.
+    if len(bodies) < 3 or bodies[0] or bodies[-1]:
+        return None
+    bodies = bodies[1:-1]
+    text = []
+    for body in bodies:
+        if not body.startswith("  ") or body[2:3].isspace() or not body[2:]:
+            return None                  # a blank row inside, or a stray indent
+        text.append(body[2:])
+    if not text:
+        return None
+    content = len(plain_lines[border].strip()) - 5
+    return ComposerPayload(tuple(text), content, content - 1)
+
+
+def composer_payload(raw_text: "str | None", agent: str,
+                     pane_width: "int | None" = None) -> "ComposerPayload | None":
+    """The current composer's complete payload, or None when it is not provable.
+
+    None unless :func:`shadow_state` reads ``SHADOW_BUSY`` (so never the
+    placeholder hint, a dialog or a working pane), for an agent outside
+    :data:`PAYLOAD_GRAMMAR_AGENTS`, or when the region's delimiters are not
+    exactly as measured. ``pane_width`` (``#{pane_width}``) is required for
+    Codex, whose region carries no full-width row; for Claude it cross-checks
+    the rule rows, so a resize between the read and the capture reads None.
+    """
+    key = (agent or "").strip().lower()
+    if key not in PAYLOAD_GRAMMAR_AGENTS or shadow_state(raw_text, key) != SHADOW_BUSY:
+        return None
+    plain_lines = strip_ansi(raw_text).splitlines()
+    if key == "claude":
+        return _claude_payload(plain_lines, pane_width)
+    if key == "codex":
+        return _codex_payload(plain_lines, raw_text.splitlines(), pane_width)
+    return _opencode_payload(plain_lines)
 
 
 # --- Followed-pane change classification (work latch input) ----------------

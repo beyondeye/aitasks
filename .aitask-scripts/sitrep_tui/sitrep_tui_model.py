@@ -213,7 +213,7 @@ class NextStep:
 #: text names (t2211_3).
 DEFAULT_KEYS = {
     "k_pick": "p", "k_board": "b", "k_push": "P", "k_dismiss": "x",
-    "k_refresh": "r",
+    "k_refresh": "r", "k_triage": "t", "k_ask": "a", "k_trail": "T",
 }
 
 #: classification key -> ("What to do" template, "How" template). Templates
@@ -222,14 +222,15 @@ DEFAULT_KEYS = {
 NEXT_STEPS = {
     "triage": (
         "Triage {task}'s wrap-up: decide which closing notes become actions or watches",
-        "In the sitrep agent pane (beside this one) type  >t  — it triages every "
-        "open wrap-up, this one included."),
+        "Press  {k_triage}  to have the sitrep agent (the pane beside this one) triage "
+        "it ( >t {cid} ); typing  >t  there triages every open wrap-up."),
     "review": (
         "Review unparsed agent output{rest}",
-        "In the sitrep agent pane type  >t  — open reviews are handled with the triage."),
+        "Press  {k_triage}  to have the sitrep agent handle this review ( >t {cid} )."),
     "decide": (
         "Decide: {title}",
-        "Ask the sitrep agent: type  >q {cid} <your question or decision>  in its pane."),
+        "Press  {k_ask}  to ask the sitrep agent about it "
+        "( >q {cid} <your question or decision> )."),
     "pick": (
         "Pick {ref}{status}: {rest}",
         "Press  {k_pick}  to launch  /aitask-pick {pick_id}  in a new agent window, "
@@ -252,12 +253,13 @@ NEXT_STEPS = {
     "watch": (
         "Waiting on: {title} — nothing to do now{outcome}",
         "Press  {k_refresh}  to harvest + refresh: it re-checks its trail, and the "
-        "outcome shows what changed."),
+        "outcome shows what changed. Press  {k_trail}  to have the sitrep agent "
+        "refresh the trail itself ( >tr {cid} )."),
     "watch_manual": (
         "Waiting on: {title} — nothing to do now{outcome}",
         "Refresh does not check this one (it has no trail to follow). To see where "
-        "it stands, ask the sitrep agent:  >q {cid} <question>  — it reads the "
-        "item's sources — or press  {k_dismiss}  to dismiss it."),
+        "it stands, press  {k_ask}  to ask the sitrep agent ( >q {cid} <question> ) "
+        "— it reads the item's sources — or press  {k_dismiss}  to dismiss it."),
     "done": ("Done: {title}{outcome}", "Nothing to do."),
     "dismissed": ("Dismissed: {title}{outcome}", "Nothing to do."),
     "unknown": (
@@ -265,8 +267,9 @@ NEXT_STEPS = {
         "Press  {k_refresh}  to harvest + refresh: it re-checks this item."),
     "unknown_manual": (
         "Unknown — needs a re-check: {title}",
-        "Refresh has no automatic check for this item. Ask the sitrep agent to look "
-        "at its sources ( >q {cid} <question> ), or press  {k_dismiss}  to dismiss it."),
+        "Refresh has no automatic check for this item. Press  {k_ask}  to ask the "
+        "sitrep agent to look at its sources ( >q {cid} <question> ), or press  "
+        "{k_dismiss}  to dismiss it."),
     "raw": (
         "{kind} / {state}: {title}",
         "No guidance for this kind of item — read its context below."),

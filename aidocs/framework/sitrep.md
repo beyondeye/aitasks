@@ -2,8 +2,13 @@
 
 Sitrep keeps **one persisted todo list per repository** so finished or frozen
 agent windows can be closed without losing their follow-up information (follow-up
-tasks, "push main", a trail's next wave). It is advisory-only: nothing in it ever
-picks a task, pushes, commits, edits code, or types into another pane.
+tasks, "push main", a trail's next wave). It is advisory-only: the sitrep agent
+never picks a task, pushes, commits, edits code, or types into another pane. The
+one pane anything types into is the sitrep agent's own, and only from the sitrep
+TUI when the user presses a request key (`t` `a` `w` `T` `n`). That delivery is
+guarded: it refuses a busy or moded agent, uses an identity-checked, acked paste,
+and proves the composer before every Enter
+(`.aitask-scripts/monitor/agent_request_delivery.py`).
 
 User-facing pages: `website/content/docs/workflows/sitrep.md` and
 `website/content/docs/skills/aitask-sitrep.md`.

@@ -617,6 +617,30 @@ class TmuxClient:
             return False
         return result.returncode == 0
 
+    def run_with_input(
+        self, args: list[str], data: str, timeout: float = _DEFAULT_TIMEOUT
+    ) -> tuple[int, str]:
+        """Run ``tmux <args>`` with ``data`` on stdin. Same contract as :meth:`run`.
+
+        For a verb that reads its payload from ``-`` (``load-buffer -b <name> -``).
+        Text sent this way never enters a tmux parser: an ARGV element is still
+        split by ``cmd_parse_from_arguments`` — one ending in ``;`` becomes a
+        command separator and loses the ``;``, ``\\;`` becomes ``;`` (measured on
+        tmux 3.8, t2211_4) — while stdin is copied as bytes. Subprocess only:
+        the control client cannot carry stdin. ``data`` is encoded like every
+        tmux text (policy 5). ``(-1, "")`` on ``FileNotFoundError`` /
+        ``OSError`` / timeout.
+        """
+        argv, extra = self._launch(args)
+        try:
+            result = subprocess.run(
+                argv, input=data, capture_output=True, timeout=timeout,
+                **tmux_text_kwargs(), **extra,
+            )
+        except (subprocess.TimeoutExpired, FileNotFoundError, OSError):
+            return (-1, "")
+        return (result.returncode, result.stdout or "")
+
     async def run_async(
         self, args: list[str], timeout: float = _DEFAULT_TIMEOUT
     ) -> tuple[int, str]:

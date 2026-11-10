@@ -6,7 +6,9 @@ done and Dismissed on `d`), the situation text per theme, an item's details
 with its context map, read-only pointer following, and the Q&A log. The
 deterministic actions -- harvest + refresh, dismiss, restore, the agent
 respawn and the pick / board / trails / push launches -- live in
-``sitrep_tui_actions`` (t2211_3); agent requests are t2211_4. A task item's
+``sitrep_tui_actions`` (t2211_3), with the agent requests (t2211_4: keys that
+type a request into the sitrep agent, ``sitrep_tui_requests.AGENT_REQUESTS``,
+delivered by ``monitor/agent_request_delivery.py``). A task item's
 details also list the trails its task is in (``sitrep_tui_trails``, t2211_10):
 a ``Trails`` line, and one links row per trail that Enter opens in
 ``ait trails`` with the task's card focused.
@@ -66,6 +68,9 @@ from multirow_footer import MultiRowFooter  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from sitrep_tui import sitrep_tui_model as model  # noqa: E402
 from sitrep_tui import sitrep_tui_actions as actions  # noqa: E402
+# The one request table (t2211_4); re-exported so `sitrep_tui_app.AGENT_REQUESTS`
+# names the same object the sitrep skill's parity test reads.
+from sitrep_tui.sitrep_tui_requests import AGENT_REQUESTS  # noqa: E402,F401
 from sitrep_tui import sitrep_tui_trails as trails_model  # noqa: E402
 # Moved to sitrep_tui_widgets (t2211_10); the name stays importable from here.
 from sitrep_tui.sitrep_tui_widgets import SelectOnClickList  # noqa: E402,F401
@@ -668,11 +673,12 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
     def __init__(self, root: str, store_dir: str,
                  reload_interval: float = RELOAD_INTERVAL, *, runner=None,
                  roles_probe=None, own_session=None,
-                 startup_harvest: bool = False, trails_scan=None) -> None:
+                 startup_harvest: bool = False, trails_scan=None,
+                 deliver=None) -> None:
         super().__init__()
         self._init_actions(runner=runner, roles_probe=roles_probe,
                            own_session=own_session, startup_harvest=startup_harvest,
-                           trails_scan=trails_scan)
+                           trails_scan=trails_scan, deliver=deliver)
         self.current_tui_name = "sitrep_tui"
         self.root = root
         self.store_dir = store_dir
@@ -988,6 +994,18 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
             return False
         if action == "open_item" and self._selected_cid() is None:
             return False
+        if action in actions.REQUEST_ACTIONS:
+            # t2211_4: only where an item or the store is in view, only while
+            # the agent runs, only for an item the request fits; disabled while
+            # one is being delivered. The action re-checks all of it.
+            if not isinstance(top, (_SitrepScreen, ItemDetailScreen)):
+                return False
+            if not self.request_available():
+                return False
+            if (action in actions.ITEM_ACTIONS
+                    and not self._item_action_ok(action, self._current_action_item())):
+                return False
+            return None if self._request_inflight else True
         if action in actions.ITEM_ACTIONS:
             if not isinstance(top, (_SitrepScreen, ItemDetailScreen)):
                 return False
@@ -1089,41 +1107,41 @@ def main(argv: "list | None" = None) -> int:
         return 1
     # Project-relative config reads (shortcut overrides, tmux defaults).
     os.chdir(root)
-    probe, own_session = _tmux_seams(root, os.environ.get("TMUX_PANE", ""),
-                                     os.environ.get("TMUX", ""))
+    probe, own_session, deliver = _tmux_seams(root, os.environ.get("TMUX_PANE", ""),
+                                              os.environ.get("TMUX", ""))
     SitrepTuiApp(root, os.path.join(root, sh.STORE_NAME), roles_probe=probe,
                  own_session=own_session, startup_harvest=True,
-                 trails_scan=trails_model.scan_membership).run()
+                 trails_scan=trails_model.scan_membership, deliver=deliver).run()
     return 0
 
 
 def _tmux_seams(root: str, pane: str, tmux_env: str) -> tuple:
-    """``(roles_probe, own_session)`` for a TUI running in a pane of the
-    gateway tmux server, else ``(None, None)`` (agent status "unknown", no
-    respawn key). ``$TMUX_PANE`` / ``$TMUX`` are read in ``main`` only, so a
-    test App never probes the terminal running the suite."""
+    """``(roles_probe, own_session, deliver)`` for a TUI running in a pane of
+    the gateway tmux server, else ``(None, None, None)`` (agent status
+    "unknown", no respawn key, no request keys). ``$TMUX_PANE`` / ``$TMUX`` are
+    read in ``main`` only, so a test App never probes the terminal running the
+    suite. One gateway serves the probe and the deliveries; it holds no pane."""
     import agent_launch_utils as alu
     if not pane or not alu.pane_on_gateway_server(pane, tmux_env):
-        return None, None
+        return None, None, None
 
     gateway = []
 
+    def _gw():
+        from sitrep_tui.sitrep_tui_requests import TmuxGateway
+        if not gateway:                      # built once, on first use
+            gateway.append(TmuxGateway())
+        return gateway[0]
+
     def probe():
         from monitor import monitor_core
-        from tmux_exec import TmuxClient
+        return monitor_core.find_sitrep_roles(_gw(), root)
 
-        class _Gateway:  # the `monitor.tmux_run` duck type (sitrep_open's)
-            def __init__(self):
-                self._client = TmuxClient()
+    async def deliver(line: str):
+        from monitor import agent_request_delivery
+        return await agent_request_delivery.deliver_sitrep_request(_gw(), root, line)
 
-            def tmux_run(self, args, timeout: float = 5.0):
-                return self._client.run(args, timeout=timeout)
-
-        if not gateway:                      # built once, on the first poll
-            gateway.append(_Gateway())
-        return monitor_core.find_sitrep_roles(gateway[0], root)
-
-    return probe, (lambda: alu.pane_session(pane))
+    return probe, (lambda: alu.pane_session(pane)), deliver
 
 
 if __name__ == "__main__":

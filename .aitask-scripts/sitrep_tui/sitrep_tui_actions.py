@@ -13,7 +13,13 @@ The deterministic work the sitrep agent used to do for the TUI's user, as keys:
 * **launches** from an item: `/aitask-pick` (`p`, pick items only), the task in
   the board (`b`), the task in `ait trails` (`z`, only for a task known to be in
   a trail; t2211_10 -- a picker for two or more), and the push command a push
-  reminder SHOWS (`P`, never run).
+  reminder SHOWS (`P`, never run);
+* **agent requests** (t2211_4): triage (`t`), ask (`a`, a one-line question),
+  situation text (`w`, items with a theme), trail refresh (`T`, trail watches)
+  and pick advice (`n`) TYPE a request into the sitrep agent and submit it,
+  through ``monitor/agent_request_delivery.py`` (readiness, guarded paste, the
+  composer proof before every Enter). Shown only while the agent runs; one at a
+  time; every outcome is reported, and ``unknown`` never reads as sent.
 
 Rules: every store write goes through the store's one writer, with
 ``cwd=<root>`` and without ``AITASK_SITREP_DIR`` (the store this TUI reads).
@@ -49,7 +55,9 @@ from monitor.sitrep_close import (
     SITREP_OPEN_TIMEOUT,
     run_owned_group,
 )
+from monitor import agent_request_delivery as delivery
 from sitrep_tui import sitrep_tui_model as model
+from sitrep_tui import sitrep_tui_requests as reqs
 from sitrep_tui import sitrep_tui_trails as trails_model
 from tui_clipboard import copy_to_system_clipboard
 
@@ -66,7 +74,10 @@ AGENT_POLL_INTERVAL = 3.0
 
 #: Item actions: shown on the main list and on an item's details.
 ITEM_ACTIONS = frozenset({"pick_task", "open_in_board", "open_in_trails", "show_push",
-                          "dismiss_item"})
+                          "dismiss_item"}) | reqs.ITEM_REQUESTS
+#: Agent requests (t2211_4): shown on the main list and an item's details, only
+#: while the sitrep agent runs; the item-scoped ones are also ITEM_ACTIONS.
+REQUEST_ACTIONS = frozenset(r.action for r in reqs.AGENT_REQUESTS)
 #: Main-screen actions added by this module.
 MAIN_ACTIONS = frozenset({"restore_store", "respawn_agent"})
 #: Store-wide actions shown on the main list AND on an item's details (the
@@ -84,15 +95,20 @@ ACTION_BINDINGS = (
     ("show_push", "P", "Push cmd"),
     ("restore_store", "R", "Restore"),
     ("respawn_agent", "A", "Respawn agent"),
+    *((r.action, r.key, r.label) for r in reqs.AGENT_REQUESTS),
 )
 #: NEXT_STEPS placeholder -> action.
 _KEY_PLACEHOLDERS = {"k_pick": "pick_task", "k_board": "open_in_board",
                      "k_push": "show_push", "k_dismiss": "dismiss_item",
-                     "k_refresh": "harvest_refresh"}
+                     "k_refresh": "harvest_refresh", "k_triage": "request_triage",
+                     "k_ask": "request_ask", "k_trail": "request_trail_refresh"}
 
 _ACTION_LABEL = {"pick_task": "Pick", "open_in_board": "Open in board",
                  "open_in_trails": "Show in trails",
-                 "show_push": "Push command", "dismiss_item": "Dismiss"}
+                 "show_push": "Push command", "dismiss_item": "Dismiss",
+                 "request_triage": "Triage", "request_ask": "Ask the agent",
+                 "request_situation": "Situation text",
+                 "request_trail_refresh": "Trail refresh"}
 
 
 def writer_env() -> dict:
@@ -452,6 +468,70 @@ class LabelFilterDialog(GuardedModalScreen):
         self.dismiss(None)
 
 
+class AskAgentDialog(GuardedModalScreen):
+    """One question about an item for the sitrep agent (t2211_4).
+
+    Returns the question (normalized: trimmed, single spaces), or None. A text
+    the delivery could not type safely -- control characters, a line break, a
+    trailing @mention (it opens the agent's file picker), too long -- is
+    refused here with the reason, and the dialog stays open. The short-pane
+    layout of ``LabelFilterDialog``: docked buttons, one row per line."""
+
+    DEFAULT_CSS = _DIALOG_CSS.format(cls="AskAgentDialog") + """
+    AskAgentDialog > Container { max-height: 100%; padding: 0 1; }
+    AskAgentDialog .dlg-title { margin: 0; height: 1; text-wrap: nowrap;
+                                text-overflow: ellipsis; }
+    AskAgentDialog #aq-help { height: 1; text-wrap: nowrap; text-overflow: ellipsis; }
+    AskAgentDialog .dlg-notice { margin: 0; }
+    AskAgentDialog .dlg-buttons { dock: bottom; height: 3; }
+    """
+    BINDINGS = [Binding("escape", "cancel", "Cancel", show=False)]
+
+    def __init__(self, item: "st.Item", text: str = "") -> None:
+        super().__init__()
+        self.item = item
+        self._text = text
+
+    def compose(self) -> ComposeResult:
+        with Container():
+            yield Static(Content(f"Ask the sitrep agent about {self.item.cid} · "
+                                 f"{self.item.title}"), classes="dlg-title")
+            yield Static(Content("Typed into its pane as  >q "
+                                 f"{self.item.cid} <question>  and submitted."), id="aq-help")
+            yield Input(value=self._text, max_length=reqs.ASK_MAX_CHARS,
+                        placeholder="one line, e.g. why is this still open?", id="aq-text")
+            yield Static(Content(""), id="aq-notice", classes="dlg-notice hidden")
+            with Container(classes="dlg-buttons"):
+                yield Button("Ask", variant="primary", id="aq-ask")
+                yield Button("Cancel", variant="default", id="aq-cancel")
+
+    def on_mount(self) -> None:
+        self.query_one("#aq-text", Input).focus()
+
+    def _confirm(self) -> None:
+        raw = self.query_one("#aq-text", Input).value
+        why = reqs.ask_text_error(raw)
+        if why:
+            notice = self.query_one("#aq-notice", Static)
+            notice.update(Content(why))
+            notice.remove_class("hidden")
+            return
+        self.dismiss(reqs.normalize_ask_text(raw))
+
+    def on_input_submitted(self, event: Input.Submitted) -> None:
+        event.stop()
+        self._confirm()
+
+    def on_button_pressed(self, event: Button.Pressed) -> None:
+        if event.button.id == "aq-ask":
+            self._confirm()
+        else:
+            self.dismiss(None)
+
+    def action_cancel(self) -> None:
+        self.dismiss(None)
+
+
 # -- the actions ---------------------------------------------------------------------
 
 class SitrepActionsMixin:
@@ -461,7 +541,8 @@ class SitrepActionsMixin:
     ``_render_header()``, ``_render_banner()``."""
 
     def _init_actions(self, runner=None, roles_probe=None, own_session=None,
-                      startup_harvest: bool = False, trails_scan=None) -> None:
+                      startup_harvest: bool = False, trails_scan=None,
+                      deliver=None) -> None:
         #: sync (root) -> trails_model.Membership; None: no trail lookup (the
         #: test default -- a real scan spawns an export subprocess).
         self._trails_scan = trails_scan
@@ -483,6 +564,11 @@ class SitrepActionsMixin:
         self.agent_state = "unknown"
         #: (HH:MM, ok) of the last harvest + refresh run, or None.
         self._last_refresh = None
+        #: async (request line) -> delivery.DeliveryResult; None: not in tmux
+        #: (no request keys). Resolves the agent and its run identity itself,
+        #: on every call -- nothing here caches a pane.
+        self._deliver = deliver
+        self._request_inflight = False
 
     async def _default_runner(self, argv, timeout: float):
         return await run_owned_group([str(a) for a in argv], timeout=timeout,
@@ -547,6 +633,14 @@ class SitrepActionsMixin:
             return st.parse_push_ref(item.ref) is not None
         if action == "dismiss_item":
             return item.state in ("open", "unknown")
+        if action == "request_triage":
+            return model.classify(item, self._checks.get(item.num)) in ("triage", "review")
+        if action == "request_ask":
+            return True
+        if action == "request_situation":
+            return bool(reqs.item_theme(self.store, item))
+        if action == "request_trail_refresh":
+            return model.classify(item, self._checks.get(item.num)) == "watch"
         return False
 
     def _current_action_item(self) -> "st.Item | None":
@@ -823,6 +917,114 @@ class SitrepActionsMixin:
         msg, severity = sitrep_cli.sitrep_open_message(rc, out)
         self.notify(msg, severity=severity, markup=False)
         self._kick_agent_poll()
+
+    # -- agent requests (t2211_4) ---------------------------------------------------
+
+    def request_available(self) -> bool:
+        """The request keys apply at all: in tmux, and the agent runs."""
+        return self._deliver is not None and self.agent_state == "running"
+
+    def action_request_triage(self) -> None:
+        self._start_request("request_triage")
+
+    def action_request_ask(self) -> None:
+        self._start_request("request_ask")
+
+    def action_request_situation(self) -> None:
+        self._start_request("request_situation")
+
+    def action_request_trail_refresh(self) -> None:
+        self._start_request("request_trail_refresh")
+
+    def action_request_pick_advice(self) -> None:
+        self._start_request("request_pick_advice")
+
+    def _start_request(self, action: str) -> None:
+        """Re-check everything the binding gate checked, then build and send."""
+        req = reqs.REQUESTS_BY_ACTION[action]
+        screen = self._top_screen()
+        if not (self._is_main_screen(screen) or getattr(screen, "item_num", None) is not None):
+            return
+        if not self._request_ok_now():
+            return
+        item = None
+        if action in reqs.ITEM_REQUESTS:
+            item = self._resolve_action_item(action)
+            if item is None:
+                return
+        if action != "request_ask":
+            self._send_request(req, item, "")
+            return
+        num = item.num
+
+        def on_result(text) -> None:
+            if text is None:
+                return
+            # Re-resolve: the store may have moved while the dialog was open.
+            cur = self.store.items.get(num) if self.store is not None else None
+            if cur is None or self.todo_error or not self._item_action_ok(action, cur):
+                self.notify(f"c{num} changed while the dialog was open — not sent",
+                            severity="warning", markup=False)
+                return
+            self._send_request(req, cur, text)
+
+        self.push_screen(AskAgentDialog(item), on_result)
+
+    def _request_ok_now(self) -> bool:
+        if not self.request_available():
+            hint = (f" — press {self.key_for('respawn_agent')} to start it"
+                    if self.agent_state == "absent" else "")
+            self.notify(f"The sitrep agent is not running{hint}", severity="warning",
+                        markup=False)
+            return False
+        if self._request_inflight:
+            self.notify("A request is already being delivered to the sitrep agent",
+                        severity="warning", markup=False)
+            return False
+        return True
+
+    def _send_request(self, req: "reqs.AgentRequest", item, text: str) -> None:
+        if not self._request_ok_now():
+            return
+        line = reqs.build_request(req, item, self.store, text)
+        if not line:
+            what = item.cid if item is not None else "this store"
+            self.notify(f"{req.label}: no request can be built for {what}",
+                        severity="warning", markup=False)
+            return
+        self._request_inflight = True
+        self.refresh_bindings()
+        self.run_worker(self._deliver_flow(req, line), group="sitrep-request",
+                        exit_on_error=False)
+
+    async def _deliver_flow(self, req: "reqs.AgentRequest", line: str) -> None:
+        try:
+            result = await self._deliver(line)
+        except Exception as e:  # noqa: BLE001 - reported, never a crash or a "sent"
+            result = delivery.DeliveryResult(delivery.UNKNOWN, f"error: {e}", line)
+        finally:
+            self._request_inflight = False
+            self.refresh_bindings()
+        self.report_request(req, result)
+
+    def report_request(self, req: "reqs.AgentRequest", result: "delivery.DeliveryResult") -> None:
+        """Toast every outcome; anything but ``submitted`` also opens the result
+        panel, so a request left waiting or refused is never missed."""
+        if result.submitted:
+            severity = "information"
+        elif result.code == delivery.UNKNOWN:
+            severity = "error"
+        else:
+            severity = "warning"
+        self.notify(f"{result.message()}: {result.request}", severity=severity,
+                    markup=False)
+        if result.submitted:
+            return
+        lines = [f"request: {result.request}", f"result: {result.code}"]
+        if result.detail:
+            lines.append(f"detail: {result.detail}")
+        self.push_screen(ResultDialog(f"{req.label}", [result.message()], lines,
+                                      failed=result.code == delivery.UNKNOWN))
 
     # -- launches --------------------------------------------------------------------
 

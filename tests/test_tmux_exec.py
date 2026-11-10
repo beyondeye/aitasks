@@ -653,6 +653,21 @@ class TestTextModelDecoding(unittest.TestCase):
         self.assertEqual((seen["encoding"], seen["errors"], seen["input"]),
                          ("utf-8", "surrogateescape", "prój"))
 
+    def test_run_with_input_sends_utf8_stdin_and_decodes(self):
+        seen = {}
+
+        def fake_run(argv, **kwargs):
+            seen.update(kwargs)
+            return _REAL_RUN(_emit_argv(_TMUX_BYTES), **kwargs)
+
+        with patch.object(subprocess, "run", side_effect=fake_run):
+            rc, out = TmuxClient(socket_args=[]).run_with_input(
+                ["load-buffer", "-b", "x", "-"], "prój a;")
+        self.assertNotIn("text", seen)
+        self.assertEqual((seen["encoding"], seen["errors"], seen["input"]),
+                         ("utf-8", "surrogateescape", "prój a;"))
+        self.assertEqual((rc, out), (0, _TMUX_TEXT))
+
 
 class TestTextModelEncoding(unittest.TestCase):
     """``encode_tmux_wire`` / ``encode_tmux_argv`` per filesystem codec.
@@ -1286,7 +1301,8 @@ class TestSpawnEnvPlumbing(unittest.TestCase):
     def test_sync_methods_get_normalized_path(self):
         for method, args in (("run", (["new-window"],)),
                              ("run_checked", (["new-window"],)),
-                             ("set_clipboard", ("text",))):
+                             ("set_clipboard", ("text",)),
+                             ("run_with_input", (["load-buffer", "-"], "text"))):
             with self.subTest(method):
                 kwargs = self._run_kwargs(_BAD_PATH, method, *args)
                 self.assertEqual(kwargs["env"]["PATH"], _GOOD_PATH)
@@ -1295,7 +1311,8 @@ class TestSpawnEnvPlumbing(unittest.TestCase):
     def test_sync_methods_without_mise_pass_no_env(self):
         for method, args in (("run", (["new-window"],)),
                              ("run_checked", (["new-window"],)),
-                             ("set_clipboard", ("text",))):
+                             ("set_clipboard", ("text",)),
+                             ("run_with_input", (["load-buffer", "-"], "text"))):
             with self.subTest(method):
                 kwargs = self._run_kwargs("/usr/bin:/bin", method, *args)
                 self.assertNotIn("env", kwargs)

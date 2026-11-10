@@ -21,6 +21,7 @@ import contextlib
 import enum
 import os
 import re
+import secrets
 import shlex
 import subprocess
 import sys
@@ -84,6 +85,7 @@ from helper_panes import (  # noqa: E402,F401  (re-export)
     SHADOW_TARGET_OPTION,
     SITREP_ROOT_OPTION,
     SITREP_TUI_ROOT_OPTION,
+    all_of,
     bound_helper_sweep_format,
     helpers_bound_to,
     is_bound_helper,
@@ -2666,6 +2668,17 @@ class TmuxMonitor:
         """
         return await self._tmux_async(args, timeout=timeout)
 
+    def tmux_run_input(
+        self, args: list[str], data: str, timeout: float = 5.0
+    ) -> tuple[int, str]:
+        """``tmux <args>`` with ``data`` on stdin (``TmuxClient.run_with_input``).
+
+        Always a subprocess, never the control client (it cannot carry stdin).
+        The guarded text dispatch (:func:`guarded_paste_text`) loads its buffer
+        this way so the text never meets a tmux parser (t2211_4).
+        """
+        return self._tmux.run_with_input(args, data, timeout=timeout)
+
     async def get_pane_option(
         self, pane_id: str, option: str, timeout: float = 2.0
     ) -> tuple[bool, str]:
@@ -4328,6 +4341,20 @@ class TmuxMonitor:
         self._kill_bound_helpers(pane_id)
         return "killed", False
 
+    def dispatch_text_guarded(
+        self, identity: "RunIdentity", text: str, nonce: str,
+    ) -> tuple[str, str]:
+        """Paste ``text`` into ONE agent run, never whatever now occupies its
+        pane (t2211_4) — :func:`guarded_paste_text` over this monitor."""
+        return guarded_paste_text(self, identity, text, nonce)
+
+    def dispatch_key_guarded(
+        self, identity: "RunIdentity", key: str, nonce: str,
+    ) -> tuple[str, str]:
+        """Send ``key`` to ONE agent run outside any tmux mode (t2211_4) —
+        :func:`guarded_send_key` over this monitor."""
+        return guarded_send_key(self, identity, key, nonce)
+
     def _kill_agent_pane(self, pane_id: str) -> tuple[bool, bool]:
         """`kill_agent_pane_smart` minus the helper sweep: one exit per route."""
         collapse = self._collapse_window_for(pane_id)
@@ -5654,6 +5681,171 @@ def parse_run_identity(rc: int, out: str, pane_id: str) -> "RunIdentity | None":
     if found != pane_id or not (pid_ok(pane_pid) and pid_ok(server_pid)):
         return None
     return RunIdentity(pane_id, pane_pid, server_pid, frozen, tui_root)
+
+
+# --- Guarded dispatch into an agent pane (t2211_4) ---------------------------
+#
+# The sitrep TUI types requests into the sitrep agent. The run kill above set
+# the pattern: ONE `if-shell -F` whose condition the server evaluates at
+# dispatch time, then a read-back, because `if-shell` answers 0 whether or not
+# a branch ran. A kill can be read back by the pane's absence; a send cannot
+# (`readback_state` sees the pane present either way), so each branch stamps a
+# per-dispatch NONCE into a pane option and the read-back classifies that.
+#
+# The payload never meets a tmux parser: it is loaded into a uniquely named
+# buffer through stdin (`load-buffer -b <name> -`), and the guarded branches
+# carry only controlled tokens -- a validated `%N` pane id, a hex nonce, a fixed
+# buffer prefix, a fixed option name, the fixed key `Enter`.
+
+#: Acked by the guarded branches: ``<nonce>:sent`` / ``<nonce>:skipped``.
+#: Unset right after the read-back; dies with the pane.
+DISPATCH_ACK_OPTION = "@aitask_dispatch_ack"
+#: One `display-message -p -t <pane>` read-back of a guarded dispatch.
+DISPATCH_ACK_FORMAT = f"#{{pane_id}}\t#{{pid}}\t#{{{DISPATCH_ACK_OPTION}}}"
+#: Paste buffers are ``aitask-sitrep-<nonce>``: unique per dispatch, deleted
+#: by the paste (``-d``), by the else branch, or by the caller on any doubt.
+DISPATCH_BUFFER_PREFIX = "aitask-sitrep-"
+#: The only keys a guarded key dispatch sends.
+DISPATCH_KEYS = frozenset({"Enter"})
+#: The conjunct that keeps a keystroke out of a tmux mode's key table (t2001):
+#: in copy-mode, Enter is copy-pipe-and-cancel, never the agent's Enter.
+PANE_NOT_IN_MODE = "#{==:#{pane_in_mode},0}"
+
+DISPATCH_SENT = "sent"
+DISPATCH_SKIPPED = "skipped"
+DISPATCH_UNKNOWN = "unknown"
+#: Nothing was dispatched (a malformed identity / nonce / key, or the buffer
+#: could not be loaded): the pane received nothing.
+DISPATCH_FAILED = "failed"
+SKIP_IN_MODE = "in_mode"
+SKIP_IDENTITY_CHANGED = "identity_changed"
+
+_DISPATCH_PANE_RE = re.compile(r"%[0-9]+")
+_DISPATCH_NONCE_RE = re.compile(r"[0-9a-f]{8,64}")
+_DISPATCH_REASON_FORMAT = (f"#{{pane_id}}\t#{{pane_pid}}\t#{{pid}}\t#{{{FROZEN_OPTION}}}"
+                           "\t#{pane_in_mode}")
+
+
+def new_dispatch_nonce() -> str:
+    """A fresh hex nonce for one guarded dispatch."""
+    return secrets.token_hex(8)
+
+
+def dispatch_condition(identity: "RunIdentity") -> str:
+    """The `if-shell -F` condition of a guarded dispatch into ``identity``.
+
+    The run identity (unfrozen, same ``pane_pid``, same server generation —
+    :func:`run_identity_condition`) AND the pane not in a tmux mode. Raises
+    ``ValueError`` for pids that are not bare digits (they are spliced in).
+    """
+    return all_of([
+        run_identity_condition(identity.pane_pid, identity.server_pid, FROZEN_OPTION),
+        PANE_NOT_IN_MODE,
+    ])
+
+
+def dispatch_ack_state(rc: int, out: str, pane_id: str, server_pid: str,
+                       nonce: str) -> str:
+    """Classify a :data:`DISPATCH_ACK_FORMAT` read-back of a guarded dispatch.
+
+    ``sent`` only from a successful read of the SAME pane on the SAME server
+    generation whose ack is exactly ``<nonce>:sent``; ``skipped`` for
+    ``<nonce>:skipped``. Anything else — a failed or short read, another pane
+    or server, a missing, stale or foreign ack — is ``unknown``, never ``sent``.
+    """
+    if rc != 0 or not _DISPATCH_NONCE_RE.fullmatch(nonce or ""):
+        return DISPATCH_UNKNOWN
+    fields = (out.splitlines() or [""])[0].split("\t")
+    if len(fields) != 3:
+        return DISPATCH_UNKNOWN
+    found, server, ack = (f.strip() for f in fields)
+    if found != pane_id or server != server_pid:
+        return DISPATCH_UNKNOWN
+    if ack == f"{nonce}:{DISPATCH_SENT}":
+        return DISPATCH_SENT
+    if ack == f"{nonce}:{DISPATCH_SKIPPED}":
+        return DISPATCH_SKIPPED
+    return DISPATCH_UNKNOWN
+
+
+def _dispatch_well_formed(identity: "RunIdentity", nonce: str) -> bool:
+    if not (_DISPATCH_PANE_RE.fullmatch(identity.pane_id or "")
+            and _DISPATCH_NONCE_RE.fullmatch(nonce or "")):
+        return False
+    try:
+        dispatch_condition(identity)
+    except ValueError:
+        return False
+    return True
+
+
+def _skip_reason(monitor, identity: "RunIdentity") -> str:
+    """Why a guarded dispatch skipped: ``in_mode`` when the identity terms
+    still hold now (so the mode conjunct is what failed), else
+    ``identity_changed`` (another process, frozen, another server, or gone)."""
+    pane = identity.pane_id
+    rc, out = monitor.tmux_run(["display-message", "-p", "-t", pane,
+                                _DISPATCH_REASON_FORMAT])
+    fields = [f.strip() for f in (out.splitlines() or [""])[0].split("\t")] \
+        if rc == 0 else []
+    if (len(fields) == 5 and fields[0] == pane and fields[1] == identity.pane_pid
+            and fields[2] == identity.server_pid and not fields[3]):
+        return SKIP_IN_MODE
+    return SKIP_IDENTITY_CHANGED
+
+
+def _guarded_dispatch(monitor, identity: "RunIdentity", nonce: str,
+                      true_cmd: str, else_cmd: str) -> tuple[str, str]:
+    pane = identity.pane_id
+    ack = f"set-option -p -t {pane} {DISPATCH_ACK_OPTION} {nonce}:"
+    on_true = f"{true_cmd} ; {ack}{DISPATCH_SENT}"
+    on_else = (f"{else_cmd} ; " if else_cmd else "") + f"{ack}{DISPATCH_SKIPPED}"
+    monitor.tmux_run(["if-shell", "-F", "-t", pane, dispatch_condition(identity),
+                      on_true, on_else])
+    rc, out = monitor.tmux_run(["display-message", "-p", "-t", pane,
+                                DISPATCH_ACK_FORMAT])
+    state = dispatch_ack_state(rc, out, pane, identity.server_pid, nonce)
+    monitor.tmux_run(["set-option", "-pu", "-t", pane, DISPATCH_ACK_OPTION])
+    reason = _skip_reason(monitor, identity) if state == DISPATCH_SKIPPED else ""
+    return state, reason
+
+
+def guarded_paste_text(monitor, identity: "RunIdentity", text: str,
+                       nonce: str) -> tuple[str, str]:
+    """Paste ``text`` into ``identity``'s pane only if the run is still there.
+
+    ``(state, reason)``: ``sent`` / ``skipped`` (reason ``in_mode`` |
+    ``identity_changed``) / ``unknown`` / ``failed`` (nothing dispatched:
+    reason ``malformed`` | ``buffer_failed``). The buffer is loaded through
+    stdin and deleted on every path but a confirmed paste (which deletes it
+    itself). Duck-typed on ``monitor.tmux_run`` / ``monitor.tmux_run_input``.
+    Paste only — submitting is a separate :func:`guarded_send_key`.
+    """
+    if not _dispatch_well_formed(identity, nonce) or not text:
+        return DISPATCH_FAILED, "malformed"
+    pane = identity.pane_id
+    buf = f"{DISPATCH_BUFFER_PREFIX}{nonce}"
+    rc, _ = monitor.tmux_run_input(["load-buffer", "-b", buf, "-"], text)
+    if rc != 0:
+        monitor.tmux_run(["delete-buffer", "-b", buf])
+        return DISPATCH_FAILED, "buffer_failed"
+    state, reason = _guarded_dispatch(
+        monitor, identity, nonce, f"paste-buffer -d -b {buf} -t {pane}",
+        f"delete-buffer -b {buf}")
+    if state != DISPATCH_SENT:
+        monitor.tmux_run(["delete-buffer", "-b", buf])
+    return state, reason
+
+
+def guarded_send_key(monitor, identity: "RunIdentity", key: str,
+                     nonce: str) -> tuple[str, str]:
+    """Send ``key`` (one of :data:`DISPATCH_KEYS`) to ``identity``'s pane only
+    if the run is still there and the pane is not in a mode. Same result
+    shape as :func:`guarded_paste_text`."""
+    if key not in DISPATCH_KEYS or not _dispatch_well_formed(identity, nonce):
+        return DISPATCH_FAILED, "malformed"
+    return _guarded_dispatch(monitor, identity, nonce,
+                             f"send-keys -t {identity.pane_id} {key}", "")
 
 
 def task_ref_from_window_name(window_name: str) -> tuple[str, str] | None:
