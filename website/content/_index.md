@@ -146,9 +146,9 @@ Supported via WSL.
 <div class="row justify-content-center">
 <div class="col-lg-8">
 
+- **[v0.41.0: Keep the loose ends in sitrep, Give your agent the right frames, and Share the monitoring work](blog/v0410-keep-the-loose-ends-in-sitrep-give-your-agent-the-right-frames-share-the-m/)** -- Nov 10, 2026
 - **[v0.40.1: Test-map runners that clean up after themselves, Code modules for the test map, and No more looping agents under mise](blog/v0401-test-map-runners-that-clean-up-after-themselves-code-modules-for-the-test/)** -- Oct 29, 2026
 - **[v0.40.0: Your artifact store stays off your fetches, The syncer asks an agent for help, and Git that never takes your work by surprise](blog/v0400-your-artifact-store-stays-off-your-fetches-the-syncer-asks-an-agent-for-he/)** -- Oct 25, 2026
-- **[v0.39.0: A notes pad beside every agent, Artifacts on a git branch, and Freeze and restore you can trust](blog/v0390-a-notes-pad-beside-every-agent-artifacts-on-a-git-branch-freeze-and-restor/)** -- Oct 21, 2026
 
 [All releases &rarr;](blog/)
 
