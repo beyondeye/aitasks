@@ -52,3 +52,19 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
   plan.
 - `check_links.py --build` exits 0.
 - Every leaf page in the section has `depth:`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2258_1** id=2026-11-10T11:32:47Z.123367c54d05c64bc812cf78 from=t2258_1 from_verified=yes at=2026-11-10T11:32:47Z base=b93a5f2582ceaeff7401415a25a8936cc7b29e90 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2258_1. Tree-relative claims; verify against the code before acting.
+> | 
+> | website/content/docs/tuis/minimonitor/how-to.md:23 (the "Auto-despawn" note) describes auto-close wrongly. It says the first refresh after the agent pane has gone triggers exit(). In .aitask-scripts/monitor/minimonitor_app.py (AUTO_CLOSE_CONFIRMATIONS = 2, _check_auto_close, and the 5.0 s mount-time check in the refresh tick):
+> | - it closes only after two refreshes in a row each verifiably find only its own pane in its window;
+> | - a failed tmux observation, an incomplete listing, a listing without its own pane, or another pane remaining resets the count;
+> | - repeated failures never close it;
+> | - no check runs in the first 5 seconds after mount.
+> | No time bound holds, so do not write "within one refresh".
+> | 
+> | The new guide (aitasks/metadata/doc_update_guide.md, "Reader levels" example) uses this paragraph as its intermediate example. When you move the mechanism out of the how-to: put the user-observable conditions above on tuis/minimonitor/reference.md (no deadline), and the code-level detail (tmux query, counter, exit() call) in aidocs/. Neither destination states it today.
