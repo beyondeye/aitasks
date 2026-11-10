@@ -374,7 +374,7 @@ Agents: claude 2.1.322, codex-cli 0.167.0, opencode 1.18.34. Raw captures (`-S -
 - Two implementations of the same pre-Enter / mode-gate / bounded-retry loop
   (`minimonitor_app._submit_shadow_prompt` and `deliver_sitrep_request`) can drift; a fix to
   one (e.g. a new t2001-style hazard) silently misses the other · severity: medium ·
-  → mitigation: shared_agent_submit_helper
+  → mitigation: t2275 (shared_agent_submit_helper)
 - New gateway primitive (`TmuxClient.run_with_input`, `TmuxMonitor.tmux_run_input`) widens
   the tmux gateway surface; its stdin path deliberately bypasses the control client ·
   severity: low · → mitigation: none (documented in `tmux_gateway.md`, covered by the
