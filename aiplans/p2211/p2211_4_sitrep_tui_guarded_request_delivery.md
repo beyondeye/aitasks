@@ -305,6 +305,43 @@ guard). Parent plan: `aiplans/p2211_sitrep_two_pane_window_with_sitrep_tui.md`.
      the conjunct removed → (h) stays green through the Python gate; the payload proof
      replaced by the rejected occurrence count → (j)/(k) red.
 
+## Measurement (spike, 2026-11-10, tmux 3.8, throwaway `-L` server, 120x30)
+
+Agents: claude 2.1.322, codex-cli 0.167.0, opencode 1.18.34. Raw captures (`-S -15`,
+`-e`) became `tests/sitrep_request_fixtures.py`.
+
+- **`set-buffer` argv is not literal.** `set-buffer -b m -- 'a;'` stored `a`; `'a\;'`
+  stored `a;`; `'x ; set-buffer -b injected y;'` stored the text minus its final `;`.
+  `load-buffer -b m2 -` (text on stdin) round-tripped the case-(f) hostile string
+  byte-exactly and created no other buffer. → stdin path confirmed (correction 3).
+- **Paste lands as typed text on all three.** `load-buffer` + `paste-buffer -d` of `>t c12`
+  and of a 300-char line: `shadow_state == busy`, the full text in the composer, Claude
+  shows no `[Pasted text`. One harmless submit per agent: post-Enter (+0.5 s) state is
+  `working`, back to `ready` within ~2 s.
+- **Composer grammar** (W = pane width):
+
+  | agent | region | first-line prefix | continuation | content width | word-wrap rule |
+  |---|---|---|---|---|---|
+  | claude | the `❯` + NBSP line up to the next full-width `─` rule line (a rule line also directly above) | `❯` + NBSP | 2 spaces | W − 4 | wraps iff line + 1 + word > W − 4 |
+  | codex | the bottom-most `› ` line up to the first blank line, then indented footer rows only | `› ` | 2 spaces | W − 3 | wraps iff line + 1 + word > W − 3 |
+  | opencode | the contiguous `┃` run above the `╹▀` border, minus padding rows and the status row | `┃` + 2 spaces | same | border length − 5 | wraps iff line + 1 + word > content − 1 |
+
+  Boundaries measured with `a*k b*w` lines at total = width − 1, width, width + 1 (Claude
+  116: fits/fits/wrap; Codex 117: fits/fits/wrap; OpenCode 70 and 111: fits/wrap/wrap).
+  Hard breaks fill exactly the content width. A token longer than the remaining space:
+  Claude breaks it in place; Codex and OpenCode move it to its own line first (still a
+  justified word wrap, the next word is wider than the line).
+- **History echoes:** Claude echoes `❯` + plain space (never NBSP, so never the composer
+  regex); Codex echoes the same `› ` glyph (only the bottom-most region counts); OpenCode
+  echoes in `┃` boxes separated from the composer box by a non-gutter row.
+- **Clearing (spike only):** Ctrl-U clears one VISUAL line in Claude (left a remnant before
+  the next paste — a live example of appended content); Ctrl-C clears the whole composer
+  on all three, but on an EMPTY Codex composer it quits Codex.
+- **`@`:** a mid-text `@path` opens nothing; a TRAILING `@token` opens a file-suggestion
+  list on all three (Claude below the composer, region intact; Codex above it, and the
+  blank line after the composer disappears; OpenCode inside the box), where Enter would
+  pick a suggestion. → requests whose last token contains `@` are refused at validation.
+
 ## Verification
 
 - `python3 tests/test_sitrep_request_delivery.py`, `python3 tests/test_sitrep_tui_requests.py`,
@@ -360,6 +397,88 @@ guard). Parent plan: `aiplans/p2211_sitrep_two_pane_window_with_sitrep_tui.md`.
 
 ### Planned mitigations
 - timing: after | name: shared_agent_submit_helper | type: refactor | priority: medium | effort: medium | inline_risk: high | added_complexity: medium | addresses: code-health — duplicated pre-Enter/mode-gate/retry loop in minimonitor and the sitrep delivery can drift | desc: extract one shared submit helper (pre-Enter verify, mode gate before every Enter, bounded Enter retry) used by minimonitor_app._submit_shadow_prompt (L6011-6170) and agent_request_delivery.deliver_sitrep_request, keeping both callers' result labels
+
+## Final Implementation Notes
+
+- **Actual work done:** all steps 1-7 as planned.
+  - Gateway: `TmuxClient.run_with_input` (`lib/tmux_exec.py`) and `TmuxMonitor.tmux_run_input`.
+  - Guarded dispatch (`monitor_core.py`, after `parse_run_identity`): `DISPATCH_ACK_OPTION`,
+    `dispatch_condition`, `dispatch_ack_state`, `guarded_paste_text`, `guarded_send_key`,
+    plus the methods `TmuxMonitor.dispatch_text_guarded` / `dispatch_key_guarded` beside
+    `kill_agent_run_guarded`.
+  - `review_loop.composer_payload` + `ComposerPayload` + `PAYLOAD_GRAMMAR_AGENTS` (all three
+    agents measured).
+  - New `monitor/agent_request_delivery.py`: the result vocabulary, `request_line_error`,
+    `payload_matches`, `readiness_verdict`, `parse_target`, `deliver_sitrep_request`.
+  - New `sitrep_tui/sitrep_tui_requests.py`: `AGENT_REQUESTS`, `build_request`, the ask
+    validation, `TmuxGateway`.
+  - TUI wiring (`sitrep_tui_actions.py`, `sitrep_tui_app.py`): `AskAgentDialog`, request
+    actions, `check_action` branch, the `deliver` seam from `_tmux_seams`.
+  - `NEXT_STEPS` How rows name `{k_triage}` / `{k_ask}` / `{k_trail}`.
+  - Docs: `tmux_gateway.md` (the `@aitask_dispatch_ack` inventory row, `run_with_input`)
+    and a one-sentence correction in `aidocs/framework/sitrep.md` (its "never types into
+    another pane" line was made false by this task).
+  - Tests: `tests/test_sitrep_request_delivery.py` (42), `tests/test_sitrep_tui_requests.py`
+    (20), `tests/test_sitrep_request_delivery_live.sh` (cases a-l + 7 mutant runs, each
+    printing its guard-specific failure), `tests/lib/fake_composer_agent.py` (wraps
+    byte-identically to the real Claude captures), `tests/sitrep_request_fixtures.py`
+    (44 real captures), plus `run_with_input` rows in `tests/test_tmux_exec.py`'s
+    per-route tables.
+- **Deviations from plan:**
+  - `@` rule narrowed by measurement: only a TRAILING `@token` opens the file picker, so
+    `request_line_error` refuses an `@` in the last token, not every `@`.
+  - Requests are single-spaced (the ask text's space runs are collapsed); other whitespace
+    and `Cc/Cf/Zl/Zp/Co/Cs/Cn` characters, NBSP and a leading `/ ! # @ $ &` are refused
+    (`refused:invalid_request`).
+  - A pane frozen BEFORE the request reads `refused:no_agent`: `find_sitrep_roles` never
+    offers a frozen pane. `refused:frozen` is the identity read's answer to a freeze
+    between the lookup and that read (pure suite).
+  - `composer_payload` takes `pane_width` (Codex needs it; for Claude it cross-checks the
+    rule rows, so a resize between the read and the capture reads `composer_unprovable`).
+- **Step 8 review fixes (user-raised, all confirmed and fixed):**
+  1. Codex composer end: `_codex_payload` used to stop at the first blank row and accept
+     any indented rows after it as "footer", so a typed blank row + more text read as
+     "the request, then the footer" and the Enter went. Now the footer is identified
+     positively from the bottom up: 1-2 rows, each colour-styled and carrying ` · `,
+     because typed input is never styled. Exactly one blank row must sit above the
+     footer, and no blank rows are allowed inside the composer. OpenCode now requires
+     exactly its measured single padding row above and below the text (a typed trailing
+     blank row was being stripped). Pre-fix replay: the old parsers matched all three
+     Codex edits and the OpenCode trailing blank; the new ones reject them.
+  2. A BUSY read after an Enter is a swallowed Enter only if the composer still holds
+     exactly the request. Otherwise `unknown` (`composer_changed_after_enter` /
+     `composer_unprovable_after_enter`), checked on every attempt including the last,
+     which used to fall through to `typed_not_submitted`.
+  3. The command-prefix rule (`/ ! # @ $ &` first) applies only to the assembled line:
+     `request_line_error(..., check_prefix=False)` validates the ask fragment, so
+     questions may start with `/tmp/...`, `#2211`, `$PATH`.
+- **Issues encountered:**
+  - Two back-to-back `pilot.click`s on one Button read as a double press, so the
+    ask-dialog validation loop submits with Enter in the input.
+  - The spike's Ctrl-C on an EMPTY Codex composer quits Codex (spike only, nothing ships).
+- **Key decisions:**
+  - `load-buffer -` on stdin, not `set-buffer` argv (measured mangling).
+  - The composer proof is the full payload of the bottom-most composer region (plan-review
+    fix), checked on every attempt; an agent without a measured grammar is refused before
+    anything is typed.
+  - Result panel (`ResultDialog`) for every outcome except `submitted`, toast always.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/minimonitor_app.py:6011-6170` — `_submit_shadow_prompt` authorises each recheck Enter on `SHADOW_BUSY` alone: it never proves the shadow composer holds exactly the recheck prompt, so text a user appended (or a draft typed after a submit that read BUSY) would be submitted. Same hazard class as the t2211_4 plan-review finding; overlaps the planned `shared_agent_submit_helper` after-mitigation.
+- **Notes for sibling tasks:**
+  - t2211_5: import `AGENT_REQUESTS` from `sitrep_tui.sitrep_tui_requests` (or
+    `sitrep_tui.sitrep_tui_app`, the same object). Entries are
+    `AgentRequest(action, key, label, template)`; the templates are `>t {cid}`,
+    `>q {cid} {text}`, `>w {theme}`, `>tr {cid}`, `>p`.
+  - t2211_6: keys `t a w T n`; the result vocabulary and refusals are in
+    `agent_request_delivery.py` (`DeliveryResult.message()` holds the user text); the
+    `@aitask_dispatch_ack` row is already in `tmux_gateway.md`; the `sitrep.md` intro got a
+    one-sentence fix only.
+  - Shared-helper follow-up (`shared_agent_submit_helper`, Step 8d):
+    `minimonitor_app.py` `_fire_shadow_recheck` L5910-6009 / `_submit_shadow_prompt`
+    L6011-6170 vs `deliver_sitrep_request`'s phase-3 loop. The minimonitor path checks
+    only BUSY before its Enter; it does NOT have the full-payload proof. That is the same
+    hazard class the plan review found here, so the follow-up should carry the proof
+    over, not just share code.
 
 ## Step 9
 
