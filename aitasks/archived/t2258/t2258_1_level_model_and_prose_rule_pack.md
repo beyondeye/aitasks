@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [documentation, web_site, doc_quality]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2258
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-09 23:08
-updated_at: 2026-11-10 11:29
+updated_at: 2026-11-10 13:33
+completed_at: 2026-11-10 13:33
 ---
 
 ## Context
@@ -140,3 +141,14 @@ interface below is a contract.
 > **✅ gate:plan_approved** run=2026-11-10T09:29:22Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-10T11:17:22Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-10T11:33:15Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:2134107bf6c3768e
+
+> **✅ gate:risk_evaluated** run=2026-11-10T11:33:15Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2258_1/risk_evaluated_2026-11-10T11:33:15Z-risk_evaluated-a1.log`
