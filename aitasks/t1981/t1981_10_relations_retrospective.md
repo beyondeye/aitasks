@@ -1,14 +1,14 @@
 ---
 priority: low
 effort: low
-depends: [t1981_8, t1981_9]
+depends: [t1981_8, t1981_9, t1981_11]
 issue_type: chore
 status: Ready
 labels: [task_relations]
 gates: [risk_evaluated]
 anchor: 1981
 created_at: 2026-11-04 15:39
-updated_at: 2026-11-04 15:39
+updated_at: 2026-11-10 12:47
 ---
 
 ## Context
