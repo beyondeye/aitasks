@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t2211_3, t2037_2]
 issue_type: feature
@@ -244,3 +246,5 @@ live, unfrozen and not dead is a target. The TUI never types into any other pane
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-10T08:31:18Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-10T10:37:04Z status=pass attempt=1 type=human
