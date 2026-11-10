@@ -1622,6 +1622,20 @@
       "notes": "Fastest model with near-frontier intelligence, 1M context (explicit [1m] variant), 128K output, adaptive thinking always on",
       "verified": {},
       "verifiedstats": {}
+    },
+    {
+      "name": "fable5_2",
+      "cli_id": "claude-fable-5-2",
+      "notes": "Fable 5.2 — most capable Fable model, 1M context, 128K output, thinking always on (Fable 5.1 is now the previous generation)",
+      "verified": {},
+      "verifiedstats": {}
+    },
+    {
+      "name": "fable5_2_1m",
+      "cli_id": "claude-fable-5-2[1m]",
+      "notes": "Fable 5.2 — same model, explicit [1m] spelling (reported only for an explicit [1m] id with CLAUDE_CODE_DISABLE_1M_CONTEXT set), 1M context, 128K output, thinking always on",
+      "verified": {},
+      "verifiedstats": {}
     }
   ]
 }
