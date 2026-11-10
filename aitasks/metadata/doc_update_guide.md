@@ -21,6 +21,200 @@ Two doc surfaces:
    the change alters framework internals a maintainer needs documented, but
    they are **not** the user-facing surface the gate primarily targets.
 
+## Reader levels
+
+Each page declares how much its reader already knows. Doc-review tooling reads
+the list below to find this guide's level model: keep its labels
+(`Level field:`, `Beginner level:`, `Personas:`) and the three level values
+exactly as written; the persona sentences may be reworded.
+
+- Level field: `depth`
+- Beginner level: `main-concept`
+- Personas:
+  - `main-concept`: You know git and a terminal and have never heard of aitasks.
+  - `intermediate`: You have taken a task from pick to archive and know the board.
+  - `advanced`: You maintain a project's aitasks setup, edit its profiles and gates, and read framework scripts.
+
+A page's reader level is its `depth` value. It decides which words and details
+the page may use. Every leaf page sets it. A directory's `_index.md` sets it too
+when it has content of its own, such as a TUI's overview page; one that is only
+a list of links to its pages may leave it out.
+
+Each level allows everything the level before it allows, plus what its entry
+adds. Two kinds of detail are kept apart below: behaviour detail (the exact
+rules a user can observe or rely on) and code mechanism (how the code achieves
+them: internal loops and counters, process lifecycle, function names, and the
+reasons for internal design choices). Code mechanism goes to `aidocs/`, the
+engineering docs for contributors, at every level.
+
+- `main-concept`: the reader is new. The page says what the thing is for before
+  any detail. It drops every term the idea does not need and defines the rest at
+  first use. It may name the command, skill or keyboard key that starts
+  something. It names a field only when that one field is the page's subject.
+  It leaves out exit codes, the `KEY:value` status lines scripts print, status
+  vocabularies (fixed sets of tokens a script prints), internal file and branch
+  paths, edge cases, outcome tables (tables that list each case and its
+  result), config keys and timing values.
+- `intermediate`: the reader knows the terms the `main-concept` pages define.
+  The page adds flags, config keys, files the user edits, timing the user can
+  see, and in prose the failure cases a user can run into. It still leaves out
+  exit codes, status lines and vocabularies, internal paths and outcome tables.
+- `advanced`: the reader wants every behaviour detail: validation, resolution
+  order, failure cases, every field and exit status. The page adds exit codes,
+  status lines and vocabularies, internal paths and outcome tables.
+
+Example at `intermediate`. Before: "On every refresh cycle it checks the panes in
+its own tmux window; the first refresh after the agent pane has gone … triggers
+an `exit()` and the minimonitor pane closes. A 5-second grace period after
+startup prevents premature exit on cold launch. … a new one will spawn with the
+next agent you launch." After: "minimonitor closes itself after it is left alone
+in its window, and a new one opens with the next agent you launch." Each cut
+fact moves to the page that owns its kind of detail. Behaviour detail goes to
+the TUI's reference page: the agent list refreshes every
+`tmux.monitor.refresh_seconds` (3 seconds by default); minimonitor closes only
+after two refreshes in a row each find it alone in its window; a check that
+fails or still sees another pane starts the count again, and repeated failures
+never close it; it makes no check in its first 5 seconds, so a slow start
+cannot close it. Code mechanism (the tmux query, the counter, the `exit()` call)
+goes to `aidocs/`. The Before also gets the timing wrong: one refresh is never
+enough. State timing only as far as the code guarantees it; this code gives no
+deadline.
+
+## Page types
+
+A page's shape depends on what its reader came for. Ask two questions: does the
+reader want to do something or understand something, and are they learning
+(away from the work) or working (in the middle of it)?
+
+| | Learning | Working |
+|---|---|---|
+| Do | tutorial | how-to |
+| Understand | explanation | reference |
+
+Where a page sits gives its type, so there is no frontmatter field for it. The
+first matching row wins:
+
+| Pages | Type |
+|---|---|
+| a TUI's `_index` / `how-to` / `reference` | overview / how-to / reference |
+| any other directory's `_index.md` | overview |
+| `concepts/`, `overview.md` | explanation |
+| `workflows/`, `installation/` | how-to |
+| `commands/`, `skills/`, `development/` | reference |
+| `getting-started.md` | tutorial |
+
+An overview is a short explanation that says what a directory or TUI is for and
+links to its pages. A page in no listed place takes the type the two questions
+give. When a page's content answers the questions differently from where it
+sits, reshape the content to the page's type, or move it to a page of the right
+type.
+
+How-to and reference pages assume the reader knows what they want, so they never
+turn into lessons. A `main-concept` page of any type still defines each term in
+a clause at first use; `intermediate` and `advanced` pages link to the page that
+defines it, and define it in place only when no page does.
+
+## How a subject spans levels
+
+Give each page type its own page, and let each page set its own `depth`. The TUI
+pages show the pattern: the `_index` overview says what the TUI is for, usually
+at `main-concept` or `intermediate`; `how-to` walks through jobs at
+`intermediate`; `reference` lists every keyboard key, setting and rule at
+`intermediate` or `advanced`. A concept page states the idea and links to the
+pages that own the detail.
+
+The page that owns a detail is the page about the detail's subject that allows
+its kind: the feature's workflow page for steps, its reference page for
+behaviour detail, `aidocs/` for code mechanism. Every fact survives a cut: move
+it to its owning page, or link there if that page already states it. If the
+feature has no such page, put the fact on the closest reference page. A fact
+found to be wrong is corrected, or dropped with a note in the review saying why.
+
+Outside `concepts/`, a short page may end with one section headed "Details",
+written one level above the rest; the page's `depth` is the level of everything
+before that section. Split the page once the details section is longer than the
+rest.
+
+## Concept pages
+
+Pages under `concepts/` each explain one idea: what it is, why the reader would
+want it, and how to start using it. Most are at `main-concept`; one about
+something only experienced users meet may be `intermediate` or `advanced` and
+keeps the same sections. Use these headings, in this order:
+
+1. `## What it is`: a plain definition in the opening sentences, with no
+   mechanism and no `###` subsections.
+2. `## Why it exists`: the problem the feature solves for the user.
+3. `## How to use`: use cases and entry points (skill, command, TUI keyboard
+   key), or how aitasks uses it on its own. Short; link out for steps.
+4. `## See also`: the workflow, command, skill and TUI pages that hold the
+   details.
+5. A `**Next:**` footer linking to the page that follows it in the list on
+   `concepts/_index.md`. The last page in that list has none.
+
+Behaviour detail and the reasons behind internal design choices go to their
+owning pages (see "How a subject spans levels"). A concept page may repeat the
+plain definition its workflow page opens with; the workflow's steps and
+reference details stay on their own pages.
+
+`tasks.md`, `plans.md`, `folded-tasks.md` and `execution-profiles.md` (about
+30–40 lines each) show the section order and length. Copy their structure only.
+`tasks.md`, for example, breaks two `main-concept` rules: it lists eight
+frontmatter field names on a page about tasks, and it never explains "YAML
+frontmatter".
+
+## Prose rules
+
+Apply these to every page at every level. The patterns to avoid after them are
+taken from our own pages.
+
+- Don't assume the reader knows what you know. Choose the page's `depth` and type before drafting, make sure each term the reader may not know is defined or linked where it first appears (which one depends on the page's level; see "Page types"), say what a thing is for before how it works, and open a section longer than a few paragraphs with one sentence about its subject (never "This section covers…") in words its heading does not already use.
+- Be concrete. Name the actual items instead of writing "factors", "aspects" or "considerations". Don't repeat a table's values in the prose around it. Keep figures such as sizes, timings and limits out of a page's opening paragraph.
+- Use plain words first. Pick the everyday word when it says the same thing. Keep a technical term when it is the name of the thing, and define or link it as the page's level requires.
+- Use one term per thing. Once something is the "task lock", don't call it a "claim" or a "reservation" later for variety.
+
+Example at `main-concept`. Before: "aitasks uses two locks, and they exclude
+different things. The task lock answers "who owns this task ID". The merge mutex
+answers a narrower question — which task may run its end-of-task merge right
+now — because that merge … runs in the shared repository root." After: "When an
+agent starts work on a task, aitasks takes a task lock on it, so no other
+agent can take the same task. A second lock, the merge mutex, lets only one
+finished task at a time merge its changes back through aitasks, because those
+merges all run in the same main copy of the repository." The task ID and the
+name "end-of-task merge" are terms the idea does not need, so the After drops
+them.
+
+Avoid these patterns. Each "before" is quoted from our pages unless marked
+constructed. Each "after" drops only the rhetoric: it keeps the before's facts,
+replaces a vague claim with the concrete fact behind it, and adds only facts the
+same page states nearby.
+
+- Staged contrast ("not X but Y", "X is about A; Y is about B"). Before: "Parking is a signal to *you*: the agent keeps working and the monitors stop showing it. Freezing is a decision about the *agent*: you are done with it as a process, and you want its results readable." After: "Parking hides an agent from the monitors while it keeps working. Freezing ends the agent's process and keeps its output readable."
+- A closing line that restates the point. Before: "The mutex serializes the merges that take it; it does not police the repository." After: cut it; the note it ends already says which merges take the mutex and that merges you run by hand are not held back.
+- A run-up that announces a point before making it. Before: "Two ways back, and the obvious one is usually not the cheaper one:" After: "There are two ways to bring a frozen agent back. Re-picking the task usually costs less than restoring it:"
+- A saying that sounds deep. Before: "What you trade a code agent for is that viewer: a small terminal app that reads a file." After: "In the agent's place runs the viewer, a small terminal app that reads the saved output from a file."
+- Arguing with no one. Before: "Running several agent panes against one checkout under a single email is a normal way to use aitasks, so "same user" is not treated as "same worker"." After: "Each lock belongs to one agent session, so several agents in one checkout under the same email still exclude each other."
+- A forced list of three (constructed). Before: "Profiles make runs faster, simpler and more predictable." After: "A profile answers the workflow's routine questions for you, so a run stops less often."
+- Repeated openings. Before: "The process behind that screen is still running, still holding its context, still costing you memory and a share of the machine." After: "The process behind that screen keeps running and holds its context, memory and a share of the machine."
+- An em dash (—) as the default connector. Before: "Ten or twenty panes, each holding a code agent that has finished its task — and what you actually want from most of them is the last screen". After: "You may have ten or twenty panes, each with an agent that has finished its task. From most of them, what you actually want is the last screen". Keep the em dash for a real aside.
+- Inflated importance. Before: "This is particularly powerful for parent tasks with children, where you can revert entire feature slices." After: "On a parent task, a partial revert can undo whole child tasks and keep the others."
+- A trailing "-ing" clause that adds a vague effect. Before: "The wrapper sets the `AITASK_AGENT_STRING` environment variable with the correct agent string, ensuring accurate `implemented_with` metadata." After: "The wrapper sets the `AITASK_AGENT_STRING` environment variable to the correct agent string, so the task's `implemented_with` field records the right one."
+- Dodging "is", "are" and "has". Before: "The subdirectory name serves as a strong hint for the `environment` field value." After: "The subdirectory name is a strong hint for the `environment` field."
+- Bold for emphasis in running text. Before: "The lock excludes **sessions**, not just people." After: "The lock tells agent sessions apart, so two sessions of the same person exclude each other." Keep bold for a term where it is defined and for keyboard keys and on-screen labels.
+- A first sentence that repeats the heading. Before: the heading "When the checks run" followed by "The checks run in the background, alongside the trail's freshness check: …" After: "Opening a trail starts them, as do `d` and, in the board, a sync or entering the By-Trail view; they run in the background alongside the trail's freshness check."
+- Writing about the page instead of the subject. Before: "This page tracks current workflow issues by code agent. Issues are grouped by agent below." After: cut it; the page title and the per-agent headings already say this.
+- A closing summary (constructed). Before: "In short, freezing saves resources while keeping results available." After: cut it; end on the last new fact.
+
+## Sources and credits
+
+These rules adapt published work. Keep the credits when you edit them.
+
+- Page types and their two questions come from Diátaxis by Daniele Procida (https://diataxis.fr/), written here in our own words.
+- The main prose rules and parts of the avoid list are adapted and reworded from yzhao062/agent-style (https://github.com/yzhao062/agent-style), whose rules are licensed CC BY 4.0 (https://creativecommons.org/licenses/by/4.0/): RULE-01 (tacit knowledge), RULE-03 (concrete language), RULE-06 (jargon), RULE-07 (X-not-Y), RULE-B (dashes), RULE-E (closing summaries) and RULE-F (one term per thing).
+- The avoid list also draws ideas from blader/humanizer (https://github.com/blader/humanizer, MIT), and "every fact survives" from the plain-language skills mdskills `plain-language` and shihyuho/skills `plain`. No text was copied from them.
+- keithpatton/diataxis-agent-skill is licensed CC BY-SA 4.0. Its compass and anti-pattern list informed these rules, and none of its text appears here. Never paste its text into this guide: its share-alike terms would then cover the guide.
+- Doc review's fresh-reader test (a reviewer who has read only the page answers questions a real reader would ask) follows the reader-testing method of anthropics/skills `doc-coauthoring` (method only).
+
 ## Change-kind → doc-area map
 
 | Code change | Doc to update |
