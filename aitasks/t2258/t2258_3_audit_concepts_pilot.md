@@ -72,3 +72,14 @@ enumerates frontmatter fields under "What it is" — check the models too.
 - `check_links.py --build` exits 0.
 - Every concept page has `depth:`; every `main-concept` concept page passes the
   guide's forbidden-content list.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2258_1** id=2026-11-10T11:32:44Z.d949c61ec58ca16bdda35a9d from=t2258_1 from_verified=yes at=2026-11-10T11:32:44Z base=b93a5f2582ceaeff7401415a25a8936cc7b29e90 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2258_1 (level model + prose rules, committed c06040c1d; guide on the task-data branch).
+> | 
+> | concepts/tasks.md is a weak reader-test control for your reader_test_baseline_and_control step. Against the new main-concept contract in aitasks/metadata/doc_update_guide.md it breaks two rules: its opening (line 11) lists eight frontmatter field names (priority, effort, status, depends, boardcol, issue_type, labels, assigned_to) on a page about tasks, and it never explains "YAML frontmatter". A fresh-reader classification run in t2258_1 (sub-agent given only the guide + page) flagged exactly that, plus CLI/TUI/LLM/Kanban undefined, verdict "minor issues". So expect findings on tasks.md rather than a clean report, or add a compliant control (t2258_1 used a ~28-line scratch "Labels" concept page, which came back nearly clean).
+> | 
+> | The same run gives a ready "before" baseline: locks.md flagged for outcome tables (l.19-27, 43-48), status lines, internal paths, ### under "What it is", ~128 lines; gates.md (held out, not quoted in the guide) flagged for eight ### under "What it is", resolution/digest rules belonging on reference pages, ~238 lines. Details in the archived plan p2258_1, Final Implementation Notes.
