@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2261
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-09 23:12
-updated_at: 2026-11-10 09:35
+updated_at: 2026-11-10 10:41
 ---
 
 ## Context
@@ -128,3 +129,8 @@ release comments, is t2261_2.
 - `bash tests/test_issue_update_ledger.sh` passes.
 - `shellcheck .aitask-scripts/aitask_issue_update.sh .aitask-scripts/lib/issue_backends.sh .aitask-scripts/lib/release_issue_ledger.sh`.
 - `./.aitask-scripts/aitask_skill_verify.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-10T08:42:03Z status=pass attempt=1 type=human
