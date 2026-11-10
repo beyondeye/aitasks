@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2258
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-09 23:08
-updated_at: 2026-11-10 09:01
+updated_at: 2026-11-10 11:29
 ---
 
 ## Context
@@ -130,3 +131,8 @@ interface below is a contract.
   `tuis/minimonitor/how-to.md`) and list their violations; it should flag the
   locks outcome table and the minimonitor mechanism. Record the answer in the
   plan's Final Implementation Notes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-10T09:29:22Z status=pass attempt=1 type=human
