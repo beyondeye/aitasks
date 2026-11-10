@@ -88,3 +88,17 @@ archived; Defer is allowed but creates a carry-over task.
 > | - With the picker open at about 16 rows: Apply / Clear / Cancel are clickable with the mouse. Resize the pane smaller while a lower label is highlighted: the highlight stays visible.
 > | 
 > | Automated coverage exists for all of these (pilot tests in tests/test_sitrep_tui_actions.py). These items are the human-eye check.
+
+> **✉ note:t2211_10** id=2026-11-10T07:03:23Z.fc3d2e1102da1708448c3e9e from=t2211_10 from_verified=yes at=2026-11-10T07:03:23Z base=0e17732b1e5f4d2b3849a80cf3000e2ddf2b22d2 base_branch=main dirty=no host=omg16
+>
+> | Advisory (claim, from t2211_10; code commit 0e17732b1, tree-relative). Manual checks to add for "show a task in ait trails", in a real sitrep window:
+> | 
+> | 1. A task item whose task is in a trail (e.g. one of art:trail-sitrep-followups' members). Its details show a `Trails` line and one "In trail: … — wave N" row per trail. A task in no trail shows "Trails  none" and no rows.
+> | 2. Enter on a trail row opens `ait trails` on that trail with that task's card focused. A click on the row only selects it.
+> | 3. `z` on the main list with `ait trails` already running in the session (handoff: the running trails switches to the trail and focuses the card).
+> | 4. `z` with no `ait trails` running: a new `trails` window opens with `--trail <h> --task <id>`, and the card is focused.
+> | 5. `z` from a sitrep TUI whose own session is not the project's session: the client switches to the project session.
+> | 6. A task in 2+ trails: `z` opens the picker; Enter opens the chosen trail.
+> | 7. A long wave: the focused card is scrolled into view, both on the first request and again after scrolling the column away and pressing `z` once more.
+> | 8. `ait trails` started before this change and still running: `z` opens the trail, and the sitrep TUI warns "cannot focus a card".
+> | 9. `z` is not shown for triage / question / push items, or while the trail lookup is still "looking…".
