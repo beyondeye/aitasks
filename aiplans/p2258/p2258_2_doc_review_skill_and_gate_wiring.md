@@ -529,3 +529,28 @@ confirmed inline phases, this plan's Verification, or a sibling's phase.
 - **Files affected:** .claude/skills/aitask-docs-review/SKILL.md,
   .claude/skills/aitask-gate-docs-updated/SKILL.md,
   tests/test_docs_review_contract.sh
+
+### Change Request 3 (2026-11-10 15:20)
+- **Requested by user:** the "Move the change to another page" choice deleted
+  the source pair before writing the destination draft, so a failed or
+  interrupted write lost the change. Verified valid.
+- **Changes made:**
+  - Gate step 5 "Move": write the change into the other page's draft first and
+    confirm it landed (the draft exists and contains the change); only then
+    delete the source `.draft` and `.base`. On a failed or unconfirmed write,
+    keep the source pair: the page stays pending in the "deleted" row and the
+    failure is reported.
+  - New MUST NOT: never delete a page's pair before its change is safely saved
+    elsewhere.
+  - `G_deleted_choice_transitions` now requires the write-first order; new gate
+    mutant `move_delete_first` is caught. Contract test 71/71; skill_verify OK.
+- **Dry run G (move with failed transfer):**
+  - Source S deleted by another session; the user chose Move to T.
+  - With T's drafts dir read-only, the write failed; the source pair was kept
+    and still holds the change.
+  - With the dir writable again, the move was confirmed and the source pair
+    removed. T's draft holds the change; T was re-reviewed, applied through the
+    unchanged row, and `cmp` T == reviewed draft. Budget unchanged (3).
+  - Control (delete-first with the same failure): 0 copies of the change left.
+- **Files affected:** .claude/skills/aitask-gate-docs-updated/SKILL.md,
+  tests/test_docs_review_contract.sh
