@@ -52,3 +52,10 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
   plan.
 - `check_links.py --build` exits 0.
 - Every leaf page in the section has `depth:`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2258_1** id=2026-11-10T11:32:49Z.1aa3d4d1387a7a71d1cf9729 from=t2258_1 from_verified=yes at=2026-11-10T11:32:49Z base=b93a5f2582ceaeff7401415a25a8936cc7b29e90 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2258_1. The new "Reader levels" section in aitasks/metadata/doc_update_guide.md says: every leaf page sets depth, and a directory's _index.md sets it too when it has content of its own (such as a TUI overview); an _index.md that only lists and links its pages may leave it out. As of commit c06040c1d the tree already matches this: the content-bearing _index.md pages (all tuis/<name>/_index.md, skills/aitask-pick/_index.md, workflows/screen-recordings/_index.md) carry depth, and the link-list ones (commands/, concepts/, development/, installation/, skills/, tuis/, workflows/, the root) do not. Your depth-required check needs to decide whether it enforces the content-bearing _index.md case or only leaf pages; if only leaf pages, consider softening the guide sentence to match.
