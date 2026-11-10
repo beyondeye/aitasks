@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t2211_5]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [sitrep, documentation]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-05 15:37
-updated_at: 2026-11-10 17:41
+updated_at: 2026-11-10 18:29
+completed_at: 2026-11-10 18:29
 ---
 
 ## Context
@@ -167,3 +168,14 @@ page and the skill page) and confirm they are clean against HEAD.
 > **✅ gate:plan_approved** run=2026-11-10T15:41:46Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-10T16:24:31Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-10T16:28:53Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:c56a25f7a918f1dc
+
+> **✅ gate:risk_evaluated** run=2026-11-10T16:28:53Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2211_6/risk_evaluated_2026-11-10T16:28:53Z-risk_evaluated-a1.log`
