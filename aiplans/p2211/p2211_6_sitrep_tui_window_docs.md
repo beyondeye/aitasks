@@ -438,3 +438,73 @@ t2211_7, the manual verification, stays pending).
 ### Planned mitigations
 - timing: post-phase | name: doc_key_crosscheck | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — documented keys/strings drift from the code | desc: scratch script cross-checking the reference's per-screen (screen, key, action) tables against the bindings and check_action availability both ways, plus a manual context-condition check and every quoted message against the source, with three negative controls
 - timing: post-phase | name: doc_review_pass | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement — wrong reader level / prose-rule breaks | desc: run /aitask-docs-review on the five website pages and fix the findings before committing
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-10 16:05) — plan review
+- **Requested by user:** (a) the how-to's "typed but not submitted → press Enter" advice could submit unintended text (`composer_changed`), and `unknown` may already be submitted; (b) the key cross-check must compare per screen, action and availability, not a pooled key list.
+- **Changes made:** per-result recovery rules (inspect the whole composer, leave copy mode, exact match only; `unknown` = possibly sent; `identity_changed` happens after the paste, so a leftover line may exist); a "Typed / submitted" column in the reference's result table; the cross-check rebuilt as `(screen, key, action)` triples with three negative controls.
+- **Files affected:** the plan; then `tuis/sitrep/how-to.md`, `tuis/sitrep/reference.md`.
+
+### Change Request 2 (2026-11-10 16:40) — implementation review
+- **Requested by user:** (a) `A` outside tmux is hidden (`_tmux_seams` → no probe → `agent: unknown`, and `check_action` shows `A` only for `absent`), so the documented "Not in tmux — run: ait sitrep" fallback is unreachable from the key; (b) opening details re-reads task metadata (`model.task_meta` in `open_item`), and only the list uses the per-store-generation cache.
+- **Changes made:** dropped the unreachable action-results row; the "Outside tmux" bullet now says `A` and the request keys are hidden and gives `ait sitrep` as the recovery; added an "agent's state is unknown" case to the how-to, plus a matching sentence on the overview; the framework doc separates the list cache from the fresh read in details.
+- **Files affected:** `website/content/docs/tuis/sitrep/{reference,how-to,_index}.md`, `aidocs/framework/sitrep.md`.
+
+## Final Implementation Notes
+- **Actual work done:** as planned, across 11 files:
+  - `aidocs/framework/sitrep.md`:
+    - the TUI row in the components table, and the CLI's `SITREP_*` output lines;
+    - a new "The sitrep TUI" section (Reads / Views / Pointers / Actions / trail membership / Requests with a three-phase delivery and a result table). The TUI bullets were moved here from the window section, which keeps a pointer;
+    - the skill section rewritten for the slim skill;
+    - 11 test files added to the tests table.
+  - New `website/content/docs/tuis/sitrep/{_index,how-to,reference}.md`.
+  - `workflows/sitrep.md` and `skills/aitask-sitrep.md` rewritten for the three-pane window, the slim codes (with a TUI-key column) and the TUI-owned dismiss / restore / refresh.
+  - A bullet in `tuis/_index.md`; `ait board --focus` in the board `_index` and reference (a new "Command-Line Options" section); `--trail … --task` in the trails `_index` and reference.
+- **Deviations from plan:**
+  - The trails and board `_index` pages got one line each (the plan named only the board `_index`).
+  - The how-to calls the composer "input box" and links that word once to the messages' "composer".
+  - `tmux_gateway.md` needed no change (its rows were already there, as the verify step found).
+- **Issues encountered:** the fact sheet was gathered by reading the code, and several claims were corrected against it:
+  - `p` fits any open local task item, not only items in Now;
+  - the label filter also hides cross-repo tasks and items whose task file is missing;
+  - the header pluralizes ("1 item");
+  - the item request keys are also hidden while `todo.md` is unreadable;
+  - the task-metadata cache claim (see Change Request 2).
+  Both scratch checkers had parsing bugs of their own: labels were split on `/`, Textual stores `?` as `question_mark`, Textual's `ctrl+c`/`ctrl+q` defaults showed up, and backtick spans paired across code spans. All were fixed before their verdicts were trusted.
+- **Key decisions:**
+  - Reader levels: the overview and how-to are `intermediate` (no result codes; recovery in prose); the reference is `advanced` (codes, refusal vocabulary, timing); mechanism goes only to `aidocs/`.
+  - One term per thing: the group is "**Now** (Pick now)", named once per page.
+  - On-screen messages are quoted verbatim from the source.
+- **Post-phase evidence (doc_key_crosscheck):**
+  - The scratch script (not committed) compares `(screen, key, action)` triples. The code side uses Textual's merged bindings per screen, plus the app actions `check_action` enables on item details (`REQUEST_ACTIONS ∪ ITEM_ACTIONS ∪ LIST_OR_DETAIL_ACTIONS`, disjoint from `_MAIN_ACTIONS`). The doc side is the reference's per-screen tables. Result: CLEAN (main 22, details 14, viewer 2, Q&A 3).
+  - Negative controls, all reported: (a) a deleted `l` row → `CODE_ONLY main l`; (b) `f` moved into the details table → `DOC_ONLY details f` + `CODE_ONLY main f`; (c) `r` dropped from details → `CODE_ONLY details r`.
+  - Messages: every quoted on-screen string on the five pages and the added board / trails lines traced to the source. The remaining "missing" hits were relref paths, example questions, or strings assembled from f-string placeholders, each checked by hand (`key_for(...)`, `cold_hint`, the rev arrow).
+  - Manual Context check, per key, against `check_action` (`sitrep_tui_app.py` ~L989-1026), `_item_action_ok` (`sitrep_tui_actions.py` ~L620-644) and `request_available`:
+    - `enter`: needs a selected cid.
+    - `d`, `l`, `s`: main list only.
+    - `f`: `_can_filter`. `F`: filter active.
+    - `r`: list or details; disabled while a run is in flight.
+    - `x`: open or unknown.
+    - `p`: classify is `pick` and the task is local.
+    - `b`: a local task ref.
+    - `z`: trails state IN.
+    - `P`: a push ref.
+    - `R`: a `todo` or `qa` error.
+    - `A`: agent state absent.
+    - `t`: triage or review. `a`: any item. `w`: the item has a theme. `T`: a trail-checked watch. `n`: store-wide.
+    - All request keys need `request_available` and are disabled while a request is in flight.
+    - Item keys are hidden on a `todo` error.
+- **Post-phase evidence (doc_review_pass):** `/aitask-docs-review` on the five pages (guide level model found; no `main-concept` page, so `reader=not-run(not-beginner)`, budget 0). It found 5 prose issues, all fixed:
+  - a closing line that restated the point;
+  - the composer term (linked once);
+  - a stale-view sentence pair;
+  - an ambiguous "Its list view";
+  - a staged contrast.
+  None unresolved.
+- **Verification:** `hugo build --gc --minify` and `check_links.py --build` pass (SWEEP: PASSED, broken 0), rerun after each review round. The grep for stale `>s` / `>r` / `>x` codes on the workflow and skill pages finds none.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - t2211_7 (manual verification) can use `tuis/sitrep/reference.md` as the checklist of keys and conditions.
+  - The single sources the docs follow are `sitrep_tui_model.NEXT_STEPS`, `sitrep_tui_requests.AGENT_REQUESTS`, `sitrep_tui_actions.ACTION_BINDINGS` and `agent_request_delivery._MESSAGES` / `_REFUSALS`. A change there should update `tuis/sitrep/reference.md`.
+  - Outside tmux, `A` and the request keys are hidden (`agent: unknown`); `b` and `z` print their `./ait …` cold commands.
