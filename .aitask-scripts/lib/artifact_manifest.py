@@ -55,9 +55,11 @@ import sys
 import tempfile
 import time
 
-HANDLE_RE = re.compile(r"^art:[a-z0-9][a-z0-9._-]{0,127}$")
-HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
-BACKEND_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")
+# `\Z`, not `$`: `$` also matches before a final newline, and these gate
+# untrusted values that become file names ("art:a\n" -> "a\n.json") (t2269).
+HANDLE_RE = re.compile(r"^art:[a-z0-9][a-z0-9._-]{0,127}\Z")
+HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}\Z")
+BACKEND_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}\Z")
 
 REQUIRED_FIELDS = ("handle", "current", "versions", "backend",
                    "created_at", "updated_at")

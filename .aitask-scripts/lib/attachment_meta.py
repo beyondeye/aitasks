@@ -37,7 +37,8 @@ import re
 import sys
 import tempfile
 
-HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}$")
+# `\Z`, not `$`, which also matches before a final newline (t2269).
+HASH_RE = re.compile(r"^sha256:[0-9a-f]{64}\Z")
 
 
 def die(msg):

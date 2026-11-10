@@ -326,11 +326,10 @@ class TrailsTargetParseTests(unittest.TestCase):
     def test_the_target_grammar_is_the_handle_and_task_id_grammars(self):
         from artifact_manifest import HANDLE_RE
         handles = ["art:a", "art:trail-x.y_z", "art:" + "a" * 128, "art:" + "a" * 129,
-                   "art:", "art:A", "art:-a", "art:a b", "trail"]
+                   "art:", "art:A", "art:-a", "art:a b", "trail", "art:a\n"]
         tasks = ["1", "12", "12_3", "0", "t12", "12_", "_3", "12_3_4", "", "1\n", "١٢"]
-        # The one deliberate difference: HANDLE_RE's `$` also matches before a
-        # trailing newline; the request grammar ends in `\Z` and refuses it.
-        self.assertTrue(HANDLE_RE.match("art:a\n"))
+        # Both grammars end in `\Z`, so both refuse a trailing newline (t2269).
+        self.assertIsNone(HANDLE_RE.match("art:a\n"))
         self.assertIsNone(alu._TRAILS_TARGET_RE.match("art:a\n"))
         for h in handles:
             with self.subTest(handle=h):

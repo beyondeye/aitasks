@@ -41,7 +41,7 @@ import sys
 
 import yaml
 
-BACKEND_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}$")  # artifact_manifest.py shape
+BACKEND_RE = re.compile(r"^[a-z0-9][a-z0-9_-]{0,31}\Z")  # artifact_manifest.py shape
 
 # BACKEND-EXTENSION-POINT (registry): adapter name -> {config_key: (ENV_VAR, validator)}.
 # Validators: "abs_path" (non-empty absolute path), "nonempty" (non-empty
