@@ -759,7 +759,7 @@ the steps below:
   only against stubs. A misread listing could miss the marker and duplicate a
   comment. A wrong download flag would keep a manifest-configured GitLab
   project blocked (fail-closed, `unknown:api_error`). · severity: medium ·
-  → mitigation: live_gitlab_release_notify_check
+  → mitigation: t2279
 - Duplicate prevention covers serialised runs on the designated machine and
   sequential retries only (accepted scope; documented). · severity: low ·
   → mitigation: none
@@ -768,7 +768,7 @@ the steps below:
 
 ### Planned mitigations
 - timing: post-phase | name: pin_release_asset_contract | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: expected-asset drift making every gate time out | desc: Contract test deriving published asset names from release.yml/release-packaging.yml vs the framework publication policy, with a mutation control (t2261_2)
-- timing: after | name: live_gitlab_release_notify_check | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: GitLab notes-listing misread causing duplicate release comments | desc: Live-check ait release-notify's GitLab path (glab api --paginate notes, glab issue note, releases API, re-run idempotency) against the local GitLab CE harness and replace hand-written glab stubs with captured output
+- timing: after | name: live_gitlab_release_notify_check | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: GitLab notes-listing misread causing duplicate release comments | desc: Live-check ait release-notify's GitLab path (glab api --paginate notes, glab issue note, releases API, re-run idempotency) against the local GitLab CE harness and replace hand-written glab stubs with captured output | created: t2279
 
 ## Implementation progress (2026-11-10)
 
