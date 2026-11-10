@@ -769,3 +769,260 @@ the steps below:
 ### Planned mitigations
 - timing: post-phase | name: pin_release_asset_contract | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: expected-asset drift making every gate time out | desc: Contract test deriving published asset names from release.yml/release-packaging.yml vs the framework publication policy, with a mutation control (t2261_2)
 - timing: after | name: live_gitlab_release_notify_check | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: medium | addresses: GitLab notes-listing misread causing duplicate release comments | desc: Live-check ait release-notify's GitLab path (glab api --paginate notes, glab issue note, releases API, re-run idempotency) against the local GitLab CE harness and replace hand-written glab stubs with captured output
+
+## Implementation progress (2026-11-10)
+
+All steps 1a–6 and the post-phase are implemented. Test results: release_notify
+225/225, branch_mode 39/39, wait_release 43/43, asset_contract 10/10,
+issue_update_ledger 133/133, issue_update_argv 41/41. Mutant controls in an
+isolated copy: widening `_ril_known_field` fails (w) ×3 and (r) ×3; removing
+the residue sweep fails 17 (p)/(q) assertions.
+
+Deviations, each recorded with its reason:
+- **An explicit policy step** runs between freshness and designation:
+  `INCOMPLETE:policy_unreadable:<key>`. The designation lives in the same
+  file, so an unreadable policy now names the key instead of reading as a
+  designation failure.
+- **Freshness and designation gate every non-dry run**, including one with
+  nothing due locally: "nothing to do" from stale data is not an all-clear.
+- **The residue source must be HEAD's pending record.** An untracked pending
+  twin is refused (`unverifiable` / `residue_mismatch`), so restore-on-failure
+  never has to reconstruct an untracked file.
+- **A record whose residue was refused is skipped**
+  (`PENDING:…|residue_unresolved`). Without that, the (q) tag-directory case
+  moved the genuine record past the stray residue.
+- **A pending record not yet committed** (an interrupted writer) gives
+  `PENDING:…|uncommitted_record` and is not posted for.
+- **`UNSUPPORTED:` was dropped.** It is unreachable: the record validator
+  admits only github and gitlab, so anything else is `MALFORMED:`.
+  `MALFORMED` counts toward exit 4.
+- **The origin is read from the configured `remote.origin.url`**, with
+  `detect_platform_from_url`, not from `git remote get-url`, which applies
+  `insteadOf` rewrites. The release page lives at the configured address.
+- **`_ril_finish` runs `${_RIL_CLEANUP_FN:-_ril_record_cleanup}`**, so the
+  move and resume subshells share the finish without the writer's cleanup.
+- **The wrapper's dead-network case:** with every fetch failing, `ait sync
+  --batch` reports `DEFERRED:fetch_exclusion:data_branch_fetch_failed` (not
+  `NO_NETWORK`). It is still refused, and the test pins the real token.
+- **The contract test is its own file**, `tests/test_release_asset_contract.sh`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-10, implementation review)
+- **Requested by user:** six reviewer findings, all CONFIRMED by the reviewer
+  and re-verified here:
+  1. the marker lookup `printf | grep -qF` under pipefail: an early match gives
+     printf SIGPIPE and the run posts a duplicate;
+  2. freshness compared against a tracking ref that a bare `fetch origin <ref>`
+     does not update under a restricted `remote.origin.fetch`;
+  3. the move / resume subshells inherited the caller's ledger-lock globals, so
+     an early `_ril_finish` released the caller's `release_notify run` lock;
+  4. tag selection through `| head` / `| awk … exit` under pipefail aborted
+     with exit 141 on a large tag list (and the SHIPPED_EARLIER lookup and the
+     wrapper's sync-token read had the same shape);
+  5. `--list` resolved tags first, so a repo with no tags could not list its
+     ledger;
+  6. the residue scan costs at least 3 git calls per historical record on every
+     run (follow-up).
+- **Changes made:**
+  1. a bash substring test (`[[ "$bodies" == *"$marker"* ]]`);
+  2. an explicit refspec, `fetch origin +refs/heads/<ref>:refs/remotes/origin/<ref>`;
+  3. `_AIT_LEDGER_LOCK_DIR` / `_AIT_LEDGER_LOCK_TOKEN` are cleared at the entry
+     of `ril_move_released`, `ril_resume_move` and `ril_record`;
+  4. `mapfile` over the full `git tag` output, for selection and the
+     SHIPPED_EARLIER lookup; the wrapper takes `${sync_out%%$'\n'*}`;
+  5. `--list` is handled before `resolve_tags`;
+  6. created follow-up **t2276** (batched residue scan).
+
+  An audit of the new production files found no other early-closing pipeline
+  reader.
+
+  New regression cases in `tests/test_release_notify.sh`: (s) a long thread with
+  an early marker, (t) a restricted refspec, (u) the caller's lock surviving
+  early move failures, (v) 8003 tags, (w) `--list` with no tags.
+- **Pre-fix controls** (each fix reverted alone, in an isolated copy, full
+  suite run): marker → (s) ×3 failed (a 301st comment was posted); fetch →
+  (t) ×3; lock → (u) ×1; tags → (v) ×3 (exit 141); list → (w) ×2. Every other
+  assertion passed in each run (239–241/242).
+- **Results after the fix:** release_notify 242/242, branch_mode 39/39,
+  wait_release 43/43, asset_contract 10/10, issue_update_ledger 133/133,
+  issue_update_argv 41/41, shellcheck clean.
+- **Files affected:** `.aitask-scripts/aitask_release_notify.sh`,
+  `.aitask-scripts/lib/release_issue_ledger.sh`, `wait_release_and_notify.sh`,
+  `tests/test_release_notify.sh`.
+
+### Change Request 2 (2026-11-10, implementation review)
+- **Requested by user:** two reviewer findings, both CONFIRMED and re-verified:
+  1. tag enumeration read `git tag` through `mapfile < <(…)`, whose success
+     says nothing about git's. A failed listing read as an empty or truncated
+     list. The reviewer reproduced `RANGE:(root)..v1.2.0` and a v1.2.0 notice
+     posted for t10, which shipped in v1.0.0, breaking the no-catch-up rule.
+     The containing-tag lookup had the same hole;
+  2. `tests/test_metadata_writer_inventory.py` reported four unclassified
+     metadata writers: two inherited from t2261_1 (`aitask_issue_update.sh`,
+     `lib/release_issue_ledger.sh`, already unclassified at HEAD) and two added
+     here (`aitask_release_notify.sh`, `lib/release_publication.sh`).
+- **Changes made:**
+  1. new `git_lines <array> <git args…>` captures git with `$( )`, so its rc is
+     git's own:
+     - tag enumeration failure → `INCOMPLETE:tags:git_failed`, exit 3, before
+       any range is formed;
+     - a failed containing-tag lookup → `FAILED:<task>|<url>|tag_lookup_failed`
+       (no guessed `SHIPPED_EARLIER`), counted in `failed=` and exit 4;
+     - the `git log` range reads → `INCOMPLETE:log:git_failed`.
+  2. inventory classification, with the t2261_1 and t2261_2 paths labelled
+     separately:
+     - WIRED: `lib/release_issue_ledger.sh::_ril_commit_record` and
+       `::_ril_commit_move`, both via `ait_commit_paths_staging_untracked`;
+     - KNOWN_UNCOMMITTED: `::_ril_move_cleanup`, which restores a tracked
+       record's committed bytes, so there is nothing to commit;
+     - PINNED_FILES: `aitask_issue_update.sh`, `aitask_release_notify.sh`
+       (temp capture files only; delegate to the ledger lib) and
+       `lib/release_publication.sh` (reads project_config.yaml; writes only
+       its mktemp directory).
+
+     The discovery guard is unchanged.
+  - New regression case (x) in `tests/test_release_notify.sh`: `tag --list`
+    failing with empty and with partial output, under an explicit and a
+    default tag, and `tag --contains` failing.
+- **Pre-fix control** (the old `mapfile < <(…)` reads restored, isolated
+  copy): 16 (x) assertions failed, including a post and a moved t10 record
+  under `list_empty`, the reviewer's scenario. All other assertions
+  (243/259) passed.
+- **Results after the fix:** release_notify 259/259,
+  test_metadata_writer_inventory 6/6.
+- **Files affected:** `.aitask-scripts/aitask_release_notify.sh`,
+  `tests/test_release_notify.sh`, `tests/test_metadata_writer_inventory.py`.
+- **Found by the full Python suite while verifying CR2:**
+  `tests/test_archive_rearm_tripwire.py` flagged the temp-dir EXIT trap in
+  `release_publication_check`. That function is a `( … )` body that resolves
+  no task file, so the trap got the documented
+  `# archive-sweep: subshell-local` marker. After that:
+  `PYTHON SUITE: PASSED (runner=pytest, exit=0)`, all six bash files pass
+  (259 + 39 + 43 + 10 + 133 + 41), and shellcheck is clean.
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - **`.aitask-scripts/aitask_release_notify.sh` (new) + `ait release-notify`**
+    (dispatcher case and help line).
+    - Classifies the pending records against `<prev>..<tag>`: due, already
+      notified (marker), `SHIPPED_EARLIER` with the exact retry command,
+      pending, malformed, uncommitted, `residue_unresolved`.
+    - Gate: freshness → policy → designation → run lock → residue sweep →
+      re-classify → publication.
+    - Posts with a hidden marker, moves each record in one commit, pushes
+      once, prints `SUMMARY:`. Exit 0/1/2/3/4.
+  - **`.aitask-scripts/lib/release_publication.sh` (new) +
+    `lib/release_publication_policy.py` (new).**
+    - The per-project policy is read with a real YAML parser (a
+      duplicate-refusing SafeLoader), fail-closed.
+    - `release_publication_expand_assets` is the one template function.
+    - `release_publication_origin` reads the configured `remote.origin.url`.
+    - `release_publication_check` is one non-waiting check:
+      - remote tag;
+      - GitHub release / GitLab release;
+      - workflow run for tag + commit, newest id wins;
+      - required assets;
+      - checksum manifests, downloaded via `gh` or `glab release download`.
+  - **`lib/release_issue_ledger.sh` (extended).**
+    - Released fields and `ril_validate_released_record`. The pending
+      whitelist stays pending-only.
+    - `ril_data_freshness`, using an explicit refspec fetch.
+    - `release_notify_designation`.
+    - `ril_move_released`: subshell, lock, one path-scoped commit,
+      git-state verdict.
+    - `ril_resume_move` / `_ril_resume_locked`, which complete an
+      interrupted move only when the residue verifies against HEAD.
+    - `ril_list_residue`, plus a SIGKILL test seam behind a marker file.
+    - `_ril_finish` takes `_RIL_CLEANUP_FN`.
+  - **`lib/issue_backends.sh`:** tri-state `github_list_comment_bodies`,
+    `gitlab_list_comment_bodies` and `source_list_comment_bodies`.
+  - **`wait_release_and_notify.sh` (new, framework-only)** and the
+    `create_new_release.sh` hook (no prompt; exits non-zero with the retry
+    command when notification is incomplete).
+  - **Registration:**
+    - settings schema entries for the four keys;
+    - the seed's commented example;
+    - the framework policy in `aitasks/metadata/project_config.yaml`
+      (`release_notify_host: omg16`).
+  - **Docs:**
+    - `commands/issue-integration.md`: the `issue-update` ledger outputs and
+      exit 3, and a new "ait release-notify" section (ledger, gate, policy,
+      designation and reassignment, duplicate scope, output and exit);
+    - `commands/_index.md`, `workflows/issue-tracker.md`,
+      `workflows/releases.md`, `development/_index.md`.
+  - **Tests:**
+    - `test_release_notify.sh`: 259 assertions, cases (a)–(x);
+    - `test_release_notify_branch_mode.sh`: 39;
+    - `test_wait_release_and_notify.sh`: 43;
+    - `test_release_asset_contract.sh`: 10, the post-phase
+      pin_release_asset_contract;
+    - the shared `tests/lib/release_notify_fixture.sh`;
+    - `test_issue_update_ledger.sh` (v) updated and (w) added: 133;
+    - `test_metadata_writer_inventory.py` classifications.
+- **Deviations from plan:** listed under "Implementation progress" above
+  (policy step, always-gated runs, HEAD-sourced residue, residue_unresolved,
+  uncommitted_record, no `UNSUPPORTED:`, configured origin URL, the real
+  dead-network token, a separate contract file). The two change requests
+  added: substring marker search, explicit-refspec freshness, no inherited
+  lock in move subshells, full tag reads with git's own status, `--list`
+  before tag resolution.
+- **Issues encountered:**
+  - Test-only bugs, all fixed in the tests:
+    - `task_utils.sh` sources its libs via the caller's `SCRIPT_DIR`, so
+      fixtures set it;
+    - `git show --name-only` folds the move into an `R` rename, so tests use
+      `--no-renames`;
+    - unquoted `{tag}` inside a YAML flow list is a YAML error;
+    - a bare repo whose HEAD names a missing `master` gives clones no `main`;
+    - two `insteadOf` entries for one URL keep the older one.
+  - **`main` advanced mid-session:** t2211_5, t2269, t2258_1, with no
+    overlap with these files.
+  - **Other sessions' uncommitted edits** were excluded from the commit:
+    - t2271: `lib/task_utils.sh` (`ait_commit_paths_staging_untracked`,
+      which the move uses) and `tests/test_frozenagent_app.py`;
+    - another session: `.claude/skills/aitask-docs-gap`,
+      `.claude/skills/aitask-gate-docs-updated`, `website/content/docs/skills/*`.
+
+    The tests passed with them present.
+- **Key decisions:**
+  - Fail closed everywhere: anything unknown posts nothing.
+  - A move is judged landed only from git state.
+  - Residue is adopted only when HEAD's pending record matches it byte for
+    byte; anything else is left for a human and its record is skipped.
+  - Shell scans never pipe into early-closing readers under pipefail
+    (`grep -q`, `head`, `awk … exit`), and never read git through
+    `mapfile < <(…)`.
+- **Evidence (durable):**
+  - **Pre-fix controls:** isolated copies, each with one change reverted and
+    the full suite run:
+    - widened whitelist → ledger (w) ×3 and notify (r) ×3 failed, and the
+      consumer posted for the corrupt record;
+    - no residue sweep → 17 (p)/(q) failed;
+    - pipe marker search → (s) ×3, a 301st comment;
+    - bare fetch → (t) ×3;
+    - inherited lock → (u) ×1;
+    - `| head` tags → (v) ×3, exit 141;
+    - `--list` after tags → (w) ×2;
+    - `mapfile < <(git tag)` → (x) ×16, t10 posted and moved.
+  - **Final:**
+    - bash 259 + 39 + 43 + 10 + 133 + 41, all passing;
+    - `PYTHON SUITE: PASSED (runner=pytest, exit=0)`;
+    - `check_links.py --build` SWEEP: PASSED;
+    - shellcheck clean;
+    - `--dry-run --tag v0.40.1` on the real repo: `FRESHNESS:fresh`,
+      `DESIGNATION:designated:omg16`, `PUBLICATION:published|40858419630`,
+      t2235 pending (its commits are in no tag yet).
+- **Upstream defects identified:**
+  - `.claude/skills/task-workflow/premise-staleness.md:213` —
+    `tests/test_no_unscoped_task_commit.sh` reports an unscoped task-data
+    commit instruction (`AIT_UNPARSEABLE_SPAN`). Pre-existing, already
+    recorded by t2261_1.
+- **Notes for sibling tasks:** the last child of t2261. For the follow-ups:
+  - t2266 (catch-up) must route every post through the same gate;
+  - t2276 (batched residue scan) must keep `ril_list_residue`'s
+    unknown-on-failure contract;
+  - the spawned `live_gitlab_release_notify_check` should replace the
+    hand-written glab stubs in `tests/lib/release_notify_fixture.sh` with
+    captured output, including `glab release download -n/-D`.
