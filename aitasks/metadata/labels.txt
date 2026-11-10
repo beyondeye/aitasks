@@ -125,6 +125,7 @@ robustness
 sanboxing
 scheduling
 scratchpad
+screenshots
 script-performance
 scroll
 seed
