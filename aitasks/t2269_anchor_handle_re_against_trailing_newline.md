@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-10 08:59
-updated_at: 2026-11-10 09:13
+updated_at: 2026-11-10 11:41
 ---
 
 ## Origin
@@ -48,3 +49,8 @@ Anchor with `\Z` (or use `fullmatch`) in `artifact_manifest.HANDLE_RE`, and chec
 - Grep every `HANDLE_RE` consumer, including ones that match on stored or frontmatter values where a newline may be legitimately stripped first.
 - Add a regression case per consumer for `"art:a\n"`.
 - Keep `tests/test_trails_focus_writer.py`'s grammar-equality test in step: once `HANDLE_RE` is fixed, the special-case assertion there flips (both refuse).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-10T09:41:43Z status=pass attempt=1 type=human
