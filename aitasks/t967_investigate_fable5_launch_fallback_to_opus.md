@@ -29,3 +29,17 @@ Depends on t966 (which registered `claudecode/fable5` → `claude-fable-5`). The
 
 ## Deliverable
 Findings (what actually triggers the launch-time switch) + a recommendation. No source change is committed unless the investigation shows a clean, low-blast-radius improvement that doesn't weaken the intentional security guidance.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2268** id=2026-11-10T08:33:08Z.b0016edd362dc3ceec6753e6 from=t2268 from_verified=yes at=2026-11-10T08:33:08Z base=79416f14c44f9c0a329fdee722468c6b2f9422df base_branch=main dirty=no host=omg16
+>
+> | Advisory context from t2268 (Fable 5.2 registration). These are static findings from a read-only byte scan of the installed Claude Code 2.1.322 binary, not reproduced behaviour. They may help t967's investigation:
+> | 
+> | - Fable catalog entries carry a `refusal_fallback` capability, and model selection keeps a refusal-fallback latch (`modelSelection.refusalFallbackModelLatch()`, plus a `model_refusal_fallback` system message subtype). This looks like the mechanism behind the launch-time switch from Fable to Opus that t967 describes.
+> | - The `fable` alias now resolves to `claude-fable-5-2` (`latest_per_family.fable`). The catalog lists a per-provider exception for gateway: `claude-fable-5`. `ANTHROPIC_DEFAULT_FABLE_MODEL` overrides both.
+> | - A user setting of `claude-fable-5-1` / `claude-fable-5-1[1m]` is migrated to the `fable` / `fable[1m]` alias (`fable51ToFableAliasMigrationTimestamp`).
+> | - t967's repro launches with `--model claude-fable-5`. That id is now two generations old (fable5 → fable5_1 → fable5_2 in `.aitask-scripts/lib/model_supersessions.json`), so a repro may need re-basing on `claude-fable-5-2`.
+> | 
+> | Full resolver trace: aiplans/p2268_register_claudecode_fable5_2.md (archived with t2268). The behaviour of other CLI versions is unknown.
