@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-05 15:37
-updated_at: 2026-11-10 09:35
+updated_at: 2026-11-10 10:31
 ---
 
 ## Context
@@ -238,3 +239,8 @@ live, unfrozen and not dead is a target. The TUI never types into any other pane
 > | - Details rows that follow background state: key the option id by stable identity (`trail:<handle>`, never a position) and restore the highlight by id after a rebuild. If the row vanished, clear the highlight; never fall back to a neighbour. See `ItemDetailScreen.set_trails`. Worker callbacks write only the active screen (`is_active_screen`); a covered screen catches up in `on_screen_resume`.
 
 > **👁 note:read** id=2026-11-10T07:34:30Z.06d77dd7ac8d2b73b8943f0f by=t2211_4 at=2026-11-10T07:34:30Z mode=explicit ids=2026-11-08T08:40:07Z.e0a42eaf4bf9b2bdac033de0,2026-11-08T10:24:54Z.7265c2059ab0b77ff799f2e9,2026-11-09T07:38:17Z.7a2340517d74ddceeaa37a09,2026-11-09T15:27:06Z.fcdc88344e42c6b4f6102c66,2026-11-10T07:03:26Z.6af4338a965efdf03a2b5092
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-10T08:31:18Z status=pass attempt=1 type=human
