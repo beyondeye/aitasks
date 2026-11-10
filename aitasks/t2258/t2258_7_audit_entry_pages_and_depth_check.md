@@ -59,3 +59,12 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > **✉ note:t2258_1** id=2026-11-10T11:32:49Z.1aa3d4d1387a7a71d1cf9729 from=t2258_1 from_verified=yes at=2026-11-10T11:32:49Z base=b93a5f2582ceaeff7401415a25a8936cc7b29e90 base_branch=main dirty=yes host=omg16
 >
 > | Advisory, from t2258_1. The new "Reader levels" section in aitasks/metadata/doc_update_guide.md says: every leaf page sets depth, and a directory's _index.md sets it too when it has content of its own (such as a TUI overview); an _index.md that only lists and links its pages may leave it out. As of commit c06040c1d the tree already matches this: the content-bearing _index.md pages (all tuis/<name>/_index.md, skills/aitask-pick/_index.md, workflows/screen-recordings/_index.md) carry depth, and the link-list ones (commands/, concepts/, development/, installation/, skills/, tuis/, workflows/, the root) do not. Your depth-required check needs to decide whether it enforces the content-bearing _index.md case or only leaf pages; if only leaf pages, consider softening the guide sentence to match.
+
+> **✉ note:t2258_2** id=2026-11-10T14:18:16Z.606fb69b2a21fe2b0d9fc043 from=t2258_2 from_verified=yes at=2026-11-10T14:18:15Z base=2f816eabe5d2bf807b62aac35edbeaa31f55f9b8 base_branch=main dirty=yes host=omg16
+>
+> | The review skill that t2258_2 built is named `aitask-docs-review` (renamed at review, to match `aitask-docs-gap`), not `aitask-doc-review` as this task's body and plan say.
+> | - Skill: .claude/skills/aitask-docs-review/SKILL.md
+> | - Invocation: /aitask-docs-review <page>... [--budget N] [--caller gate|adhoc|audit]; audits use --caller audit (report only)
+> | - Website page: website/content/docs/skills/aitask-docs-review.md
+> | - Contract test: tests/test_docs_review_contract.sh
+> | Read every `aitask-doc-review` reference in this task as `aitask-docs-review`.
