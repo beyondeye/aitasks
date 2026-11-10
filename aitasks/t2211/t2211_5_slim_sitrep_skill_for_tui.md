@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-05 15:37
-updated_at: 2026-11-10 13:34
+updated_at: 2026-11-10 14:59
 ---
 
 ## Context
@@ -124,3 +125,8 @@ confirm they are clean against HEAD. Also read the landed t2211_4 `AGENT_REQUEST
 > | - A typed request is always one line starting with `>`. The skill should treat it exactly like the user typing the same code (same authority, still confirm before writing).
 
 > **👁 note:read** id=2026-11-10T11:34:18Z.cd56084bce83c354cfd31cb1 by=t2211_5 at=2026-11-10T11:34:18Z mode=explicit ids=2026-11-09T07:38:19Z.247a5366bbb061fae6d784a4,2026-11-10T10:44:51Z.b08af7ffe841df7e4fc2417f
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-10T12:59:12Z status=pass attempt=1 type=human
