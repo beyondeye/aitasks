@@ -207,12 +207,11 @@ overwritten, and one that changed the task's status and released it is caught by
          `choice = replan`, continue; "Postpone task" → the postpone branch
          above; "Pick a different task" → first run the `owner` check exactly as
          in the postpone branch (`NOT_OWNER:` → `## Ownership lost`), then
-         `./.aitask-scripts/aitask_update.sh
-         --batch <task_id> --status Ready --assigned-to "" --silent`, commit it
-         with `aitask_task_commit.sh -m "ait: Revert t<task_id> to Ready
-         (premise check)" <task_file>`, `./ait git push`, then the **Lock Release
-         Procedure** (`lock-release.md`), and return to the calling skill's task
-         selection.
+         `./.aitask-scripts/aitask_update.sh --batch <task_id> --status Ready --assigned-to "" --silent`,
+         commit it with
+         `aitask_task_commit.sh -m "ait: Revert t<task_id> to Ready (premise check)" <task_file>`,
+         `./ait git push`, then the **Lock Release Procedure**
+         (`lock-release.md`), and return to the calling skill's task selection.
 
 ## Advance after an approved replan
 

@@ -46,6 +46,15 @@
 #   delete BOTH                                | 8, 9b, 9c
 #   record ownership AFTER `add` instead of    | 9c
 #     before it (the Change Request 1 defect)  |
+#   (t2271) drop the in-loop guard before the  | 9d, 9e (the die then lands
+#     redirected `add`                         |   inside the add's redirect, and
+#                                              |   the EXIT trap's warning with it)
+#   (t2271) cleanup no longer removes the      | 9e
+#     add-stderr capture file                  |
+#   (t2271) cleanup resets on a wedged         | 9e (the reset dies silently,
+#     worktree, as before                      |   so nothing is named)
+#   (t2271) the whole pre-t2271 library        | 8, 9d, 9e
+#     (TC_LIB_OVERRIDE=<HEAD copy>)            |
 #
 # So: Test 8 pins that a cleanup mechanism exists at all; 9b and 9c BOTH pin the
 # EXIT trap (they are signal tests — nothing else can unwind them), and 9c alone
@@ -102,6 +111,76 @@ _tc() {
         export PATH="$PWD/bin:$PATH" TEST_HOSTNAME=testhost
         "$COMMIT_SH" "$@" 2>&1
     )" || TC_RC=$?
+}
+
+# tc_repo — setup_repo, plus the pre-fix-control hook: TC_LIB_OVERRIDE=<file>
+# replaces the fixture's copied lib/task_utils.sh, so the t2271 assertions can be
+# measured against an older library (e.g. `git show HEAD:…`) with no stash.
+tc_repo() {
+    local t
+    t="$(setup_repo)"
+    if [[ -n "${TC_LIB_OVERRIDE:-}" ]]; then
+        cp -- "$TC_LIB_OVERRIDE" "$t/local/.aitask-scripts/lib/task_utils.sh"
+    fi
+    mkdir -p "$t/tmp"
+    echo "$t"
+}
+
+# wedge_shim <tmpdir> <subcommand> <path> — a PATH `git` that runs the real
+# command, and, the FIRST time <subcommand> is invoked with <path> as its last
+# argument, then plants MERGE_HEAD in the data worktree's git dir. It is how a
+# worktree wedges AFTER the helper's pre-flight, at a chosen point in its loop.
+wedge_shim() {
+    local t="$1" sub="$2" path="$3" real gitdir
+    real="$(command -v git)"
+    gitdir="$(cd "$t/local" && git -C .aitask-data rev-parse --absolute-git-dir)"
+    cat > "$t/local/bin/git" <<SHIM
+#!/usr/bin/env bash
+args=("\$@"); i=0; sub=""
+while (( i < \${#args[@]} )); do
+    case "\${args[i]}" in
+        -C|-c) i=\$((i + 2)) ;;
+        -*) i=\$((i + 1)) ;;
+        *) sub="\${args[i]}"; break ;;
+    esac
+done
+last="\${args[\${#args[@]}-1]:-}"
+if [[ "\$sub" == "$sub" && "\$last" == "$path" && ! -e "$t/wedge_fired" ]]; then
+    "$real" "\$@"; rc=\$?
+    : > "$t/wedge_fired"
+    : > "$gitdir/MERGE_HEAD"
+    exit \$rc
+fi
+exec "$real" "\$@"
+SHIM
+    chmod +x "$t/local/bin/git"
+}
+unwedge() {
+    local t="$1"
+    rm -f "$t/local/bin/git"
+    rm -f "$(cd "$t/local" && git -C .aitask-data rev-parse --absolute-git-dir)/MERGE_HEAD"
+}
+
+# _tc_direct <tmpdir> <msg> <path>... — call ait_commit_paths_staging_untracked
+# itself, with the EXIT trap a real caller arms, and TMPDIR scoped to the
+# fixture. Sets TC_OUT (stdout+stderr) / TC_RC.
+_tc_direct() {
+    local tmpdir="$1"; shift
+    TC_RC=0
+    TC_OUT="$(
+        cd "$tmpdir/local" || exit 99
+        export PATH="$PWD/bin:$PATH" TEST_HOSTNAME=testhost TMPDIR="$tmpdir/tmp"
+        bash -c 'set -euo pipefail
+            source .aitask-scripts/lib/terminal_compat.sh
+            source .aitask-scripts/lib/task_utils.sh
+            trap ait_unstage_staged_by_us EXIT
+            ait_commit_paths_staging_untracked "$@"' _ "$@" 2>&1
+    )" || TC_RC=$?
+}
+
+# capture_files <tmpdir> — leftover add-stderr capture files ("" when none).
+capture_files() {
+    find "$1/tmp" -name 'ait_stage_untracked_err.*' 2>/dev/null
 }
 
 # A concurrent session's in-flight edit: committed, then modified AND STAGED.
@@ -229,7 +308,7 @@ assert_eq "Test 7: no commit was made" "$before7" "$(commit_count "$T7")"
 # .gitignore. The first path stages, the second cannot — and the cleanup must
 # unwind the first rather than leaving it for someone else's commit to collect.
 echo "--- Test 8: partial staging failure ---"
-T8="$(setup_repo)"
+T8="$(tc_repo)"
 (
     cd "$T8/local" || exit 1
     printf 'aitasks/ignored_*.md\n' > .aitask-data/.gitignore
@@ -244,6 +323,10 @@ before8="$(commit_count "$T8")"
 _tc "$T8" -m "ait: two new files" aitasks/t50_first.md aitasks/ignored_second.md
 assert_eq "Test 8: exit 1" "1" "$TC_RC"
 assert_contains "Test 8: reports FAILED" "FAILED:" "$TC_OUT"
+# git's own reason for refusing the add reaches the caller instead of being
+# discarded with the add's stderr (t2271).
+assert_contains "Test 8: git's add error is reported" \
+    "ignored by one of your .gitignore files" "$TC_OUT"
 assert_eq "Test 8: no commit was made" "$before8" "$(commit_count "$T8")"
 staged8="$(staged "$T8")"
 assert_not_contains "Test 8: the path we staged was unstaged again" \
@@ -360,6 +443,77 @@ assert_not_contains "Test 9c: the just-added path was unwound by the trap" \
     "t80_first" "$staged9c"
 assert_contains "Test 9c: the FOREIGN staged entry is untouched" \
     "$BYSTANDER" "$staged9c"
+
+# --- Test 9d: a wedge AFTER the pre-flight is reported (diagnostic only) ---
+# Test 9 wedges BEFORE the run, so the helper's up-front pre-flight reports it.
+# Here the worktree wedges on the loop's own `ls-files` probe — after the
+# pre-flight — so the next guard to see it is the one guarding the `add`. Before
+# t2271 that guard ran inside `task_git add … 2>&1 >/dev/null`: the process
+# exited 1 with nothing printed. Called directly, because aitask_task_commit.sh's
+# classifier runs the same probe first and would trip the shim too early.
+#
+# Nothing has been staged when this dies, so this test pins ONLY the diagnostic
+# and the capture-file cleanup. What happens to a path staged earlier is Test 9e.
+echo "--- Test 9d: wedge after the pre-flight is reported ---"
+T9D="$(tc_repo)"
+printf -- '---\nstatus: Ready\n---\nA\n' > "$T9D/local/aitasks/t85_first.md"
+wedge_shim "$T9D" ls-files aitasks/t85_first.md
+before9d="$(commit_count "$T9D")"
+
+_tc_direct "$T9D" "ait: Add t85" aitasks/t85_first.md
+assert_non_empty "Test 9d: the shim fired" "$(ls "$T9D/wedge_fired" 2>/dev/null)"
+assert_non_empty "Test 9d: the run aborted (non-zero exit)" \
+    "$([[ "$TC_RC" -ne 0 ]] && echo "rc=$TC_RC")"
+assert_contains "Test 9d: the guard's message reaches stderr" \
+    "Data worktree (.aitask-data) is stuck mid-MERGE_HEAD" "$TC_OUT"
+unwedge "$T9D"
+assert_eq "Test 9d: no commit was made" "$before9d" "$(commit_count "$T9D")"
+assert_not_contains "Test 9d: nothing was staged" "t85_first" "$(staged "$T9D")"
+assert_eq "Test 9d: no capture file left behind" "" "$(capture_files "$T9D")"
+
+# --- Test 9e: wedge after ONE path was staged — through the real caller ----
+# The partial-progress case, run through aitask_task_commit.sh so its own EXIT
+# trap and stream handling are what is measured. The shim plants the wedge right
+# after the real `add` of the FIRST path; the helper's next iteration then dies
+# at the in-loop guard with that path already in the shared index.
+#
+# The staged entry is deliberately PRESERVED, not unstaged: while an operation is
+# in progress no index state proves the entry is ours (a new file the incoming
+# side of a stopped merge adds with identical content is indistinguishable), so
+# ait_unstage_staged_by_us names it on stderr instead of resetting it. When
+# t2277 lands a safe unwind, the "preserved" assertion is the one to flip.
+echo "--- Test 9e: wedge after one path was staged ---"
+T9E="$(tc_repo)"
+dirty_staged_bystander "$T9E"
+printf -- '---\nstatus: Ready\n---\nA\n' > "$T9E/local/aitasks/t86_first.md"
+printf -- '---\nstatus: Ready\n---\nB\n' > "$T9E/local/aitasks/t87_second.md"
+wedge_shim "$T9E" add aitasks/t86_first.md
+before9e="$(commit_count "$T9E")"
+
+TC_RC=0
+TC_OUT="$(
+    cd "$T9E/local" || exit 99
+    export PATH="$PWD/bin:$PATH" TEST_HOSTNAME=testhost TMPDIR="$T9E/tmp"
+    "$COMMIT_SH" -m "ait: two new files" aitasks/t86_first.md aitasks/t87_second.md 2>&1
+)" || TC_RC=$?
+assert_non_empty "Test 9e: the shim fired" "$(ls "$T9E/wedge_fired" 2>/dev/null)"
+assert_non_empty "Test 9e: the run aborted (non-zero exit)" \
+    "$([[ "$TC_RC" -ne 0 ]] && echo "rc=$TC_RC")"
+assert_contains "Test 9e: the guard's message reaches stderr" \
+    "Data worktree (.aitask-data) is stuck mid-MERGE_HEAD" "$TC_OUT"
+assert_contains "Test 9e: the cleanup says it left entries in place" \
+    "were LEFT in the shared index" "$TC_OUT"
+assert_contains "Test 9e: the cleanup names the staged path" \
+    "aitasks/t86_first.md" "$TC_OUT"
+unwedge "$T9E"
+assert_eq "Test 9e: no commit was made" "$before9e" "$(commit_count "$T9E")"
+staged9e="$(staged "$T9E")"
+assert_contains "Test 9e: the staged entry is preserved (documented limitation)" \
+    "t86_first" "$staged9e"
+assert_not_contains "Test 9e: the second path was never staged" "t87_second" "$staged9e"
+assert_contains "Test 9e: the FOREIGN staged entry is untouched" \
+    "$BYSTANDER" "$staged9e"
+assert_eq "Test 9e: no capture file left behind" "" "$(capture_files "$T9E")"
 
 # --- Test 10: NEGATIVE CONTROL — the pre-fix shape sweeps the bystander -----
 # Asserts the defect POSITIVELY: if this stopped reproducing, every assertion

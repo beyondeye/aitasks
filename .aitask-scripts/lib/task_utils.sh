@@ -1042,12 +1042,43 @@ AIT_COMMIT_SCOPED_ERR=""
 # shellcheck disable=SC2034  # read by ait_unstage_staged_by_us / callers' traps
 AIT_STAGED_BY_US=()
 
+# The add-stderr capture file of the ait_commit_paths_staging_untracked run in
+# flight, "" when none. A GLOBAL for the same reason as AIT_STAGED_BY_US: a die
+# inside that function exits the process, and the callers' existing EXIT traps
+# reach this file only through ait_unstage_staged_by_us (t2271).
+AIT_STAGE_UNTRACKED_ERRF=""
+
 # ait_unstage_staged_by_us — the ONE cleanup path, used by every failure exit and
 # by the callers' EXIT traps. Every recorded entry was verified untracked before
 # staging, so the reset has no HEAD version to restore. Idempotent: it empties
 # the list, so a trap firing after an explicit cleanup is a no-op.
+#
+# A WEDGED data worktree (mid-merge/rebase/…) is the one case it does not unwind.
+# `reset` is not a guard-exempt subcommand, so task_git would die here; and the
+# guard cannot safely be bypassed, because while an operation is in progress an
+# entry we staged can ALSO be the operation's — a new file the incoming side of a
+# stopped `git merge` adds with identical content is stage 0, absent from HEAD,
+# not unmerged and has the same blob id, yet resetting it drops it from the
+# pending merge. No index state proves ownership, so the entries are left alone
+# and NAMED on stderr instead of vanishing silently (t2271; a safe unwind needs
+# ownership or serialization evidence — t2277). An explicit
+# AIT_GIT_SKIP_STATE_CHECK=1 keeps its existing meaning: the reset runs.
 ait_unstage_staged_by_us() {
+    if [[ -n "${AIT_STAGE_UNTRACKED_ERRF:-}" ]]; then
+        rm -f -- "$AIT_STAGE_UNTRACKED_ERRF"
+        AIT_STAGE_UNTRACKED_ERRF=""
+    fi
     (( ${#AIT_STAGED_BY_US[@]} )) || return 0
+    local wedge=""
+    if [[ "${AIT_GIT_SKIP_STATE_CHECK:-}" != "1" ]]; then
+        wedge="$(ait_data_inprogress_state 2>/dev/null)" || wedge=""
+    fi
+    if [[ -n "$wedge" ]]; then
+        warn "Data worktree (.aitask-data) is mid-${wedge}: these paths this run staged were LEFT in the shared index, because the in-progress operation may own their entries: ${AIT_STAGED_BY_US[*]}
+Once the operation is resolved, check './ait git status' and unstage any that are still yours with: ./ait git reset -q -- <path>..."
+        AIT_STAGED_BY_US=()
+        return 0
+    fi
     task_git reset -q -- "${AIT_STAGED_BY_US[@]}" >/dev/null 2>&1 || true
     AIT_STAGED_BY_US=()
 }
@@ -1084,9 +1115,30 @@ ait_commit_paths_staging_untracked() {
 
     assert_data_worktree_clean commit
 
-    local p rc=0
+    # The `add` below must stay quiet on success (stdout is a data channel for
+    # some callers, and git add warns on stderr in cases that succeed), so its
+    # stderr goes to a capture file and is re-emitted only on FAILURE — the
+    # shape task_git_commit_scoped uses (t2271). The file is allocated lazily,
+    # AFTER the first in-loop guard, so a die there leaves nothing behind; once
+    # allocated it is registered in AIT_STAGE_UNTRACKED_ERRF, which the
+    # callers' EXIT-trap cleanup removes. mktemp failing degrades to /dev/null
+    # (no diagnostic, same return code) rather than aborting under set -e.
+    local _ait_su_sink="" p rc=0
     for p in "$@"; do
         task_git ls-files --error-unmatch -- "$p" >/dev/null 2>&1 && continue
+        # Re-check the guard HERE, in the current shell with terminal stderr,
+        # before the redirected `add`. The pre-flight above cannot see a worktree
+        # that wedged after it ran (mid-loop), and task_git's own guard would then
+        # die() inside the `add` — exiting the process with its message in the
+        # redirect, where nothing is left to print it (t2271). This die stages
+        # nothing; a path an EARLIER iteration staged is handled (named, not
+        # reset) by ait_unstage_staged_by_us in the caller's EXIT trap.
+        assert_data_worktree_clean add -- "$p"
+        if [[ -z "$_ait_su_sink" ]]; then
+            AIT_STAGE_UNTRACKED_ERRF="$(mktemp "${TMPDIR:-/tmp}/ait_stage_untracked_err.XXXXXX" 2>/dev/null)" \
+                || AIT_STAGE_UNTRACKED_ERRF=""
+            _ait_su_sink="${AIT_STAGE_UNTRACKED_ERRF:-/dev/null}"
+        fi
         # Record ownership BEFORE the mutating `add`, never after. A signal
         # landing in between would otherwise run the EXIT trap with an empty
         # ownership list, leaving a path git has ALREADY staged in the shared
@@ -1098,11 +1150,19 @@ ait_commit_paths_staging_untracked() {
         # verified rc 0, the genuinely staged entries in the same set are still
         # unstaged, and the worktree is untouched.
         AIT_STAGED_BY_US+=("$p")
-        if ! task_git add -- "$p" >/dev/null 2>&1; then
-            ait_unstage_staged_by_us
+        if ! task_git add -- "$p" >/dev/null 2>"$_ait_su_sink"; then
+            if [[ -n "$AIT_STAGE_UNTRACKED_ERRF" && -s "$AIT_STAGE_UNTRACKED_ERRF" ]]; then
+                cat "$AIT_STAGE_UNTRACKED_ERRF" >&2
+            fi
+            ait_unstage_staged_by_us   # also removes the capture file
             return 1
         fi
+        : > "$_ait_su_sink"
     done
+    if [[ -n "$AIT_STAGE_UNTRACKED_ERRF" ]]; then
+        rm -f -- "$AIT_STAGE_UNTRACKED_ERRF"
+        AIT_STAGE_UNTRACKED_ERRF=""
+    fi
 
     task_git_commit_scoped --no-stage "$msg" "$@" || rc=$?
     if [[ $rc -ne 0 ]]; then
