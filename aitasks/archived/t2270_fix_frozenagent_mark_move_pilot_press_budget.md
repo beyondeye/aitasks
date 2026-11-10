@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tests, textual]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2034
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-10 11:44
-updated_at: 2026-11-10 15:17
+updated_at: 2026-11-10 16:13
+completed_at: 2026-11-10 16:13
 ---
 
 ## Origin
@@ -75,3 +76,14 @@ Time the property, not the pilot.
 > **✅ gate:plan_approved** run=2026-11-10T13:17:18Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-10T14:07:00Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-10T14:13:24Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:50382dcace4db9ae
+
+> **✅ gate:risk_evaluated** run=2026-11-10T14:13:24Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2270/risk_evaluated_2026-11-10T14:13:24Z-risk_evaluated-a1.log`
