@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: [t2211_5]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [sitrep, documentation]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 created_at: 2026-11-05 15:37
-updated_at: 2026-11-05 15:37
+updated_at: 2026-11-10 16:11
 ---
 
 ## Context
