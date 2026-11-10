@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-10 08:22
-updated_at: 2026-11-10 08:48
+updated_at: 2026-11-10 09:59
 ---
 
 Register **Fable 5.2** (`claude-fable-5-2`) as a Claude Code model in the aitasks framework, following the Fable 5.1 precedent (t1680, commit 1a120ec73) and the recent Haiku 5.5 registration (t1916, af5bc8645).
@@ -40,3 +41,8 @@ Do every write through `.aitask-scripts/aitask_add_model.sh` (the `/aitask-add-m
 - `bash .aitask-scripts/aitask_codeagent.sh coauthor claudecode/fable5_2` → `AGENT_COAUTHOR_NAME:Claude Code/Fable 5.2`
 - the supersession lineage tests still pass: `bash tests/test_install_superseded_models.sh`, `tests/test_model_supersession.py` (through `bash tests/run_all_python_tests.sh --test-dir`, or directly), and `bash tests/test_codeagent.sh`
 - both registry files stay valid JSON and agree with each other on the new entry
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-10T07:59:58Z status=pass attempt=1 type=human
