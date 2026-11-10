@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t2211_3, t2037_2]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [sitrep, tui, tmux]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 created_at: 2026-11-05 15:37
-updated_at: 2026-11-05 15:37
+updated_at: 2026-11-10 09:35
 ---
 
 ## Context
