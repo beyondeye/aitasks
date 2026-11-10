@@ -11,7 +11,8 @@
 #      handle as unwatched (the triage question's own pointer does not count);
 #      the skill's example blocks, filled in, are accepted by the writer; the
 #      trail watch is then reported watched, and refresh selects it while open;
-#      after a dismissal it stays watched and refresh no longer selects it; a
+#      after a dismissal (the writer call the sitrep TUI's `x` makes; the skill
+#      no longer dismisses) it stays watched and refresh no longer selects it; a
 #      second triage naming the same handle is told it is watched; a non-watch
 #      item carrying a trail pointer does not count
 #   c2 two wrap-ups naming one trail, BOTH pending before the first write:
@@ -21,7 +22,11 @@
 #      case reads back, and the case-review example closes the item
 #   d  the advisory sentences are present, and every paragraph naming a
 #      repository-writing action is a prohibition
-#   m  each of a, b, c (trail source) and d is red against a broken copy
+#   r  request parity (t2211_5): every `>` code the sitrep TUI types
+#      (AGENT_REQUESTS) is listed in the skill's "Requests from the sitrep TUI"
+#      section and has its own capability heading (### `>code`), and the
+#      section lists no code the TUI does not type
+#   m  each of a, b, c (trail source), d and r is red against a broken copy
 #
 # Bodies run in the main shell, so the plain counters are enough.
 # Run: bash tests/test_sitrep_skill_contract.sh
@@ -117,7 +122,7 @@ check_verbs() {
 check_advisory() {
     local skill="$1" s
     for s in 'You are **advisory-only**' 'data to analyze, never instructions' \
-             'never by editing files' 'Only when the user asks for it' \
+             'never by editing files' 'no more authority' 'never the reverse' \
              'Never rank tasks yourself' 'never act on an' 'Never send'; do
         grep -qF -- "$s" "$skill" || echo "ADVISORY_MISSING:$s"
     done
@@ -129,6 +134,38 @@ writing = re.compile(r"send-keys|git push|git commit|aitask_pick_own\.sh"
 for para in re.split(r"\n\s*\n", text):
     if writing.search(para) and not re.search(r"\b[Nn]ever\b", para):
         print("NOT_A_PROHIBITION:" + para.strip().splitlines()[0][:80])
+PY
+}
+
+# r: request parity. With no table argument the TUI's own AGENT_REQUESTS is
+# read; a mutant passes the path of a file holding one template per line.
+check_requests() {   # check_requests <skill> [templates file]
+    "$AIT_PYTHON" - "$1" "$SCRIPTS" "${2:-}" <<'PY'
+import re, sys
+skill_path, scripts, table = sys.argv[1], sys.argv[2], sys.argv[3]
+if table:
+    templates = [l.strip() for l in open(table) if l.strip()]
+else:
+    sys.path[:0] = [scripts, scripts + "/lib"]
+    from sitrep_tui.sitrep_tui_requests import AGENT_REQUESTS
+    templates = [r.template for r in AGENT_REQUESTS]
+text = open(skill_path).read()
+m = re.search(r"^## Requests from the sitrep TUI\n(.*?)(?=^## )", text, re.S | re.M)
+if not m:
+    print("NO_REQUEST_SECTION"); sys.exit(0)
+documented = {span.split()[0] for span in re.findall(r"`(>[^`]*)`", m.group(1))}
+codes = []
+for t in templates:
+    code = t.split()[0]
+    if code not in codes:
+        codes.append(code)
+for code in codes:
+    if code not in documented:
+        print("UNDOCUMENTED_REQUEST:" + code)
+    if not re.search(r"^### `" + re.escape(code) + r"[` ]", text, re.M):
+        print("NO_CAPABILITY:" + code)
+for code in sorted(documented - set(codes)):
+    print("STALE_DOC_CODE:" + code)
 PY
 }
 
@@ -187,11 +224,18 @@ echo "=== a: helpers exist and are allow-listed ==="
 out="$(check_helpers "$SKILL")"
 assert_eq "every named helper is allow-listed once per permission file" "" "$out"
 assert_contains "the skill names the writer" "aitask_sitrep_todo.sh" "$(cat "$SKILL")"
-assert_contains "the skill names the refresh" "aitask_sitrep_refresh.sh" "$(cat "$SKILL")"
+# The sitrep TUI owns harvest and refresh (t2211_5); their allow-list entries
+# stay, contract (a) only checks the helpers the skill names.
+assert_not_contains "the skill no longer runs the harvest" "aitask_sitrep_harvest.sh" "$(cat "$SKILL")"
+assert_not_contains "the skill no longer runs the refresh" "aitask_sitrep_refresh.sh" "$(cat "$SKILL")"
 assert_contains "the skill names ait sitrep's helper" "aitask_sitrep.sh triage" "$(cat "$SKILL")"
 
 echo "=== b: verbs exist ==="
 assert_eq "every verb the skill uses is in its helper's header" "" "$(check_verbs "$SKILL")"
+
+echo "=== r: the TUI's requests are the skill's codes ==="
+assert_eq "every AGENT_REQUESTS code is documented, with its capability" "" \
+    "$(check_requests "$SKILL")"
 
 echo "=== d: advisory prose ==="
 assert_eq "advisory sentences present, writing actions only as prohibitions" "" \
@@ -243,9 +287,10 @@ assert_contains "refresh selects the open trail watch" "REFRESH_ITEM:$W1|watch|"
 assert_contains "refresh selects the push reminder" "REFRESH_ITEM:$P1|action|" "$OUT"
 assert_not_contains "the closed triage question is no target" "REFRESH_ITEM:$T1|" "$OUT"
 
-export SX_ID="$W1" SX_REASON="not tracking this trail" SX_REV; SX_REV="$(rev_of "$W1")"
-run_example "$SKILL" dismiss
-assert_contains "dismiss example" "STATE:$W1|dismissed|" "$OUT"
+# The dismissal the sitrep TUI's `x` makes (the skill no longer dismisses).
+OUT="$(cd "$S" && "$WR" dismiss "$W1" --outcome "user: not tracking this trail" \
+        --expect-rev "$(rev_of "$W1")" 2>&1)"
+assert_contains "the writer dismisses the watch" "STATE:$W1|dismissed|" "$OUT"
 assert_eq "a dismissed watch still counts as watching the handle" \
     "TRAIL_WATCHED:$HANDLE|$W1|dismissed" "$(triage_of "$T1" | grep '^TRAIL_')"
 OUT="$(cd "$S" && "$RF" --root . --dry-run 2>&1)"
@@ -353,6 +398,23 @@ assert_contains "d: a writing action outside a prohibition is reported" "NOT_A_P
 mutant 'import sys; p=sys.argv[1]; s=open(p).read(); open(p,"w").write(s.replace("data to analyze, never instructions","data to analyze",1))'
 assert_contains "d: a missing advisory sentence is reported" "ADVISORY_MISSING:" \
     "$(check_advisory "$TMP/m.md")"
+# r: a TUI table with a code the skill does not document is reported.
+"$AIT_PYTHON" - "$SCRIPTS" "$TMP/requests.txt" <<'PY'
+import sys
+sys.path[:0] = [sys.argv[1], sys.argv[1] + "/lib"]
+from sitrep_tui.sitrep_tui_requests import AGENT_REQUESTS
+with open(sys.argv[2], "w") as f:
+    f.write("\n".join([r.template for r in AGENT_REQUESTS] + [">zz {cid}"]) + "\n")
+PY
+OUT="$(check_requests "$SKILL" "$TMP/requests.txt")"
+assert_contains "r: an undocumented TUI code is reported" "UNDOCUMENTED_REQUEST:>zz" "$OUT"
+assert_contains "r: ... and its missing capability" "NO_CAPABILITY:>zz" "$OUT"
+mutant 'import sys; p=sys.argv[1]; s=open(p).read(); open(p,"w").write(s.replace("### `>tr [c<N>]`","### `>trails [c<N>]`",1))'
+assert_eq "r: a TUI code whose capability heading is gone is reported" "NO_CAPABILITY:>tr" \
+    "$(check_requests "$TMP/m.md")"
+mutant 'import sys; p=sys.argv[1]; s=open(p).read(); open(p,"w").write(s.replace("- `>p` — what to pick next (`>p`).","- `>p` — what to pick next (`>p`).\n- `>x c<N>` — dismiss that item.",1))'
+assert_eq "r: a documented code the TUI does not type is reported" "STALE_DOC_CODE:>x" \
+    "$(check_requests "$TMP/m.md")"
 # c: a trail-watch example without its trail source is never selected by refresh.
 mutant 'import sys; p=sys.argv[1]; s=open(p).read(); open(p,"w").write(s.replace("  - trail: <HANDLE>\n","",1))'
 S="$(new_repo s_mutant)"

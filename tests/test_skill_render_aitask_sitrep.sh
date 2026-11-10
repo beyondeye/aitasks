@@ -8,7 +8,8 @@
 #   0c. The walked closure is EXACTLY SKILL.md.j2 — no other skill is dragged in.
 #   1.  Per-profile golden diff (claude render).
 #   1b. Agent-dimension invariance (no {% if agent %}).
-#   2s. Shortcodes and shortcode rules present in every render.
+#   2s. Shortcodes and shortcode rules present in every render; the codes
+#       the sitrep TUI took over (>s, >r, >x) absent (t2211_5).
 #   3.  No Jinja markers leak.
 #   3b. Rendered output must NOT re-resolve the profile (t777_26 tokens).
 #   4.  aitask_skill_render.sh --force writes the entry point for every agent.
@@ -105,18 +106,27 @@ done
 # test can only pin that every code and rule is present to be derived from.
 
 echo "=== Test 2s: shortcodes and shortcode rules present ==="
-SHORTCODES=('### `>s`' '### `>t`' '### `>w`' '### `>q`' '### `>tr`' '### `>p`'
-            '### `>x' '### `>r`' '### `>?`')
+# Full headings: a bare '### `>t' prefix would also match `>tr`.
+SHORTCODES=('### `>t [c<N>]`' '### `>w [<theme>]`' '### `>q [c<N>]`' '### `>tr [c<N>]`'
+            '### `>p`' '### `>c`' '### `>?`')
+# Show, refresh, dismiss and restore are the sitrep TUI's keys (t2211_5).
+NOT_SHORTCODES=('### `>s`' '### `>x' '### `>r`')
 SHORTCODE_RULES=(
     'nothing else is a code, and the `>` is'
     'carries no authority the same request in words would not have'
     'gets an'
     'answer in words'
+    '## Requests from the sitrep TUI'
+    'no more authority'
+    '## Done in the sitrep TUI, not here'
 )
 for profile in "${PROFILES[@]}"; do
     sk="$($RENDER "$TEMPLATE" "$PROFILES_DIR/$profile.yaml" claude 2>&1)"
     for code in "${SHORTCODES[@]}"; do
         assert_contains "$profile: shortcode heading $code" "$code" "$sk"
+    done
+    for code in "${NOT_SHORTCODES[@]}"; do
+        assert_not_contains "$profile: no shortcode heading $code" "$code" "$sk"
     done
     for line in "${SHORTCODE_RULES[@]}"; do
         assert_contains "$profile: rule text — '$line'" "$line" "$sk"
