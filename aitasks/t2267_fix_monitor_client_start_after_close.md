@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2034
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-09 23:19
-updated_at: 2026-11-10 08:50
+updated_at: 2026-11-10 10:33
 ---
 
 ## Origin
@@ -66,3 +67,8 @@ From t2259 (archived plan `aiplans/archived/p2259_fix_monitor_client_shared_star
   loop stays responsive) or only scheduling latency under load. Either widen it
   with a recorded rationale, or measure the event-loop stall directly. Keep a
   control that still catches a genuinely blocked loop.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-10T08:33:18Z status=pass attempt=1 type=human
