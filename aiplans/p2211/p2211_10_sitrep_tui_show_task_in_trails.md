@@ -147,6 +147,26 @@ Reality checks (HEAD 6d44bd275, 2026-11-09):
    - Keep `TRAILS_RESCAN_INTERVAL = 60` if warm ≤ 2 s; otherwise raise it to 120 and
      note why.
 
+**Pre-phase results (2026-11-09):**
+- characterize_trails_mailbox:
+  - before any edit: `test_trails_focus_writer.py` + `test_trails_app.py` +
+    `test_trails_focus_mailbox_live.py` 134 passed; `OpenInBoard` 7 passed;
+  - after the edits: the same 134 (+42 `test_trail_links.py`) passed with no
+    existing test body edited;
+  - mutant (capability ignored, `if True:` in the receiver branch) in a scratch copy →
+    only `LaunchWithTaskTests::test_an_older_receiver_gets_the_bare_handle_and_a_warning`
+    red (1 failed, 33 passed).
+- tmux_seam_inventory:
+  - the only seam is `_PaneStore.patches` in `tests/test_trails_app.py` (every
+    `focus_pane=` test goes through it). It now patches both capability functions.
+  - They log to a separate `cap_log` / `order`, because the existing tests pin the
+    exact `log` verb lists (`["verify","read","mark"]`, last `"unmark"`).
+  - Run under `AITASKS_TMUX_SOCKET=t2211seam` with a private `TMUX_TMPDIR` and a logging
+    `tmux` shim first on PATH: 125 passed, **zero** tmux invocations, no socket
+    created.
+- measure_membership_scan: warm export 843 / 677 / 694 ms, uncached
+  (`AIT_TRAIL_CACHE=0`) 3596 ms (18 trails, 0 unreadable) → interval kept at 60 s.
+
 ### 1. `lib/trail_links.py` — waves in the export, a public runner
 - `build_export()`: each trail dict gains `"waves": {ref: [ordinal, ...]}`, built from
   `doc["waves"][*]["ordinal"]` over `entries[*]["task"]`. The change is additive:
@@ -519,3 +539,86 @@ Reality checks (HEAD 6d44bd275, 2026-11-09):
 ## Step 9
 Commit `feature: … (t2211_10)` (code, named paths) and `ait: Update plan for t2211_10`,
 then archive per the shared workflow.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-10)
+- **Requested by user:** `_focus_trail_member`'s verified-success branch (the target card already holds the focus) returned without revealing the card. With its column scrolled away, a request for that card cleared `_pending_card` and left the card off-screen. Reveal it in that branch and test viewport visibility, not only the focused filename.
+- **Changes made:**
+  - The success branch calls `card.scroll_visible(animate=False)`; the focus branch uses `animate=False` too.
+  - New `TrailCardFocusTests::test_a_focused_card_scrolled_out_of_view_is_revealed_by_a_request`:
+    - a tall wave puts the target last, after 20 ghost members;
+    - the first request is asserted in the column viewport (`_in_view`: virtual offset vs `scroll_offset` and the scrollable height);
+    - the user scrolls the column home with focus kept (precondition: out of view);
+    - a second request for the same card → in view again, `_pending_card` cleared.
+  - Pre-fix control in a scratch copy (no reveal in that branch): the test fails already at the FIRST request's viewport assertion. So the defect was wider than reported: on a fresh render `focus()` / `scroll_visible` run before the column's layout settles, and the verified branch is what really reveals a card far down a long wave.
+- **Files affected:** `.aitask-scripts/board/trails_app.py`, `tests/test_trails_app.py`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `lib/trail_links.py`: the export gains an additive per-trail `waves` (`{ref: [ordinal…]}`, `_member_waves`) and a public one-root runner `export_project(root)`.
+  - `lib/agent_launch_utils.py`:
+    - `TRAILS_CARD_FOCUS_OPTION` (`@aitask_trails_card_focus`) and the `_TRAILS_TARGET_RE` grammar;
+    - `parse_trails_focus_target` (`parse_trails_focus_request` unchanged);
+    - `mark_/unmark_trails_card_focus`, `_trails_receiver_takes_task` (one `display-message`, pid equality) and `trails_supports_task_focus`;
+    - `launch_or_focus_trails(…, task_id=None)`: task form only to a capable receiver, bare handle + warning otherwise; `--task` on the cold path when supported. The argv without a task is unchanged.
+  - `board/trails_app.py`:
+    - `--task` (needs `--trail`, `t` prefix dropped) and `initial_task`;
+    - the capability stamped before the receiver stamp and unmarked after it;
+    - `_pending_trail_focus` carries the task; resumable `_pending_card`;
+    - `_trail_active` is a property whose setter cancels the card request on any move to another trail;
+    - `_activate_trail` override → `_schedule_card_focus`; `_drain_trail_focus` resumes a card a modal interrupted;
+    - `_focus_trail_member` verifies focus on the next refresh and reveals the card (`scroll_visible(animate=False)`).
+  - `sitrep_tui/sitrep_tui_widgets.py` (new, `SelectOnClickList` moved; re-exported from the app).
+  - `sitrep_tui/sitrep_tui_trails.py` (new): `TrailRef` / `TaskTrails` / `Membership`, `membership_from_export`, `scan_membership`, `TrailPickerDialog`, `TRAILS_RESCAN_INTERVAL`.
+  - `sitrep_tui_actions.py`:
+    - `z` (`open_in_trails`) in `ACTION_BINDINGS` / `ITEM_ACTIONS`;
+    - the scan worker (one at a time + dirty rerun; the callback writes only the active details screen);
+    - `action_open_in_trails` (highlighted row / single trail / picker with a re-resolving callback), `open_trail_from_details`;
+    - `_jump_in_project_session`, shared by `open_in_board` (messages unchanged) and the new `open_in_trails`.
+  - `sitrep_tui_app.py`:
+    - `ItemDetailScreen(trails=…)`: the `Trails` body line, handle-keyed rows (`trail:<handle>`), disabled looking / unknown / partial rows;
+    - `set_trails` restores the highlight by id (cleared + toast when the trail vanished), plus `highlighted_trail` and `on_screen_resume`;
+    - rescans on `_apply` and on opening a task item's details; `main()` passes `scan_membership`.
+  - Docs: `tmux_gateway.md` (new `@aitask_trails_card_focus` row; the payload grammar in the `@aitask_trails_focus` row) and `sitrep.md` (show in trails + membership).
+  - Tests:
+    - new `tests/test_sitrep_tui_trails.py` (14) and `tests/test_sitrep_tui_trails_actions.py` (26);
+    - `test_trails_focus_writer.py` +4 classes; `test_trails_app.py` `TrailCardFocusTests` (16) + the `_PaneStore` capability seam; `test_trails_focus_mailbox_live.py` +4 live tests.
+- **Deviations from plan:**
+  - (1) The details tests live in a new `tests/test_sitrep_tui_trails_actions.py` (it reuses `test_sitrep_tui_actions._Case`), because that file is already 1,500+ lines.
+  - (2) `_focus_trail_member` treats `focus()` as unverified and checks on the next refresh. Right after an activation the found card may still be the outgoing render's (removal is asynchronous), and the startup rescue then focuses the first card. Found with instrumented logging; the "mailbox request" and "held by a modal" tests failed intermittently before this.
+  - (3) Message templates in `_jump_in_project_session` are callables, not `str.format` templates: a trail name is untrusted text and may contain braces.
+  - (4) `_TRAILS_TARGET_RE` ends in `\Z`, so it refuses a trailing newline that `HANDLE_RE`'s `$` accepts. This one difference is pinned in a test.
+  - (5) No startup kick in `_start_actions`: the host's first `_apply` already kicks the scan.
+- **Issues encountered:**
+  - The full-suite run: 1 failure out of 11,855, `test_board_movement.py::BoardMovementBenchmarkTests::test_attribution_tier_localises_an_injected_cost`: "`render` absorbed 38.9 ms of a cost injected into `refocus` (bound 25.0 ms)".
+    - It came during a load average of about 6 (parallel suites from other sessions);
+    - it passed 3/3 in isolation and in the post-review run of the whole module (201 passed);
+    - this task does not touch board rendering. Load-dependent timing, not caused by this change.
+  - Mutants (isolated scratch copies), each red only on its target:
+    - capability ignored → the older-receiver writer test;
+    - bounded retry + drop under a modal → the post-activation-window test;
+    - cancellation only in `_activate_trail` → `test_leaving_the_trail_by_any_route_cancels_the_card`;
+    - positional `trail:{i}` ids → all 3 `SelectionIdentityTests` (at the highlighted-id assertion);
+    - no reveal in the verified branch → the new viewport test (at its first request).
+    - Also run: a one-shot (cleared at scheduling) variant → 7 failures, including the post-activation test.
+- **Key decisions:**
+  - Backward compatibility is by capability, not by grammar. An older TrailsApp must still open the trail, and its parser refuses any second token. So the writer reads the receiver's `@aitask_trails_card_focus` and sends the task form only when its pid equals the receiver stamp's.
+  - Membership goes through the `trail_links` export subprocess (cwd = root), because trail discovery is cwd-relative and the TUI's root is an argument. The content-keyed discovery cache makes a warm scan cost about 0.7 s.
+  - The details screen pins `z`: the highlighted trail row, else 1 trail → open, 2+ → the picker.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/artifact_manifest.py:58` — `HANDLE_RE` ends in `$`, so it also matches a handle with a trailing newline (`"art:a\n"`). Its validators (`launch_or_focus_trails`, `trails_app.main --trail`) therefore accept a newline-terminated handle.
+- **Notes for sibling tasks:**
+  - **t2211_4 (agent requests):** `z` is taken. Item actions go in `actions.ITEM_ACTIONS` with a predicate in `_item_action_ok`, and `check_action` already gates main + details. For a list of choices, `trails_model.TrailPickerDialog` (a click selects, Enter opens) is the pattern. Details rows that follow background state are keyed by stable identity (`trail:<handle>`) and restored by id; see `ItemDetailScreen.set_trails`.
+  - **t2211_6 (docs):**
+    - key `z` "Trails" (main list + details);
+    - the details `Trails` line and the "In trail: <name> (<handle>) — wave N" rows (Enter opens);
+    - the picker for 2+ trails;
+    - `ait trails --trail <h> --task <id>`;
+    - the states (looking / unknown / partial);
+    - a running trails too old for the task form still opens the trail and says so.
+  - **t2211_7 (manual):** in a real sitrep window:
+    - details list the trails;
+    - Enter on a row opens `ait trails` with the card focused;
+    - `z` with trails running (handoff), not running (new window), and from another session (client switch);
+    - a long wave: the card is scrolled into view.
