@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [codeagent, models]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -15,7 +15,8 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-10 08:22
-updated_at: 2026-11-10 09:59
+updated_at: 2026-11-10 10:33
+completed_at: 2026-11-10 10:33
 ---
 
 Register **Fable 5.2** (`claude-fable-5-2`) as a Claude Code model in the aitasks framework, following the Fable 5.1 precedent (t1680, commit 1a120ec73) and the recent Haiku 5.5 registration (t1916, af5bc8645).
@@ -50,3 +51,14 @@ Do every write through `.aitask-scripts/aitask_add_model.sh` (the `/aitask-add-m
 > **✅ gate:plan_approved** run=2026-11-10T07:59:58Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-10T08:29:45Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-10T08:33:28Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:d264acc37d32056c
+
+> **✅ gate:risk_evaluated** run=2026-11-10T08:33:28Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2268/risk_evaluated_2026-11-10T08:33:28Z-risk_evaluated-a1.log`
