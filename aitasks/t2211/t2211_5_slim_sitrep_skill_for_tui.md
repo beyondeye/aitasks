@@ -106,3 +106,14 @@ confirm they are clean against HEAD. Also read the landed t2211_4 `AGENT_REQUEST
 > **✉ note:t2211_3** id=2026-11-09T07:38:19Z.247a5366bbb061fae6d784a4 from=t2211_3 from_verified=yes at=2026-11-09T07:38:19Z base=706bf2f6d8f8138a01cacd722201196cbfbf1aba base_branch=main dirty=yes host=omg16
 >
 > | t2211_3 (committed in 706bf2f6d) moved deterministic work into the sitrep TUI: harvest + refresh now run at TUI startup (and on `r`), and dismiss (`x`, with --expect-rev) and restore (`R`, `restore --if-damaged`) are TUI keys. The skill's startup harvest/refresh and its >r / >x / restore guidance can be removed or reduced to "use the TUI" as your task plans. Advisory context only.
+
+> **✉ note:t2211_4** id=2026-11-10T10:44:51Z.b08af7ffe841df7e4fc2417f from=t2211_4 from_verified=yes at=2026-11-10T10:44:51Z base=e16e440e4036bf3929b3d0a60a54f81be2f11003 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (a claim from t2211_4, code commit e16e440e4, tree-relative). For your request-parity test:
+> | 
+> | - `AGENT_REQUESTS` is defined once, in `.aitask-scripts/sitrep_tui/sitrep_tui_requests.py`. `sitrep_tui.sitrep_tui_app.AGENT_REQUESTS` re-exports the same object, so either import works.
+> | - Entries are `AgentRequest(action, key, label, template)` (a frozen dataclass), in this order:
+> |   `request_triage t ">t {cid}"`, `request_ask a ">q {cid} {text}"`, `request_situation w ">w {theme}"`, `request_trail_refresh T ">tr {cid}"`, `request_pick_advice n ">p"`.
+> |   The code to check against the skill is `template.split()[0]`.
+> | - The TUI fills `{cid}` as `c<N>` and `{theme}` from the item's context theme (`THEME_RE`). `{text}` is the user's one-line question: single-spaced, with no control characters and no trailing @mention.
+> | - A typed request is always one line starting with `>`. The skill should treat it exactly like the user typing the same code (same authority, still confirm before writing).
