@@ -154,3 +154,11 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Registered `claudecode/fable5_2` (`claude-fable-5-2`) and `claudecode/fable5_2_1m` (`claude-fable-5-2[1m]`) via `aitask_add_model.sh add-json` (dry-run first). Each was appended to `aitasks/metadata/models_claudecode.json` and synced to `seed/models_claudecode.json`, with empty `verified`/`verifiedstats`. Recorded `fable5_1 → fable5_2` in `.aitask-scripts/lib/model_supersessions.json` via `record-supersession` (`RECORDED:claudecode/fable5_1->claudecode/fable5_2`, plus `SKIPPED:sibling_unregistered:claudecode/fable5_1_1m->claudecode/fable5_2_1m`, as expected). There was no promotion, no `DEFAULT_AGENT_STRING` change and no test change.
+- **Deviations from plan:** None. The `fable5_1` notes were not refreshed: the helper has no notes-edit subcommand, and the task requires every write to go through it.
+- **Issues encountered:** The `[1m]` decision took three review rounds. Alias presence was not proof of emission, the outer `uY` normaliser had to be traced, and the surviving `CLAUDE_CODE_DISABLE_1M_CONTEXT` + explicit-id route still counts as "it does". The variant-check section above is the final trace. No Fable session transcripts exist on this machine, so it rests on the static trace of CLI 2.1.322.
+- **Verification run:** resolver `claude-fable-5-2` → `AGENT_STRING:claudecode/fable5_2`; `'claude-fable-5-2[1m]'` → `AGENT_STRING:claudecode/fable5_2_1m`; coauthor for both → `Claude Code/Fable 5.2`; seed/metadata entries identical, and the name order is identical; lineage `fable5_1.by=fable5_2`, `fable5.by=fable5_1`; `test_install_superseded_models.sh` 23/23, `test_codeagent.sh` all passed, `test_add_model.sh` 142/142, `test_model_supersession.py` 57 OK.
+- **Key decisions:** Register the `_1m` sibling for the one surviving route. It is the same model, so its label is Fable 5.2.
+- **Upstream defects identified:** None
