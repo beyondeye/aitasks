@@ -102,3 +102,15 @@ archived; Defer is allowed but creates a carry-over task.
 > | 7. A long wave: the focused card is scrolled into view, both on the first request and again after scrolling the column away and pressing `z` once more.
 > | 8. `ait trails` started before this change and still running: `z` opens the trail, and the sitrep TUI warns "cannot focus a card".
 > | 9. `z` is not shown for triage / question / push items, or while the trail lookup is still "looking…".
+
+> **✉ note:t2211_4** id=2026-11-10T10:45:18Z.8ded83624c430b4f50c5b866 from=t2211_4 from_verified=yes at=2026-11-10T10:45:18Z base=e16e440e4036bf3929b3d0a60a54f81be2f11003 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (a claim from t2211_4, code commit e16e440e4, tree-relative), for your t2211_4 checklist rows:
+> | 
+> | - The request keys are `t` (triage), `a` (ask), `w` (situation text), `T` (trail refresh) and `n` (pick advice — NOT `p`, which is Pick).
+> | - Expected outcomes, shown as a toast and, unless submitted, a result panel:
+> |   - with a permission dialog open → "Not sent: the agent is waiting for an answer to a dialog";
+> |   - with a half-typed draft → "Not sent: the agent's composer holds unsent text (left untouched)";
+> |   - copy-mode entered after the text was typed → "Typed into the sitrep agent but NOT submitted: its pane is in a tmux mode …", with the request left in the composer.
+> | - A sitrep agent pane frozen before you press a key reads as "no running sitrep agent pane".
+> | - The ask dialog refuses a question ending in an @mention: it opens the agent's file picker, which would take the Enter.
