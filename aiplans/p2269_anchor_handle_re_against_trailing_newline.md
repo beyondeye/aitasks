@@ -171,3 +171,35 @@ None identified. The change is a one-token regex anchor edit in three files. All
 
 ### Goal-achievement risk: low
 None identified. Every regex and consumer the task names, plus the two duplicate copies (`attachment_meta.HASH_RE`, `artifact_registry.BACKEND_RE`), gets the fix and a per-consumer regression case with a pre-fix control. The t2211_10 grammar-equality test is flipped as requested.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `HANDLE_RE`, `HASH_RE` and `BACKEND_RE` (`lib/artifact_manifest.py`), `HASH_RE` (`lib/attachment_meta.py`) and `BACKEND_RE` (`lib/artifact_registry.py`) now end in `\Z`; the first two files carry a comment explaining why.
+  - `tests/test_trails_focus_writer.py` grammar-equality test flipped: `"art:a\n"` was added to the handles loop, and `HANDLE_RE` now refuses it.
+  - New file `tests/test_validator_regex_trailing_newline.py` with one case per consumer: R1-R5, M1-M3, A1, G1, T1, L1, P1.
+- **Deviations from plan:** None. Step 7 (the `cmd_create` `backend=` observation) turned out not to be a defect. `atomic_write()` calls `validate(rec)` before writing, so `create ... backend="BAD NAME"` exits 1 and leaves no file (checked in a scratch dir).
+- **Issues encountered:**
+  - The full Python suite reported `PYTHON SUITE: FAILED (runner=pytest, exit=1)` with a single failure: `test_metadata_writer_inventory.py::NewWriterTripwire::test_no_unclassified_file_writes_metadata`.
+  - It names `.aitask-scripts/aitask_issue_update.sh` and `.aitask-scripts/lib/release_issue_ledger.sh`, both touched by `cd1699c9f` (t2261_1), which landed on main mid-session. It is unrelated to this change and owned by t2261.
+  - The shared worktree held concurrent sessions' uncommitted edits (`tmux_exec.py`, sitrep, monitor, docs). They were left untouched; the code commit names only this task's five paths.
+- **Key decisions:**
+  - `\Z` in the regex definitions rather than `fullmatch` at each call site. This makes it one change per regex, consumers keep `.match()`, and it matches `_TRAILS_TARGET_RE` / `BOARD_TASK_ID_RE`.
+  - Refusal fixtures were built so the old code accepts them, after plan-review feedback:
+    - T1 and M3.handle use the matching malformed filename `a\n.json`;
+    - G1.default asserts the new `is not a valid backend name` diagnostic, because the old code also died, with "not registered";
+    - the P1 `TrailsApp` stub raises `_Booted`, so the pre-fix run never booted the app.
+- **Pre-fix control (recorded):**
+  - Baseline, with tests applied and regexes unmodified: 14 failed, 41 passed. The failing set is exactly the D set:
+    - `RegexAnchorTests::test_trailing_newline_is_refused`, all 5 subtests red;
+    - `ManifestPathTests::test_newline_handle_dies`;
+    - `ManifestCliCreateTests::test_newline_handle_is_refused_and_writes_nothing` and `::test_newline_hash_is_refused_and_writes_nothing`;
+    - `ManifestViolationTests::test_newline_handle_under_its_own_filename`, `::test_newline_version_hash` and `::test_newline_backend`;
+    - `AttachmentMetaPathTests::test_newline_hash_dies`;
+    - `ArtifactRegistryTests::test_newline_backend_key_dies` and `::test_newline_default_backend_is_an_invalid_name`;
+    - `ManifestCurrentTests::test_newline_handle_is_refused_even_with_a_matching_file`;
+    - `LaunchOrFocusTrailsTests::test_newline_handle_is_refused_before_tmux`;
+    - `TrailsMainTests::test_newline_handle_is_a_usage_error`;
+    - `test_trails_focus_writer.py::TrailsTargetParseTests::test_the_target_grammar_is_the_handle_and_task_id_grammars` (F2/F3).
+  - Every P/S case was green on the baseline.
+  - After the fix: 55 passed, 0 failed. The bash regressions also passed: artifact_manifest_lib 50/50, attachment_meta_lib 11/11, artifact_dir_backend 152/152, artifact_gitbranch_backend 298/298. So did trail_discovery_cache, settings_artifacts_tab and linked_trail_jump (112 passed).
+- **Upstream defects identified:** None
