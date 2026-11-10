@@ -454,6 +454,41 @@ doc_update:
 default_profiles:
 
 # ──────────────────────────────────────────────────────────────────────
+# Release notifications — `ait release-notify` comments "Released in <tag>"
+# on the issues whose fixes ship in a release. It posts only when the release
+# is verifiably published, and only from one designated machine.
+#
+# release_notify_host
+#   The one machine that posts, compared byte-for-byte with `hostname`. Unset
+#   means no machine posts. There is no automatic failover: to move it, make
+#   sure no run is in progress on the old machine, change the value, then run
+#   `./ait sync` on both machines.
+#
+# release_publication_workflow
+#   GitHub only: a workflow file whose run for the tag and its commit must
+#   have concluded `success`.
+#
+# release_publication_assets
+#   Asset names that must be uploaded, non-empty release assets. A string or
+#   a list. Only {tag} and {version} (the tag without a leading v) may appear.
+#
+# release_publication_checksum_manifests
+#   Globs of sha256sum manifests among the assets; every file a matching
+#   manifest lists must itself be a published asset.
+#
+# With none of the release_publication_* keys set, the release must only
+# exist, match the tag, and not be a draft or upcoming.
+#
+# Example:
+#   release_notify_host: build-box
+#   release_publication_workflow: release.yml
+#   release_publication_assets:
+#     - myapp-{tag}.tar.gz
+#     - myapp_{version}_amd64.deb
+#   release_publication_checksum_manifests: "*_SHA256SUMS.txt"
+# ──────────────────────────────────────────────────────────────────────
+
+# ──────────────────────────────────────────────────────────────────────
 # tmux — Tmux integration settings.
 #
 # These settings control how aitasks integrates with tmux sessions.

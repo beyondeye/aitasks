@@ -70,6 +70,7 @@ Integration:
   issue-import   Import tasks from GitHub/GitLab issues
   pr-import      Import tasks from GitHub/GitLab pull requests
   issue-update   Update/close linked issues
+  release-notify Comment "Released in vX.Y.Z" on resolved issues
 
 Reporting:
   stats          Show task completion statistics
@@ -242,6 +243,7 @@ case "${1:-help}" in
     stats-tui)    shift; exec "$SCRIPTS_DIR/aitask_stats_tui.sh" "$@" ;;
     zip-old)      shift; exec "$SCRIPTS_DIR/aitask_zip_old.sh" "$@" ;;
     issue-update) shift; exec "$SCRIPTS_DIR/aitask_issue_update.sh" "$@" ;;
+    release-notify) shift; exec "$SCRIPTS_DIR/aitask_release_notify.sh" "$@" ;;
     skillrun)     shift; exec "$SCRIPTS_DIR/aitask_skillrun.sh" "$@" ;;
     setup)        shift; exec "$SCRIPTS_DIR/aitask_setup.sh" "$@" ;;
     changelog)    shift; exec "$SCRIPTS_DIR/aitask_changelog.sh" "$@" ;;

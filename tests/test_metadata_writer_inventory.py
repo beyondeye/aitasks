@@ -108,6 +108,14 @@ WIRED: dict[str, str] = {
     # The contributor list, which established the file-naming-message rule
     ".aitask-scripts/aitask_pick_own.sh::store_email": "task_git_commit_scoped",
     ".aitask-scripts/aitask_create.sh::add_email_to_file": "task_git_commit_scoped",
+    # The release-issue ledger, aitasks/metadata/release_issues/ (t2261). The
+    # writers are subshell functions (`ril_record() (`, `ril_move_released() (`,
+    # `_ril_resume_locked`'s callers), which _function_bodies does not see as
+    # function heads, so the pins name the commit helpers they all go through.
+    # Inherited from t2261_1 (unclassified at cd1699c9f; classified in t2261_2):
+    ".aitask-scripts/lib/release_issue_ledger.sh::_ril_commit_record": "ait_commit_paths_staging_untracked",
+    # Added by t2261_2: the move pending/ -> released/<tag>/ and its resume.
+    ".aitask-scripts/lib/release_issue_ledger.sh::_ril_commit_move": "ait_commit_paths_staging_untracked",
 }
 
 KNOWN_UNCOMMITTED: dict[str, str] = {
@@ -147,6 +155,11 @@ KNOWN_UNCOMMITTED: dict[str, str] = {
     ".aitask-scripts/aitask_model_supersession.py::cmd_record":
         "writes a caller-supplied temp file; aitask_add_model.sh installs it as "
         ".aitask-scripts/lib/model_supersessions.json, which is framework code",
+    # t2261_2: on a failed move, restores the pending record's saved bytes,
+    # and only while HEAD still holds that path — the worktree returns to the
+    # committed state, so there is nothing to commit.
+    ".aitask-scripts/lib/release_issue_ledger.sh::_ril_move_cleanup":
+        "restores a tracked record to its committed bytes; nothing to commit",
     # Existence-only: `touch` creates an empty file and writes no content, so
     # there is nothing to attribute.
     ".aitask-scripts/aitask_update.sh::ensure_task_types_file": "touch only, no content",
@@ -201,6 +214,17 @@ PINNED_FILES = frozenset(
     # (outbox entries, `.err` sidecars, `fetched_at`) and git refs (t1981_1).
     ".aitask-scripts/lib/relations_store.py",
     ".aitask-scripts/lib/artifact_backends/dir.sh",
+    # Release-issue ledger callers (t2261). Each writes only temporary capture
+    # files for a helper's one-line result; every durable ledger write is
+    # delegated to lib/release_issue_ledger.sh, which commits (WIRED above).
+    # Inherited from t2261_1 (unclassified at cd1699c9f; classified in t2261_2):
+    ".aitask-scripts/aitask_issue_update.sh",
+    # Added by t2261_2:
+    ".aitask-scripts/aitask_release_notify.sh",
+    # Added by t2261_2: reads aitasks/metadata/project_config.yaml (the release
+    # publication policy and release_notify_host) and writes only its own
+    # mktemp directory (API stderr, downloaded checksum manifests).
+    ".aitask-scripts/lib/release_publication.sh",
     ".aitask-scripts/lib/gate_verifier_lib.sh",
     ".aitask-scripts/lib/userconfig_persist.py",
 })

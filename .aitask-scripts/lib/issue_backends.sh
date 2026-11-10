@@ -72,6 +72,23 @@ github_close_issue() {
     fi
 }
 
+# List every comment body on an issue (all pages), for a marker search.
+# Input: the issue URL, https://<host>/<owner>/<repo>/issues/<n>
+# Output: the bodies on stdout, rc 0. ANY failure — a URL that does not parse,
+# a failed or partial API call — is non-zero, which means UNKNOWN, never "no
+# comments": a caller must not read a failed listing as "the marker is absent".
+github_list_comment_bodies() {
+    local url="$1" host owner repo num
+    local -a host_args=()
+    [[ "$url" =~ ^https?://([^/]+)/([^/]+)/([^/]+)/issues/([0123456789]+)/?$ ]] || return 2
+    host="${BASH_REMATCH[1]}"
+    owner="${BASH_REMATCH[2]}"
+    repo="${BASH_REMATCH[3]}"
+    num="${BASH_REMATCH[4]}"
+    if [[ "$host" != "github.com" ]]; then host_args=(--hostname "$host"); fi
+    gh api --paginate "${host_args[@]}" "repos/$owner/$repo/issues/$num/comments" --jq '.[].body'
+}
+
 # --- GitLab Backend ---
 
 gitlab_check_cli() {
@@ -137,6 +154,26 @@ gitlab_close_issue() {
     fi
     # shellcheck disable=SC2046  # intended split of "-R <slug>" (see above)
     glab issue close "$issue_num" $(glab_repo_flag)
+}
+
+# List every note body on an issue (all pages), for a marker search.
+# Input: the issue URL, https://<host>/<group>[/<subgroup>...]/<project>/-/issues/<iid>
+# Output: the bodies on stdout, rc 0; any failure is non-zero = UNKNOWN (see
+# github_list_comment_bodies). `glab api --paginate` prints one JSON array per
+# page, so the bodies are taken with jq over the whole stream.
+gitlab_list_comment_bodies() {
+    local url="$1" host slug iid enc out
+    local -a host_args=()
+    [[ "$url" =~ ^https?://([^/]+)/(.+)/-/issues/([0123456789]+)/?$ ]] || return 2
+    host="${BASH_REMATCH[1]}"
+    slug="${BASH_REMATCH[2]}"
+    iid="${BASH_REMATCH[3]}"
+    [[ "$slug" =~ ^[ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._/-]+$ ]] || return 2
+    enc="${slug//\//%2F}"
+    if [[ "$host" != "gitlab.com" ]]; then host_args=(--hostname "$host"); fi
+    command -v jq >/dev/null 2>&1 || return 1
+    out="$(glab api "${host_args[@]}" --paginate "projects/$enc/issues/$iid/notes?per_page=100")" || return 1
+    printf '%s' "$out" | jq -r '.[].body'
 }
 
 # --- Bitbucket Backend ---
@@ -253,6 +290,18 @@ source_add_comment() {
         gitlab) gitlab_add_comment "$issue_ref" "$body" ;;
         bitbucket) bitbucket_add_comment "$issue_ref" "$body" ;;
         *) die "Unknown source: $SOURCE" ;;
+    esac
+}
+
+# source_list_comment_bodies <issue_url> — tri-state comment listing (see
+# github_list_comment_bodies). GitHub and GitLab only: anything else is
+# non-zero (unknown), never an empty listing.
+source_list_comment_bodies() {
+    local url="$1"
+    case "$SOURCE" in
+        github) github_list_comment_bodies "$url" ;;
+        gitlab) gitlab_list_comment_bodies "$url" ;;
+        *) return 1 ;;
     esac
 }
 

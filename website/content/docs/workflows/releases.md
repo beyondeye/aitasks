@@ -16,7 +16,8 @@ Documenting what changed in a new release is one of the most tedious tasks in so
 2. **Check docs coverage (optional)** — Run [`/aitask-docs-gap`](../../skills/aitask-docs-gap/) to find shipped changes missing website documentation; it creates one documentation task capturing any gaps
 3. **Create release** — Run `./create_new_release.sh` to bump the version, create a git tag, and push
 4. **Publish** — GitHub Actions automatically builds a release tarball and publishes release notes extracted from the changelog
-5. **Blog post** — Run `./website/new_release_post.sh` to scaffold a blog post, then write an informal summary of the release highlights
+5. **Notify resolved issues** — `./create_new_release.sh` then waits for the release workflow to finish and the release assets to be published, and runs [`ait release-notify`]({{< relref "/docs/commands/issue-integration#ait-release-notify" >}}) for the new tag: every issue resolved by a task in the release gets a "Released in vX.Y.Z" comment. If the workflow fails, the wait times out, or a check cannot pass, nothing is posted and the script prints the retry command, `./wait_release_and_notify.sh vX.Y.Z`
+6. **Blog post** — Run `./website/new_release_post.sh` to scaffold a blog post, then write an informal summary of the release highlights
 
 ## Walkthrough: Releasing v0.4.0
 
@@ -117,6 +118,8 @@ Commit messages with task IDs          Archived plan files
        create_new_release.sh (version bump + tag + push)
                ↓
        GitHub Actions (release tarball + docs deploy)
+               ↓
+       wait_release_and_notify.sh → ait release-notify ("Released in vX.Y.Z" on resolved issues)
 ```
 
 Each component feeds the next: [`/aitask-pick`](../../skills/aitask-pick/) enforces the commit message convention (`<issue_type>: <description> (tNN)`), the archival step saves plan files with implementation notes, and [`ait changelog --gather`](../../commands/issue-integration/#ait-changelog) harvests both to produce the raw material for release notes.

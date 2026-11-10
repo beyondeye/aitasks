@@ -112,3 +112,14 @@ git push origin main --tags
 echo ""
 echo "Done! Release workflow triggered for v$new_version."
 echo "Check: https://github.com/beyondeye/aitasks/actions"
+
+# Tell the issues this release resolves, once the workflow has published it.
+echo ""
+echo "Waiting for the release workflow to publish v$new_version before notifying resolved issues..."
+notify_rc=0
+./wait_release_and_notify.sh "v$new_version" || notify_rc=$?
+if [[ $notify_rc -ne 0 ]]; then
+  echo -e "\033[1;33mWARNING:\033[0m Release v$new_version was pushed, but issue notifications are incomplete (exit $notify_rc)."
+  echo "Retry: ./wait_release_and_notify.sh v$new_version"
+  exit "$notify_rc"
+fi

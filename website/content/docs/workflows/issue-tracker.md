@@ -17,6 +17,8 @@ The framework fully supports issue-based development across GitHub, GitLab, and 
 
 3. **Close** — During post-implementation, the [`/aitask-pick`](../../skills/aitask-pick/) workflow detects the linked `issue` field and offers to update the issue. Choose from: close with implementation notes, comment only, close silently, or skip. The [`ait issue-update`](../../commands/issue-integration/#ait-issue-update) command automatically extracts implementation notes from the archived plan file and detects associated commits by searching git log for the `(t<task_id>)` pattern in commit messages
 
+4. **Release** — The updated issue is also recorded in a release ledger. Once a release containing the task's commits is published, [`ait release-notify`]({{< relref "/docs/commands/issue-integration#ait-release-notify" >}}) comments "Released in vX.Y.Z" on the issue with a link to the release, so the reporter learns which version ships the fix. It runs from one designated machine and only after the release is verifiably published
+
 ## Batch Import
 
 ```bash

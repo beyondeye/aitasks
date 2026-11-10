@@ -2,7 +2,7 @@
 title: "Issue Integration & Utilities"
 linkTitle: "Issues & Utilities"
 weight: 40
-description: "ait issue-import, ait issue-update, ait changelog, and ait zip-old commands"
+description: "ait issue-import, ait issue-update, ait release-notify, ait changelog, and ait zip-old commands"
 depth: [advanced]
 ---
 
@@ -88,6 +88,7 @@ ait issue-update --close --no-comment 83      # Close silently
 | `--comment-only` | Post comment only, don't close (default behavior) |
 | `--no-comment` | Close without posting a comment (requires `--close`) |
 | `--dry-run` | Show what would be done without doing it |
+| `--record-only` | Record the release-ledger entry only, with no platform call (the recovery for exit status 3) |
 
 **How it works:**
 
@@ -104,6 +105,116 @@ ait issue-update --close --no-comment 83      # Close silently
 - Dry-run mode for previewing the comment before posting
 - Auto-detection of source platform from issue URL (override with `--source`)
 - Platform-extensible dispatcher (same architecture as issue-import)
+
+**Release ledger.** After the comment is posted or the issue is closed, the issue is recorded in the release ledger, so [`ait release-notify`](#ait-release-notify) can later tell it which release ships the fix. GitHub and GitLab issues are recorded; `--dry-run` records nothing. The last stdout line reports the outcome:
+
+| Line | Meaning |
+|------|---------|
+| `RELEASE_LEDGER:recorded:<path>` | Recorded and committed by this run |
+| `RELEASE_LEDGER:duplicate:<path>` | Already recorded for this task and issue |
+| `RELEASE_LEDGER:skipped:unsupported_platform` | Not a GitHub or GitLab issue |
+| `RELEASE_LEDGER_FAILED:<reason>` | The issue was updated, but the entry was not recorded (exit status 3) |
+
+| Exit status | Meaning |
+|-------------|---------|
+| `0` | Done |
+| `1` | Failed before or during the platform call; nothing was recorded |
+| `3` | The issue **was** updated, but its ledger entry was not recorded. Do not re-run the command, which would post the comment again: run the `--record-only` command printed on stderr |
+
+---
+
+## ait release-notify
+
+Comment "Released in vX.Y.Z" on every resolved issue whose fix ships in a release, then move its ledger record to the release's history. In the aitasks repository itself this runs automatically at the end of `./create_new_release.sh` (see [Releases]({{< relref "/docs/workflows/releases" >}})).
+
+```bash
+ait release-notify --dry-run              # What would be posted for the latest v* tag
+ait release-notify --tag v1.4.0           # Notify the issues fixed in v1.4.0
+ait release-notify --list                 # Pending records and the per-release history
+```
+
+| Option | Description |
+|--------|-------------|
+| `--tag T` | The release tag (default: the latest `v*` tag) |
+| `--prev-tag P` | The previous release tag (default: the next lower `v*` tag; with none, all history up to `T`) |
+| `--dry-run` | Report what would be posted and the state of every gate below; change nothing |
+| `--list` | List pending records, then the released records grouped by tag |
+| `--no-push` | Do not push the task data at the end |
+
+### The release ledger
+
+Every successful `ait issue-update` adds one record file under `aitasks/metadata/release_issues/pending/`, committed with the task data. A record holds the task id, the issue URL, the platform, the action (`closed`, `commented` or `closed_silent`) and when it was recorded. The ledger is rolling: a record stays pending until a release actually contains its task's commits.
+
+For each pending record, `ait release-notify` looks for the task's commits in `<prev-tag>..<tag>`. A parent task `tP` matches the commit tags `(tP)` and `(tP_<n>)`; a child task `tP_C` matches `(tP_C)` only. Then:
+
+- **Due:** a commit is in the range. The issue gets one comment, with a hidden marker (`<!-- aitask-release:<tag> t<id> -->`), a link to the release page and the task's commits in the release. The record moves to `released/<tag>/`, with the tag, the time, the outcome and the commit ids added, in one commit.
+- **Already notified:** the marker is already on the issue. Nothing is posted; the record moves with outcome `already_present`.
+- **Shipped earlier:** the commits are all in an older release, so this range is not the one that shipped them. The record stays pending and the exact command to notify it is printed, `ait release-notify --tag <that release>`. Nothing catches these up automatically.
+- **Pending:** no commit is in the tag yet. The record waits for a later release.
+
+### The posting gate
+
+A run that may post goes through these checks in order, and posts nothing unless all of them pass:
+
+1. **Fresh task data.** The task-data branch is fetched and must not be behind its remote. A failed fetch, or a count that cannot be established, counts as not fresh.
+2. **The publication policy can be read** (see below).
+3. **The designated machine.** `hostname` must equal `release_notify_host`.
+4. **The local run lock.** Only one run at a time on the machine.
+5. **Interrupted moves are completed.** A run that died between posting a comment and committing the move leaves its traces in the ledger. They are completed now, without a new comment. Traces that do not match the record in git are left as they are and reported for a human, and that record is not processed.
+6. **The release is published,** under the project's publication policy.
+
+A failed check prints `INCOMPLETE:<check>:<state>` with a `HINT:` line, keeps every record pending, and exits with status 3. `--dry-run` reports the same states as `FRESHNESS:`, `DESIGNATION:` and `PUBLICATION:` lines, without requiring them.
+
+The release must exist as a platform release (GitHub release, GitLab release). A project that only pushes tags never gets release notices, because the comment links to the release page.
+
+### Publication policy
+
+The checks a release must pass are set per project, in `aitasks/metadata/project_config.yaml`. With none of these keys, a release only has to exist, match the tag, and not be a draft (GitHub) or upcoming (GitLab).
+
+| Key | Meaning |
+|-----|---------|
+| `release_publication_workflow` | GitHub only: a workflow file whose run for the tag and the tagged commit must have concluded `success`. Set on a GitLab project, it blocks posting |
+| `release_publication_assets` | Asset names that must be uploaded, non-empty release assets. A string or a list; only `{tag}` and `{version}` (the tag without a leading `v`) may appear |
+| `release_publication_checksum_manifests` | Globs of `sha256sum` manifests among the assets. Every file a matching manifest lists must itself be a published asset |
+
+```yaml
+release_notify_host: build-box
+release_publication_workflow: release.yml
+release_publication_assets:
+  - myapp-{tag}.tar.gz
+  - myapp_{version}_amd64.deb
+release_publication_checksum_manifests: "*_SHA256SUMS.txt"
+```
+
+The file is read with a real YAML parser, so quoted keys and flow mappings count the same as plain keys. A template with braces inside a flow list must be quoted (`["myapp-{tag}.tar.gz"]`). A value of the wrong type, an unknown placeholder, a duplicated key, or no Python interpreter to read the file is reported as `policy_unreadable` and blocks posting. It never falls back to the generic checks.
+
+### The designated machine
+
+`release_notify_host` names the one machine that posts, compared byte-for-byte with `hostname`. With the key unset, no machine posts, and the hint shows the line that designates the current one. There is no distributed lock and no automatic failover. To move notifications to another machine:
+
+1. Make sure no `ait release-notify` (or release wrapper) run is in progress on the old machine.
+2. Set the new hostname with `ait settings`, or edit `aitasks/metadata/project_config.yaml` and commit it with `./.aitask-scripts/aitask_metadata_commit.sh aitasks/metadata/project_config.yaml`.
+3. Run `./ait sync` on both machines.
+
+### Duplicate comments
+
+The run lock, the marker check before each post, and the one-commit move of each record prevent duplicate comments for runs on the designated machine, one at a time, and for sequential retries, including a retry after a run died between a post and its record move. This is not an exactly-once guarantee. A duplicate is still possible when:
+
+- runs on two machines overlap, because the designation was bypassed or reassigned mid-run;
+- a retry follows so quickly that the platform's comment listing does not show the comment just posted;
+- someone edits or deletes a marker comment by hand.
+
+### Output and exit status
+
+Each line starts with a key: `RANGE:`, `FRESHNESS:`, `DESIGNATION:`, `PUBLICATION:`, `RESIDUE:`, `RESUMED:`, `DUE:`, `POSTED:`, `ALREADY_NOTIFIED:`, `PENDING:`, `SHIPPED_EARLIER:`, `FAILED:`, `MALFORMED:`, `INCOMPLETE:`, `HINT:`, `PUSH:` and a final `SUMMARY:`.
+
+| Exit status | Meaning |
+|-------------|---------|
+| `0` | Complete |
+| `1` | Usage error |
+| `2` | Refused input: a missing or invalid tag |
+| `3` | Incomplete: a gate check failed and nothing was posted |
+| `4` | Partial: at least one record `FAILED` or is `MALFORMED`. Re-running is safe: only what is still pending is processed |
 
 ---
 

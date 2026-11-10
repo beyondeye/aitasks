@@ -224,7 +224,7 @@ It runs on `pytest` when that is importable and falls back to the standard libra
 ## Release Process
 
 1. Run `/aitask-changelog` in your configured code agent session to generate the changelog entry for the new version
-2. Run `./create_new_release.sh` which bumps the `VERSION` file, creates a git tag, and pushes to trigger the GitHub Actions release workflow
+2. Run `./create_new_release.sh` which bumps the `VERSION` file, creates a git tag, and pushes to trigger the GitHub Actions release workflow, then waits for the release to be published and comments "Released in vX.Y.Z" on the issues it resolves ([`ait release-notify`]({{< relref "/docs/commands/issue-integration#ait-release-notify" >}}))
 3. Run `./ait zip-old` to archive old completed task and plan files, keeping the repository clean
 
 ---

@@ -16,6 +16,10 @@
 #                                 before the helper's status check)
 #     AIT_TEST_WEDGE_ON_PROBE=1   plant MERGE_HEAD in the data worktree's git
 #                                 dir, so the helper's next `add` dies
+#   AIT_TEST_WEDGE_ON_ADD=1 with AIT_TEST_ADD_MARKER=<f>
+#                               run the real `add` of the `.rec` path ONCE, then
+#                               plant MERGE_HEAD: the record is staged when the
+#                               scoped commit's guard dies (case s2, t2271)
 #
 # Coverage map (letters as in the t2261_1 plan):
 #   (a) one record per action, fields, committed     (h) CLI issue argument
@@ -27,6 +31,10 @@
 #   (g) commit failure, then --record-only           (n)-(q) existing files
 #   (r) competing commit, early window (rc 2)        (t) late window (rc 1)
 #   (s) a real die after publish (branch mode)
+#   (s2) a die with the record already staged: the cleanup's warning reaches
+#       stderr through _ril_record_cleanup's wrapper (t2271)
+#   (u) committed corrupt pending record     (v) released hits, whole record
+#   (w) released-only keys in a pending record (t2261_2)
 #
 # All assertions run in the main shell, so the in-process counters are enough.
 #
@@ -79,6 +87,14 @@ last="${args[${#args[@]}-1]:-}"
 if [[ "$sub" == commit && "${AIT_TEST_FAIL_COMMIT:-}" == 1 ]]; then
     echo "test git wrapper: commit refused" >&2
     exit 1
+fi
+if [[ "$sub" == add && "$last" == *.rec && "${AIT_TEST_WEDGE_ON_ADD:-}" == 1 \
+        && -n "${AIT_TEST_ADD_MARKER:-}" && ! -e "$AIT_TEST_ADD_MARKER" ]]; then
+    : > "$AIT_TEST_ADD_MARKER"
+    "$real" "$@"; rc=$?
+    gd="$("$real" "${pre[@]}" rev-parse --absolute-git-dir)"
+    : > "$gd/MERGE_HEAD"
+    exit "$rc"
 fi
 if [[ "$sub" == ls-files && "$last" == *.rec && -n "${AIT_TEST_ONCE_MARKER:-}" \
         && ! -e "$AIT_TEST_ONCE_MARKER" ]]; then
@@ -412,17 +428,25 @@ assert_eq "(u) committed corrupt record: HEAD unchanged" "$head_before" "$(git -
 assert_eq "(u) committed corrupt record: no tracked change" "" "$(git -C "$REPO" status --porcelain -- "$P13")"
 assert_contains "(u) committed corrupt record: the hint names the path" "$P13" "$IFX_ERR"
 
-# --- (v) released hits: the pending fields are validated, released keys allowed
+# --- (v) released hits are validated as whole released records (t2261_2)
 
 U11="https://github.com/o/r/issues/11"
 REL_REL="aitasks/metadata/release_issues/released/v1.0.0"
 mkdir -p "$REPO/$REL_REL"
-# t11's pending record (from (a)) moves to released/, as the consumer will do.
+# t11's pending record (from (a)) moves to released/, as the consumer does.
 git -C "$REPO" mv -- "$P11" "$REL_REL/"
 PR11="$REL_REL/$(basename "$P11")"
 printf 'released_tag=v1.0.0\n' >> "$REPO/$PR11"
 git -C "$REPO" add -- "$PR11"
 git -C "$REPO" commit -qm "ait: Release t11" -- "$P11" "$PR11"
+ifx_run "$REPO" --record-only 11
+# Only one of the four released fields: not a released record, so not a
+# duplicate of anything.
+assert_eq "(v) partial released fields: malformed" \
+    "RELEASE_LEDGER_FAILED:malformed_record:$PR11" "$(ledger_line)"
+printf 'notified_at=2026-11-10T10:00:00Z\noutcome=posted\ncommits=%s\n' \
+    "$(git -C "$REPO" rev-parse HEAD)" >> "$REPO/$PR11"
+git -C "$REPO" commit -qm "ait: Complete released t11" -- "$PR11"
 ifx_run "$REPO" --record-only 11
 assert_eq "(v) valid released record: duplicate" "RELEASE_LEDGER:duplicate:$PR11" "$(ledger_line)"
 sed -i.bak 's/^schema=1$/schema=999/' "$REPO/$PR11" && rm -f "$REPO/$PR11.bak"
@@ -432,6 +456,30 @@ assert_eq "(v) corrupt released record: exit 3" "3" "$IFX_RC"
 assert_eq "(v) corrupt released record: malformed" \
     "RELEASE_LEDGER_FAILED:malformed_record:$PR11" "$(ledger_line)"
 assert_file_not_exists "(v) corrupt released record: no new pending record" "$REPO/$P11"
+
+# --- (w) a pending record may not carry released-only keys (t2261_2) --------
+#
+# ril_validate_pending_record's whitelist is pending-only. Widening it to the
+# released keys would let these records validate, because the six pending
+# fields are all still present and valid.
+
+U23="https://github.com/o/r/issues/23"
+ifx_task "$REPO" 23 "$U23"
+ifx_run "$REPO" --record-only 23
+P23="$(rec_path 23 "$U23")"
+assert_eq "(w) setup: recorded" "RELEASE_LEDGER:recorded:$P23" "$(ledger_line)"
+printf 'outcome=posted\n' >> "$REPO/$P23"
+git -C "$REPO" commit -qm "ait: Corrupt t23" -- "$P23"
+ifx_run "$REPO" --record-only 23
+assert_eq "(w) extra released key: malformed" \
+    "RELEASE_LEDGER_FAILED:malformed_record:$P23" "$(ledger_line)"
+printf 'outcome=bogus\n' >> "$REPO/$P23"
+git -C "$REPO" commit -qm "ait: Corrupt t23 again" -- "$P23"
+ifx_run "$REPO" --record-only 23
+assert_eq "(w) duplicated invalid released key: malformed" \
+    "RELEASE_LEDGER_FAILED:malformed_record:$P23" "$(ledger_line)"
+assert_exit_nonzero "(w) the validator itself refuses it" bash -c \
+    "cd '$REPO' && SCRIPT_DIR='$PROJECT_DIR/.aitask-scripts' && . '$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh' && . '$PROJECT_DIR/.aitask-scripts/lib/release_issue_ledger.sh' && ril_validate_pending_record '$P23'"
 
 # --- (r) competing commit, early window (before the status check) -----------
 
@@ -521,8 +569,9 @@ unset AIT_TEST_WEDGE_ON_PROBE AIT_TEST_ONCE_MARKER
 assert_file_exists "(s) die after publish: the wrapper fired" "$TMP/once_s"
 assert_eq "(s) die after publish: exit 3" "3" "$IFX_RC"
 assert_eq "(s) die after publish: aborted" "RELEASE_LEDGER_FAILED:aborted" "$(ledger_line)"
-# The helper silences the guard's own die message (its `add` sends stderr to
-# /dev/null), so the hint reads the wedge back from the data worktree.
+# The helper's in-loop guard prints its own die message, and the recovery hint
+# independently reads the wedge back from the data worktree; this pins the text
+# both carry.
 assert_contains "(s) die after publish: the hint names the wedge" "stuck mid-MERGE_HEAD" "$IFX_ERR"
 assert_contains "(s) die after publish: the recovery hint" "--record-only" "$IFX_ERR"
 assert_file_not_exists "(s) die after publish: owned file removed" "$BR/$PB12"
@@ -540,6 +589,40 @@ assert_eq "(s) after recovery: recorded" "RELEASE_LEDGER:recorded:$PB12" "$(ledg
 # not wait out the acquire retries (20 x 0.3 s).
 if (( elapsed < 5 )); then assert_record_pass; else
     assert_record_fail; echo "FAIL: (s) the ledger lock was not released (recovery took ${elapsed}s)"
+fi
+
+# --- (s2) a die with the record already staged (t2271) --------------------
+# The wedge lands AFTER the helper staged the new `.rec` path, so the scoped
+# commit's guard dies with it in the shared index. On a wedged worktree the
+# cleanup cannot prove the entry is still ours (the in-progress operation may own
+# it), so it leaves it and names it on stderr (safe unwind: t2277). _ril_record_cleanup runs that
+# cleanup in a nested subshell for lock-release isolation; the warning must
+# survive that wrapper, which used to discard both streams.
+U13="https://github.com/o/r/issues/13"
+ifx_task "$BR" 13 "$U13"
+git -C "$BR/.aitask-data" add -A
+git -C "$BR/.aitask-data" commit -qm "add t13"
+PB13="$(rec_path 13 "$U13")"
+export AIT_TEST_WEDGE_ON_ADD=1 AIT_TEST_ADD_MARKER="$TMP/once_s2"
+ifx_run "$BR" --close 13
+unset AIT_TEST_WEDGE_ON_ADD AIT_TEST_ADD_MARKER
+assert_file_exists "(s2) staged then wedged: the wrapper fired" "$TMP/once_s2"
+assert_exit_nonzero_rc "(s2) staged then wedged: the run failed" "$IFX_RC"
+assert_contains "(s2) staged then wedged: the guard's message" "stuck mid-MERGE_HEAD" "$IFX_ERR"
+assert_contains "(s2) staged then wedged: the cleanup says it left entries" \
+    "were LEFT in the shared index" "$IFX_ERR"
+assert_contains "(s2) staged then wedged: the cleanup names the record" "$PB13" "$IFX_ERR"
+assert_exit_zero "(s2) staged then wedged: the entry is preserved (documented limitation)" \
+    git -C "$BR/.aitask-data" ls-files --error-unmatch -- "$PB13"
+rm -f "$data_gitdir/MERGE_HEAD"
+git -C "$BR/.aitask-data" reset -q -- "$PB13"
+hint_argv
+started="$(date +%s)"
+ifx_run "$BR" "${HINT_ARGV[@]}"
+elapsed=$(( $(date +%s) - started ))
+assert_eq "(s2) after recovery: recorded" "RELEASE_LEDGER:recorded:$PB13" "$(ledger_line)"
+if (( elapsed < 5 )); then assert_record_pass; else
+    assert_record_fail; echo "FAIL: (s2) the ledger lock was not released (recovery took ${elapsed}s)"
 fi
 
 # --- summary -----------------------------------------------------------------

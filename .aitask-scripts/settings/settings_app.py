@@ -280,6 +280,46 @@ PROJECT_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
             "framework-internal conventions must not be adopted by a user's own skill."
         ),
     },
+    "release_publication_workflow": {
+        "summary": "Release workflow that must succeed before release notices post",
+        "type": "string",
+        "detail": (
+            "GitHub Actions workflow file name (e.g. release.yml). 'ait release-notify' "
+            "posts 'Released in <tag>' comments only after this workflow's run for the "
+            "tag and its commit concluded success. GitHub only: set on a GitLab project "
+            "it blocks posting. Leave blank to skip the workflow check."
+        ),
+    },
+    "release_publication_assets": {
+        "summary": "Release assets that must be published before release notices post",
+        "type": "string_or_list",
+        "detail": (
+            "Asset-name templates, a string or a YAML list. Only {tag} and {version} "
+            "(the tag without a leading v) may appear, e.g. myapp-{tag}.tar.gz. Every "
+            "name must be an uploaded, non-empty release asset before 'ait "
+            "release-notify' posts. Leave blank to require none."
+        ),
+    },
+    "release_publication_checksum_manifests": {
+        "summary": "Checksum manifests whose listed files must all be published",
+        "type": "string_or_list",
+        "detail": (
+            "Globs of sha256sum manifests among the release assets, e.g. "
+            "*_SHA256SUMS.txt. Each matching manifest is downloaded, and every file it "
+            "lists must itself be a published asset before 'ait release-notify' posts. "
+            "Leave blank to check none."
+        ),
+    },
+    "release_notify_host": {
+        "summary": "The one machine that posts release notices",
+        "type": "string",
+        "detail": (
+            "Compared byte-for-byte with `hostname`. 'ait release-notify' refuses to "
+            "post on any other machine, and when this is blank. There is no automatic "
+            "failover: to move it, make sure no run is in progress on the old machine, "
+            "change this value, then run './ait sync' on both machines."
+        ),
+    },
     "default_profiles": {
         "summary": "Default execution profile for each skill",
         "type": "mapping",
