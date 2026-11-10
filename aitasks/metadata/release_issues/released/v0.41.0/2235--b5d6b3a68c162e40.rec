@@ -1,0 +1,10 @@
+schema=1
+task_id=2235
+issue_url=https://github.com/beyondeye/aitasks/issues/16
+platform=github
+action=closed
+recorded_at=2026-11-10T10:40:24Z
+released_tag=v0.41.0
+notified_at=2026-11-10T16:54:07Z
+outcome=posted
+commits=85b688f06300e7fcdab1ada992343b7036e4aeb8,94817522ffe6a7dd6925b3575e898b2116240423
