@@ -1,0 +1,352 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-sitrep-followups",
+  "title": "Sitrep follow-ups (topic t2175)",
+  "owner": "aitasks#2211",
+  "scope": {
+    "kind": "topic",
+    "topics": [
+      "aitasks#2175"
+    ],
+    "selection_note": "Whole topic t2175 (root archived 2026-11-05 with its last child t2175_6); owned by t2211, the largest in-flight member, chosen by the user."
+  },
+  "generation": {
+    "generated_at": "2026-11-10T07:04:40Z",
+    "generator": {
+      "agent_string": "claudecode/opus5_5",
+      "skill": "aitask-trail"
+    },
+    "input_digest": "56f785d90832dc83",
+    "inputs": [
+      {
+        "ref": "aitasks:aiplans/p2211/p2211_4_sitrep_tui_guarded_request_delivery.md",
+        "kind": "plan_file"
+      },
+      {
+        "ref": "aitasks:aiplans/p2211/p2211_5_slim_sitrep_skill_for_tui.md",
+        "kind": "plan_file"
+      },
+      {
+        "ref": "aitasks:aiplans/p2211/p2211_6_sitrep_tui_window_docs.md",
+        "kind": "plan_file"
+      },
+      {
+        "ref": "aitasks:aiplans/p2211_sitrep_two_pane_window_with_sitrep_tui.md",
+        "kind": "plan_file"
+      },
+      {
+        "ref": "aitasks#2182",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2199",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2208",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2211",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2211_4",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2211_5",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2211_6",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2211_7",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2216",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2231",
+        "kind": "task_file"
+      },
+      {
+        "ref": "aitasks#2269",
+        "kind": "task_file"
+      }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-11-10T07:04:40Z"
+  },
+  "narrative": {
+    "problem_statement": "t2175's follow-ups are being reshaped by t2211, which has four chained children left. In which order should the remaining eleven members land to avoid rework?",
+    "recommendation_summary": "Pick t2211_4, then t2211_5; after the skill slim-down, t2211_6 and t2216 (either order), then t2211_7, which closes t2211; then t2199 and lastly t2182. t2269, t2208 and t2231 are independent and can go any time.",
+    "overview": "Pick t2211_4 next. Both of its depends edges (t2037_2, t2211_3) have landed. Since the last version, t2211_3 (TUI actions, agent respawn, launches, `ait board --focus`) and t2211_10 (show a sitrep task in `ait trails` with its card focused, 0e17732b1) have landed and left the trail. t2211_10 changed sitrep_tui_app.py and sitrep_tui_actions.py, the two files t2211_4's request keys also change, so t2211_4 starts from that code; t2211_10 sent it a note with the keys now taken (`z` is new; t w T are still free). t2211_9 (detail and list refinements) also landed; it was never a member. The rest of the chain is unchanged: t2211_4 → t2211_5 → t2211_6 → t2211_7, and the parent archives with its last child. t2211_5 (slim the sitrep skill) is still the pivot. t2211_3 already moved harvest/refresh to TUI startup and sent t2211_5 a note, so the slimmed skill drops its own startup harvest/refresh. t2216's live review smoke and t2199's codex/opencode port are both specified against that slimmed skill, so they wait for it. t2216 can run beside t2211_6 (docs, held back until the feature stops moving, per the user). t2211_7's verifies list names t2211_1..6 only; t2211_10 sent t2211_6 and t2211_7 notes about its new key. t2269 is new: an upstream defect from t2211_10's review (`artifact_manifest.HANDLE_RE` accepts a trailing newline). It flips the grammar-equality test t2211_10 added and is otherwise independent of the chain, so it can land any time. t2182 still waits on real codex/opencode captures. t2208 (helper-whitelist audit) and t2231 (macOS tar check, needs a macOS host) are not sitrep work and can land whenever convenient.",
+    "method_note": "Lite trail. Membership, statuses and depends edges come from the gatherer snapshot; the chain t2211_4→t2211_7 is recorded as hard depends in the task files, every other ordering is advisory and taken from the member task descriptions and their notes. That t2211_3 moved harvest/refresh to TUI startup is t2211_3's own note to t2211_5, not checked in the code. Not verified: line-level overlap between t2211_10's landed change and t2211_4's plan, file-level overlap between t2211_6 and t2216 beyond what their descriptions name, whether a macOS host is available for t2231, and whether real codex/opencode captures exist yet for t2182."
+  },
+  "waves": [
+    {
+      "wave_id": "w1",
+      "ordinal": 1,
+      "title": "Now: sitrep TUI agent requests",
+      "purpose": "Give the sitrep TUI its guarded requests to the sitrep agent: the last TUI capability the skill slim-down needs before it can drop the typed codes.",
+      "why_now": "t2211_4 has every depends edge landed (t2037_2, t2211_3), and t2211_10, which changed the same two sitrep TUI files, has landed; each later child depends on the previous one.",
+      "entries": [
+        {
+          "entry_id": "w1-2211-4",
+          "task": "aitasks#2211_4",
+          "topic": "aitasks#2175",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [
+              "aitasks#2037_2",
+              "aitasks#2211_3"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "The chain's head: both depends edges have landed. Its guarded request keys sit on t2211_3's action layer and replace the typed-code How texts in NEXT_STEPS. It starts from t2211_10's change to the same two files; notes from t2211_3, t2211_8, t2211_9 and t2211_10 name the keys taken and the patterns to reuse.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "w1-2208",
+          "task": "aitasks#2208",
+          "topic": "aitasks#2175",
+          "position": 2,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Not sitrep work (helper-whitelist audit, aitask_audit_wrappers.sh); independent of every other member, so it can land beside this wave whenever convenient.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "w1-2231",
+          "task": "aitasks#2231",
+          "topic": "aitasks#2175",
+          "position": 3,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "On the topic only through t2226's risk mitigation; not sitrep work. It needs a macOS host (bsdtar), so it lands whenever one is available, independent of the chain.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "w1-2269",
+          "task": "aitasks#2269",
+          "topic": "aitasks#2175",
+          "position": 4,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Spawned by t2211_10's review: anchor artifact_manifest.HANDLE_RE (and HASH_RE / BACKEND_RE) against a trailing newline. It flips the special case in t2211_10's grammar-equality test (tests/test_trails_focus_writer.py); t2211_10 has landed, so it can start now. Not chain work.",
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "wave_id": "w2",
+      "ordinal": 2,
+      "title": "Slim the sitrep skill for the TUI",
+      "purpose": "Drop from /aitask-sitrep the capabilities the TUI now owns and define how the agent reads requests typed in by the TUI.",
+      "why_now": "Hard depends on t2211_4: the skill can only lose a capability once the TUI offers it and the request format exists.",
+      "consequence_of_delay": "Everything skill-facing (docs, the review live smoke, the codex/opencode port) waits on this shape.",
+      "entries": [
+        {
+          "entry_id": "w2-2211-5",
+          "task": "aitasks#2211_5",
+          "topic": "aitasks#2175",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#2211_4"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "The pivot for every skill-facing follow-up: t2216 and t2199 are specified to build on the slimmed skill, and t2211_6 documents it. t2211_3's note says the skill's startup harvest/refresh, >r / >x and restore guidance can now go.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w3",
+      "ordinal": 3,
+      "title": "After the slim skill: docs, live review smoke, verification",
+      "purpose": "Document and verify the two-pane sitrep window as it stands, and prove the agent's unparsed-output review flow live against the slimmed skill.",
+      "why_now": "Docs were deliberately held back while the ait sitrep feature is in flux; they now follow the last shape-changing child.",
+      "entries": [
+        {
+          "entry_id": "w3-2211-6",
+          "task": "aitasks#2211_6",
+          "topic": "aitasks#2175",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#2211_5"
+            ],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Hard depends on t2211_5. The docs sibling: the TUI, the What-to-do column and plain source labels, the window roles, the keys added by t2211_3, t2211_9 and t2211_10 (notes received), and the slimmed skill, written once the feature stops moving.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "w3-2216",
+          "task": "aitasks#2216",
+          "topic": "aitasks#2175",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Specified against the old skill. t2211_3 moved harvest/refresh to TUI startup and t2211_5 removes the skill's own copy, so running it after t2211_5 avoids writing the live test twice. File-disjoint from t2211_6.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "w3-2211-7",
+          "task": "aitasks#2211_7",
+          "topic": "aitasks#2175",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "medium",
+            "depends": [
+              "aitasks#2211_6"
+            ],
+            "gates_pending": [],
+            "followup_kind": "manual_verification"
+          },
+          "rationale": "Hard depends on t2211_6: the aggregate manual verification of t2211_1..6 (its verifies list), with checklist items sent by later siblings' notes, runs once the docs describe what is being checked.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "w3-2211",
+          "task": "aitasks#2211",
+          "topic": "aitasks#2175",
+          "position": 4,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "high",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "The parent: its plan is decomposed into these children and it carries no work of its own; it archives with its last child.",
+          "confidence": "high"
+        }
+      ]
+    },
+    {
+      "wave_id": "w4",
+      "ordinal": 4,
+      "title": "Then: other code agents",
+      "purpose": "Extend sitrep beyond Claude Code once the Claude flow is settled and proven.",
+      "entries": [
+        {
+          "entry_id": "w4-2199",
+          "task": "aitasks#2199",
+          "topic": "aitasks#2175",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ]
+          },
+          "rationale": "Ports the sitrep skill to codex/opencode; t2211 states the port consumes the slimmed skill, and after t2216 the Claude flow is proven live, so porting earlier would be churn.",
+          "confidence": "medium"
+        },
+        {
+          "entry_id": "w4-2182",
+          "task": "aitasks#2182",
+          "topic": "aitasks#2175",
+          "position": 2,
+          "classification": "optional",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Needs real codex/opencode captures; the corpus from t2175_6 preserves unparsed ones as banner_unparsed cases, so waiting gives it ready-made fixtures.",
+          "confidence": "medium"
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev-snapshot",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope topic --owner aitasks#2211 --allow-archived-owner 2175",
+      "observed_at": "2026-11-10T07:04:40Z",
+      "summary": "Eleven active members of topic t2175, owner aitasks#2211, digest 56f785d90832dc83; t2211_3 and t2211_10 archived and t2269 joined since the last version; hard depends chain t2211_4 → t2211_5 → t2211_6 → t2211_7."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "lite"
+  }
+}

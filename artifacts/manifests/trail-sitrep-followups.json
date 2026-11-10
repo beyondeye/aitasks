@@ -1,11 +1,12 @@
 {
   "backend": "local",
   "created_at": 1793884418,
-  "current": "sha256:af357e46b076b9ff47395942fc946f7e3bac69ef965e68ef3a04e8ba32da4648",
+  "current": "sha256:6b827ef02830acf1740cafd065afd616e81397058798395832ea83249048ea70",
   "handle": "art:trail-sitrep-followups",
-  "updated_at": 1794152548,
+  "updated_at": 1794294375,
   "versions": [
     "sha256:b14916c417bee9f0ee2110448343cc054576a83a091ed8011c3467c73cba8062",
-    "sha256:af357e46b076b9ff47395942fc946f7e3bac69ef965e68ef3a04e8ba32da4648"
+    "sha256:af357e46b076b9ff47395942fc946f7e3bac69ef965e68ef3a04e8ba32da4648",
+    "sha256:6b827ef02830acf1740cafd065afd616e81397058798395832ea83249048ea70"
   ]
 }
