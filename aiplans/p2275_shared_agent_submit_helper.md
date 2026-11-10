@@ -273,7 +273,7 @@ part of this one.
   are about 60 columns (`shadow_pane_width`), so the ~110-char recheck prompt wraps there in every agent.
   If the W-relative width rules do not hold at 60, every recheck holds with
   `pre_enter_composer_unprovable` / `_changed`. That fails closed, with no wrong submit, but it breaks
-  the auto-recheck loop · severity: medium · → mitigation: measure_shadow_width_composer
+  the auto-recheck loop · severity: medium · → mitigation: t2280
 
 ### Planned mitigations
 - timing: pre-phase | name: pin_caller_labels | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — supersession/ordering invariants and test-fake masking | desc: table-driven label characterization of both submit callers, proven green on pre-refactor HEAD and kept green except the marked t2274 rows
