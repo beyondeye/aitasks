@@ -572,3 +572,31 @@ The engine scope below moved to aitasks_go#t62 and is quoted for reference only.
 > | 1. A new generated registry file `aitestmap/registry/_runners.yaml`, written by `scan --apply`, checked by `SCAN_DRIFT:aitestmap/registry/_runners.yaml` (strict past bootstrap). It persists per-runner describe facts (kind, full, needs, axis) and exact owned-unit counts. The brief prints counts as `<n> units at last scan`, and prints `unknown` when a runner-config fingerprint shows them stale.
 > | 2. Input contract: the brief reads the CURRENT `aitestmap/` files on disk (tracked or untracked), the same inputs select/run/check read. This replaces "printed from committed state". It never reads the local ledger, a runner or the network, and there is no same-commit reproducibility claim.
 > | 3. FULL_GATE prints one aggregate full-run p95 labelled with its host class, and a "suggested tests_pass timeout", not per-runner timing.
+
+> **✉ note:t62** id=2026-11-10T09:33:43Z.837f6ea7c3734204515a86ac from=aitasks_go#t62 from_verified=yes at=2026-11-10T09:33:43Z base=79416f14c44f9c0a329fdee722468c6b2f9422df base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t62: the engine verb `brief [--md]` has LANDED on aitasks_go main in commit 32ddfe1 (README Interfaces rows in 4e8db9b). These are tree claims as of those commits; verify them against goengines/README.md, rows `brief` and `runner facts (M5.2)`. This note supersedes the design note sent on 2026-11-09 where the two differ.
+> | 
+> | Exit contract:
+> | - 0: printed.
+> | - 2: `TESTMAP_ABSENT:aitestmap/` on STDERR, with EMPTY stdout. Your front prints the TESTMAP_ABSENT line plus the project's `test_command`.
+> | - 3: one stderr line (`REGISTRY_INVALID:` / `CONTRACT_MISMATCH` / `RUNNER_CONFIG:` / `RESOURCES_INVALID:` / `COSTS_ERROR:` / `CHECK_ERROR:`), with empty stdout.
+> | - 64: `USAGE:ait-testmap brief [--md]`.
+> | 
+> | Lines, in order:
+> | - `TESTMAP:registry|since unknown|LEVEL:unknown|POLICY:<mode>|seeds pending <n>|adopted <n> (agent <a>, human <h>, auto <m>)`
+> | - `RUNNER:<name>|<kind>|<n> unit(s) at last scan[, <v> variant(s)]|<invoked>|<needs or none>[|subsumes <a,b>]`, one per runners.yaml entry. Any field reads `unknown` when the saved facts are missing or stale.
+> | - `RUNNER_FACTS:<missing|stale>|<runners>|./ait testmap scan --apply`, only when some runner's facts are missing or stale.
+> | - One `FULL_GATE:<full runners>|full run p95 <s>s (aggregate of run <id>[, <n> id(s) estimated], host class <hc>)|suggested tests_pass timeout <s>s`. It can also read `p95 unmeasured` / `timeout unmeasured`, or be `FULL_GATE:none` / `FULL_GATE:unknown`.
+> | - `GATE:testmap_fresh (procedure, before commit) -> testmap_check -> tests_pass = ./ait test --gate (policy <mode>)`
+> | - `VERBS:./ait test|./ait test <path>...|./ait test --all|./ait test --howto` (fields joined by `|` with no spaces).
+> | - `AXES:<axis>|facets <csv>|<n> values|<v> variants at last scan`
+> | - `RESOURCE:<name>|<kind detail>|refusal = <text>`
+> | - `NEW_TEST:./ait testmap annotate --suggest <path>`
+> | - `DOCS:<path>` / `NOTES:<line>`. These are rest-of-line: the whole remainder is the value, and it may contain `|`.
+> | 
+> | Extension lines (AGENT_REVIEW after GATE; ONBOARD_NEXT, KIND_PROPOSALS, REVIEW_HUMAN at the end) and extra fields arrive later from other modules. Every field is self-labelled, so match by class and label and ignore what you do not know. `--md` renders the same content as Markdown, starting with `## Testing this project (\`./ait test --howto\`)`; unknown lines are listed under "### Other".
+> | 
+> | A golden for your fake `brief`: `goldenLines` / `goldenMD` in aitasks_go `goengines/internal/testmap/brief/brief_test.go`.
+> | 
+> | Rollout fact (probed): an engine older than 32ddfe1 refuses a registry that a new `scan --apply` has written. It prints `REGISTRY_INVALID:aitestmap/registry/_runners.yaml|reserved file not supported by this engine` and exits 3 on scan, check and axes, so it cannot rewrite the file either. Install the new engine everywhere first, then rescan. To recover a host stuck on an old engine, delete the file.
