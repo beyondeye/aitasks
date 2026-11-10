@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2261
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-10 11:46
-updated_at: 2026-11-10 12:42
+updated_at: 2026-11-10 17:51
 ---
 
 ## Origin
@@ -39,3 +40,8 @@ From t2261_1's Final Implementation Notes (`aiplans/archived/p2261/p2261_1_issue
 
 - task_utils.sh: run `assert_data_worktree_clean add -- "$p"` (current shell, terminal stderr) before the silenced `task_git add`, or capture the add's stderr to a file and re-emit it on failure, the way `task_git_commit_scoped` already does with `_ait_cs_errf`. Add a regression test with a planted `MERGE_HEAD` asserting the message reaches stderr.
 - premise-staleness.md:213: find which span the scanner cannot parse (it reports `AIT_UNPARSEABLE_SPAN`), make the instruction scoped (or the span parseable), regenerate any affected goldens/prerenders, and re-run `tests/test_no_unscoped_task_commit.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-10T15:51:42Z status=pass attempt=1 type=human
