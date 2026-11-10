@@ -436,3 +436,29 @@ confirmed inline phases, this plan's Verification, or a sibling's phase.
     included.
   - The reports separate term-guessing from unneeded detail well on short pages.
   - t2258_8 creates the Codex/OpenCode port tasks for `aitask-doc-review`.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-10 14:18)
+- **Requested by user:** rename the skill to `aitask-docs-review`, to match
+  `aitask-docs-gap`.
+- **Changes made:**
+  - Renamed the skill dir to `.claude/skills/aitask-docs-review/` (`name:`
+    updated), the website page to `skills/aitask-docs-review.md`, and the test
+    to `tests/test_docs_review_contract.sh`.
+  - Updated every reference: the gate skill, the skills index and the gate page.
+  - Every "aitask-doc-review" and "test_doc_review_contract.sh" earlier in this
+    plan now means the new names.
+  - The rename leaves stale references in the bodies of t2258_3 … t2258_8 and
+    t2258, so each got an `ait note` (NOTE_APPENDED for all 7) instead of an
+    edit to its body.
+  - Re-verified: contract test 62/62, `shellcheck -S warning` clean,
+    `aitask_skill_verify.sh` OK, `test_website_doc_lists.sh` pass,
+    `check_links.py --build` SWEEP PASSED; `discover` now lists
+    `GAP:*:aitask-docs-review`.
+- **Files affected:** .claude/skills/aitask-docs-review/SKILL.md (moved),
+  .claude/skills/aitask-gate-docs-updated/SKILL.md,
+  website/content/docs/skills/aitask-docs-review.md (moved),
+  website/content/docs/skills/_index.md,
+  website/content/docs/skills/aitask-gate-docs-updated.md,
+  tests/test_docs_review_contract.sh (moved)
