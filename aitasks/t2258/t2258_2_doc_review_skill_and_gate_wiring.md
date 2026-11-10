@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2258
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-09 23:09
-updated_at: 2026-11-10 13:38
+updated_at: 2026-11-10 15:59
 ---
 
 ## Context
@@ -115,3 +116,8 @@ that applies them, and wires it into the `docs_updated` gate and
   plan's Final Implementation Notes.
 - After this lands, suggest port tasks for Codex/OpenCode wrappers of
   `aitask-doc-review` (child 8 creates them).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-10T13:59:48Z status=pass attempt=1 type=human
