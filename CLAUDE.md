@@ -291,7 +291,10 @@ In legacy mode (no separate branch), `ait git` passes through to plain `git`.
 > the "delete X / integrate into Y means redirect cross-refs now" rule,
 > manual-verification auto-mode descriptions (say "autonomous", not
 > "auto-execution"), and genericizing any passage that names the supported
-> coding agents.
+> coding agents. The reader-level model (`depth` contracts, page types, how a
+> subject spans levels), the concept-page rules and the prose rules live in the
+> configured doc guide, `aitasks/metadata/doc_update_guide.md`, which is what the
+> `docs_updated` gate reads.
 
 ## Sending Notes to Other Tasks
 

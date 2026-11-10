@@ -115,6 +115,10 @@ hugo mod get -u
 
 - Documentation pages go in `content/docs/`
 - Each page needs Docsy frontmatter (`title`, `linkTitle`, `weight`, `description`)
+- Every page except a section's `_index.md` also needs `depth`: one of
+  `main-concept`, `intermediate` or `advanced`. Each value has a contract (who
+  the reader is, what the page may contain) in
+  `aitasks/metadata/doc_update_guide.md` § "Reader levels"
 - Pages in subdirectories use `_index.md` as the section landing page
 - `weight` controls ordering in the sidebar navigation (lower = higher)
 - See existing pages for examples
