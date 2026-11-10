@@ -223,3 +223,32 @@ pre-existing unrelated dirty files alone. Then archive via Step 9.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** as planned.
+  - `lib/task_utils.sh`:
+    - `ait_commit_paths_staging_untracked` runs an in-loop `assert_data_worktree_clean add -- "$p"` before the redirected `add`.
+    - The add's stderr goes to a lazily allocated capture file (global `AIT_STAGE_UNTRACKED_ERRF`), re-emitted only on failure.
+    - `ait_unstage_staged_by_us` removes that file first. On a wedged data worktree (and no explicit `AIT_GIT_SKIP_STATE_CHECK=1`) it no longer resets: it names the left-staged paths in one `warn`.
+  - `lib/release_issue_ledger.sh`: `_ril_record_cleanup` / `_ril_move_cleanup` keep the nested subshell and drop only stdout, so the warning reaches stderr.
+  - `premise-staleness.md`: the two multi-line inline spans (~L210-213) are reflowed onto single lines. The 3 remote prerenders and the procedure golden were regenerated; their diffs are byte-identical to the source's.
+  - Tests:
+    - `test_task_commit_scoped.sh`: 9d (diagnostic, direct call), 9e (partial progress through `aitask_task_commit.sh`), Test 8 now asserts git's add reason, plus the mutation-table rows.
+    - `test_issue_update_ledger.sh`: `AIT_TEST_WEDGE_ON_ADD` shim mode and case **(s2)**, the caller-level check through the suppressing wrapper.
+- **Deviations from plan:**
+  - The ledger case is labelled **(s2)**, not (u): concurrent t2261_2 had already taken (u)-(w).
+  - Both premise-staleness spans were reflowed, not only the `git`-bearing one, for consistency.
+- **Issues encountered:**
+  - **Shared-file absorption.** I edited `release_issue_ledger.sh` and `tests/test_issue_update_ledger.sh` without the pre-edit HEAD gate while live t2261_2 had uncommitted hunks in both; `_ril_move_cleanup` was its new, uncommitted function. t2261_2's whole-file commit 37ddf2fe6 therefore carries my 1c and (s2) hunks. They were verified present in HEAD (2 wrapper lines, 10 `(s2)` lines, the shim mode). The content is correct, but the attribution is under t2261_2. Between 37ddf2fe6 and this commit, HEAD's (s2) warning assertions depended on the then-uncommitted `task_utils.sh`.
+  - **Mutation m1** (drop the in-loop assert) showed something extra. A die inside the redirected `add` also sends the EXIT trap's warning into the capture file, which is then deleted. So the explicit assert carries both the diagnostic and the warning; the microsecond race inside `task_git`'s own guard still loses both (accepted residual).
+- **Key decisions:**
+  - The cleanup defect (unwind after a mid-operation wedge) was deferred to **t2277**, after plan review. A merge `--autostash` counter-example shows that no index state (HEAD absence, `ls-files -u`, blob OID) proves ownership. So the cleanup preserves the entries and names them; it never bypasses the guard.
+  - An explicit `AIT_GIT_SKIP_STATE_CHECK=1` keeps its old meaning (the reset runs).
+- **Verification evidence:**
+  - `test_task_commit_scoped.sh` passes 80/80. The pre-fix control (`TC_LIB_OVERRIDE=<HEAD task_utils.sh>`) fails exactly 5 assertions (Test 8 reason; 9d message; 9e message, warning text, warning path). Mutations m1/m2/m3 fail 9d+9e / 9e capture file / 9e warning, respectively.
+  - `test_issue_update_ledger.sh` passes 141/141. Scratch-copy controls: the pre-fix library and the 1c-revert each fail only the 2 (s2) warning assertions.
+  - Also green: `test_no_unscoped_task_commit.sh` 103/0, `test_skill_render_task_workflow.sh` 365/0, `aitask_skill_verify.sh` OK.
+  - Callers green: `test_release_notify.sh` 259/0, `test_release_notify_branch_mode.sh` 39/0, `test_task_git`, `test_verified_update`, `test_metadata_commit_seam`, `test_task_data_writer_guard`, `test_create_manual_verification{,_gates}`, `test_usage_update`, `test_verification_followup{,_anchor}`, `test_skill_rerender`.
+  - shellcheck: no new findings vs HEAD.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/task_utils.sh:1049 — ait_unstage_staged_by_us cannot safely unwind owned staged paths once the data worktree is wedged mid-operation (already spawned as t2277)`
