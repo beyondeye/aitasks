@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t2261_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [release_scripts, bash_scripts, issue_integration]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2261
 created_at: 2026-11-09 23:13
-updated_at: 2026-11-09 23:13
+updated_at: 2026-11-10 12:42
 ---
 
 ## Context
