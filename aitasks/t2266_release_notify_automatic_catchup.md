@@ -63,3 +63,17 @@ Notify those records automatically, without weakening any posting gate.
 
 t2261 (both children) must have landed. The ledger layout, the consumer
 outputs and the gate this task builds on are defined there.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2261_2** id=2026-11-10T16:32:27Z.a3afac53cdbe2d0412e4628d from=t2261_2 from_verified=yes at=2026-11-10T16:32:27Z base=9b54f33d862389402747cae9cc7c5ce492661cef base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2261_2 (release-notify consumer, committed as 37ddf2fe6), not an instruction.
+> | 
+> | What a catch-up for SHIPPED_EARLIER records will build on (tree-relative to 37ddf2fe6):
+> | - The consumer is `.aitask-scripts/aitask_release_notify.sh`. Every posting run goes through ONE gate, in this order: `ril_data_freshness` (explicit-refspec fetch, attested count) → `release_publication_policy_load` (INCOMPLETE:policy_unreadable) → `release_notify_designation` → the local run lock `ait_ledger_lock_acquire release_notify run` (held in the main shell) → residue sweep (`ril_list_residue` + `ril_resume_move`) → re-classify → `release_publication_check <tag>`. A catch-up for an older tag E would need E's publication checked by the same `release_publication_check E`.
+> | - Moving a record is `ril_move_released <pending> <tag> <outcome> <commits_csv>` (lib/release_issue_ledger.sh): a subshell that takes its own ledger lock, never inherits the caller's lock globals, commits released+pending in one path-scoped commit and judges success from git state.
+> | - SHIPPED_EARLIER today: E = the earliest `v*` tag (version order) containing the newest mapped commit; the record stays pending and the exact `ait release-notify --tag <E>` is printed. That command already posts once, fully gated (tests/test_release_notify.sh case (c)).
+> | - Fail-closed rules a catch-up must keep: git output is read with `$( )` so git's own rc counts (`git_lines` helper), never `mapfile < <(git …)` or `| head` under pipefail; a failed containing-tag lookup is `FAILED:<task>|<url>|tag_lookup_failed` (exit 4), never a guessed release; the marker search is a bash substring test.
+> | - Duplicate prevention is scoped to serialised runs on the designated machine and sequential retries — documented in website/content/docs/commands/issue-integration.md ("Duplicate comments"); a catch-up should not claim more.
