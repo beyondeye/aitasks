@@ -1075,34 +1075,134 @@ class LargeCaptureTests(unittest.IsolatedAsyncioTestCase):
         os.environ.pop("TMUX_PANE", None)
         self.rid = rid
 
+    # ── helpers ────────────────────────────────────────────────────────────
+    #
+    # The capture mounts SCROLLED TO THE BOTTOM, and a fresh `shift+arrow`
+    # range starts from the cursor snapped into view — line 19999. From there
+    # `shift+down` clamps, so every press after the first leaves the marked set
+    # unchanged and `_repaint_marks` returns early: a test that presses from the
+    # bottom exercises one repaint, and a match "inside the selection" at lines
+    # 2 or 4 is not inside it at all. Every test here that grows a range calls
+    # `_to_top` first, outside anything it times (t2270).
+
+    async def _to_top(self, app, pilot) -> None:
+        await pilot.pause()
+        app.action_scroll_top()
+        await pilot.pause()
+
+    @staticmethod
+    def _count_renders(app) -> dict:
+        """Count full re-renders: wraps the instance's `_render_log`."""
+        renders = {"n": 0}
+        real_render = app._render_log
+
+        def counting_render():
+            renders["n"] += 1
+            return real_render()
+
+        app._render_log = counting_render
+        return renders
+
+    @staticmethod
+    def _send_key(app, key: str) -> None:
+        """Send ``key`` the way ``App._press_keys`` does, minus the idle waits.
+
+        Not ``pilot.press``: after sending the key it awaits Textual's
+        ``wait_for_idle`` twice, and each call keeps sleeping in 20 ms windows
+        until the process's CPU time advances less than 1 ms in one, capped at
+        1 s. A busy process holds every press for up to ~2 s whatever the app
+        does, so ten presses against a 2 s budget measured the harness — under
+        ``textual._wait.SLEEP_IDLE = -1`` ("never idle") the old form took
+        21.1 s while the property cost 0.2 s. ``driver.send_message`` is the
+        exact call ``_press_keys`` makes; the technique is t1660's
+        (``tests/test_minimonitor_startup_input_latency.py``) and t2267's
+        (``key_latency`` in ``tests/test_scratchpad_app.py``).
+        """
+        from textual import events
+        event = events.Key(key, key if len(key) == 1 else None)
+        event.set_sender(app)
+        app._driver.send_message(event)
+
+    async def _await_painted(self, app, done, what: str,
+                             timeout: float = 10.0) -> None:
+        """Wait until ``done()`` holds AND the log has painted since.
+
+        `_repaint_marks` clears `CaptureLog._line_cache` in the same synchronous
+        handler that makes ``done()`` true, and only a compositor paint fills it
+        again — so a non-empty cache after ``done()`` means the visible rows
+        were re-rendered. That keeps the paint inside a timed span, as
+        ``pilot.press`` did, without its idle sampling. ``timeout`` is liveness
+        only, never a budget.
+        """
+        import time
+        from frozenagent.capture_log import CaptureLog
+        log = app.query_one("#fa-log", CaptureLog)
+        deadline = time.monotonic() + timeout
+        while not (done() and log._line_cache):
+            if time.monotonic() > deadline:
+                self.fail(f"timed out waiting: {what}")
+            await asyncio.sleep(0.005)
+
+    async def _move_marks(self, app, moves: int) -> None:
+        """``moves`` × ``shift+down`` from line 0, each awaited until painted."""
+        for i in range(1, moves + 1):
+            self._send_key(app, "shift+down")
+            await self._await_painted(
+                app,
+                lambda i=i: (app._sel_end == i
+                             and app._marked == set(range(0, i + 1))),
+                f"mark move {i} painted")
+
+    # ── tests ──────────────────────────────────────────────────────────────
+
     async def test_selection_and_search_do_not_re_render(self):
-        import time as _time
+        import time
         app = self.app_mod.FrozenAgentApp(self.rid)
         async with app.run_test(size=(100, 24)) as pilot:
-            await pilot.pause()
-            renders = {"n": 0}
-            real_render = app._render_log
+            await self._to_top(app, pilot)
+            renders = self._count_renders(app)
 
-            def counting_render():
-                renders["n"] += 1
-                return real_render()
-
-            app._render_log = counting_render
-
-            t0 = _time.perf_counter()
-            for _ in range(10):
-                await pilot.press("shift+down")
+            t0 = time.perf_counter()
+            await self._move_marks(app, 10)
             app._search_term = "line 19000"
             app.action_search_next()
-            await pilot.pause()
-            elapsed = _time.perf_counter() - t0
+            await self._await_painted(
+                app,
+                lambda: app._match_line == 19000 and 19000 in app._marked,
+                "search hit painted")
+            elapsed = time.perf_counter() - t0
 
             self.assertEqual(renders["n"], 0,
                              "mark movement must not re-render the capture")
             # Generous: the point is orders of magnitude, not a tight budget.
+            # Measured (t2270): ~0.2 s incremental, idle or under the never-idle
+            # injection; >= 6 s with a full re-render per mark move.
             self.assertLess(elapsed, 2.0,
-                            f"11 mark moves over {self.LINES} lines took "
-                            f"{elapsed:.1f}s — the incremental repaint is gone")
+                            f"10 mark moves and a search over {self.LINES} "
+                            f"lines took {elapsed:.1f}s — the incremental "
+                            f"repaint is gone")
+
+    async def test_control_re_render_per_move_is_counted(self):
+        """Mutation control: the render count sees the t1705_6 regression.
+
+        Routes every mark move through a full `_render_log()` — what the class
+        docstring describes — and requires the counter to report each one, so
+        the timing-free `renders["n"] == 0` above is known to have teeth. Two
+        moves, because each full re-render of the capture costs ~0.7 s.
+        """
+        app = self.app_mod.FrozenAgentApp(self.rid)
+        async with app.run_test(size=(100, 24)) as pilot:
+            await self._to_top(app, pilot)
+            renders = self._count_renders(app)
+            real_extend = app._extend_selection
+
+            def regressed(direction):
+                real_extend(direction)
+                app._render_log()
+
+            app._extend_selection = regressed
+            await self._move_marks(app, 2)
+            self.assertEqual(renders["n"], 2)
 
     async def test_a_match_moving_inside_the_selection_still_repaints(self):
         """The set is unchanged; the painting must not be.
@@ -1114,7 +1214,7 @@ class LargeCaptureTests(unittest.IsolatedAsyncioTestCase):
         from frozenagent.capture_log import CaptureLog
         app = self.app_mod.FrozenAgentApp(self.rid)
         async with app.run_test(size=(100, 24)) as pilot:
-            await pilot.pause()
+            await self._to_top(app, pilot)
             log = app.query_one("#fa-log", CaptureLog)
             for _ in range(6):
                 await pilot.press("shift+down")
@@ -1127,12 +1227,20 @@ class LargeCaptureTests(unittest.IsolatedAsyncioTestCase):
 
             first = app._match_line
             first_as_match = style_of(first)
+            marked_with_first = frozenset(app._marked)
             app._search_term = "line 4 "
             app._match_line = None
             app.action_search_next()
             await pilot.pause()
             second = app._match_line
             self.assertNotEqual(first, second)
+            # Precondition: both hits lie INSIDE the range, so the marked SET is
+            # identical across the move — the case a set-only short-circuit
+            # gets wrong. Without it this test passes against that very mutant.
+            lo, hi = app._selection_bounds()
+            self.assertTrue(lo <= first <= hi and lo <= second <= hi,
+                            f"matches {first}, {second} not inside {lo}..{hi}")
+            self.assertEqual(frozenset(app._marked), marked_with_first)
             self.assertNotEqual(
                 style_of(first), first_as_match,
                 "the old match must lose its match styling")
@@ -1145,14 +1253,25 @@ class LargeCaptureTests(unittest.IsolatedAsyncioTestCase):
         from frozenagent.capture_log import CaptureLog
         app = self.app_mod.FrozenAgentApp(self.rid)
         async with app.run_test(size=(100, 24)) as pilot:
-            await pilot.pause()
+            await self._to_top(app, pilot)
             log = app.query_one("#fa-log", CaptureLog)
-            before = [str(log.lines[i].text) for i in range(6)]
+
+            def rows():
+                # Text AND style per segment: a mark changes the style, never
+                # the text, so a text-only comparison cannot see a trail.
+                return [[(seg.text, str(seg.style)) for seg in log.lines[i]]
+                        for i in range(6)]
+
+            before = rows()
             for _ in range(3):
                 await pilot.press("shift+down")
+            # Precondition: the range (lines 0..3) is inside the compared rows
+            # and visibly painted, so the comparison below can fail.
+            self.assertEqual(app._marked, {0, 1, 2, 3})
+            self.assertNotEqual(rows()[:4], before[:4])
             await pilot.press("escape")
             await pilot.pause()
-            after = [str(log.lines[i].text) for i in range(6)]
+            after = rows()
             self.assertEqual(before, after)
             self.assertEqual(app._pristine, {},
                              "every saved strip must be handed back")
