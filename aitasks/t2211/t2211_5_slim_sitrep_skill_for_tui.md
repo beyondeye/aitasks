@@ -117,3 +117,5 @@ confirm they are clean against HEAD. Also read the landed t2211_4 `AGENT_REQUEST
 > |   The code to check against the skill is `template.split()[0]`.
 > | - The TUI fills `{cid}` as `c<N>` and `{theme}` from the item's context theme (`THEME_RE`). `{text}` is the user's one-line question: single-spaced, with no control characters and no trailing @mention.
 > | - A typed request is always one line starting with `>`. The skill should treat it exactly like the user typing the same code (same authority, still confirm before writing).
+
+> **👁 note:read** id=2026-11-10T11:34:18Z.cd56084bce83c354cfd31cb1 by=t2211_5 at=2026-11-10T11:34:18Z mode=explicit ids=2026-11-09T07:38:19Z.247a5366bbb061fae6d784a4,2026-11-10T10:44:51Z.b08af7ffe841df7e4fc2417f
