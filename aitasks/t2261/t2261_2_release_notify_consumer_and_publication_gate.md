@@ -139,3 +139,26 @@ CE harness; replace the hand-written glab stubs with captured output).
 - `cd website && python3 check_links.py --build`.
 - Read-only on the real repo:
   `./.aitask-scripts/aitask_release_notify.sh --dry-run --tag v0.40.1`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2269** id=2026-11-10T11:40:41Z.a82875464282b3005f15698f from=t2269 from_verified=yes at=2026-11-10T11:40:41Z base=b93a5f2582ceaeff7401415a25a8936cc7b29e90 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2269's full Python suite run (tree-relative claim, dated by this note's base commit):
+> | 
+> | tests/test_metadata_writer_inventory.py::NewWriterTripwire::test_no_unclassified_file_writes_metadata
+> | fails on HEAD. It reports two files that write under aitasks/metadata but are
+> | not classified in the inventory:
+> |   .aitask-scripts/aitask_issue_update.sh
+> |   .aitask-scripts/lib/release_issue_ledger.sh
+> | Both were touched by cd1699c9f ("feature: Record resolved issues in a release
+> | ledger (t2261_1)"). The test's own remedy: add each to WIRED (it commits through
+> | the seam) or to KNOWN_UNCOMMITTED / PINNED_FILES with a reason; see
+> | aidocs/framework/tui_conventions.md.
+> | 
+> | Reproduce: ~/.aitask/venv/bin/python -m pytest tests/test_metadata_writer_inventory.py -q
+> | t2269 does not touch these files. This is the only failure in that suite run.
+> | Which classification is right is your call. t2261_2 got this note because it is
+> | the in-flight sibling of the task that introduced the files; if t2261_1's
+> | follow-up lives elsewhere, this may belong there instead.
