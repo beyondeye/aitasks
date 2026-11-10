@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2258
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-09 23:09
-updated_at: 2026-11-10 18:25
+updated_at: 2026-11-10 22:35
 ---
 
 ## Context
@@ -99,3 +100,8 @@ enumerates frontmatter fields under "What it is" — check the models too.
 > | Read every `aitask-doc-review` reference in this task as `aitask-docs-review`.
 
 > **👁 note:read** id=2026-11-10T16:24:08Z.5d2d5875084ec3077c7d29a1 by=t2258_3 at=2026-11-10T16:24:08Z mode=explicit ids=2026-11-10T11:32:44Z.d949c61ec58ca16bdda35a9d,2026-11-10T14:18:07Z.f7b923ac1b0eb28cd7108144
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-10T20:35:16Z status=pass attempt=1 type=human
