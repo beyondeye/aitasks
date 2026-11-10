@@ -3113,6 +3113,79 @@ def parse_trails_focus_request(value: str | None) -> tuple[str, str | None] | No
     return parse_pane_request(value, HANDLE_RE)
 
 
+# --- A trails request that also names a task card (t2211_10) -------------------
+#
+# `"<id> <handle> <task id>"` asks a running TrailsApp to open the trail AND focus
+# that member's card. An older TrailsApp parses the payload as ONE handle and
+# refuses the two-token form as malformed (opening nothing), so the writer sends
+# it only to a receiver that advertises it: `@aitask_trails_card_focus <pid>`,
+# set by the app on its own pane BEFORE its receiver stamp and naming the same
+# pid. Any other receiver gets the bare `<handle>` it understands, plus a warning
+# for the caller.
+
+TRAILS_CARD_FOCUS_OPTION = "@aitask_trails_card_focus"
+#: A trails request payload: an artifact handle (`HANDLE_RE`'s grammar),
+#: optionally followed by one task id (`BOARD_TASK_ID_RE`'s grammar).
+_TRAILS_TARGET_RE = re.compile(
+    r"^(art:[a-z0-9][a-z0-9._-]{0,127})(?: ([0-9]+(?:_[0-9]+)?))?\Z")
+
+
+def parse_trails_focus_target(value: str | None):
+    """A raw request value -> ``(id, (handle, task | None))``; ``(id, None)``
+    when malformed; None for no request.
+
+    Both the bare-handle form and the task form parse; anything else (extra
+    tokens, a malformed handle or task id) is malformed WHOLE -- the value is
+    untrusted, so a part that does not parse is never half-applied."""
+    parsed = parse_pane_request(value, _TRAILS_TARGET_RE)
+    if parsed is None:
+        return None
+    request_id, payload = parsed
+    if payload is None:
+        return request_id, None
+    m = _TRAILS_TARGET_RE.match(payload)
+    return request_id, (m.group(1), m.group(2))
+
+
+def mark_trails_card_focus(pane: str) -> bool:
+    """Advertise that this process's receiver takes the task form."""
+    return mark_pane_receiver(pane, TRAILS_CARD_FOCUS_OPTION)
+
+
+def unmark_trails_card_focus(pane: str) -> bool:
+    return unmark_pane_receiver(pane, TRAILS_CARD_FOCUS_OPTION)
+
+
+def _trails_receiver_takes_task(pane: str) -> bool:
+    """Does ``pane``'s receiver understand the task form? True only when ONE
+    read shows the pane itself (the echo) with a capability stamp naming the
+    same pid as its receiver stamp -- a stale capability left by an earlier
+    process in that pane names another pid. Any failure answers False, so the
+    caller falls back to the form every receiver understands."""
+    rc, out = _TMUX.run(["display-message", "-p", "-t", pane,
+                         f"#{{pane_id}}\t#{{{TRAILS_RECEIVER_OPTION}}}"
+                         f"\t#{{{TRAILS_CARD_FOCUS_OPTION}}}"])
+    if rc != 0:
+        return False
+    parts = out.rstrip("\n").split("\t")
+    if len(parts) != 3 or parts[0] != pane:
+        return False
+    stamp, capability = parts[1].strip(), parts[2].strip()
+    return bool(_TRAILS_STAMP_RE.fullmatch(stamp)) and capability == stamp
+
+
+def trails_supports_task_focus(project_root: Path) -> bool:
+    """Does ``project_root``'s ``ait trails`` take ``--task`` (t2211_10)?
+
+    The ``trails_supports_focus`` text probe for the quoted flag literal
+    (``--tasks-dir`` does not contain it). Unreadable -> False."""
+    path = Path(project_root) / ".aitask-scripts" / "board" / "trails_app.py"
+    try:
+        return '"--task"' in path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return False
+
+
 def mark_trails_receiver(pane: str) -> bool:
     """Stamp ``pane`` as this process's trails receiver; True when written."""
     return mark_pane_receiver(pane, TRAILS_RECEIVER_OPTION)
@@ -3131,7 +3204,7 @@ def _live_trails_receivers(session: str) -> list[tuple[str, str]] | None:
 
 
 def launch_or_focus_trails(
-    session: str, project_root: Path, handle: str,
+    session: str, project_root: Path, handle: str, task_id: str | None = None,
 ) -> tuple[bool, str | None]:
     """Open trail ``handle`` in ``session``'s ``ait trails``.
 
@@ -3142,22 +3215,47 @@ def launch_or_focus_trails(
     ``./ait trails --trail <handle>`` (argv form, no shell string). Does not
     switch the client; the caller does.
 
-    Returns ``(success, error_message)``.
+    ``task_id`` (bare: ``12`` / ``12_3``, t2211_10) also asks for that member's
+    card to be focused: the task form goes to a receiver that advertises it
+    (:func:`_trails_receiver_takes_task`) and the cold window gets
+    ``--task <id>`` when the project's trails supports it. Otherwise the trail
+    alone opens and the second value is a warning. Without ``task_id`` every
+    tmux call is the same as before.
+
+    Returns ``(success, error_or_warning)``.
     """
     if not HANDLE_RE.match(handle or ""):
         return False, f"invalid trail handle: {handle!r}"
+    if task_id is not None and not BOARD_TASK_ID_RE.match(task_id):
+        return False, f"invalid task id: {task_id!r}"
     receivers = _live_trails_receivers(session)
     if receivers is None:
         return False, "tmux list-panes failed"
     if receivers:
-        return _deliver_pane_request(receivers[0], TRAILS_FOCUS_OPTION, handle)
+        if task_id is None:
+            return _deliver_pane_request(receivers[0], TRAILS_FOCUS_OPTION, handle)
+        if _trails_receiver_takes_task(receivers[0][0]):
+            return _deliver_pane_request(receivers[0], TRAILS_FOCUS_OPTION,
+                                         f"{handle} {task_id}")
+        ok, msg = _deliver_pane_request(receivers[0], TRAILS_FOCUS_OPTION, handle)
+        if not ok:
+            return ok, msg
+        return True, ("the running ait trails cannot focus a card — restart it "
+                      f"to show t{task_id}")
+    argv = ["./ait", "trails", "--trail", handle]
+    warning = None
+    if task_id is not None:
+        if trails_supports_task_focus(project_root):
+            argv += ["--task", task_id]
+        else:
+            warning = ("this project's ait trails cannot focus a card — opened "
+                       "the trail only")
     rc, _ = _TMUX.run(
         ["new-window", "-t", tmux_window_target(session, ""),
-         "-c", str(project_root), "-n", "trails",
-         "./ait", "trails", "--trail", handle])
+         "-c", str(project_root), "-n", "trails", *argv])
     if rc != 0:
         return False, "tmux new-window failed"
-    return True, None
+    return True, warning
 
 
 # --- `ait board --focus` mailbox (t2211_3) -------------------------------------

@@ -140,6 +140,64 @@ class LiveMailboxTests(unittest.TestCase):
                                    "-F", "#{window_name}"])
         self.assertIn("trails", out.split())
 
+    # --- the task-carrying request (t2211_10) ------------------------------
+
+    def test_a_capable_receiver_gets_the_task_form(self):
+        first, second = self.panes
+        self.assertTrue(alu.mark_trails_card_focus(second))
+        self.assertTrue(alu.mark_trails_receiver(second))
+        self.assertTrue(alu._trails_receiver_takes_task(second))
+        ok, err = alu.launch_or_focus_trails(SESSION, Path(self.tmpdir), HANDLE,
+                                             "2211_10")
+        self.assertEqual((ok, err), (True, None))
+        self.assertEqual(alu.read_trails_focus_request(first), "")
+        value = alu.read_trails_focus_request(second)
+        self.assertEqual(alu.parse_trails_focus_target(value)[1],
+                         (HANDLE, "2211_10"))
+
+    def test_a_receiver_without_the_capability_gets_the_bare_handle(self):
+        _first, second = self.panes
+        self.assertTrue(alu.mark_trails_receiver(second))
+        self.assertFalse(alu._trails_receiver_takes_task(second))
+        ok, warning = alu.launch_or_focus_trails(SESSION, Path(self.tmpdir), HANDLE,
+                                                 "12")
+        self.assertTrue(ok)
+        self.assertIn("cannot focus a card", warning)
+        value = alu.read_trails_focus_request(second)
+        # Exactly what an older TrailsApp accepts.
+        self.assertEqual(alu.parse_trails_focus_request(value)[1], HANDLE)
+
+    def test_a_stale_capability_of_another_pid_does_not_count(self):
+        _first, second = self.panes
+        self.assertTrue(alu.mark_trails_receiver(second))
+        self.client.run(["set-option", "-p", "-t", second,
+                         alu.TRAILS_CARD_FOCUS_OPTION, "1"])
+        self.assertFalse(alu._trails_receiver_takes_task(second))
+        self.assertTrue(alu.unmark_trails_card_focus(second))
+        _rc, out = self.client.run(["display-message", "-p", "-t", second,
+                                    f"#{{{alu.TRAILS_CARD_FOCUS_OPTION}}}"])
+        self.assertEqual(out.strip(), "")
+
+    def test_no_receiver_opens_a_trails_window_with_the_task(self):
+        root = Path(self.tmpdir) / "projt"
+        root.mkdir()
+        app = root / ".aitask-scripts" / "board" / "trails_app.py"
+        app.parent.mkdir(parents=True)
+        app.write_text('parser.add_argument("--task")\n', encoding="utf-8")
+        argv_file = root / "argv.txt"
+        stub = root / "ait"
+        stub.write_text('#!/bin/sh\n'
+                        'printf "%s\\n" "$@" > argv.tmp && mv argv.tmp argv.txt\n'
+                        'exec sleep 600\n')
+        stub.chmod(0o755)
+        ok, err = alu.launch_or_focus_trails(SESSION, root, HANDLE, "12_3")
+        self.assertEqual((ok, err), (True, None))
+        deadline = time.monotonic() + 10
+        while not argv_file.exists() and time.monotonic() < deadline:
+            time.sleep(0.05)
+        self.assertEqual(argv_file.read_text().splitlines(),
+                         ["trails", "--trail", HANDLE, "--task", "12_3"])
+
     def test_server_identity_against_the_real_socket(self):
         rc, sock = self.client.run(["display-message", "-p", "-t",
                                     self.panes[0], "#{socket_path}"])

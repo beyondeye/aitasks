@@ -11,7 +11,9 @@ The deterministic work the sitrep agent used to do for the TUI's user, as keys:
   was open is never rolled back;
 * **respawn agent** (`A`): `aitask_sitrep.sh open`, the one spawn path;
 * **launches** from an item: `/aitask-pick` (`p`, pick items only), the task in
-  the board (`b`), and the push command a push reminder SHOWS (`P`, never run).
+  the board (`b`), the task in `ait trails` (`z`, only for a task known to be in
+  a trail; t2211_10 -- a picker for two or more), and the push command a push
+  reminder SHOWS (`P`, never run).
 
 Rules: every store write goes through the store's one writer, with
 ``cwd=<root>`` and without ``AITASK_SITREP_DIR`` (the store this TUI reads).
@@ -41,13 +43,14 @@ import agent_launch_utils as alu
 import sitrep_cli
 import sitrep_todo as st
 from agent_command_screen import build_pick_screen
-from guarded_dismiss import GuardedModalScreen
+from guarded_dismiss import GuardedModalScreen, is_active_screen
 from monitor.sitrep_close import (
     HARVEST_ALL_TIMEOUT,
     SITREP_OPEN_TIMEOUT,
     run_owned_group,
 )
 from sitrep_tui import sitrep_tui_model as model
+from sitrep_tui import sitrep_tui_trails as trails_model
 from tui_clipboard import copy_to_system_clipboard
 
 WRITER_SH = model.SCRIPTS_DIR / "aitask_sitrep_todo.sh"
@@ -62,7 +65,8 @@ WRITER_TIMEOUT = 60.0
 AGENT_POLL_INTERVAL = 3.0
 
 #: Item actions: shown on the main list and on an item's details.
-ITEM_ACTIONS = frozenset({"pick_task", "open_in_board", "show_push", "dismiss_item"})
+ITEM_ACTIONS = frozenset({"pick_task", "open_in_board", "open_in_trails", "show_push",
+                          "dismiss_item"})
 #: Main-screen actions added by this module.
 MAIN_ACTIONS = frozenset({"restore_store", "respawn_agent"})
 #: Store-wide actions shown on the main list AND on an item's details (the
@@ -76,6 +80,7 @@ ACTION_BINDINGS = (
     ("dismiss_item", "x", "Dismiss"),
     ("pick_task", "p", "Pick"),
     ("open_in_board", "b", "Board"),
+    ("open_in_trails", "z", "Trails"),
     ("show_push", "P", "Push cmd"),
     ("restore_store", "R", "Restore"),
     ("respawn_agent", "A", "Respawn agent"),
@@ -86,6 +91,7 @@ _KEY_PLACEHOLDERS = {"k_pick": "pick_task", "k_board": "open_in_board",
                      "k_refresh": "harvest_refresh"}
 
 _ACTION_LABEL = {"pick_task": "Pick", "open_in_board": "Open in board",
+                 "open_in_trails": "Show in trails",
                  "show_push": "Push command", "dismiss_item": "Dismiss"}
 
 
@@ -455,7 +461,14 @@ class SitrepActionsMixin:
     ``_render_header()``, ``_render_banner()``."""
 
     def _init_actions(self, runner=None, roles_probe=None, own_session=None,
-                      startup_harvest: bool = False) -> None:
+                      startup_harvest: bool = False, trails_scan=None) -> None:
+        #: sync (root) -> trails_model.Membership; None: no trail lookup (the
+        #: test default -- a real scan spawns an export subprocess).
+        self._trails_scan = trails_scan
+        #: The last scan's result; None until the first one lands.
+        self._trails: "trails_model.Membership | None" = None
+        self._trails_busy = False
+        self._trails_dirty = False
         #: async (argv, timeout) -> (rc, out); the default runs the script in
         #: its own process group (killed with the app).
         self._runner = runner or self._default_runner
@@ -483,6 +496,10 @@ class SitrepActionsMixin:
         if self._startup_harvest:
             self.run_worker(self._harvest_refresh(show_panel=False),
                             group="sitrep-harvest", exit_on_error=False)
+        if self._trails_scan is not None:
+            # The first scan is kicked by the host's first `_apply`; this keeps
+            # the membership current while the store itself is quiet.
+            self.set_interval(trails_model.TRAILS_RESCAN_INTERVAL, self._kick_trails_scan)
 
     # -- keys ------------------------------------------------------------------
 
@@ -522,6 +539,10 @@ class SitrepActionsMixin:
                     and model.task_ref_id(item) is not None)
         if action == "open_in_board":
             return model.task_ref_id(item) is not None
+        if action == "open_in_trails":
+            task_id = model.task_ref_id(item)
+            return (task_id is not None
+                    and self.trails_for(task_id).state == trails_model.IN)
         if action == "show_push":
             return st.parse_push_ref(item.ref) is not None
         if action == "dismiss_item":
@@ -856,6 +877,108 @@ class SitrepActionsMixin:
         for msg, severity in open_in_board(self.root, task_id):
             self.call_from_thread(self.notify, msg, severity=severity, markup=False)
 
+    # -- trails (t2211_10) ---------------------------------------------------------
+
+    def trails_for(self, task_id: "str | None") -> "trails_model.TaskTrails":
+        """The trail membership of local task ``task_id`` as last scanned."""
+        if self._trails_scan is None:
+            return trails_model.TASK_TRAILS_OFF
+        if self._trails is None:
+            return trails_model.TASK_TRAILS_LOOKING
+        return self._trails.lookup(task_id)
+
+    def _kick_trails_scan(self) -> None:
+        """Start a membership scan, or mark one due when one is in flight
+        (one scan at a time; a trigger during a scan reruns it once)."""
+        if self._trails_scan is None:
+            return
+        if self._trails_busy:
+            self._trails_dirty = True
+            return
+        self._trails_busy = True
+        self._trails_dirty = False
+        self._trails_worker()
+
+    @work(thread=True, group="sitrep-trails", exit_on_error=False)
+    def _trails_worker(self) -> None:
+        try:
+            result = self._trails_scan(self.root)
+        except Exception as e:  # noqa: BLE001 - the scanner never raises; belt and braces
+            result = trails_model.Membership(False, f"trail scan failed: {e}")
+        self.call_from_thread(self._on_trails_scanned, result)
+
+    def _on_trails_scanned(self, result: "trails_model.Membership") -> None:
+        self._trails_busy = False
+        self._trails = result
+        top = self._top_screen()
+        if top is not None:
+            self.refresh_bindings()
+            # Details are snapshots of the item, but their trail rows follow the
+            # scan. Only the ACTIVE details screen is touched: one that was
+            # closed or covered meanwhile is not the screen for this result
+            # (a covered one re-pulls on resume).
+            set_trails = getattr(top, "set_trails", None)
+            if callable(set_trails) and is_active_screen(top):
+                set_trails(self.trails_for(top.task_id))
+        if self._trails_dirty:
+            self._kick_trails_scan()
+
+    def action_open_in_trails(self) -> None:
+        item = self._resolve_action_item("open_in_trails")
+        if item is None:
+            return
+        task_id = model.task_ref_id(item)
+        trails = self.trails_for(task_id)
+        screen = self.screen
+        chosen = None
+        highlighted = getattr(screen, "highlighted_trail", None)
+        if callable(highlighted):
+            chosen = highlighted()
+        if chosen is None and len(trails.trails) == 1:
+            chosen = trails.trails[0].handle
+        if chosen is not None:
+            self._launch_trail(task_id, chosen)
+            return
+        num = item.num
+
+        def on_result(handle) -> None:
+            if handle is None:
+                return
+            # Re-resolve: the store or the membership may have moved while the
+            # picker was open.
+            cur = self.store.items.get(num) if self.store is not None else None
+            if (cur is None or self.todo_error
+                    or not self._item_action_ok("open_in_trails", cur)
+                    or model.task_ref_id(cur) != task_id):
+                self.notify(f"c{num} changed while the dialog was open — not shown",
+                            severity="warning", markup=False)
+                return
+            self._launch_trail(task_id, handle)
+
+        self.push_screen(trails_model.TrailPickerDialog(task_id, trails.trails), on_result)
+
+    def open_trail_from_details(self, screen, handle: str) -> None:
+        """Enter on a details trail row: the same re-resolve as the key, then
+        the row's OWN handle (never a position in the current membership)."""
+        if self.screen is not screen:
+            return
+        item = self._resolve_action_item("open_in_trails")
+        if item is not None:
+            self._launch_trail(model.task_ref_id(item), handle)
+
+    def _launch_trail(self, task_id: str, handle: str) -> None:
+        trail = self.trails_for(task_id).find(handle)
+        if trail is None:
+            self.notify(f"t{task_id} is no longer listed in {handle} — not shown",
+                        severity="warning", markup=False)
+            return
+        self._trails_jump_worker(handle, task_id, trail.name)
+
+    @work(thread=True, group="sitrep-trails-jump", exclusive=True, exit_on_error=False)
+    def _trails_jump_worker(self, handle: str, task_id: str, name: str) -> None:
+        for msg, severity in open_in_trails(self.root, handle, task_id, name):
+            self.call_from_thread(self.notify, msg, severity=severity, markup=False)
+
     def action_show_push(self) -> None:
         item = self._resolve_action_item("show_push")
         if item is not None:
@@ -868,8 +991,11 @@ class SitrepActionsMixin:
         self.call_from_thread(self.push_screen, PushCommandDialog(item, command, note))
 
 
-def open_in_board(root: str, task_id: str) -> list:
-    """Show ``t<task_id>`` in this project's board, moving the client there.
+def _jump_in_project_session(root: str, launch, *, cold_hint: str, failed,
+                             opened_elsewhere, shown: str) -> list:
+    """Run ``launch(dest_session, project)`` in this project's tmux session and
+    move the client there. Shared by the board and trails jumps; each caller
+    keeps its own wording.
 
     Blocking (tmux): thread workers only. Returns ``(message, severity)``
     notices -- none after a successful switch to another session (nobody is
@@ -879,25 +1005,55 @@ def open_in_board(root: str, task_id: str) -> list:
     else the project's live session; it is re-checked right before the launch
     (a session name can be reused -- `finish_linked_trail_jump`'s rule). A
     different session needs `switch-client`, which only reaches this client
-    when this process is a pane of the gateway server."""
+    when this process is a pane of the gateway server. ``launch`` returns
+    ``(ok, message)``: an error when not ok, else an optional warning.
+    ``failed(msg)`` / ``opened_elsewhere(dest)`` build the caller's wording
+    (callables, not format templates: a trail name is untrusted text and may
+    contain braces)."""
     project = Path(root)
     own = alu.current_tmux_session()
     if own is None:
-        return [(f"Not in an aitasks tmux session — run: ./ait board --focus {task_id}",
-                 "warning")]
+        return [(f"Not in an aitasks tmux session — run: {cold_hint}", "warning")]
     dest = own if alu.session_owned_by(own, project) else alu.live_project_session(project)
     if not dest:
         return [("No tmux session runs this project — start one with: ait ide", "error")]
     if not alu.session_owned_by(dest, project):
         return [(f"The tmux session '{dest}' changed before the jump — try again", "error")]
-    ok, msg = alu.launch_or_focus_board(dest, project, task_id)
+    ok, msg = launch(dest, project)
     if not ok:
-        return [(f"Could not open t{task_id} in the board: {msg}", "error")]
+        return [(failed(msg), "error")]
     if dest != own:
         if not alu.switch_client_to(dest):
-            return [(f"The board opened in session '{dest}' but switching there failed — "
-                     f"switch with: tmux switch-client -t ={dest}", "error")]
+            return [(opened_elsewhere(dest)
+                     + f" but switching there failed — switch with: tmux "
+                       f"switch-client -t ={dest}", "error")]
         return []
     if msg:
         return [(msg, "warning")]
-    return [(f"Showing t{task_id} in the board", "information")]
+    return [(shown, "information")]
+
+
+def open_in_board(root: str, task_id: str) -> list:
+    """Show ``t<task_id>`` in this project's board, moving the client there
+    (see :func:`_jump_in_project_session`)."""
+    return _jump_in_project_session(
+        root, lambda dest, project: alu.launch_or_focus_board(dest, project, task_id),
+        cold_hint=f"./ait board --focus {task_id}",
+        failed=lambda msg: f"Could not open t{task_id} in the board: {msg}",
+        opened_elsewhere=lambda dest: f"The board opened in session '{dest}'",
+        shown=f"Showing t{task_id} in the board")
+
+
+def open_in_trails(root: str, handle: str, task_id: str, name: str = "") -> list:
+    """Show ``t<task_id>`` in trail ``handle`` in this project's ``ait trails``
+    (the trail opened, the card focused), moving the client there (t2211_10).
+    A running trails that cannot focus a card still opens the trail; its
+    warning is reported."""
+    label = name or handle
+    return _jump_in_project_session(
+        root,
+        lambda dest, project: alu.launch_or_focus_trails(dest, project, handle, task_id),
+        cold_hint=f"./ait trails --trail {handle} --task {task_id}",
+        failed=lambda msg: f"Could not show t{task_id} in trail {label}: {msg}",
+        opened_elsewhere=lambda dest: f"ait trails opened in session '{dest}'",
+        shown=f"Showing t{task_id} in trail {label}")

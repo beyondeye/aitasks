@@ -5,8 +5,11 @@ The repository's persisted todo list grouped Now / Next / Waiting (Recently
 done and Dismissed on `d`), the situation text per theme, an item's details
 with its context map, read-only pointer following, and the Q&A log. The
 deterministic actions -- harvest + refresh, dismiss, restore, the agent
-respawn and the pick / board / push launches -- live in
-``sitrep_tui_actions`` (t2211_3); agent requests are t2211_4.
+respawn and the pick / board / trails / push launches -- live in
+``sitrep_tui_actions`` (t2211_3); agent requests are t2211_4. A task item's
+details also list the trails its task is in (``sitrep_tui_trails``, t2211_10):
+a ``Trails`` line, and one links row per trail that Enter opens in
+``ait trails`` with the task's card focused.
 
 Rules this module keeps:
 
@@ -47,7 +50,6 @@ for _p in (str(_SCRIPTS_DIR), str(_SCRIPTS_DIR / "lib")):
         sys.path.insert(0, _p)
 
 from rich.text import Text  # noqa: E402
-from textual import events  # noqa: E402
 from textual.app import App, ComposeResult, ScreenStackError  # noqa: E402
 from textual.binding import Binding  # noqa: E402
 from textual.containers import VerticalScroll  # noqa: E402
@@ -64,6 +66,9 @@ from multirow_footer import MultiRowFooter  # noqa: E402
 from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from sitrep_tui import sitrep_tui_model as model  # noqa: E402
 from sitrep_tui import sitrep_tui_actions as actions  # noqa: E402
+from sitrep_tui import sitrep_tui_trails as trails_model  # noqa: E402
+# Moved to sitrep_tui_widgets (t2211_10); the name stays importable from here.
+from sitrep_tui.sitrep_tui_widgets import SelectOnClickList  # noqa: E402,F401
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 
 #: Seconds between store polls (a hash of two small files, off the event loop).
@@ -94,24 +99,6 @@ def _row(label: str) -> Text:
 def _text(value: str) -> Content:
     """Plain store text as a Static renderable — never parsed as markup."""
     return Content(value)
-
-
-class SelectOnClickList(OptionList):
-    """An OptionList where a mouse click only SELECTS (highlights) a row.
-
-    Opening is Enter's job -- the footer-visible "Details" / "Open" binding,
-    which fires the list's own ``action_select`` -- so ``OptionSelected``
-    stays the one open path and a stray click never opens anything.
-    ``OptionList._on_click`` highlights AND selects; ``prevent_default`` stops
-    Textual's MRO walk before it runs (t2211_8)."""
-
-    async def _on_click(self, event: events.Click) -> None:
-        event.prevent_default()
-        idx = event.style.meta.get("option")
-        if idx is None or not 0 <= idx < self.option_count:
-            return
-        if not self.get_option_at_index(idx).disabled:
-            self.highlighted = idx
 
 
 #: Width of a details label column ("What to do  ").
@@ -203,10 +190,14 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
     def __init__(self, store: st.TodoStore, qa: "st.QaLog | None", num: int,
                  root: str, store_dir: str, refresh_check: "str | None" = None,
                  keys: "dict | None" = None,
-                 task_meta: "model.TaskMeta | None | bool" = None) -> None:
+                 task_meta: "model.TaskMeta | None | bool" = None,
+                 trails: "trails_model.TaskTrails | None" = None) -> None:
         super().__init__()
         #: The referenced task's metadata, read when the details opened.
         self._task_meta = task_meta
+        #: The task's trail membership (t2211_10). Unlike the item snapshot it
+        #: follows the background scan (`set_trails`); None: not a task item.
+        self._trails = trails
         self._store = store
         self._qa = qa
         self._num = num
@@ -227,6 +218,11 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
     @property
     def item_rev(self) -> int:
         return self._item.rev
+
+    @property
+    def task_id(self) -> "str | None":
+        """The local task this item names (the trail rows' task), or None."""
+        return model.task_ref_id(self._item)
 
     # composition -----------------------------------------------------------
 
@@ -261,6 +257,9 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
             lines.append(_field("Task status", (meta.status or "?")
                                 + (" (archived)" if meta.archived else "")))
             lines.append(_field("Created", model.created_text(meta)))
+        trails_line = self._trails_text()
+        if trails_line:
+            lines.append(_field("Trails", trails_line))
         lines.append(_field("Checked", "never" if it.checked_at in ("", "never") else
                             f"{it.checked_at} ({model.age_text(it.checked_at, now)})"))
         lines.append(_field("Outcome", it.outcome or "—"))
@@ -291,6 +290,7 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
         if meta:
             opts.append(Option(Text(f"Task description: t{meta.task_id} ({meta.path})"),
                                id="taskdesc"))
+        opts.extend(self._trail_options())
         ctx = self._ctx
         if ctx is not None:
             for i, (stype, ptr) in enumerate(ctx.sources):
@@ -316,6 +316,82 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
         if not opts:
             opts.append(Option(Text("No sources or links"), id="none", disabled=True))
         return opts
+
+    # trails (t2211_10) -----------------------------------------------------
+
+    def _trails_text(self) -> str:
+        tt = self._trails
+        if tt is None or tt.state == trails_model.OFF:
+            return ""
+        if tt.state == trails_model.IN:
+            return ", ".join(t.short() for t in tt.trails)
+        if tt.state == trails_model.NONE:
+            return "none"
+        if tt.state == trails_model.LOOKING:
+            return "looking…"
+        return f"unknown ({tt.reason})" if tt.reason else "unknown"
+
+    def _trail_options(self) -> list:
+        """One row per trail, keyed by its HANDLE (the row's stable identity:
+        a refresh that moves or removes other trails never re-points it)."""
+        tt = self._trails
+        if tt is None or tt.state in (trails_model.OFF, trails_model.NONE):
+            return []
+        if tt.state == trails_model.LOOKING:
+            return [Option(Text("Trails: looking…"), id="trailx", disabled=True)]
+        if tt.state == trails_model.UNKNOWN:
+            label = f"Trails: unknown ({tt.reason})" if tt.reason else "Trails: unknown"
+            return [Option(Text(label), id="trailx", disabled=True)]
+        opts = [Option(Text(t.label()), id=f"trail:{t.handle}") for t in tt.trails]
+        if tt.reason:
+            opts.append(Option(Text(f"Trails: some trails could not be read ({tt.reason})"),
+                               id="trailx", disabled=True))
+        return opts
+
+    def set_trails(self, trails: "trails_model.TaskTrails") -> None:
+        """A new scan result for this item's task: update the body line and
+        the trail rows, keeping the highlighted row BY ID. A highlighted trail
+        that is gone clears the highlight -- never a neighbouring row, which
+        Enter would then open."""
+        if self._trails is None or trails == self._trails:
+            return
+        previous, self._trails = self._trails, trails
+        try:
+            self.query_one("#sd-body", Static).update(self.body_content(model.resolve_now()))
+            ol = self.query_one("#sd-links", OptionList)
+        except Exception:  # noqa: BLE001 - not composed yet / closing
+            return
+        old = ol.highlighted_option
+        old_id = old.id if old is not None else None
+        ol.clear_options()
+        ol.add_options(self._link_options())
+        if old_id is None:
+            return
+        try:
+            ol.highlighted = ol.get_option_index(old_id)
+        except Exception:  # noqa: BLE001 - OptionDoesNotExist: the row is gone
+            ol.highlighted = None
+            if old_id.startswith("trail:"):
+                handle = old_id[len("trail:"):]
+                gone = previous.find(handle)
+                self.app.notify(f"{gone.name if gone else handle} no longer lists "
+                                f"t{self.task_id} — selection cleared",
+                                severity="warning", markup=False)
+        self.app.refresh_bindings()
+
+    def highlighted_trail(self) -> "str | None":
+        """The handle of the highlighted trail row, or None."""
+        try:
+            opt = self.query_one("#sd-links", OptionList).highlighted_option
+        except Exception:  # noqa: BLE001
+            return None
+        oid = opt.id if opt is not None else ""
+        return oid[len("trail:"):] if oid and oid.startswith("trail:") else None
+
+    def on_screen_resume(self) -> None:
+        # Covered by another screen when a scan landed: catch up now.
+        if self._trails is not None:
+            self.set_trails(self.app.trails_for(self.task_id))
 
     # behaviour -------------------------------------------------------------
 
@@ -344,6 +420,9 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
             if extras:
                 rel, sha = extras
                 self._follow(lambda: model.follow_raw(self._store_dir, rel, sha))
+        elif kind == "trail":
+            # The selected row's OWN handle (its id), re-validated by the app.
+            app.open_trail_from_details(self, arg)
         elif kind in ("rel", "ref"):
             app.open_item(int(arg))
         elif kind == "qa":
@@ -589,10 +668,11 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
     def __init__(self, root: str, store_dir: str,
                  reload_interval: float = RELOAD_INTERVAL, *, runner=None,
                  roles_probe=None, own_session=None,
-                 startup_harvest: bool = False) -> None:
+                 startup_harvest: bool = False, trails_scan=None) -> None:
         super().__init__()
         self._init_actions(runner=runner, roles_probe=roles_probe,
-                           own_session=own_session, startup_harvest=startup_harvest)
+                           own_session=own_session, startup_harvest=startup_harvest,
+                           trails_scan=trails_scan)
         self.current_tui_name = "sitrep_tui"
         self.root = root
         self.store_dir = store_dir
@@ -681,6 +761,8 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
             self.qa = snap.qa
         self._checks = model.refresh_checks(self.store)
         self._metas = model.task_metas(self.root, self.store)
+        # A new store generation may name new tasks: rescan their trails.
+        self._kick_trails_scan()
         self._loaded_at = _dt.datetime.now().strftime("%H:%M:%S")
         self._render_header()
         self._render_banner()
@@ -855,13 +937,18 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
         if self.store is None or num not in self.store.items:
             self.notify(f"c{num} is not in the store", severity="warning", markup=False)
             return
+        task_id = model.task_ref_id(self.store.items[num])
         self.push_screen(ItemDetailScreen(self.store, self.qa, num, self.root,
                                           self.store_dir, self._checks.get(num),
                                           self.action_keys(),
                                           # Read fresh: the task file may have
                                           # changed since the list was built.
-                                          model.task_meta(self.root, model.task_ref_id(
-                                              self.store.items[num]))))
+                                          model.task_meta(self.root, task_id),
+                                          trails=(self.trails_for(task_id)
+                                                  if task_id else None)))
+        if task_id:
+            # The details show the last scan; a fresh one updates them.
+            self._kick_trails_scan()
 
     def open_qa_entry(self, entry: st.QaEntry) -> None:
         """Open the entry the user SELECTED -- the object from the listing
@@ -1005,7 +1092,8 @@ def main(argv: "list | None" = None) -> int:
     probe, own_session = _tmux_seams(root, os.environ.get("TMUX_PANE", ""),
                                      os.environ.get("TMUX", ""))
     SitrepTuiApp(root, os.path.join(root, sh.STORE_NAME), roles_probe=probe,
-                 own_session=own_session, startup_harvest=True).run()
+                 own_session=own_session, startup_harvest=True,
+                 trails_scan=trails_model.scan_membership).run()
     return 0
 
 

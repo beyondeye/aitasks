@@ -2226,11 +2226,37 @@ class _PaneStore:
     def verbs(self, pane):
         return [verb for verb, p in self.log if p == pane]
 
+    # The task-form capability stamp (t2211_10). Logged apart from `log`, whose
+    # exact verb sequences the receiver tests pin; `order` interleaves both.
+    def mark_cap(self, pane):
+        self.cap_log.append(("mark_cap", pane))
+        self.order.append(("mark_cap", pane))
+        self.opts.setdefault(pane, {})["cap"] = "1"
+        return True
+
+    def unmark_cap(self, pane):
+        self.cap_log.append(("unmark_cap", pane))
+        self.order.append(("unmark_cap", pane))
+        self.opts.get(pane, {}).pop("cap", None)
+        return True
+
     def patches(self, ta):
-        return [patch.object(ta, "pane_on_gateway_server", self.verify),
-                patch.object(ta, "read_trails_focus_request", self.read),
-                patch.object(ta, "mark_trails_receiver", self.mark),
-                patch.object(ta, "unmark_trails_receiver", self.unmark),
+        self.cap_log = getattr(self, "cap_log", [])
+        self.order = getattr(self, "order", [])
+
+        def logged(verb, fn):
+            def run(pane, *args):
+                self.order.append((verb, pane))
+                return fn(pane, *args)
+            return run
+        return [patch.object(ta, "pane_on_gateway_server", logged("verify", self.verify)),
+                patch.object(ta, "read_trails_focus_request", logged("read", self.read)),
+                patch.object(ta, "mark_trails_receiver", logged("mark", self.mark)),
+                patch.object(ta, "unmark_trails_receiver", logged("unmark", self.unmark)),
+                # Never the real tmux server: these run right after the
+                # (patched) gateway check passes.
+                patch.object(ta, "mark_trails_card_focus", self.mark_cap),
+                patch.object(ta, "unmark_trails_card_focus", self.unmark_cap),
                 # Polls are driven by the test, never by the timer.
                 patch.object(ta, "TRAIL_FOCUS_POLL_SECONDS", 3600)]
 
@@ -2609,6 +2635,363 @@ class TrailFocusTests(TrailsAppTestBase):
         finally:
             gate.set()
         self.assertEqual(app._t_activated, [HANDLE_A, HANDLE_C])
+
+
+# --- Showing a task's card in a trail (t2211_10) ------------------------------
+
+
+class _Modal:
+    """A bare modal screen class (the App defers card focus under ANY modal)."""
+
+    @staticmethod
+    def make():
+        from textual.screen import ModalScreen
+        from textual.widgets import Static as _S
+
+        class Blocker(ModalScreen):
+            def compose(self):
+                yield _S("blocking")
+        return Blocker()
+
+
+class TrailCardFocusTests(TrailsAppTestBase):
+    """`--task` and the `<handle> <task>` mailbox request focus that member's
+    card. The target is always the SECOND member, so the default first-card
+    focus can never pass for it. The card request is resumable: it survives a
+    modal, and is cancelled by a newer request or by the active trail changing
+    — through EVERY navigation route, not only `_activate_trail`."""
+
+    _info_for = TrailFocusTests._info_for
+    _seams = TrailFocusTests._seams
+    _activations = TrailFocusTests._activations
+    _notices = TrailFocusTests._notices
+    _poll = TrailFocusTests._poll
+    _run_app = TrailFocusTests._run_app
+
+    def _target(self):
+        return self.member_ids[1], self.member_files[1]
+
+    def _request(self, store, pane, handle, task=None):
+        payload = f"{handle} {task}" if task else handle
+        return store.write(pane, payload)
+
+    async def _drain_with_modal(self, app, pilot):
+        app.push_screen(_Modal.make())
+        await self._settle(app, pilot)
+        app.pop_screen()
+        await self._settle(app, pilot)
+
+    # --- main() ------------------------------------------------------------
+
+    def test_main_passes_the_task(self):
+        for given, bare in (("12", "12"), ("t12", "12"), ("12_3", "12_3")):
+            with self.subTest(given=given), patch.object(self.ta, "TrailsApp") as app_cls:
+                self.ta.main(["--trail", HANDLE_B, "--task", given])
+                self.assertEqual(app_cls.call_args.kwargs["initial_task"], bare)
+                self.assertEqual(app_cls.call_args.kwargs["initial_trail"], HANDLE_B)
+
+    def test_main_refuses_a_bad_task_or_one_without_a_trail(self):
+        with patch.object(self.ta, "TrailsApp") as app_cls, \
+                contextlib.redirect_stderr(io.StringIO()):
+            for argv in (["--task", "12"], ["--trail", HANDLE_B, "--task", "x"],
+                         ["--trail", HANDLE_B, "--task", "12_"],
+                         ["--trail", HANDLE_B, "--task", "tt12"]):
+                with self.subTest(argv=argv), self.assertRaises(SystemExit):
+                    self.ta.main(argv)
+        app_cls.assert_not_called()
+
+    def test_main_without_task_passes_none(self):
+        with patch.object(self.ta, "TrailsApp") as app_cls:
+            self.ta.main(["--trail", HANDLE_B])
+        self.assertIsNone(app_cls.call_args.kwargs["initial_task"])
+
+    # --- the cold path and the mailbox ---------------------------------------
+
+    def test_cold_boot_focuses_the_task_card(self):
+        task, filename = self._target()
+
+        async def body(app, pilot):
+            self.assertEqual(app.active_trail_handle, HANDLE_B)
+            self.assertEqual(self._focused_filename(app), filename)
+            self.assertIsNone(app._pending_card)
+        self._run_app(body, initial_trail=HANDLE_B, initial_task=task)
+
+    def test_the_focused_card_survives_the_drift_rerender(self):
+        task, filename = self._target()
+
+        async def body(app, pilot):
+            await self._settle(app, pilot)
+            app._rerender_trail(self._focused_filename(app))
+            await self._settle(app, pilot)
+            self.assertEqual(self._focused_filename(app), filename)
+        self._run_app(body, initial_trail=HANDLE_B, initial_task=task)
+
+    def test_a_mailbox_request_focuses_the_card_on_every_route(self):
+        task, filename = self._target()
+        # (to, first): a new trail, the trail already active, another open tab.
+        for to, first in ((HANDLE_B, None), (HANDLE_A, None), (HANDLE_A, HANDLE_B)):
+            with self.subTest(to=to, first=first):
+                store = _PaneStore()
+
+                async def body(app, pilot, to=to, first=first):
+                    if first:
+                        self._request(store, "%1", first)
+                        await self._poll(app, pilot)
+                        self.assertEqual(app.active_trail_handle, first)
+                    self.assertNotEqual(self._focused_filename(app), filename)
+                    self._request(store, "%1", to, task)
+                    await self._poll(app, pilot)
+                    self.assertEqual(app.active_trail_handle, to)
+                    self.assertEqual(self._focused_filename(app), filename)
+                    self.assertIsNone(app._pending_card)
+                self._run_app(body, store=store, initial_trail=HANDLE_A,
+                              focus_pane="%1")
+
+    def _in_view(self, card) -> bool:
+        """Is ``card`` inside its column's VIEWPORT (not merely focused)?"""
+        col = card.parent
+        while col is not None and not isinstance(col, self.ab.board_trail_view.TrailColumn):
+            col = col.parent
+        self.assertIsNotNone(col)
+        top = card.virtual_region.y - col.scroll_offset.y
+        return top >= 0 and top + card.outer_size.height <= col.scrollable_content_region.height
+
+    def _tall_info(self, handle, title):
+        """A wave taller than the column: the target is LAST, after 20 ghosts."""
+        ghosts = [str(99000 + i) for i in range(20)]
+        doc = _titled(_wave_doc([self.member_ids[0], *ghosts, self.member_ids[1]]),
+                      title, title.upper())
+        return TrailInfo(handle=handle, owner_id=self.member_ids[0],
+                         owner_archived=False, owner_folded=False, name=title, doc=doc)
+
+    def test_a_focused_card_scrolled_out_of_view_is_revealed_by_a_request(self):
+        store = _PaneStore()
+        task, filename = self._target()
+        self._info_for = self._tall_info
+
+        async def body(app, pilot):
+            self._request(store, "%1", HANDLE_B, task)
+            await self._poll(app, pilot)
+            await self._settle(app, pilot)
+            card = app._focused_card()
+            self.assertEqual(self._focused_filename(app), filename)
+            self.assertTrue(self._in_view(card), "the first request reveals the card")
+            # The user scrolls the column back to the top; focus stays on the card.
+            card.parent.scroll_home(animate=False)
+            await self._settle(app, pilot)
+            card = app._focused_card()
+            self.assertEqual(self._focused_filename(app), filename)
+            self.assertFalse(self._in_view(card), "precondition: scrolled away")
+            # A request for the card that already holds the focus.
+            self._request(store, "%1", HANDLE_B, task)
+            await self._poll(app, pilot)
+            await self._settle(app, pilot)
+            card = app._focused_card()
+            self.assertEqual(self._focused_filename(app), filename)
+            self.assertIsNone(app._pending_card)
+            self.assertTrue(self._in_view(card), "the request reveals the card again")
+        self._run_app(body, store=store, initial_trail=HANDLE_A, focus_pane="%1")
+
+    def test_an_old_form_request_still_opens_with_the_default_focus(self):
+        store = _PaneStore()
+        _task, filename = self._target()
+
+        async def body(app, pilot):
+            self._request(store, "%1", HANDLE_B)
+            await self._poll(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_B)
+            self.assertEqual(self._focused_filename(app), self.member_files[0])
+            self.assertIsNone(app._pending_card)
+        self._run_app(body, store=store, initial_trail=HANDLE_A, focus_pane="%1")
+
+    def test_a_task_not_in_the_trail_is_reported_and_the_trail_opened(self):
+        store = _PaneStore()
+
+        async def body(app, pilot):
+            self._request(store, "%1", HANDLE_B, "99998")
+            await self._poll(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_B)
+            self.assertIsNone(app._pending_card)
+        app = self._run_app(body, store=store, initial_trail=HANDLE_A,
+                            focus_pane="%1")
+        self.assertTrue(any("t99998 is not in trail" in n for n in app._t_notices),
+                        app._t_notices)
+
+    def test_a_malformed_task_suffix_is_ignored_and_not_retried(self):
+        store = _PaneStore()
+
+        async def body(app, pilot):
+            for suffix in ("12;rm", "t12", "12 13"):
+                store.opts["%1"]["focus"] = f"{'%032x' % (len(suffix) + 7)} {HANDLE_B} {suffix}"
+                await self._poll(app, pilot)
+                await self._poll(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_A)
+        app = self._run_app(body, store=store, initial_trail=HANDLE_A, focus_pane="%1")
+        self.assertEqual(sum("malformed" in n for n in app._t_notices), 3,
+                         app._t_notices)
+        self.assertEqual(app._t_activated, [HANDLE_A])
+
+    def test_a_request_held_by_a_modal_focuses_the_card_after_close(self):
+        store = _PaneStore()
+        task, filename = self._target()
+
+        async def body(app, pilot):
+            app.push_screen(_Modal.make())
+            await self._settle(app, pilot)
+            self._request(store, "%1", HANDLE_B, task)
+            await self._poll(app, pilot)
+            self.assertEqual(app._pending_trail_focus[1:], (HANDLE_B, task))
+            app.pop_screen()
+            await self._settle(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_B)
+            self.assertEqual(self._focused_filename(app), filename)
+        self._run_app(body, store=store, initial_trail=HANDLE_A, focus_pane="%1")
+
+    # --- registration -----------------------------------------------------------
+
+    def test_the_capability_is_stamped_before_the_receiver_and_removed_on_exit(self):
+        store = _PaneStore()
+
+        async def body(app, pilot):
+            self.assertEqual(store.order[:4], [("verify", "%1"), ("read", "%1"),
+                                               ("mark_cap", "%1"), ("mark", "%1")])
+            # The receivers' own verb log is unchanged by the capability.
+            self.assertEqual(store.verbs("%1")[:3], ["verify", "read", "mark"])
+        self._run_app(body, store=store, initial_trail=HANDLE_A, focus_pane="%1")
+        self.assertEqual(store.order[-2:], [("unmark", "%1"), ("unmark_cap", "%1")])
+        self.assertNotIn("cap", store.opts.get("%1", {}))
+
+    # --- the post-activation window: a modal opened before the card focus ------
+
+    def _modal_in_window(self, app):
+        """Wrap `_focus_trail_member` so its FIRST call pushes a modal before
+        running: the attempt then lands under the modal (the window between
+        activation and focus)."""
+        original = app._focus_trail_member
+        state = {"armed": True}
+
+        def wrapped(seq, hops):
+            if state["armed"]:
+                state["armed"] = False
+                app.push_screen(_Modal.make())
+            return original(seq, hops)
+        app._focus_trail_member = wrapped
+
+    def test_a_modal_in_the_post_activation_window_does_not_lose_the_card(self):
+        store = _PaneStore()
+        task, filename = self._target()
+
+        async def body(app, pilot):
+            self._modal_in_window(app)
+            self._request(store, "%1", HANDLE_B, task)
+            await self._poll(app, pilot)
+            self.assertTrue(app._modal_is_active())
+            # Far past the hop budget, with the modal still open.
+            for _ in range(app._MOUNT_HOPS + 3):
+                await self._settle(app, pilot)
+            self.assertIsNotNone(app._pending_card)
+            self.assertEqual(app._pending_card[1:], (HANDLE_B, task))
+            app.pop_screen()
+            await self._settle(app, pilot)
+            self.assertEqual(self._focused_filename(app), filename)
+            self.assertIsNone(app._pending_card)
+        self._run_app(body, store=store, initial_trail=HANDLE_A, focus_pane="%1")
+
+    def test_a_newer_request_under_the_modal_supersedes_the_card(self):
+        store = _PaneStore()
+        task, _filename = self._target()
+
+        async def body(app, pilot):
+            self._modal_in_window(app)
+            self._request(store, "%1", HANDLE_B, task)
+            await self._poll(app, pilot)
+            self.assertTrue(app._modal_is_active())
+            # A newer request (the first member, in trail C) arrives meanwhile.
+            self._request(store, "%1", HANDLE_C, self.member_ids[0])
+            await self._poll(app, pilot)
+            app.pop_screen()
+            await self._settle(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_C)
+            self.assertEqual(self._focused_filename(app), self.member_files[0])
+            self.assertIsNone(app._pending_card)
+        self._run_app(body, store=store, initial_trail=HANDLE_A, focus_pane="%1")
+
+    # --- cancellation by REAL navigation (the delayed-attempt window) ---------
+
+    def _delayed(self, app):
+        """Record scheduled card-focus attempts instead of queueing them: the
+        request then waits with no modal and its trail active."""
+        recorded = []
+        app._schedule_card_focus = lambda: recorded.append(
+            app._pending_card[0] if app._pending_card else None)
+        return recorded
+
+    def test_leaving_the_trail_by_any_route_cancels_the_card(self):
+        task, _filename = self._target()
+        routes = ("bracket", "number", "click", "close")
+        for route in routes:
+            with self.subTest(route=route):
+                store = _PaneStore()
+
+                async def body(app, pilot, route=route):
+                    self._request(store, "%1", HANDLE_B)
+                    await self._poll(app, pilot)
+                    own = self._focused_filename(app)      # B's own focus
+                    self.assertEqual(own, self.member_files[0])
+                    recorded = self._delayed(app)
+                    self._request(store, "%1", HANDLE_B, task)
+                    await self._poll(app, pilot)
+                    self.assertEqual(len(recorded), 1)
+                    self.assertIsNotNone(app._pending_card)
+                    self.assertEqual(list(app._trail_sessions), [HANDLE_A, HANDLE_B])
+                    if route == "bracket":
+                        await pilot.press("[")
+                    elif route == "number":
+                        await pilot.press("1")
+                    elif route == "click":
+                        strip = app.query_one("#trail_tabs")
+                        start, _end, handle = strip._spans[0]
+                        self.assertEqual(handle, HANDLE_A)
+                        await pilot.click("#trail_tabs", offset=(start + 2, 0))
+                    else:
+                        await pilot.press("ctrl+w")
+                    await self._settle(app, pilot)
+                    self.assertEqual(app.active_trail_handle, HANDLE_A)
+                    self.assertIsNone(app._pending_card, route)
+                    if route != "close":
+                        await pilot.press("]")
+                        await self._settle(app, pilot)
+                        self.assertEqual(app.active_trail_handle, HANDLE_B)
+                    # The stale attempt runs late, then a resume drain: neither
+                    # may move the user's card.
+                    app._focus_trail_member(recorded[0], app._MOUNT_HOPS)
+                    await self._drain_with_modal(app, pilot)
+                    if route != "close":
+                        self.assertEqual(self._focused_filename(app), own)
+                self._run_app(body, store=store, initial_trail=HANDLE_A,
+                              focus_pane="%1")
+
+    def test_closing_another_inactive_tab_keeps_the_card(self):
+        store = _PaneStore()
+        task, filename = self._target()
+
+        async def body(app, pilot):
+            self._request(store, "%1", HANDLE_B)
+            await self._poll(app, pilot)
+            original = app._schedule_card_focus
+            recorded = self._delayed(app)
+            self._request(store, "%1", HANDLE_B, task)
+            await self._poll(app, pilot)
+            self.assertEqual(len(recorded), 1)
+            app._close_trail_session(HANDLE_A)        # not the active tab
+            await self._settle(app, pilot)
+            self.assertEqual(app.active_trail_handle, HANDLE_B)
+            self.assertIsNotNone(app._pending_card)
+            app._schedule_card_focus = original
+            await self._drain_with_modal(app, pilot)
+            self.assertEqual(self._focused_filename(app), filename)
+            self.assertIsNone(app._pending_card)
+        self._run_app(body, store=store, initial_trail=HANDLE_A, focus_pane="%1")
 
 
 # --- Linked trails across tabs (t1957_4) -------------------------------------

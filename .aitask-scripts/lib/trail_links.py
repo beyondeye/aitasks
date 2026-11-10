@@ -204,6 +204,28 @@ def lookup_task_meta(task_id: str) -> dict:
 
 # --- Export side -------------------------------------------------------------
 
+def _member_waves(doc) -> dict:
+    """``{member ref: [wave ordinal, ...]}`` — the waves each ref is an entry
+    of, in wave order. A wave without an integer ordinal is left out (the
+    schema requires one; a document that lacks it still exports its members).
+    Additive to the export (the sitrep TUI shows "wave N"); the linked-trail
+    scan does not read it."""
+    waves: dict = {}
+    for wave in doc.get("waves") or []:
+        if not isinstance(wave, dict):
+            continue
+        ordinal = wave.get("ordinal")
+        if not isinstance(ordinal, int) or isinstance(ordinal, bool):
+            continue
+        for entry in wave.get("entries") or []:
+            ref = entry.get("task") if isinstance(entry, dict) else None
+            if ref:
+                ords = waves.setdefault(str(ref), [])
+                if ordinal not in ords:
+                    ords.append(ordinal)
+    return waves
+
+
 def build_export() -> dict:
     """The cwd project's trails, members and member metadata, as one dict.
 
@@ -227,6 +249,7 @@ def build_export() -> dict:
             "owner_id": info.owner_id,
             "load_error": info.load_error,
             "members": members,
+            "waves": _member_waves(info.doc) if info.doc else {},
         })
     return {
         "format": EXPORT_FORMAT,
@@ -466,6 +489,17 @@ def _collect_export(name: str, root: str):
         parts.append("unloadable trail(s): " + ", ".join(failed))
     errors = [ProjectScanError(name, PARTIAL, "; ".join(parts))] if parts else []
     return ProjectExport(name, root, data), errors
+
+
+def export_project(root: str):
+    """``(ProjectExport | None, [ProjectScanError])`` for ONE project root.
+
+    The one-root entry point (the sitrep TUI's trail-membership lookup): the
+    same export run and the same typed errors as a linked-trail scan —
+    ``TIMEOUT`` / ``EXPORT_FAILED`` with no export, ``PARTIAL`` beside an
+    export some of whose trails or task files could not be read. Blocking
+    (one subprocess): thread workers only."""
+    return _collect_export("(this project)", root)
 
 
 def scan_linked_trails(local_doc, *, local_root=".", local_project=None,

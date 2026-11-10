@@ -165,7 +165,20 @@ segment → exit 2, every spelling, abbreviations disabled).
       minimonitor's (tmux window only);
     - **open in board** is `launch_or_focus_board` plus `switch-client` when
       the board lives in another session of the project;
+    - **show in trails** (`z`, and Enter on a details trail row) is
+      `launch_or_focus_trails(…, task_id)` with the same session rule: the
+      trail opens in `ait trails` with the task's card focused (a running
+      trails too old for the task form still opens the trail and says so);
     - **push** shows the command and never runs it.
+  - **Trail membership** (`sitrep_tui/sitrep_tui_trails.py`) is one
+    `trail_links.export_project(root)` subprocess per scan, in a thread worker:
+    after a store change, when a task item's details open, and every 60 s. A
+    task is `in` some trails, in `none`, or `unknown` (the export failed,
+    `project.name` is unset, or a partial scan found nothing for it — never
+    shown as "in no trail"). A partial scan keeps the trails it did read.
+    The details show a `Trails` line and one links row per trail, keyed by
+    the trail's handle, so a rescan never re-points a selected row; `z` is
+    shown only for a task known to be in a trail.
 - **Known gaps, by design.** A frozen sitrep does not block a new spawn (frozen
   panes are never live identity), and `/aitask-sitrep` typed into an arbitrary
   agent pane is unstamped. At worst two stewards share one locked, CAS-guarded
