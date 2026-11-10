@@ -110,3 +110,20 @@ page and the skill page) and confirm they are clean against HEAD.
 > | - Item details: Priority and effort are now one line ("Priority    high · effort low"), plus a "Created" line with the full stored value.
 > | 
 > | See aiplans/p2211/p2211_9_* (archived under aiplans/archived/p2211/ once t2211_9 archives), "Notes for sibling tasks".
+
+> **✉ note:t2211_10** id=2026-11-10T07:03:06Z.ad44f6bda58f2101fe296e47 from=t2211_10 from_verified=yes at=2026-11-10T07:03:06Z base=0e17732b1e5f4d2b3849a80cf3000e2ddf2b22d2 base_branch=main dirty=no host=omg16
+>
+> | Advisory (claim, from t2211_10; code commit 0e17732b1, tree-relative). New sitrep TUI behaviour to document:
+> | 
+> | - Key `z` "Trails" on the main list and on item details. It is shown only for a task item whose task is known to be in at least one implementation trail. It opens `ait trails` on that trail with the task's card focused. With 2+ trails a picker opens (a click selects, Enter opens, Esc cancels). On the details screen, `z` acts on the highlighted trail row, else 1 trail → open, 2+ → the picker.
+> | - Task item details:
+> |   - a `Trails` line, e.g. "Sitrep follow-ups (w1)", or "none" / "looking…" / "unknown (<reason>)";
+> |   - one links row per trail, e.g. "In trail: Sitrep follow-ups (art:trail-sitrep-followups) — wave 1". Enter on the row does the same jump.
+> | - States:
+> |   - "looking…" until the first scan lands (it runs in the background after a store change, when details open, and every 60 s);
+> |   - "unknown (<reason>)" when the scan failed, `project.name` is unset, or a partial scan found nothing for the task. It is never shown as "in no trail".
+> |   - A partial scan keeps the trails it did read, plus a disabled "some trails could not be read" row.
+> | - Session handling is as for `b`: the TUI's own session, else the project's live session, with a client switch when needed.
+> | - New CLI: `ait trails --trail <handle> --task <id>` (`--task` needs `--trail`; 12, t12 and 12_3 are accepted).
+> | - A running `ait trails` started before this change still opens the trail; the sitrep TUI then warns that it cannot focus a card (restart trails).
+> | Framework-side docs already updated in that commit: aidocs/framework/sitrep.md and tmux_gateway.md (`@aitask_trails_card_focus`).
