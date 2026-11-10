@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: [t2211_4]
 issue_type: enhancement
@@ -130,3 +132,5 @@ confirm they are clean against HEAD. Also read the landed t2211_4 `AGENT_REQUEST
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-10T12:59:12Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-10T13:17:48Z status=pass attempt=1 type=human
