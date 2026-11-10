@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: [t2258_1]
 issue_type: enhancement
@@ -121,3 +123,5 @@ that applies them, and wires it into the `docs_updated` gate and
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-10T13:59:48Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-10T16:13:05Z status=pass attempt=1 type=human
