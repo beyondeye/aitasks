@@ -462,3 +462,70 @@ confirmed inline phases, this plan's Verification, or a sibling's phase.
   website/content/docs/skills/_index.md,
   website/content/docs/skills/aitask-gate-docs-updated.md,
   tests/test_docs_review_contract.sh (moved)
+
+### Change Request 2 (2026-11-10 15:05)
+- **Requested by user:** three review findings, all verified valid.
+  1. A fact moved into a page that already has a draft must reuse that draft
+     and keep its `.base`. Re-copying the live page hides a concurrent edit.
+  2. Recreating a deleted page needs an explicit transition; the stale `.base`
+     otherwise keeps it in the "deleted" row.
+  3. Repeat Run A's post-Adjust reader test with the complete draft inline.
+- **Changes made:**
+  1. Skill invariant:
+     - a page that already has a `.draft` gets the fact added to that draft,
+       with its `.base` untouched (no re-copy, no rebuild from the live page);
+     - a page with no draft yet gets a new pair: `.base` first, the draft from
+       that copy;
+     - every added or changed destination draft is reviewed in the same call.
+  2. Gate:
+     - step 3: "A page that already has a draft in this run keeps its `.base`";
+     - step 3b: reuse rule plus same-call review of added or changed drafts;
+     - step 5: explicit state change for each "deleted" choice:
+       - Recreate: delete the stale `.base`, re-review, apply through the
+         new-page row;
+       - Move: delete this page's pair, then use the other page's rules;
+       - Drop: delete the pair, log it as dropped;
+       - in every case the budget is unchanged;
+     - two MUST NOT additions.
+  3. Contract test now 70/70:
+     - checks `G_existing_pair_keeps_base`, `G_deleted_choice_transitions`,
+       `S_moved_fact_reuses_existing_draft`;
+     - mutants `moved_fact_recopy` and `no_recreate_transition` are caught;
+     - the new G checks also fail on the pinned pre-change gate.
+- **Dry runs added:**
+  - **Run E (moved fact into a page with an existing draft):**
+    - Setup: A and B drafted, then another session edited live B. The review
+      cut a mechanism line from A and appended it to B's draft; B's `.base` was
+      kept.
+    - Control (re-copy live B over `.base`): unchanged row, applied, concurrent
+      edit lost (count 0).
+    - Real: B in the modified row; snapshot merge rc 1.
+    - My dry-run script slipped twice here:
+      - it first applied the merge result despite the marker check printing
+        markers, because the apply was not conditional on the check;
+      - a regex "keep both sides" resolution then duplicated a line.
+    - Both times I restored live B from `.base`, resolved by hand, gated the
+      apply on an empty marker grep, and applied.
+    - Final B holds the concurrent edit, this task's change and the moved fact
+      (each count 1, 0 markers), and `cmp` applied == reviewed draft. A no
+      longer has the line.
+  - **Run F (deleted, recreate chosen):** R deleted by another session, while U
+    in the same run applied (unchanged).
+    - Control: with the old `.base` left in place, R stays `deleted`.
+    - Recreate: stale `.base` removed → `unchanged-new`, budget still 2;
+      re-reviewed and applied through the new-page row; `cmp` R == reviewed
+      draft.
+  - **Run A re-test with the complete final draft** (frontmatter + relref
+    shortcodes, verbatim):
+    - 7/7 answers correct; Q7 ("skill") answered from the in-page definition.
+    - Remaining guessed terms (task, agent, pick, archived, worktree/base
+      branch, Code Browser) and unneeded details (naming scheme, header fields,
+      GitHub link, front matter) were already on the page; they stay unresolved
+      for t2258_3.
+    - Run A budget 1 → 0 (3 of 3 used). `cmp` applied page == this final
+      reviewed draft.
+  - This supersedes the "Issues encountered" note that Run A's re-test used a
+    stripped page.
+- **Files affected:** .claude/skills/aitask-docs-review/SKILL.md,
+  .claude/skills/aitask-gate-docs-updated/SKILL.md,
+  tests/test_docs_review_contract.sh
