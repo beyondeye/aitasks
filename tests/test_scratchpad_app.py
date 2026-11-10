@@ -51,6 +51,7 @@ sys.path.insert(0, str(PROJECT_DIR / ".aitask-scripts"))
 sys.path.insert(0, str(PROJECT_DIR / ".aitask-scripts" / "lib"))
 
 from scratchpad import scratchpad_app as sp  # noqa: E402
+from textual import events  # noqa: E402
 from textual.app import App  # noqa: E402
 from textual.driver import Driver  # noqa: E402
 from textual.widgets import TextArea  # noqa: E402
@@ -280,10 +281,51 @@ class _Base(unittest.IsolatedAsyncioTestCase):
         app.exit = exit_
         return messages
 
-    async def press_timed(self, pilot, key: str) -> float:
+    def record_action(self, app, name: str) -> list:
+        """Timestamp every call of ``app.action_<name>``. Textual resolves an
+        action with ``getattr`` on the app, so the instance wrapper is the one
+        a binding dispatches."""
+        calls: list = []
+        real = getattr(app, f"action_{name}")
+
+        def wrapper(*a, **kw):
+            calls.append(time.monotonic())
+            return real(*a, **kw)
+
+        setattr(app, f"action_{name}", wrapper)
+        return calls
+
+    async def key_latency(self, app, key: str, handled, timeout: float = 10.0) -> float:
+        """Seconds from sending ``key`` to ``handled()`` — the app's own latency.
+
+        Not ``pilot.press``: after sending the key it runs Textual's
+        ``wait_for_idle`` twice, and each call keeps sleeping in 20 ms windows
+        until the process's CPU time advances less than 1 ms in one, capped at
+        1 s. A busy process holds the press for up to ~2 s whatever the app
+        does (t2267 measured a 2.04 s press around a 1 ms exit). The event is
+        built and sent exactly as ``App._press_keys`` does —
+        ``driver.send_message`` — with only the idle sampling dropped, the
+        technique ``tests/test_minimonitor_startup_input_latency.py`` uses
+        (t1660). That file counts event-loop turns; this one keeps wall-clock
+        time on purpose: the property here is that the loop never BLOCKS on a
+        save, and a blocked loop runs no turns. ``timeout`` is liveness only.
+        """
+        event = events.Key(key, key if len(key) == 1 else None)
+        event.set_sender(app)
         t0 = time.monotonic()
-        await pilot.press(key)
+        app._driver.send_message(event)
+        deadline = t0 + timeout
+        while not handled():
+            if time.monotonic() > deadline:
+                self.fail(f"timed out waiting: {key!r} handled")
+            await asyncio.sleep(0.01)
         return time.monotonic() - t0
+
+    async def type_latency(self, app, key: str) -> float:
+        """:meth:`key_latency` of typing ``key`` at the end of the editor."""
+        expected = app._sp_editor.text + key
+        return await self.key_latency(
+            app, key, lambda: app._sp_editor.text == expected)
 
 
 class LoadAndAutosaveTests(_Base):
@@ -347,12 +389,19 @@ class LoadAndAutosaveTests(_Base):
         app = sp.ScratchpadApp("42")
         async with app.run_test() as pilot:
             await self.owner(app, pilot)
+            saves_now = self.record_action(app, "save_now")
             os.environ["AITASK_SCRATCHPAD_PAUSE_FIFO"] = str(fifo)
             await pilot.press("a")
             await pilot.press("ctrl+s")
             await self.wait_for(reached.exists, msg="save parked")
-            for key in ("b", "c", "d", "e", "f", "ctrl+s"):
-                self.assertLess(await self.press_timed(pilot, key), 0.3, key)
+            for key in ("b", "c", "d", "e", "f"):
+                self.assertLess(await self.type_latency(app, key), 0.3, key)
+            # The action call, not `_sp_save_now_requested`: a slow setup press
+            # lets the debounce start the save before the first ctrl+s, leaving
+            # that flag already True.
+            n = len(saves_now)
+            self.assertLess(await self.key_latency(
+                app, "ctrl+s", lambda: len(saves_now) > n), 0.3, "ctrl+s")
             self.assertEqual(app._sp_editor.text, "abcdef")
             self.assertEqual(len(self.saves()), 1)
             self.assertEqual(self.saves()[0]["text"], "a")
@@ -918,16 +967,20 @@ class UnresolvedWriteTests(_Base):
         async with app.run_test() as pilot:
             await self._stuck_by_unkillable_child(app, pilot)
             for key in ("b", "c", "d", "e", "f"):
-                self.assertLess(await self.press_timed(pilot, key), 0.3, key)
+                self.assertLess(await self.type_latency(app, key), 0.3, key)
             self.assertEqual(app._sp_editor.text, "abcdef")
             count = len(self.saves())
             await pilot.press("ctrl+s")
             await asyncio.sleep(0.5)
             self.assertEqual(len(self.saves()), count)
-            t0 = time.monotonic()
-            await pilot.press("ctrl+q")
-            await self.wait_for(lambda: app._sp_shutdown, timeout=1, msg="exit")
-            self.assertLess(time.monotonic() - t0, 1.0)
+            # The fake child sleeps 60 s: a quit that waits on it, blocking or
+            # not, misses the 1 s budget by over an order of magnitude and
+            # leaves `proc` exited.
+            proc = app._sp_stuck_proc
+            self.assertIsNotNone(proc)
+            self.assertLess(await self.key_latency(
+                app, "ctrl+q", lambda: app._sp_shutdown), 1.0)
+            self.assertIsNone(proc.poll(), "quit waited for the stuck save's child")
         self.assertEqual(len(self.saves()), count)
         self.assertIn("unresolved", " ".join(map(str, exits)))
 

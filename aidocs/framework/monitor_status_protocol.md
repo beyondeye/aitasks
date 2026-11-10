@@ -1097,6 +1097,11 @@ other than the reader. The reader has to stay free to read the reply.
   with plain `start()`. Applink still calls the synchronous `start_detached()`
   from the owner of the client's lifetime, so the first attempt is already
   running before any push loop reads.
+- **A closed client never starts.** After `close()`, `start()` returns at once
+  and `start_detached()` does nothing. Neither runs an attempt, so neither calls
+  `ensure` nor spawns the status server. Reads reach `start()` through their
+  ready wait, so a read on a client closed before it started runs no attempt
+  either.
 
 ### Reads
 

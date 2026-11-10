@@ -1307,6 +1307,27 @@ class CloseTests(ClientCase):
         self.assertIsNone(c._link)
         self.assertEqual(c._bg, set())
 
+    async def test_start_after_close_runs_no_attempt(self):
+        """A client closed before it ever started stays unstarted (t2267).
+
+        Pre-fix, `start()` checked only `_started`: it created the startup
+        task, whose attempt ran `ensure` (which may spawn the status server)
+        before noticing `_closed`. This fails on `ensure.calls` then."""
+        c = self.client()
+        await c.close()
+        self.assertTrue(await asyncio.wait_for(c.start(), 3.0))
+        self.assertEqual(self.ensure.calls, 0, "start() on a closed client ran an attempt")
+        self.assertIsNone(c._start_task)
+        self.assertFalse(c._started)
+
+    async def test_a_read_after_close_runs_no_attempt(self):
+        """Reads call `start()` through their ready wait: the same refusal holds."""
+        c = self.client()
+        await c.close()
+        await asyncio.wait_for(c.capture_all_async(), 3.0)
+        self.assertEqual(self.ensure.calls, 0, "a read on a closed client ran an attempt")
+        self.assertIsNone(c._start_task)
+
 
 # ---------------------------------------------------------------------------
 # Shared-client support (t2037_4: applink, one client for every phone)

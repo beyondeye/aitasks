@@ -390,7 +390,15 @@ class MonitorClient:
 
         Safe for a client shared by several callers: the startup task belongs
         to the client, so cancelling a caller — the first one included — only
-        cancels that caller's wait. Only :meth:`close` cancels the startup."""
+        cancels that caller's wait. Only :meth:`close` cancels the startup.
+
+        On a closed client it returns True at once without an attempt, as
+        :meth:`start_detached` does, so a read on a client closed before it
+        started never runs ``ensure`` either."""
+        if self._closed:
+            # A closed client never starts, as start_detached() refuses it: no
+            # attempt, so no ensure() and no spawned status server.
+            return True
         if self._started:
             await self._ready.wait()
             return True
