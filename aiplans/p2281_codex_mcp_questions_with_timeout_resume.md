@@ -444,7 +444,16 @@ multi-select compatibility checkpoint pass.
   Finish/form. Question 2 expired after approximately 20.020 seconds and its
   prompt answer arrived approximately 47.300 seconds later. The report records
   exact occurrence/receipt IDs and distinguishes user observations from storage.
-- Live reconnect/repeated timeout and native multi-select remain pending. Added
+- Live text-adapter multi-select passed with occurrence
+  `958213a338634f44b3ae9093683ddad6`, receipt
+  `8f5b0ee4110547b28ea779d540d6e676`: pages selected tasks 1/3, 4/6, 7 via
+  form/prompt/form, final set exactly 1/3/4/6/7. Protocol `2025-06-18` is persisted.
+  Native probe stopped at `unsupported_shape` without answers; native controls
+  were not rendered. Text adaptation is the candidate route for Codex integration.
+- Live accepted-answer survival across reconnect followed by repeated timeout
+  remains pending. The text-run log shows a restart before any page was accepted,
+  which does not settle that gap. User has a focused text-adapter reconnect test.
+  Added
   persistent protocol/capability/process/timing telemetry for subsequent probes.
   User has reproducible reconnect and multi-select commands; no results are
   inferred from silence or from automated clients.
@@ -453,19 +462,21 @@ multi-select compatibility checkpoint pass.
   cardinality validation, page replay/conflict handling and candidate revision
   invalidation. The live launcher accepts `--scenario multi` and an explicit
   `--multiselect-mode native|text`; neither route is deployed to workflow callers.
-- Validation: 16 core-store, 9 selection and 10 real STDIO transport/launcher
+- Validation: 16 core-store, 9 selection and 11 real STDIO transport/launcher
   tests pass. Native/text process tests exercise three pages, fresh processes
   and two timeouts. Found and fixed SDK 2.3.0 union-argument JSON pre-parsing:
   prompt text now reaches validation unchanged, including duplicate JSON fields.
+  Added older-protocol native rejection with persisted negotiation evidence and
+  explicit text-adapter recovery of the same unanswered occurrence.
 - Expanded the report's caller inventory with source-specific dependency,
   review, work-report, revert, contribution, folding, note/verification, wrapping,
   guide/model, explanation, docs and learned-procedure semantics. Existing
   working fallbacks remain in place; rendered audits and downstream consumer
   result assertions are still required before any shared mapping switch.
-- No shared mapping/setup/monitor changes, code commits or archival yet. No
-  live multi-select support is claimed. Steps 3–6 remain incomplete. Production
+- No shared mapping/setup/monitor changes, code commits or archival yet. Live
+  text multi-select evidence is scoped to the fixture. Steps 3–6 remain incomplete. Production
   action guards and complete caller compatibility are explicitly blocked on
   the approved checkpoints; prototype receipts authorize no workflow actions.
-- Next: obtain remaining live fresh-connection/repeated-timeout and multi-select
+- Next: obtain remaining live accepted-answer fresh-connection/repeated-timeout
   evidence; record go/no-go, then finish the
   approved hardening and multi-select compatibility work before integration.
