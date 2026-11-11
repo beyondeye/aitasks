@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: high
 effort: high
 depends: []
 issue_type: feature
@@ -10,8 +12,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt6_astra
 created_at: 2026-11-11 10:02
-updated_at: 2026-11-11 10:04
+updated_at: 2026-11-11 13:02
 ---
 
 ## Objective
@@ -83,3 +86,8 @@ Transport timeout must not destroy the logical pending question. Distinguish ans
 - OpenAI MCP form fallback example: https://github.com/openai/codex-security/blob/main/plugins/codex-security/mcp-app/server.ts (request_codex_security_user_input)
 - Codex MCP configuration: https://learn.chatgpt.com/docs/extend/mcp
 - MCP elicitation: https://ts.sdk.modelcontextprotocol.io/v2/servers/elicitation
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-11T11:02:28Z status=pass attempt=1 type=human
