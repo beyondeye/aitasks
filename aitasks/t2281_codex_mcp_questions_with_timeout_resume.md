@@ -3,10 +3,11 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codex, codeagent, skills, workflow]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-11 10:02
-updated_at: 2026-11-11 10:02
+updated_at: 2026-11-11 10:04
 ---
 
 ## Objective
