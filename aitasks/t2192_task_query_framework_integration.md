@@ -106,3 +106,54 @@ into the skills that search tasks today.
 > | Impact on the public side: .github/scripts/goengines_integrity.sh CLOSURE_ALLOWED_MODULES must accept go.yaml.in/yaml/v3 before a promoted engine requires it. aitasks_go's three private mirrors are goengines/guards_test.go allowedDeps, promote/checks.go closureAllowlist, and promote/checks_test.go TestClosureViolations.
 > | 
 > | Evidence as of aitasks_go 6168932: an import-only rewrite; suites green; a zero-change per-file frontmatter differential over 6342 live files plus the committed corpus/fuzz; performance equal. No action is needed until t114 is picked. This note is for ordering and coordination only.
+
+> **✉ note:t93_3** id=2026-11-11T17:02:15Z.4a3b711ae7f092974a61b2af from=aitasks_go#t93_3 from_verified=yes at=2026-11-11T17:02:15Z base=47212a7f2f5e27f87b066faf91fca5e977748998 base_branch=main dirty=yes host=omg16
+>
+> | From aitasks_go#t93_3 (task-query engine, ait-taskquery): the query verbs card, mentions, mentioned-by, cites and cited-by have landed (aitasks_go commit 86e343aca824). Advisory: these are the settled shapes your shim consumes. The canonical source is the private goengines/README.md, Interfaces → "ait-taskquery", where every row is pinned by a named test. search is still a stub (aitasks_go#t93_4).
+> | 
+> | Repository targeting
+> | - --root <dir> names the repository. The engine never resolves --project: the shim runs `ait projects resolve` and passes --root. With no --root, the engine uses the nearest ancestor of the cwd that holds aitasks/metadata/.
+> | - --project-name <name> overrides the identity, which otherwise comes from project_config.yaml project.name, else the root's basename.
+> | 
+> | Answer frame (every query verb)
+> | - PROJECT:<name>|<flag|config|basename>
+> | - CORPUS:<branch|legacy>|<root>
+> | - the verb's rows, its summaries
+> | - NOT_FOUND:<ref>
+> | - the scoped problem lines (UNREADABLE, VANISHED, DECODE_REPLACED, FRONTMATTER_ERROR, ZSTD_UNAVAILABLE, PROJECT_CONFIG, DUPLICATE, and RESOLVE_UNAVAILABLE for cites --resolve)
+> | - then COVERAGE:complete or COVERAGE:partial|<n>
+> | 
+> | Exit codes: 0 complete; 1 partial or a queried id NOT_FOUND; 3 framework (NOT_AITASKS_ROOT, IDENTITY_INVALID, SCAN_ERROR, OUTPUT_ERROR, all on stderr); 64 usage (a reason line, then USAGE:<verb usage> on stderr, before any scan). An empty answer is MENTIONS:<ref>|0|0 or FAN_IN:<path>|0 with exit 0, never a failure. Every field is percent-escaped (% → %25, | → %7C, LF → %0A, CR → %0D), and <file>:<line> splits at its last ":".
+> | 
+> | Coverage scope (new): a problem counts only if it affects the answer.
+> | - Task-side and repository-level problems are printed and counted.
+> | - Plan side, with --plans: everything but FRONTMATTER_ERROR counts (no verb reads plan frontmatter).
+> | - Plan side, for card without --plans: the presence classes count (ZSTD_UNAVAILABLE, UNREADABLE, VANISHED).
+> | - Otherwise plan problems are neither printed nor counted.
+> | - DUPLICATE is printed when in scope, never counted. An unknown class is printed and counted.
+> | - Effect: `--archivebundles` on aitasks is now complete (the 12 archived-plan FRONTMATTER_ERRORs that Python also fails on no longer make every answer partial).
+> | 
+> | Verbs (batch: one scan per process)
+> | - card <id>...:
+> |   - CARD:<ref>|<status>|<priority>|<effort>|<type>|<labels,>|<location active|archived|bundle>|<path>|<plan path or ->
+> |   - CARD_REL:<ref>|<field>|<refs,> for parent, children, children_to_implement, depends, anchor, verifies, folded_tasks, folded_into, risk_mitigation_tasks
+> |   - UNRESOLVABLE_ID:<ref>|<field>|<raw JSON>
+> |   - CARD_CITES:<ref>|<path>|<count>|<tier>|<anchored count>
+> |   - CARD_MENTIONS:<ref>|<target>|<count>
+> |   - CARD_GOAL:<ref>|<escaped paragraph>
+> | - mentions <id>... / mentioned-by <id>...: MENTION:<from>|<to>|<source>|<tier>|<file>:<line>, then MENTIONS:<ref>|<hits>|<distinct tasks>. mentioned-by takes any project's ref, e.g. aitasks#1981.
+> | - cites <id>...: CITE:<ref>|<path>|<source>|<tier>|<full|bare>|<anchor -|L<n>|L<n>-<m>>|<file>:<line>. --anchored keeps the anchored rows. --resolve adds CLASSIFY:<token>|<malformed|tracked|planned_new|phantom> (plan_paths.classify against one `git ls-files -z`) and RESOLVES:<token>|<tracked>|<bare|suffix>.
+> | - cited-by <path>...:
+> |   - CITE rows with kind full|bare|suffix, then FAN_IN:<path>|<distinct citing tasks>; --count prints only FAN_IN.
+> |   - It uses the find_references grammar, so there is no extension list.
+> |   - Each queried path is matched alone, so a batch answer equals the single runs.
+> | - --json: one document per run (keys project, corpus, the verb's arrays, not_found, problems, coverage). anchor is {"start":n,"end":m} or null.
+> | 
+> | Vocabulary
+> | - Sources: description, plan, inbox_note (a note marker's parsed from=, a claim), inbox_body, gate_ledger, folded_history, meta:<field>. --sources meta selects every meta:<field>.
+> | - Tiers: compat, ext. A tier names the grammar of the verb that found the row: cites, mentions and card use plan_paths.extract and A.1 plus the ext forms; cited-by uses find_references (compat) plus a basename-only kind (ext). So one a.go occurrence is ext in cites and compat in cited-by.
+> | - Ext forms: path extensions go kt kts ts tsx js rs java gradle j2 txt; <project>:<path>; <project>#t?<id>; t<id>_slug.md / p<id>_slug.md; in cited-by, the basename-only kind.
+> | 
+> | Filters: --status <csv> | --pending (Ready, Editing, Implementing, Postponed) restrict the citing universe of mentioned-by and cited-by; a plan takes its task's status. --archived, --archivebundles (implies --archived), --plans (opt-in), --sources <csv>, --tier compat|ext. Flags interleave with positionals, and -- ends the flags.
+> | 
+> | Closure check: the public goengines_integrity.sh closure check (CLOSURE_ALLOWED_MODULES and the binaries it builds) names only ait-testmap and monitord. ait-taskquery is in the export manifest and in promote's closureCommands (t93_1), so the public check needs ait-taskquery added.
