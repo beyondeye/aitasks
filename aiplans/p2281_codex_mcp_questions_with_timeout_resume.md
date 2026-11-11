@@ -439,14 +439,33 @@ multi-select compatibility checkpoint pass.
   launcher at `tests/manual/codex_questions_probe.py`. The launcher does not
   edit Codex config files, alter security policies or inject user answers.
 - Step 2: report written before integration at
-  `aidocs/codeagents/codex_questions_prototype.md`. SDK recovery tests pass;
-  **real attended Codex UI acceptance remains pending**. A live three-question
-  fixture has been prepared at `/tmp/aitask-2281-live` and the user has been
-  given the exact command and requested observations.
+  `aidocs/codeagents/codex_questions_prototype.md`. **Baseline live sequence
+  passed** by user report and persisted receipt: Blue/form, Sample Alpha/prompt,
+  Finish/form. Question 2 expired after approximately 20.020 seconds and its
+  prompt answer arrived approximately 47.300 seconds later. The report records
+  exact occurrence/receipt IDs and distinguishes user observations from storage.
+- Live reconnect/repeated timeout and native multi-select remain pending. Added
+  persistent protocol/capability/process/timing telemetry for subsequent probes.
+  User has reproducible reconnect and multi-select commands; no results are
+  inferred from silence or from automated clients.
+- Experimental native multi-select and exact-JSON text adaptation now share
+  durable pagination, canonical complete-set accumulation, explicit all/none,
+  cardinality validation, page replay/conflict handling and candidate revision
+  invalidation. The live launcher accepts `--scenario multi` and an explicit
+  `--multiselect-mode native|text`; neither route is deployed to workflow callers.
+- Validation: 16 core-store, 9 selection and 10 real STDIO transport/launcher
+  tests pass. Native/text process tests exercise three pages, fresh processes
+  and two timeouts. Found and fixed SDK 2.3.0 union-argument JSON pre-parsing:
+  prompt text now reaches validation unchanged, including duplicate JSON fields.
+- Expanded the report's caller inventory with source-specific dependency,
+  review, work-report, revert, contribution, folding, note/verification, wrapping,
+  guide/model, explanation, docs and learned-procedure semantics. Existing
+  working fallbacks remain in place; rendered audits and downstream consumer
+  result assertions are still required before any shared mapping switch.
 - No shared mapping/setup/monitor changes, code commits or archival yet. No
-  multi-select support is claimed. Steps 3–6 remain incomplete. Production
+  live multi-select support is claimed. Steps 3–6 remain incomplete. Production
   action guards and complete caller compatibility are explicitly blocked on
   the approved checkpoints; prototype receipts authorize no workflow actions.
-- Next: obtain real Default-mode form/timeout/composer/resume evidence, including
-  fresh connection and repeated timeout; record go/no-go, then finish the
+- Next: obtain remaining live fresh-connection/repeated-timeout and multi-select
+  evidence; record go/no-go, then finish the
   approved hardening and multi-select compatibility work before integration.
