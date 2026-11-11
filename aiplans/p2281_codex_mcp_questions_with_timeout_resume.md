@@ -9,11 +9,11 @@ Output branch: main
 ## Status and scope
 
 Plan revised after the user's approval-freshness and multi-select review;
-awaiting explicit implementation approval of this revision. One task with a
+explicitly accepted by the user ("plan accepted"). One task with a
 mandatory live prototype checkpoint before integration. No children created.
 The prototype is part of the requested implementation, not an optional follow-up.
 Do not treat this plan, its existence, a timeout, or fast-profile selection as
-approval. Task remains claimed while awaiting the planning checkpoint.
+approval. Task remains claimed during implementation and live prototype validation.
 
 Implement an aitask-specific MCP server for ordinary attended workflow decisions.
 Codex filesystem, command, network and tool security approvals remain host-owned.
@@ -421,5 +421,32 @@ multi-select compatibility checkpoint pass.
   and broader source usage, including work-report's explicit fallback. Added
   source inventory, shape-aware rollout, native-or-adapter acceptance, durable
   pagination/complete-set semantics, working-route retention and caller tests.
-- This revision addresses the design gaps; it does not claim implementation or
-  test execution. Implementation approval is still pending for this revision.
+- This revision addressed the design gaps and was subsequently explicitly
+  accepted by the user. Implementation progress is recorded below.
+
+## Implementation progress (2026-11-11)
+
+- User-approved plan content before this progress update had SHA-256
+  `e1e2df6a49674fa26dca90f4756d996525c88d6e956d71a66023c30b7caf596f`.
+  The existing workflow recorded the user's approval in `plan_approved`;
+  this prototype has not been used to authorize its own implementation.
+- Step 1: isolated Python/SQLite prototype implemented with pinned MCP 2.3.0
+  dependency in `/tmp/aitask-2281-venv`. Four tools: ask/status/resume/cancel.
+  Single-choice and free-text forms, durable occurrence/answer state, bounded
+  form deadlines, recovery across fresh processes, cancellation/defer and stale
+  plan/receipt invalidation are available for testing.
+- Added store and actual STDIO-process test suites plus a human-operated Codex
+  launcher at `tests/manual/codex_questions_probe.py`. The launcher does not
+  edit Codex config files, alter security policies or inject user answers.
+- Step 2: report written before integration at
+  `aidocs/codeagents/codex_questions_prototype.md`. SDK recovery tests pass;
+  **real attended Codex UI acceptance remains pending**. A live three-question
+  fixture has been prepared at `/tmp/aitask-2281-live` and the user has been
+  given the exact command and requested observations.
+- No shared mapping/setup/monitor changes, code commits or archival yet. No
+  multi-select support is claimed. Steps 3–6 remain incomplete. Production
+  action guards and complete caller compatibility are explicitly blocked on
+  the approved checkpoints; prototype receipts authorize no workflow actions.
+- Next: obtain real Default-mode form/timeout/composer/resume evidence, including
+  fresh connection and repeated timeout; record go/no-go, then finish the
+  approved hardening and multi-select compatibility work before integration.
