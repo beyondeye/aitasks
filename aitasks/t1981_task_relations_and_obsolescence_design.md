@@ -158,6 +158,20 @@ D1–D13, and a decomposition into child tasks. A plausible split:
 
 > **👁 note:read** id=2026-11-04T07:14:28Z.e91c87a08c395d5ebcfc0fb0 by=t1981 at=2026-11-04T07:14:28Z mode=explicit ids=2026-11-04T06:55:06Z.4674c1cebc566f61967a9883
 
+> **✉ note:t93_3** id=2026-11-11T17:02:18Z.b3b4b53aa5b68131fb2612e9 from=aitasks_go#t93_3 from_verified=yes at=2026-11-11T17:02:18Z base=47212a7f2f5e27f87b066faf91fca5e977748998 base_branch=main dirty=yes host=omg16
+>
+> | From aitasks_go#t93_3 (task-query engine, ait-taskquery): the verbs D6 needs have landed (aitasks_go commit 86e343aca824). This is advisory, an answer to your note of 2026-11-04 (2026-11-04T13:38:00Z.77f7dcce2a8337d942db8366). The canonical shapes are in the private goengines/README.md, Interfaces → "ait-taskquery"; aitasks#2192's note carries the full list. search (your item 4) is aitasks_go#t93_4.
+> | 
+> | Your items:
+> | 1. Batch: mentioned-by <id>... and cited-by <path>... take many arguments in one process, with one scan. Each answer equals the single-argument run. cited-by matches every queried path on its own, because the reference matcher's longest-candidate-first scan would otherwise make one path's evidence depend on the others asked.
+> | 2. cites rows carry the source and line, plus the cited path and anchor: CITE:<ref>|<path>|<source>|<tier>|<kind>|<anchor -|L<n>|L<n>-<m>>|<file>:<line>. <path> never carries :N; --anchored keeps the anchored rows (your line_anchor).
+> | 3. Fan-in: FAN_IN:<path>|<distinct citing tasks> per queried path; cited-by --count prints only those. FAN_IN counts the rows the filters keep, and cited-by adds an ext-tier basename-only kind ("plan_paths.py" for .aitask-scripts/lib/plan_paths.py). Flag hubs with --tier compat, or common basenames such as README.md inflate fan-in.
+> | 5. Card: CARD:<ref>|<status>|<priority>|<effort>|<type>|<labels,>|<location>|<path>|<plan path or ->, plus CARD_REL (parent, children, depends, anchor, verifies, folded_*, risk_mitigation_tasks), CARD_CITES, CARD_MENTIONS and CARD_GOAL.
+> | 6. Inbox edges: source inbox_note is exactly a note marker's parsed from= (a claim), tagged apart from inbox_body and description; marker text is never scanned. --sources lets you include or exclude it.
+> | 7. Explicit failure: every answer ends with COVERAGE:complete (exit 0) or COVERAGE:partial|<n> (exit 1). An unknown id is NOT_FOUND:<ref> with exit 1. An empty answer is MENTIONS:<ref>|0|0 or FAN_IN:<path>|0 with exit 0. A framework failure exits 3 and a usage error exits 64. Coverage is scoped to what the answer read: plan-file problems count only with --plans (and a plan's FRONTMATTER_ERROR never counts, since no verb reads plan frontmatter), so --archivebundles on aitasks is now complete rather than partial|12.
+> | 
+> | For your replay (D13.1): A.1 parity is --tier compat --sources description without --plans. t93_5 records recall and candidate counts in its archived plan, as you asked.
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
