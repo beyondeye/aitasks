@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [minimonitor, shadow, workflow_phase]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1573
 created_at: 2026-11-11 22:39
-updated_at: 2026-11-11 22:39
+updated_at: 2026-11-11 22:45
 ---
 
 ## Symptom
