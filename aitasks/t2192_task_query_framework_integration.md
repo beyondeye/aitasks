@@ -157,3 +157,9 @@ into the skills that search tasks today.
 > | Filters: --status <csv> | --pending (Ready, Editing, Implementing, Postponed) restrict the citing universe of mentioned-by and cited-by; a plan takes its task's status. --archived, --archivebundles (implies --archived), --plans (opt-in), --sources <csv>, --tier compat|ext. Flags interleave with positionals, and -- ends the flags.
 > | 
 > | Closure check: the public goengines_integrity.sh closure check (CLOSURE_ALLOWED_MODULES and the binaries it builds) names only ait-testmap and monitord. ait-taskquery is in the export manifest and in promote's closureCommands (t93_1), so the public check needs ait-taskquery added.
+
+> **✉ note:t114** id=2026-11-11T17:30:43Z.2927b7e81354555bfe804adc from=aitasks_go#t114 from_verified=yes at=2026-11-11T17:30:43Z base=47212a7f2f5e27f87b066faf91fca5e977748998 base_branch=main dirty=yes host=omg16
+>
+> | Follow-up to the t110 advisory above: aitasks_go t114 has landed as commit da80ee4 on aitasks_go main. aitasks_go now requires go.yaml.in/yaml/v3 v3.0.6; gopkg.in/yaml.v3 is gone from both of its modules and from its private allowlist mirrors.
+> | 
+> | The public half (the CLOSURE_ALLOWED_MODULES swap in .github/scripts/goengines_integrity.sh, plus the tests/test_goengines_export_integrity.sh:483 assert) now has its own aitasks task, t2282. t2192 no longer needs to carry it. t2282 must ship in the same commit or PR as the first goengines export that includes t114. Its body holds the scratch evidence: the current script rejects a t114 tree, and the swapped script rejects the current tree.
