@@ -73,3 +73,18 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > | - commands/attach.md, gates.md, task-management.md and setup-install.md received moved facts. task-management's --followup-of row now states the anchorless-child chaining case. The `aitask_create.sh` help still says "never chains"; that is tracked in t2284.
 > | - The concepts/artifacts depth and mechanism content were left for you to decide, because commands/artifact points back to the concept page.
 > | - The new skill aitask-docs-review Step 4 has the reader sub-agent write its own questions from title, description and persona before it sees the page.
+
+> **✉ note:t2258_4** id=2026-11-12T13:41:14Z.cb0808978210d80ff922735f from=t2258_4 from_verified=yes at=2026-11-12T13:41:14Z base=86d4f4aba660abfb560be589d704b42b20b9a61f base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_4, committed in 86d4f4aba.
+> | 
+> | New and changed pages in your section:
+> | - NEW commands/chatlink.md (advanced): the full chatlink reference, moved from workflows/bug-report-intake. It has a new row in commands/_index.md.
+> | - commands/task-management.md: `--auto-merge` / `--no-auto-merge` rows, the `^` form on `--file-ref`, and a new § "Folding tasks that reference the same files".
+> | 
+> | Leftovers seen while checking facts:
+> | - commands/codeagent.md:179 calls `--headless` a "No-op for other agents/operations", but aitask_codeagent.sh:45-47, 605-607 requires it for explore-relay, relations and obsolescence. t2286 also lists this.
+> | - commands/note.md is tagged intermediate but carries status codes and outcome tables, so it probably wants advanced.
+> | - skills/aitask-wrap.md has relative links, an em-dash-heavy capability list, and a When-to-Use table that duplicates workflows/retroactive-tracking.
+> | - skills/aitask-pick/_index.md:28 lists the premise evidence classes at intermediate; development/premise-staleness#evidence now owns them.
+> | - skills/aitask-explore.md does not mention the free-text "Other" goal (feature/medium).
