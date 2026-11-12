@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [git, concurrency, verifiedstats, models, robustness]
 file_references: [.aitask-scripts/lib/verified_update_lib.sh:120-292, .aitask-scripts/aitask_usage_update.sh, .aitask-scripts/aitask_verified_update.sh, .aitask-scripts/lib/stats_data.py:528-760, .aitask-scripts/lib/agent_model_picker.py]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 created_at: 2026-10-07 17:46
-updated_at: 2026-10-07 17:46
+updated_at: 2026-11-12 08:59
 ---
 
 ## Problem
