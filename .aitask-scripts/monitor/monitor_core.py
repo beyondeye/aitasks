@@ -19,6 +19,7 @@ import asyncio
 import collections
 import contextlib
 import enum
+import hashlib
 import os
 import re
 import secrets
@@ -5924,6 +5925,31 @@ def _file_identity(path: str) -> tuple[int, int] | None:
     return (st.st_mtime_ns, st.st_size)
 
 
+def _ledger_content_identity(text: str) -> str:
+    """Digest of the gate-run blocks themselves (t2283).
+
+    Deliberately NOT the task file's ``(st_mtime_ns, st_size)``: notes, status
+    edits and other frontmatter rewrites change the file without changing the
+    ledger, and a consumer asking "has new gate evidence been recorded?" must
+    not read those as such. The ledger is append-only, so a re-approval appends a
+    second ``plan_approved`` block and changes this digest even though the
+    ledger-derived PHASE stays the same — which is exactly the distinction the
+    minimonitor's stale-banner retirement needs.
+
+    An empty ledger has a real identity (the digest of nothing), distinct from
+    the ``None`` callers use for "underivable".
+    """
+    h = hashlib.sha256()
+    for run in gate_ledger.parse_gate_run_blocks(text or ""):
+        h.update(run.raw_marker.encode("utf-8", "surrogatepass"))
+        h.update(b"\n")
+        for line in run.raw_body_lines:
+            h.update(line.encode("utf-8", "surrogatepass"))
+            h.update(b"\n")
+        h.update(b"\x00")  # block separator
+    return h.hexdigest()
+
+
 class GateSummaryCache:
     """Compact gate-summary cache for the monitor TUIs.
 
@@ -5946,13 +5972,20 @@ class GateSummaryCache:
     parse of the same file (the t1323 seam). Only the FILE-derived half is
     cached — its key is file identity, whereas the live half changes every tick,
     so :meth:`phase_for` composes that at call time.
+
+    **And the ledger's content identity (t2283)** — :meth:`ledger_identity_for`,
+    a digest of the gate-run blocks (see :func:`_ledger_content_identity`). It is
+    derived on the same cache miss from the same body as the phase, so an
+    unchanged file costs no extra parse.
     """
 
     def __init__(self) -> None:
         # abs task-file path -> ((st_mtime_ns, st_size), summary,
-        #                        (phase, detail), (recording, detail)).
+        #                        (phase, detail), (recording, detail),
+        #                        ledger content identity | None).
         self._cache: dict[
-            str, tuple[tuple[int, int], str, tuple[str, str], tuple[str, str]]
+            str, tuple[tuple[int, int], str, tuple[str, str], tuple[str, str],
+                       str | None]
         ] = {}
 
     def clear(self) -> None:
@@ -5965,6 +5998,16 @@ class GateSummaryCache:
         """``(phase, detail)`` — the file-derived half of the phase signal."""
         entry = self._entry_for(info)
         return entry[1]
+
+    def ledger_identity_for(self, info: "TaskInfo | None") -> str | None:
+        """Content identity of the task's ``## Gate Runs`` blocks (t2283).
+
+        Changes exactly when a gate-run block is added or altered — never on a
+        frontmatter, status or note edit. ``None`` means the identity could not
+        be derived (no task, no path, unstat-able file, a parse failure);
+        callers must read it as "unknown", never as "changed".
+        """
+        return self._entry_for(info)[3]
 
     def phase_for(self, info: "TaskInfo | None", *,
                   screen_text: str | None = None,
@@ -5990,12 +6033,12 @@ class GateSummaryCache:
 
     def _entry_for(
         self, info: "TaskInfo | None"
-    ) -> tuple[str, tuple[str, str], tuple[str, str]]:
+    ) -> tuple[str, tuple[str, str], tuple[str, str], str | None]:
         # Key + parse off the ABSOLUTE path, never the relative ``task_file`` —
         # the relative form is cwd-dependent and resolves wrong in cross-session
         # monitor mode.
         _EMPTY = ("", (workflow_phase.UNKNOWN_PHASE, "no task file"),
-                  ("unknown", ""))
+                  ("unknown", ""), None)
         if info is None or not info.task_file_abs:
             return _EMPTY
         key = info.task_file_abs
@@ -6011,7 +6054,7 @@ class GateSummaryCache:
         identity = (st.st_mtime_ns, st.st_size)
         cached = self._cache.get(key)
         if cached is not None and cached[0] == identity:
-            return cached[1], cached[2], cached[3]
+            return cached[1], cached[2], cached[3], cached[4]
         summary = ""
         # Derived from the already-loaded body, so an unreadable path still
         # yields an honest UNKNOWN rather than a fabricated PLAN (t1420).
@@ -6032,8 +6075,13 @@ class GateSummaryCache:
                 workflow_phase.default_profiles_dir(info.task_file_abs))
         except Exception:
             recording = ("unknown", "")
-        self._cache[key] = (identity, summary, phase, recording)
-        return summary, phase, recording
+        ledger_id: str | None
+        try:
+            ledger_id = _ledger_content_identity(info.body or "")
+        except Exception:
+            ledger_id = None  # underivable — never to be read as "changed"
+        self._cache[key] = (identity, summary, phase, recording, ledger_id)
+        return summary, phase, recording, ledger_id
 
 
 @dataclass

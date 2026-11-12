@@ -49,7 +49,9 @@ def _task_text(body: str) -> str:
     )
 
 
-class GateCacheMtimeTest(unittest.TestCase):
+class _GateCacheFixture(unittest.TestCase):
+    """setUp + ``_info`` shared by the cache test classes; holds no tests."""
+
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self._tmp.cleanup)
@@ -80,6 +82,8 @@ class GateCacheMtimeTest(unittest.TestCase):
             task_file_abs=str(self.path) if abs_path is None else abs_path,
         )
 
+
+class GateCacheMtimeTest(_GateCacheFixture):
     def test_two_calls_one_read(self):
         # Unchanged file across two calls → served from cache the second time.
         info = self._info()
@@ -121,6 +125,86 @@ class GateCacheMtimeTest(unittest.TestCase):
         info = self._info(abs_path="/nonexistent/dir/t10_demo.md")
         self.assertEqual(self.gc.summary_for(info), "")
         self.assertEqual(self.reads["n"], 0)
+
+
+
+class LedgerIdentityTest(_GateCacheFixture):
+    """``ledger_identity_for`` — gate-run CONTENT identity (t2283).
+
+    The minimonitor's stale-banner gate asks "has a new gate run been recorded
+    since this feedback was bound?". File identity cannot answer that: a note,
+    a status flip or any frontmatter rewrite changes ``(st_mtime_ns, st_size)``
+    without recording anything. So the identity must move with the gate-run
+    blocks and with nothing else.
+    """
+
+    APPENDED = GATED_BODY + (
+        "\n> **✅ gate:plan_approved** run=2026-01-02T00:00:00Z "
+        "status=pass attempt=2 type=human\n"
+    )
+
+    def _rewrite(self, body, *, status="Implementing"):
+        text = _task_text(body).replace("status: Implementing",
+                                        f"status: {status}")
+        self.path.write_text(text, encoding="utf-8")
+        st = os.stat(self.path)
+        # Force a distinct ns mtime even on coarse-timestamp filesystems.
+        os.utime(self.path, ns=(st.st_atime_ns, st.st_mtime_ns + 1_000_000_000))
+        return self._info(body=body)
+
+    def test_identity_is_a_stable_string_served_from_cache(self):
+        info = self._info()
+        first = self.gc.ledger_identity_for(info)
+        self.assertIsInstance(first, str)
+        self.assertTrue(first)
+        self.assertEqual(self.gc.ledger_identity_for(info), first)
+        self.assertEqual(self.reads["n"], 1, "identity must share the cache entry")
+
+    def test_appending_a_gate_run_changes_it(self):
+        before = self.gc.ledger_identity_for(self._info())
+        after = self.gc.ledger_identity_for(self._rewrite(self.APPENDED))
+        self.assertNotEqual(before, after)
+
+    def test_non_ledger_edits_leave_it_unchanged(self):
+        before = self.gc.ledger_identity_for(self._info())
+        cases = (
+            ("frontmatter status edit", GATED_BODY, "Ready"),
+            ("prose edit", "Some new prose.\n\n" + GATED_BODY, "Implementing"),
+            ("inbox note", GATED_BODY + "\n## Inbox\n\n> | a note\n",
+             "Implementing"),
+        )
+        for label, body, status in cases:
+            with self.subTest(label):
+                reads = self.reads["n"]
+                info = self._rewrite(body, status=status)
+                self.assertEqual(self.gc.ledger_identity_for(info), before)
+                self.assertEqual(self.reads["n"], reads + 1,
+                                 "fixture must really invalidate the cache")
+
+    def test_empty_ledger_has_a_real_identity(self):
+        gated = self.gc.ledger_identity_for(self._info())
+        empty = self.gc.ledger_identity_for(self._rewrite("No ledger here.\n"))
+        self.assertIsNotNone(empty)
+        self.assertNotEqual(empty, gated)
+
+    def test_underivable_identity_is_none(self):
+        self.assertIsNone(self.gc.ledger_identity_for(None))
+        self.assertIsNone(self.gc.ledger_identity_for(
+            self._info(abs_path="/nonexistent/dir/t10_demo.md")))
+        self.assertIsNone(self.gc.ledger_identity_for(self._info(abs_path="")))
+
+    def test_a_parse_failure_is_none_not_a_crash(self):
+        orig = monitor_core._ledger_content_identity
+
+        def boom(*a, **k):
+            raise RuntimeError("identity failed")
+
+        monitor_core._ledger_content_identity = boom
+        self.addCleanup(setattr, monitor_core, "_ledger_content_identity", orig)
+        info = self._info()
+        self.assertIsNone(self.gc.ledger_identity_for(info))
+        # The other halves of the entry are unaffected.
+        self.assertEqual(self.gc.summary_for(info), "3/4 pass, 1 pending")
 
 
 if __name__ == "__main__":

@@ -165,6 +165,16 @@ class ReadRecency(NamedTuple):
 _UNKNOWN_RECENCY = ReadRecency(None, None)
 
 
+#: Phase sources that are THIS tick's observation of the followed pane (t2283):
+#: a framework checkpoint prompt or a native dialog on screen right now. Only
+#: these may retire stale-feedback on their own. Every other source — ``ledger``,
+#: ``none``, or any value this set does not know — reports state that may
+#: already have been there when the feedback was bound, so it must bring NEW
+#: ledger evidence first (see ``MiniMonitorApp._feedback_phase_retired``).
+#: An allow-list on purpose: an unrecognised source fails toward showing.
+_LIVE_PHASE_SOURCES = frozenset({"workflow-prompt", "native-prompt"})
+
+
 # Consecutive *verified* empty-window observations required before the companion
 # closes itself (t1446). Any observation that is not a verified self-sighting —
 # a tmux failure, an incompletely parsed listing, or a window that still holds
@@ -1652,16 +1662,20 @@ class MiniMonitorApp(
         # verdict above so each keeps one meaning and one provenance.
         self._shadow_stale_combined: bool | None = None
         # Phase binding behind the banner's retirement rule (t1573):
-        # (shadow_pane_id, block_key, origin_phase) for the feedback currently
-        # on the shadow pane — the phase the followed agent was in when THIS
-        # block was first observed. Derived state, deliberately NOT a
+        # (shadow_pane_id, block_key, origin_phase, ledger_identity) for the
+        # feedback currently on the shadow pane — the phase the followed agent
+        # was in when THIS block was first observed, and the content identity of
+        # its gate ledger at that moment (t2283; None when underivable). The
+        # identity is what lets a ledger-derived phase tell new evidence from
+        # the ledger state the feedback was already produced under. Derived state, deliberately NOT a
         # "transition happened" latch: a latch has no way back, because
         # PLAN->IMPLEMENT->PLAN is two known->known transitions and the second
         # would re-retire the same unchanged block forever, hiding a warning a
         # misclassified phase never justified. This rebinds on a new block or a
         # new pane and stops suppressing the moment the agent is observed back
         # in the origin phase. See _feedback_phase_retired.
-        self._shadow_feedback_phase: tuple[str, int, str] | None = None
+        self._shadow_feedback_phase: (
+            tuple[str, int, str, str | None] | None) = None
         # Throttle the staleness compare to every OTHER refresh tick (~6s at the
         # 3s default) to halve the extra pane reads; the concern auto-offer still
         # runs every tick. Odd counter ⇒ checks on the first tick a shadow is
@@ -4976,22 +4990,57 @@ class MiniMonitorApp(
             schedule_refresh=lambda: self.call_later(self._refresh_data),
         )
 
+    def _task_info_for_pane(self, snap: PaneSnapshot):
+        """The followed pane's resolved task info, or ``None`` on any failure."""
+        try:
+            task_id = self._task_cache.get_task_id_for_pane(snap.pane)
+            if not task_id:
+                return None
+            return self._task_cache.get_task_info(task_id, snap.pane.session_name)
+        except Exception:
+            return None
+
     def _phase_signal_for_pane(self, snap: PaneSnapshot):
         """Advisory phase for a pane, or ``None`` when it cannot be resolved.
 
         ``None`` is a legitimate answer that simply leaves the pane option
         unwritten — the per-tick re-stamp fills it in shortly after.
         """
+        info = self._task_info_for_pane(snap)
+        if info is None:
+            return None
         try:
-            task_id = self._task_cache.get_task_id_for_pane(snap.pane)
-            if not task_id:
-                return None
-            info = self._task_cache.get_task_info(task_id, snap.pane.session_name)
-            if info is None:
-                return None
             return self._phase_for_snap(snap, info)
         except Exception:
             return None
+
+    def _phase_evidence_for_pane(self, snap: PaneSnapshot):
+        """``(phase signal, ledger identity)`` for the stale-banner gate (t2283).
+
+        An unresolved task yields ``(None, None)`` BEFORE any composition — the
+        same early return :meth:`_phase_signal_for_pane` makes. That ordering is
+        load-bearing: ``GateSummaryCache.phase_for(None, ...)`` still composes
+        the live tiers over an empty ledger half, so a native plan-approval
+        dialog would come back as a KNOWN ``PLAN`` / ``native-prompt`` signal
+        for a pane whose task is not even known, and could retire feedback bound
+        in another phase. A ``None`` signal is an UNKNOWN phase, which neither
+        binds nor retires.
+
+        The identity is fetched defensively: a gate cache without
+        ``ledger_identity_for`` (or one that raises) yields ``None``, which the
+        caller reads as "unknown", never as "changed".
+        """
+        info = self._task_info_for_pane(snap)
+        if info is None:
+            return None, None
+        try:
+            signal = self._phase_for_snap(snap, info)
+        except Exception:
+            signal = None
+        ledger_id = None
+        with contextlib.suppress(Exception):
+            ledger_id = self._gate_cache.ledger_identity_for(info)
+        return signal, ledger_id
 
     # -- Shadow concern picker (t1037_4) ---------------------------------------
 
@@ -5182,12 +5231,32 @@ class MiniMonitorApp(
         implementing, and concerns from an implementation review stop mattering
         at post-review (t1573). So the banner retires a warning while the agent
         is positively observed in a different known phase than the one its
-        feedback was produced under::
+        feedback was produced under, **and that observation is new evidence**
+        (t2283)::
 
             retired  <=>  the block is identifiable
                      AND  its origin phase is bound and KNOWN
                      AND  the current phase is KNOWN
                      AND  current != origin
+                     AND  ( the current phase comes from a LIVE source
+                            (a checkpoint prompt / native dialog on screen now)
+                         OR the ledger's content identity is derivable now AND
+                            was at bind time AND differs from the bound one )
+
+        **Why a ledger-derived phase needs new evidence (t2283).** While the
+        agent is running, ``workflow_phase.compose`` suppresses the screen tiers
+        and reports the ledger half. During a *re-plan after an approved plan*
+        the ledger still holds the earlier ``plan_approved`` pass, so it reads
+        ``IMPLEMENT`` for the whole time the agent works the feedback — a
+        systematic flap, not the occasional misread t1573 judged cheap, and it
+        covers exactly the window in which the banner matters. That ledger state
+        was already there when the feedback was bound, so it proves nothing. A
+        real approval appends another ``plan_approved`` block: the ledger
+        CONTENT changes even though its PHASE does not, which is why the key is
+        content identity and not phase. A profile that records no gates keeps an
+        ``UNKNOWN`` ledger phase and never retires through this branch — the
+        warning then waits for a screen phase or a new round, the fail-safe
+        direction. An underivable identity on either side never retires.
 
         **Derived, not latched — and that is the whole design.** A latch keyed on
         "a known->known transition happened" cannot recover: ``PLAN ->
@@ -5210,17 +5279,18 @@ class MiniMonitorApp(
         its first block is byte-identical to the previous pane's — rather than
         depending on some reset having run first.
 
-        Cost: the ledger half of the phase is mtime-cached
-        (``GateSummaryCache._entry_for``); this adds one ``workflow_phase.compose``
-        over the followed pane's already-captured text per tick, and only on ticks
-        where a block is actually present (the caller's existence gate runs first).
-        No tmux traffic.
+        Cost: the ledger half of the phase and the ledger identity share one
+        mtime-cached entry (``GateSummaryCache._entry_for``); this adds one
+        ``workflow_phase.compose`` over the followed pane's already-captured text
+        per tick, and only on ticks where a block is actually present (the
+        caller's existence gate runs first). No tmux traffic.
         """
         key = self._shadow_feedback_key(capture_text)
         if key is None:
             return False  # cannot identify the feedback ⇒ never suppress it
-        signal = self._phase_signal_for_pane(snap)
+        signal, ledger_id = self._phase_evidence_for_pane(snap)
         phase = getattr(signal, "phase", workflow_phase.UNKNOWN_PHASE)
+        source = getattr(signal, "source", workflow_phase.NO_SOURCE)
         known = bool(phase) and phase != workflow_phase.UNKNOWN_PHASE
         bound = getattr(self, "_shadow_feedback_phase", None)
         if bound is None or bound[0] != shadow_pane or bound[1] != key:
@@ -5228,10 +5298,17 @@ class MiniMonitorApp(
             # from a KNOWN phase; an UNKNOWN one leaves it unbound so a later
             # tick can bind it, and nothing is retired meanwhile.
             self._shadow_feedback_phase = (
-                (shadow_pane, key, phase) if known else None
+                (shadow_pane, key, phase, ledger_id) if known else None
             )
             return False
-        return known and phase != bound[2]
+        if not known or phase == bound[2]:
+            return False
+        if source in _LIVE_PHASE_SOURCES:
+            return True  # observed on screen this tick — the t1573 rule
+        # Ledger-derived (or unattributed) phase: retire only on NEW evidence.
+        bound_ledger = bound[3]
+        return (ledger_id is not None and bound_ledger is not None
+                and ledger_id != bound_ledger)
 
     def _record_banner_staleness(
         self, snap: PaneSnapshot, shadow_pane: str, capture_text: str,

@@ -26,6 +26,7 @@ import asyncio
 import os
 import sys
 import tempfile
+import types
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
@@ -1274,15 +1275,26 @@ class _StalenessAppFixture(unittest.TestCase):
         the tests mutate between ticks to move the followed agent through the
         workflow; stubbing `_phase_signal_for_pane` itself would skip the hops
         and could not catch a wiring break.
+
+        Two further cells carry the t2283 evidence: `app._source` is the phase
+        signal's `source`, and `app._ledger` is what `ledger_identity_for`
+        returns. The source defaults to a LIVE one, so a test that only moves
+        `app._phase` drives a screen-observed transition, which is the t1573
+        rule and retires on its own. A test that sets `"ledger"` has to change
+        `app._ledger` as well before anything retires.
         """
         app._phase = [phase]
+        app._source = ["workflow-prompt"]
+        app._ledger = ["L0"]
         app._task_cache = SimpleNamespace(
             get_task_id_for_pane=lambda pane: "1573",
             get_task_info=lambda task_id, session=None: SimpleNamespace(),
         )
         app._gate_cache = SimpleNamespace(
             summary_for=lambda info: "",
-            phase_for=lambda info, **kw: _wp.PhaseSignal(phase=app._phase[0]),
+            phase_for=lambda info, **kw: _wp.PhaseSignal(
+                phase=app._phase[0], source=app._source[0]),
+            ledger_identity_for=lambda info: app._ledger[0],
             clear=lambda: None,
         )
         return app
@@ -1805,6 +1817,210 @@ class StaleBannerTruthfulnessTests(_StalenessAppFixture):
         self._tick(app)
         self.assertIs(app._shadow_stale_combined, False)
         self.assertEqual(app._shadow_stale_banner_text, "")
+
+    # -- 4. retirement needs NEW evidence (t2283) ------------------------------
+    #
+    # Live repro (thinking_app, window `agent-pick-587_5`): the shadow's block
+    # appears while the agent sits in Claude's plan-approval dialog, so it binds
+    # PLAN from the native tier. The user sends the feedback, the agent starts
+    # working, and `compose` falls back to the LEDGER half — which still holds the
+    # earlier round's `plan_approved` pass and reads IMPLEMENT the whole time.
+
+    def _bound(self, phase, source, ledger):
+        """A standing warning whose feedback is bound to (phase, source, ledger)."""
+        app = self._app(_ROUND1_BLOCK, _R1_EPOCH, _R1_EPOCH + 300, phase=phase)
+        app._source[0] = source
+        app._ledger[0] = ledger
+        asyncio.run(app._maybe_offer_concerns())
+        self.assertIs(app._shadow_stale_combined, True,
+                      "precondition: a warning must be standing")
+        self.assertEqual(app._shadow_feedback_phase[2:], (phase, ledger),
+                         "precondition: the origin binds phase AND ledger")
+        return app
+
+    def _assert_shown(self, app, msg=None):
+        self.assertIs(app._shadow_stale_combined, True, msg)
+        self.assertEqual(app._shadow_stale_banner_text, SHADOW_STALE_NARROW, msg)
+
+    def _assert_retired(self, app, msg=None):
+        self.assertIs(app._shadow_stale_combined, False, msg)
+        self.assertEqual(app._shadow_stale_banner_text, "", msg)
+
+    def _replan_timeline(self, app):
+        """The agent works the feedback: IMPLEMENT from an UNCHANGED ledger."""
+        app._phase[0], app._source[0] = "IMPLEMENT", "ledger"
+        for _ in range(3):
+            self._tick(app)
+
+    def test_a_replan_after_an_approved_plan_keeps_the_warning(self):
+        """AC1 — the defect. Shown from the first working tick, not at the dialog."""
+        app = self._bound("PLAN", "native-prompt", "L0")
+        self._replan_timeline(app)
+        self._assert_shown(
+            app, "a ledger state that predates the feedback retired it")
+
+    def test_negative_control_the_pre_fix_predicate_hides_it(self):
+        """AC7 — the same timeline under the verbatim pre-fix predicate.
+
+        Proves the scenario above discriminates: with t1573's rule (any KNOWN
+        differing phase retires, whatever its source) the banner is cleared for
+        the whole re-plan — the observed bug.
+        """
+        app = self._bound("PLAN", "native-prompt", "L0")
+        app._feedback_phase_retired = types.MethodType(
+            _pre_fix_feedback_phase_retired, app)
+        app._shadow_feedback_phase = None      # rebind under the old 3-tuple shape
+        app._phase[0], app._source[0] = "PLAN", "native-prompt"
+        self._tick(app)
+        self._replan_timeline(app)
+        self._assert_retired(app, "pre-fix rule should hide the banner here")
+
+    def test_a_real_reapproval_retires_the_warning(self):
+        """AC2 — the revised plan is approved: another `plan_approved` block is
+        appended, so the ledger CONTENT changes while its PHASE stays IMPLEMENT.
+        Retirement is still derived: flapping back to the origin restores it.
+        """
+        app = self._bound("PLAN", "native-prompt", "L0")
+        self._replan_timeline(app)
+        self._assert_shown(app)
+        app._ledger[0] = "L1"                      # Step 7 recorded the approval
+        self._tick(app)
+        self._assert_retired(app)
+        app._phase[0], app._source[0] = "PLAN", "native-prompt"
+        self._tick(app)
+        self._assert_shown(app, "retirement latched instead of re-deriving")
+
+    def test_first_round_approval_retires(self):
+        """AC3 — feedback raised before any approval: empty ledger -> a row."""
+        app = self._bound("PLAN", "native-prompt", "E")
+        app._phase[0], app._source[0], app._ledger[0] = "IMPLEMENT", "ledger", "L1"
+        self._tick(app)
+        self._assert_retired(app)
+
+    def test_review_approval_retires(self):
+        """AC4 — a `review_approved` append moves the ledger to POSTIMPL."""
+        app = self._bound("IMPLEMENT", "workflow-prompt", "L1")
+        app._phase[0], app._source[0], app._ledger[0] = "POSTIMPL", "ledger", "L2"
+        self._tick(app)
+        self._assert_retired(app)
+
+    def test_feedback_bound_from_a_ledger_phase(self):
+        """AC5 — bound while the agent was running (ledger-sourced origin)."""
+        app = self._bound("IMPLEMENT", "ledger", "L0")
+        app._phase[0] = "POSTIMPL"                 # differing, same ledger
+        self._tick(app)
+        self._assert_shown(app, "an unchanged ledger is not new evidence")
+        app._source[0] = "workflow-prompt"         # observed on screen
+        self._tick(app)
+        self._assert_retired(app)
+        app._source[0] = "ledger"                  # back to the unchanged ledger
+        self._tick(app)
+        self._assert_shown(app)
+        app._ledger[0] = "L1"                      # new evidence
+        self._tick(app)
+        self._assert_retired(app)
+
+    def test_an_underivable_ledger_identity_never_retires(self):
+        """AC6 — `None` on either side is "unknown", never "changed"."""
+        with self.subTest("bound None -> current L1"):
+            app = self._bound("PLAN", "native-prompt", None)
+            app._phase[0], app._source[0], app._ledger[0] = (
+                "IMPLEMENT", "ledger", "L1")
+            self._tick(app)
+            self._assert_shown(app)
+        with self.subTest("bound L0 -> current None"):
+            app = self._bound("PLAN", "native-prompt", "L0")
+            app._phase[0], app._source[0], app._ledger[0] = (
+                "IMPLEMENT", "ledger", None)
+            self._tick(app)
+            self._assert_shown(app)
+        with self.subTest("gate cache without ledger_identity_for"):
+            app = self._bound("PLAN", "native-prompt", "L0")
+            app._gate_cache = SimpleNamespace(
+                summary_for=lambda info: "",
+                phase_for=lambda info, **kw: _wp.PhaseSignal(
+                    phase=app._phase[0], source=app._source[0]),
+                clear=lambda: None,
+            )
+            app._phase[0], app._source[0] = "IMPLEMENT", "ledger"
+            self._tick(app)
+            self._assert_shown(app)
+
+    def test_an_unresolved_task_never_retires_even_on_a_live_phase(self):
+        """AC6, unresolved-task branch: no task ⇒ no phase evidence at all.
+
+        `GateSummaryCache.phase_for(None, ...)` still composes the live tiers
+        over an empty ledger half, so a native plan-approval dialog would come
+        back as a KNOWN `PLAN` / `native-prompt` for a pane whose task is not
+        even resolved. The fake `phase_for` below keeps returning that live
+        signal WHATEVER `info` it gets, so without the early return in
+        `_phase_evidence_for_pane` this would retire IMPLEMENT-bound feedback.
+        """
+        failures = (
+            ("task id unresolved", "get_task_id_for_pane"),
+            ("task info unresolved", "get_task_info"),
+        )
+        for label, which in failures:
+            with self.subTest(label):
+                app = self._bound("IMPLEMENT", "workflow-prompt", "L0")
+                app._phase[0], app._source[0] = "PLAN", "native-prompt"
+                if which == "get_task_id_for_pane":
+                    app._task_cache.get_task_id_for_pane = lambda pane: None
+                else:
+                    app._task_cache.get_task_info = (
+                        lambda task_id, session=None: None)
+                self._tick(app)
+                self._assert_shown(app)
+
+        with self.subTest("real GateSummaryCache, real compose"):
+            dialog = _snap("%1", awaiting_input=True,
+                           awaiting_input_kind="claude_plan_approval")
+            real = mc.GateSummaryCache()
+            # Pin the hazard against production: no task, yet a KNOWN live phase.
+            sig = real.phase_for(
+                None, screen_text="", awaiting_input=True,
+                awaiting_input_kind="claude_plan_approval", agent="claude",
+                current_command="claude")
+            self.assertEqual((sig.phase, sig.source), ("PLAN", "native-prompt"))
+
+            app = self._bound("IMPLEMENT", "workflow-prompt", "L0")
+            app._find_own_agent_snapshot = lambda: dialog
+            app._gate_cache = real
+            app._task_cache.get_task_info = lambda task_id, session=None: None
+            self._tick(app)
+            self._assert_shown(app)
+
+    def test_an_unattributed_known_phase_needs_ledger_evidence(self):
+        """An unrecognised source fails toward showing (allow-list of live ones)."""
+        app = self._bound("PLAN", "native-prompt", "L0")
+        app._phase[0], app._source[0] = "IMPLEMENT", "none"
+        self._tick(app)
+        self._assert_shown(app)
+        app._ledger[0] = "L1"
+        self._tick(app)
+        self._assert_retired(app)
+
+
+def _pre_fix_feedback_phase_retired(self, snap, shadow_pane, capture_text):
+    """VERBATIM pre-t2283 `MiniMonitorApp._feedback_phase_retired` (body only).
+
+    The negative control for `test_negative_control_the_pre_fix_predicate_hides_it`
+    — kept identical to the shipped t1573 predicate so the control proves the
+    timeline discriminates against the real old rule, not a paraphrase of it.
+    """
+    key = self._shadow_feedback_key(capture_text)
+    if key is None:
+        return False  # cannot identify the feedback ⇒ never suppress it
+    signal = self._phase_signal_for_pane(snap)
+    phase = getattr(signal, "phase", _wp.UNKNOWN_PHASE)
+    known = bool(phase) and phase != _wp.UNKNOWN_PHASE
+    bound = getattr(self, "_shadow_feedback_phase", None)
+    if bound is None or bound[0] != shadow_pane or bound[1] != key:
+        self._shadow_feedback_phase = (
+            (shadow_pane, key, phase) if known else None
+        )
+        return False
+    return known and phase != bound[2]
 
 
 class BlockEvidenceCouplingTests(unittest.TestCase):

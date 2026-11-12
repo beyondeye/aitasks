@@ -529,13 +529,43 @@ fail-safe join). They are what keep a *wanted* banner truthful:
    implementation-review concerns stop mattering at post-review.
 
 The phase rule is **derived state, not a latch**. Each block binds to the phase
-it was first observed in, keyed on `(shadow pane id, block identity)`, and the
-warning is suppressed only while
+it was first observed in, keyed on `(shadow pane id, block identity)`. The
+binding also records the content identity of the task's gate ledger at that
+moment, which is a digest of the `## Gate Runs` blocks
+(`GateSummaryCache.ledger_identity_for`). The warning is suppressed only while
 
 ```
 the block is identifiable AND its origin phase is bound and KNOWN
 AND the current phase is KNOWN AND current != origin
+AND ( the current phase comes from a live source — a checkpoint prompt or
+      native dialog on screen this tick (`workflow-prompt` / `native-prompt`)
+   OR the ledger identity is derivable now AND was at bind time
+      AND differs from the bound one )
 ```
+
+**Why a ledger-derived phase must bring new evidence.** While the agent is
+running, the screen tiers are suppressed and the phase comes from the ledger. In
+a re-plan after an approved plan, the ledger still holds the earlier
+`plan_approved` pass, so it reads `IMPLEMENT` for the whole time the agent works
+the feedback. That ledger state was already present when the feedback was bound,
+so it is not a sign that the agent moved on. Retiring on it would hide the banner
+exactly when it matters, and it would reappear only when the revised plan's
+dialog returns.
+
+A real approval appends another `plan_approved` block. The ledger *content*
+changes even though its *phase* does not. That is why the key is content
+identity, not phase, and why the identity ignores frontmatter, status and note
+edits.
+
+Some cases never retire through the ledger:
+- **An underivable identity**, on either side, never retires.
+- **A source this rule does not recognise** needs ledger evidence, the same as
+  the ledger itself: only the two live sources are an allow-list.
+- **An unresolved task** gives no phase evidence at all. This holds even though
+  the composer would still report a native dialog's `PLAN` without one.
+- **A profile that records no gates** keeps an `UNKNOWN` ledger phase. Its
+  warning waits for a screen phase or a new round, which is the fail-safe
+  direction.
 
 A latch keyed on "a known→known transition happened" was rejected because it
 cannot recover: `PLAN → IMPLEMENT` retires the block and the way back,
