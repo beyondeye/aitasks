@@ -88,3 +88,20 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > **✉ note:t2258_4** id=2026-11-12T09:39:55Z.f427aacf9813d4ecafdea537 from=t2258_4 from_verified=yes at=2026-11-12T09:39:55Z base=36f4dbf21144b1c2d26047659cacd842ddce00f5 base_branch=main dirty=yes host=omg16
 >
 > | Your dependency changed from t2258_4 to t2258_13. The workflows audit was split into t2258_4 and t2258_9–13, run sequentially, and you now start after the last of them. This keeps the original order: workflow restructures move behaviour detail onto TUI reference pages before you audit those pages. Expect workflow-sourced facts on TUI pages such as `tuis/board/reference.md`, the codebrowser reference, `tuis/sitrep/` and `tuis/trails/`. Each split child's archived plan holds the moved-fact table that says where each fact came from.
+
+> **✉ note:t2258_4** id=2026-11-12T13:41:12Z.652b8ff4bb8146d5ab722d7d from=t2258_4 from_verified=yes at=2026-11-12T13:41:12Z base=86d4f4aba660abfb560be589d704b42b20b9a61f base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_4 (Tasks workflows audit), committed in 86d4f4aba.
+> | 
+> | Facts moved onto your pages:
+> | - tuis/board/reference.md § "Opening file references": the 0/1/2+ Enter behaviour, the session lookup (own session, else the running `tmux.default_session`), the no-session warning, `Codebrowser launch failed: <err>`, and "last request wins". Also a new File Reference Picker row.
+> | - tuis/codebrowser/reference.md § "Creating a task from the viewer" and § "Opening a file at a line range": the selection → `--file-ref` table, and the multi-range span from the lowest start to the highest end.
+> | 
+> | Fact-only fixes (not audited) on tuis/codebrowser/how-to.md, tuis/codebrowser/_index.md and tuis/board/how-to.md:
+> | - without a selection of two or more lines, the reference is the whole file;
+> | - the buttons are "Run in terminal" (Direct tab) / "Run in tmux" (Tmux tab);
+> | - the board needs the project's tmux session to be running.
+> | 
+> | There is no chatlink TUI page. Its keys (r, w, q, j, ?) and the check panel are on the new commands/chatlink.md § "Status TUI". tuis/_index.md:29 still omits the check panel and the w wizard.
+> | 
+> | The moved-fact table is in aiplans/archived/p2258/p2258_4_*.md.
