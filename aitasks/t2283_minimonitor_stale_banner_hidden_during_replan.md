@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1573
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-11 22:39
-updated_at: 2026-11-11 22:45
+updated_at: 2026-11-12 08:59
 ---
 
 ## Symptom
@@ -130,3 +131,8 @@ the retire predicate now requires new evidence, with the re-plan rationale.
   wider `workflow_phase` ledger-half issue, not a banner issue.
 - Related but distinct: t1159_6 (always-on concern status line); t1564 (manual
   verification of the stale banner reaching the pane).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-12T07:00:02Z status=pass attempt=1 type=human
