@@ -164,6 +164,7 @@ Labels for all: `documentation,web_site,doc_quality` (child 2 adds
 | 6 | `audit_skills_and_commands` | medium | 41 skill + 15 command pages (reference type): narrative-in-reference, intros, depth tags. |
 | 7 | `audit_entry_pages_and_depth_check` | medium | `overview`, `getting-started`, `installation/`, `development/`, section `_index` pages; tag remaining untagged pages; add a depth-required check to the website checks + CI. |
 | 8 | `retrospective_doc_levels` | medium | Before/after reader-report comparison; **skipped-page reconciliation** (every page in the skipped-page ledgers of children 3–7 is either audited or has an open follow-up child; outstanding ones are listed in the parent's completion report); decide seed-guide level model, Vale advisory step, t2186 eval follow-up, and whether the gate's drafts need a content-hash audit trail (deferred from child 2); create port tasks for `aitask-doc-review` (Codex / OpenCode wrappers). |
+| 9–13 | `audit_workflows_{parallel_local,cross_project,review_quality,git,screen_recordings}` | high / medium / high / medium / medium | Split from child 4 at its planning (2026-11-12, user decision): the 44 workflow pages are too many for one session. Child 4 keeps the Tasks, Reporting and Maintenance groups; 9–13 take the other `workflows/_index.md` groups, with Parallel split in two. Fully sequential chain: 4 → 9 → 10 → 11 → 12 → 13 → 5 → 6 → 7 → 8. The common audit method below binds them too. |
 
 ### Common audit method (children 3–7)
 
