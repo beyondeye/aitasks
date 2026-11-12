@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2258
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-12 15:40
-updated_at: 2026-11-12 15:45
+updated_at: 2026-11-12 23:06
 ---
 
 ## Origin
@@ -44,3 +45,8 @@ All five were found while t2258_4 audited the Tasks workflow pages and checked e
 - Document `sandbox_env_passthrough` in `seed/chatlink_config.yaml`.
 - Fix the two stale code comments.
 - Correct the `--headless` row on `commands/codeagent.md`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-12T21:06:25Z status=pass attempt=1 type=human
