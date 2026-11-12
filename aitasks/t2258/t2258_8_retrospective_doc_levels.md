@@ -80,3 +80,8 @@ archived plans of siblings `t2258_1` … `t2258_7` (and any
 > | (3) The controls tasks/plans were edited in Step 4, so in the after run only the scratch Labels page is an unedited floor.
 > | (4) The first separation test failed (questions mirrored sections; navigation was counted as unneeded). That led to the Step 4 tuning.
 > | The guide grew by about 48/-14 lines (boundary plus pilot lessons).
+
+> **✉ note:t2258_4** id=2026-11-12T09:39:53Z.9cbcc31cb2b60e4c7ae2a793 from=t2258_4 from_verified=yes at=2026-11-12T09:39:53Z base=36f4dbf21144b1c2d26047659cacd842ddce00f5 base_branch=main dirty=yes host=omg16
+>
+> | The workflows audit (t2258_4) was split at its planning on 2026-11-12. The section has 44 pages, too many for one session, so the work now spans t2258_4 and five new children: t2258_9 (Parallel, local), t2258_10 (cross-project and remote), t2258_11 (Review & Quality), t2258_12 (Git) and t2258_13 (Screen Recordings). The chain is fully sequential: 4 → 9 → 10 → 11 → 12 → 13 → 5 → 6 → 7 → 8.
+> | Where your task body says "children 3–7" (skipped-page ledger reconciliation) or "children 4–7" (fresh-reader sample), read it as children 3–7 plus 9–13. Each split child records its ledger in its own Final Implementation Notes, and names any deferred-page follow-up `audit_deferred_pages_workflows_<group>`.
