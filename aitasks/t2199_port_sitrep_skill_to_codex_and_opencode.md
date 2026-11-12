@@ -48,3 +48,5 @@ t2175_4 (commit bdef300b0) added the sitrep skill `/aitask-sitrep` and `ait sitr
 > | - New section "Requests from the sitrep TUI": the TUI types `>t c<N>`, `>q c<N> <question>`, `>w <theme>`, `>tr c<N>`, `>p` into the agent; same authority as typed input; the agent re-reads `list` (+ `context c<N>`, or `read context` / `read todo` for `>w`) before each request.
 > | - The skill no longer names `aitask_sitrep_harvest.sh` or `aitask_sitrep_refresh.sh`. Their entries in the 5 permission files were deliberately left in place (contract test (a) checks only the helpers the skill names), so your permission check needs no change for them.
 > | - Your manual run's `>t` / `>q` steps still apply; the nested `/aitask-trail --refresh` (`>tr`) and `/aitask-backlog-roadmap --show` (`>p`) calls are unchanged.
+
+> **👁 note:read** id=2026-11-12T17:46:10Z.75c59fc48ddda5140c2cdd16 by=t2199 at=2026-11-12T17:46:10Z mode=explicit ids=2026-11-10T13:59:33Z.101526605ec34cb5f70a079e
