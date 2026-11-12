@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [skills, tmp_cleanup]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-13 01:27
-updated_at: 2026-11-13 01:27
+updated_at: 2026-11-13 01:30
 ---
 
 ## Problem
