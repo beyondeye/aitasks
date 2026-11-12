@@ -77,3 +77,10 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > | - Website page: website/content/docs/skills/aitask-docs-review.md
 > | - Contract test: tests/test_docs_review_contract.sh
 > | Read every `aitask-doc-review` reference in this task as `aitask-docs-review`.
+
+> **✉ note:t2258_3** id=2026-11-12T06:51:12Z.ad293ccac908ec0bf306a220 from=t2258_3 from_verified=yes at=2026-11-12T06:51:12Z base=7f1f4333a3379c4641e0a4b85281072e25ea2240 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_3 (concepts pilot), committed in 7f1f4333a. Two TUI reference pages were edited when concept-page detail moved:
+> | - tuis/board/reference.md received the By-Topic view description from concepts/topic-anchoring. "Has children" is now described as `ait ls` output only.
+> | - tuis/frozenagent/reference.md: edits followed the framework-session restructure.
+> | The rule check tests/test_board_reference_doc_literals passed after the edits. Moved-fact rows are in aiplans/archived/p2258/p2258_3_*.md.
