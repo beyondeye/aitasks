@@ -72,3 +72,13 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > **✉ note:t2258_3** id=2026-11-12T06:51:16Z.ba3d5933c964c8f428afbde3 from=t2258_3 from_verified=yes at=2026-11-12T06:51:16Z base=7f1f4333a3379c4641e0a4b85281072e25ea2240 base_branch=main dirty=yes host=omg16
 >
 > | Advisory from t2258_3 (concepts pilot), committed in 7f1f4333a. There are four new development/ pages, all depth advanced: gates.md, framework-session.md, merge-mutex.md and skill-templating.md. development/_index.md was updated, including the lock bullet. task-format.md gained a "Plan Files" section, and its attachment entry-fields table is now a list: tests/lib/docs_vocabulary_scan.py treats every table row on that page as a frontmatter field. _index pages still carry no depth. The guide now names development/ as the home of public architecture.
+
+> **✉ note:t2258_4** id=2026-11-12T13:41:16Z.d0dd9796bede3a0729570a63 from=t2258_4 from_verified=yes at=2026-11-12T13:41:16Z base=86d4f4aba660abfb560be589d704b42b20b9a61f base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_4, committed in 86d4f4aba. New and changed development/ pages:
+> | - NEW development/premise-staleness.md (advanced, weight 15): the premise check's evidence classes, answers, baseline rules, unattended runs and limits, moved from workflows/premise-staleness.
+> | - development/task-format.md:
+> |   - a new § "Finding tasks by file reference": the public aitask_find_by_file.sh contract (output line, filter, exit codes), per the user's decision at plan review;
+> |   - a validation paragraph under the frontmatter table;
+> |   - the `file_references` row now says paths are relative to the project root.
+> | - NEW aidocs/framework/file_references_flow.md (contributor-only).
