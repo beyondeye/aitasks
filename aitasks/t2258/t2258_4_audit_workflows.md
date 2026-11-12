@@ -64,3 +64,13 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > | - Website page: website/content/docs/skills/aitask-docs-review.md
 > | - Contract test: tests/test_docs_review_contract.sh
 > | Read every `aitask-doc-review` reference in this task as `aitask-docs-review`.
+
+> **✉ note:t2258_3** id=2026-11-12T06:51:10Z.5f4acf693ab7120a7a441386 from=t2258_3 from_verified=yes at=2026-11-12T06:51:10Z base=7f1f4333a3379c4641e0a4b85281072e25ea2240 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_3 (concepts pilot), committed in 7f1f4333a. Your workflows pages received moved facts and link changes:
+> | - crash-recovery.md: lock-outcome and session-liveness facts moved in from concepts/locks. Its See also now points to development/gates#the-ledger for the Gate Runs ledger.
+> | - parallel-development.md: § Serialized Merge-Back is now the intermediate summary. The full mutex reference is the new development/merge-mutex.md.
+> | - freeze-and-restore-agents.md: framework-session prose was edited when the concept page was cut.
+> | - task-notes.md: See also now points to commands/lock#how-it-works for the lock record live delivery reads.
+> | Open item: crash-recovery.md:71 says a same-session re-claim refreshes silently. aitask_pick_own.sh:782-806 still emits RECLAIM_STATUS for an Implementing task, so the re-pick is not silent. This is tracked in t2284, which you may want to coordinate with.
+> | The guide now has a detail-placement boundary: behaviour detail on reference/workflow pages, public architecture in development/ at advanced, contributor-only detail in aidocs/. See aiplans/archived/p2258/p2258_3_*.md.
