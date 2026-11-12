@@ -247,3 +247,5 @@ machine is still on an old version.
 > | check on the `aitask_codeagent.sh` listing now compares real all-time numbers.
 > | Before this fix it would have compared zeros on both sides. Test 4b is a
 > | ready-made fixture for that parity check if useful. Advisory only.
+
+> **👁 note:read** id=2026-11-12T06:59:36Z.675ededc7d04c1241f4f0d23 by=t1912 at=2026-11-12T06:59:36Z mode=explicit ids=2026-10-09T08:41:59Z.f6d2dd04742d34514b91d2fe,2026-11-04T14:54:51Z.f8dc92c443a9fe43a949a3f1,2026-11-04T16:52:37Z.2fd1ac5660eb82cd6499c38a
