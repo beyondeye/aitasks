@@ -1069,6 +1069,20 @@ def shadow_prompt_ready(raw_text: str | None, agent: str,
 #                 padding row, the status row; content width = border length - 5;
 #                 a word wraps iff line+1+word > content-1 (one column short of a
 #                 hard break).
+#
+# Re-measured at the shadow pane widths W=60 and W=44 on 2026-11-12 (t2280;
+# claude 2.1.322, codex-cli 0.167.2, opencode 1.18.34; captures in
+# tests/shadow_recheck_fixtures.py): every W-relative rule above holds there.
+# Those captures also measured a break opportunity the 120-column set never
+# exercised: codex and opencode break a line right AFTER a hyphen (`plan-` /
+# `challenge`), keeping a hyphen-ended fragment on the row while it fits
+# within the content width; claude never does (the whole compound moves).
+# `hyphen_breaks` carries that per agent -- see `payload_matches`. A FINAL
+# piece (nothing after it) stays on the row up to the content width itself on
+# all three agents (opencode also at 120: its "content-1" applies only before a
+# space). At exactly the content width codex moves its cursor onto an empty
+# row, which no grammar can tell from a typed blank line, so such a codex
+# composer reads None (unprovable, fail closed).
 
 @dataclass(frozen=True)
 class ComposerPayload:
@@ -1077,12 +1091,14 @@ class ComposerPayload:
     ``lines``: the payload's display rows, prefix / indent and trailing
     blanks removed. ``content_width``: the columns a hard (mid-token) break
     fills. ``wrap_width``: a word moves to the next row iff ``row + 1 + word
-    > wrap_width``.
+    > wrap_width``. ``hyphen_breaks``: the agent may also break right after a
+    ``-`` inside a word (measured: codex and opencode yes, claude no).
     """
 
     lines: tuple
     content_width: int
     wrap_width: int
+    hyphen_breaks: bool = False
 
 
 #: Agents whose composer grammar is measured and pinned by fixtures. A caller
@@ -1165,7 +1181,8 @@ def _codex_payload(plain_lines: list, raw_lines: list,
     rest = _continuations(lines[idx + 1:gap])
     if not first or first[:1].isspace() or rest is None:
         return None
-    return ComposerPayload((first, *rest), pane_width - 3, pane_width - 3)
+    return ComposerPayload((first, *rest), pane_width - 3, pane_width - 3,
+                           hyphen_breaks=True)
 
 
 def _opencode_payload(plain_lines: list) -> "ComposerPayload | None":
@@ -1194,7 +1211,7 @@ def _opencode_payload(plain_lines: list) -> "ComposerPayload | None":
     if not text:
         return None
     content = len(plain_lines[border].strip()) - 5
-    return ComposerPayload(tuple(text), content, content - 1)
+    return ComposerPayload(tuple(text), content, content - 1, hyphen_breaks=True)
 
 
 def composer_payload(raw_text: "str | None", agent: str,

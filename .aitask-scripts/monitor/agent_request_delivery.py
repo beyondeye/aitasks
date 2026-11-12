@@ -171,6 +171,34 @@ def display_width(text: str) -> int:
 
 
 _WORD_RE = re.compile(r"\S+")
+#: The smallest piece a hyphen-breaking agent could have kept on the row: up to
+#: and including the first hyphen, else up to the next space (t2280). Smaller
+#: is the conservative reading: it makes a break harder, never easier, to justify.
+_FRAGMENT_RE = re.compile(r"[^\s-]*-|[^\s-]+")
+
+
+def _moved_piece(payload: "review_loop.ComposerPayload", expected: str, pos: int):
+    """The piece a break before ``pos`` moved to the next row, and its fit limit.
+
+    The limit depends on how the piece ends. Followed by a space: ``wrap_width``
+    (measured by the word-wrap edges, and for opencode by its ``re-`` / ``run``
+    break). Ending in a hyphen: ``content_width`` (measured: codex and opencode
+    keep a hyphen-ended piece on the row up to the content width). Ending the
+    text: unmeasured, so ``content_width``, the sound upper bound -- no row holds
+    more -- under which an unmeasured ending can only fail closed.
+    """
+    m = (_FRAGMENT_RE if payload.hyphen_breaks else _WORD_RE).match(expected, pos)
+    if not m or not m.group(0):
+        return "", 0
+    end = m.end()
+    limit = payload.wrap_width if expected[end:end + 1] == " " else payload.content_width
+    return m.group(0), limit
+
+
+def _hyphen_justified(payload, row: str, expected: str, pos: int) -> bool:
+    """Would the piece at ``pos`` not have fit after ``row`` (which ends in ``-``)?"""
+    piece, limit = _moved_piece(payload, expected, pos)
+    return bool(piece) and display_width(row) + display_width(piece) > limit
 
 
 def payload_matches(payload: "review_loop.ComposerPayload | None", expected: str) -> bool:
@@ -178,10 +206,21 @@ def payload_matches(payload: "review_loop.ComposerPayload | None", expected: str
 
     Every display row must be the next slice of ``expected``; a row break is
     allowed only where it is a justified display wrap: a word wrap (one space
-    of ``expected`` sits there, consumed, and the next word would not have fit:
-    ``row + 1 + word > wrap_width``) or a hard break inside a token (no space
-    there, and the row fills ``content_width``). Text left over on either side,
-    an extra row or an unjustified break -> False.
+    of ``expected`` sits there, consumed, and the moved piece would not have
+    fit: ``row + 1 + piece > limit``), a hyphen break (only for an agent with
+    ``hyphen_breaks``: the row ends in ``-``, nothing is consumed, and ``row +
+    piece > limit``) or a hard break inside a token (no space there, and the
+    row fills ``content_width``; a hyphen break that is not justified is still
+    accepted as this). Text left over on either side, an extra row or an
+    unjustified break -> False. A break that is not justified is a typed
+    newline, so the composer is not ``expected``.
+
+    The moved piece and its ``limit`` come from :func:`_moved_piece`: for a
+    hyphen-breaking agent the piece is the smallest one it could have kept on
+    the row (up to the first hyphen), and the limit follows the piece's ending
+    -- ``wrap_width`` before a space, else ``content_width``. Measured at 60,
+    44 and 120 columns (t2211_4, t2280); an unmeasured ending (the end of the
+    text) gets the sound upper bound, so it can only fail closed.
     """
     if payload is None or not payload.lines or not expected:
         return False
@@ -195,10 +234,12 @@ def payload_matches(payload: "review_loop.ComposerPayload | None", expected: str
             break
         if expected[pos:pos + 1] == " ":
             pos += 1
-            m = _WORD_RE.match(expected, pos)
-            word = m.group(0) if m else ""
-            if not word or display_width(row) + 1 + display_width(word) <= payload.wrap_width:
+            piece, limit = _moved_piece(payload, expected, pos)
+            if not piece or display_width(row) + 1 + display_width(piece) <= limit:
                 return False
+        elif payload.hyphen_breaks and row.endswith("-") and _hyphen_justified(
+                payload, row, expected, pos):
+            pass
         elif display_width(row) != payload.content_width:
             return False
     return pos == len(expected)

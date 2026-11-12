@@ -372,11 +372,19 @@ class ComposerProofTests(unittest.TestCase):
         self.assertFalse(d.payload_matches(None, ">t c12"))
 
     def test_opencode_wraps_one_column_short_of_a_hard_break(self):
+        """...for a word followed by a space (edge_50_69/70 shape). A FINAL word
+        keeps to the row up to the content width itself -- measured live at
+        60, 44 and 120 columns (t2280, opencode_w*_endword_*) -- so a break
+        before it at 70 is a typed newline, not a wrap."""
         P = rl.ComposerPayload
-        text = "a" * 50 + " " + "b" * 18      # 50 + 1 + 18 = 69 = wrap width
-        self.assertFalse(d.payload_matches(P(("a" * 50, "b" * 18), 70, 69), text))
-        text = "a" * 50 + " " + "b" * 19      # 70 > 69: justified
-        self.assertTrue(d.payload_matches(P(("a" * 50, "b" * 19), 70, 69), text))
+        text = "a" * 50 + " " + "b" * 18 + " tail"      # 50 + 1 + 18 = 69 = wrap width
+        self.assertFalse(d.payload_matches(P(("a" * 50, "b" * 18 + " tail"), 70, 69), text))
+        text = "a" * 50 + " " + "b" * 19 + " tail"      # 70 > 69: justified
+        self.assertTrue(d.payload_matches(P(("a" * 50, "b" * 19 + " tail"), 70, 69), text))
+        text = "a" * 50 + " " + "b" * 19                # final word: 70 = content width, fits
+        self.assertFalse(d.payload_matches(P(("a" * 50, "b" * 19), 70, 69), text))
+        text = "a" * 50 + " " + "b" * 20                # 71 > 70: justified
+        self.assertTrue(d.payload_matches(P(("a" * 50, "b" * 20), 70, 69), text))
 
     def test_the_payload_is_unprovable_unless_the_region_is_exact(self):
         claude_short = FIXTURES["claude_short"][4]
