@@ -444,8 +444,25 @@ results, or `follow-up t2258_<n>`), or "ledger empty".
 
 ## Moved-fact table
 
-(filled in Step 2: source#section → fact → destination#anchor →
+(source#section → fact → destination#anchor →
 `moved` / `already-stated` / `corrected` / `dropped(reason)`)
+
+### `parallel-planning.md` + `parallel-development.md` (edited in this session)
+
+| Source#section | Fact | Destination | Outcome |
+|---|---|---|---|
+| parallel-planning#why-this-is-safe | "the existing plan is automatically verified against the current codebase before any code is written… double verification" | same page, rewritten | **corrected**: it depends on the profile. `fast.yaml:7` `plan_preference_child: verify` verifies unless a fresh entry under 24h exists (`aitask_plan_verified.sh decide … 1 24`). `default.yaml` sets no preference, so the agent asks (planning.md §6.0). `remote.yaml:8` is `use_current`. The remote drift check runs on every profile before Step 7. |
+| parallel-planning#how-it-works (step 5) | "Each child's plan is verified against the current codebase before implementation begins" | same page, Steps 5 | **corrected** (as above): the profile-dependent wording lives in "Why this is safe" |
+| parallel-planning#deferring | "offers to use it as-is, so the planning phase is skipped" | same page | **corrected**: §6.0 shows "Approved plan from … awaiting implementation", then applies the profile's plan preference (`fast` parent `use_current` skips; `default` asks) |
+| parallel-planning#deferring | "if the branch you are building on has moved, you are told… and the marker is dropped" | same page | **corrected**: "Continue anyway" at the drift check keeps the marker; choosing to stop and re-verify clears it (plan-approved-stop.md:92-124, stop reasons `drift` / `drift_check_failed` / `parallel_admission`), as does any "Create plan from scratch" (planning.md §6.0-marker) |
+| parallel-planning#what-you-get | the parent "auto-archives when all children complete" | same page | already true: `aitask_archive.sh:770-776` archives the parent when `children_to_implement` is empty |
+| parallel-development#how-concurrency-is-managed | locks on the `aitask-locks` branch with compare-and-swap semantics | `commands/lock#how-it-works` ("Atomicity is achieved via git's push rejection on non-fast-forward updates… retries (up to 5 attempts)") and `concepts/git-branching-model` (`aitask-locks` row) | already-stated (linked) |
+| same | atomic ID counter on `aitask-ids` | `concepts/git-branching-model` ("`aitask-ids` · Reservation log used to allocate fresh task IDs without collisions") | already-stated (linked); the plain bullet is kept |
+| same | optional `aitask-data` branch, worktree at `.aitask-data/`, synced via `./ait git push/pull` | `concepts/git-branching-model` (`aitask-data` row, `./ait git` paragraph) | already-stated (linked); `./ait git push/pull` kept on the page |
+| parallel-development#serialized-merge-back | `create_worktree: false`: "shared-checkout mode is unaffected" | same page | kept, reworded ("work in the shared checkout is not held back") |
+| parallel-development#best-practices | "Run `git pull` before starting `/aitask-pick` to see the latest task status" | same page | **corrected**: `/aitask-pick` Step 0c runs `aitask_pick_own.sh --sync` before listing; `git pull` is only needed for the code branch |
+| parallel-development#parallel-planning | "zero risk of conflicts" | same page | reworded: the page states the fact (no source code is changed) |
+| parallel-development:46 | relevance flag: link text `/aitask-pick` → parallel-admission | same page | link text is now "parallel-admission preflight" |
 
 ## Verification
 
@@ -510,3 +527,521 @@ Step 8e notes, sent when the facts hold at the end:
 
 ### Planned mitigations
 - timing: post-phase | name: moved_fact_survival_check | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: low | addresses: code-health restructure fact loss; goal-achievement stale moved facts | desc: claim-level comparison of every removed block with its destinations by an independent sub-agent, before commit
+
+### Restructure report, Agent A: `freeze-and-restore-agents.md`
+
+**Files:**
+- `workflows/freeze-and-restore-agents.md`: 316 → 161;
+- `tuis/frozenagent/reference.md`: 124 → 239, adding § "The `ait ide`
+  frozen-agent check" with six subsections, and the `capture_max_lines` row
+  now says "cap plus one pane height";
+- `development/framework-session.md`: 115 → 151, adding § "The freeze engine"
+  and § "Restore-All", three paragraphs under "Which CLI owns the session",
+  and corrected cleanup-rules cadence. The L64 link now targets
+  `#the-freeze-engine`.
+
+The gate was clean on all three files before the first edit. The three
+inbound-anchor headings are byte-identical, and no destination heading was
+renamed.
+
+wf = workflow page, fs = development/framework-session, fa-ref = tuis/frozenagent/reference.
+
+| Source#section | Fact | Destination | Outcome |
+|---|---|---|---|
+| wf#intro | 10–20 panes; the last screen is what you want; the process holds memory | wf#intro | condensed; facts kept |
+| wf#intro | the viewer is a small app reading a file | tuis/frozenagent/_index | already-stated; the saying is dropped |
+| wf#when-to-freeze | disk path `~/.config/aitasks/frozen/` | fs#where-the-state-lives | already-stated ("It goes to `~/.config/aitasks/frozen/<id>/` (mode `0700`) as two files") |
+| wf#when-to-freeze | park vs freeze paragraph | wf#when-to-freeze | rewritten with the guide's After |
+| wf#the-daily-loop | f, confirm, same pane, window name | wf step 1 | kept |
+| wf#the-daily-loop | G/r/m, search, select, copy, clipboard from a hidden pane | wf step 2 | kept |
+| wf#the-daily-loop | R/P choice and its cost | wf step 4 | kept |
+| wf#the-daily-loop | keys belong to the viewer; s / Tab; monitor keys unchanged | wf step 5 | kept |
+| wf#the-daily-loop | per-CLI eligibility (session id, CLI identity, raw default, refusal) | fs#which-cli-owns-the-session | already-stated (L76–78) |
+| wf#the-daily-loop | OpenCode cannot resume | fs#which-cli-owns-the-session; wf step 4 | moved (`resume_unsupported:opencode`, agent_restore.py:328) |
+| wf#the-daily-loop | daemon-routed hand-started Codex records no session | fs#when-it-records | already-stated; "yet" dropped |
+| wf#the-daily-loop | Codex at a shell prompt: foreground job only, `-c tui.alternate_screen=never` | fs#which-cli-owns-the-session | moved (agent_sessions.py:2290ff, agent_string.sh:55–78) |
+| wf#the-daily-loop | Codex model from `-m`, else the record, else re-pick | fs#which-cli-owns-the-session | moved (agent_freeze.py:503–533, agent_sessions.py:2407); added: an unknown `-m` model records no session |
+| wf#the-daily-loop | a verified restore deletes the capture, so copy first | wf step 3 | kept |
+| wf#the-daily-loop | k drops, after a confirmation | wf step 6 | kept |
+| wf#before-shutting-down | Z scope and count | wf | kept |
+| wf#before-shutting-down | listing contents | fa-ref#the-listing | moved |
+| wf#before-shutting-down | V/R/P/S table | wf list + fa-ref#the-answers | moved (the table goes to the reference) |
+| wf#before-shutting-down | all questions first | wf + fa-ref#the-answers | kept + moved, with the reason (ide_frozen_offer.sh:272) |
+| wf#before-shutting-down | landing sessions, `--session`, session creation, failure isolation, naming, `j` | fa-ref#where-the-agents-land | moved |
+| wf#before-shutting-down | which projects are acted on, plus skip reasons | fa-ref#which-projects-are-acted-on | moved, **corrected** (below) |
+| wf#before-shutting-down | companion top-up | fa-ref#companions | moved; added "also when nothing is listed" (ide_frozen_offer.sh:153, 193) |
+| wf#before-shutting-down | untracked viewer / survivor records; refusals; close the window | fa-ref#the-listing, #the-answers; wf#when-something-goes-wrong | moved (agent_restore.py:976, agent_freeze.py:1724, agent_reopen.py:718) |
+| wf#before-shutting-down | no-terminal note | fa-ref#without-a-terminal | moved |
+| wf#before-shutting-down | `--no-frozen-check` | fa-ref#the-ait-ide-frozen-agent-check | moved |
+| wf#before-shutting-down | `gone` / `reopen` / `companions` script block | fs#the-freeze-engine | moved (checked against `aitask_frozen.sh` usage) |
+| wf#before-shutting-down | `ait frozenagent` list mode, R/P on the row | wf | kept |
+| wf#before-shutting-down | `restore --all [--repick]` | fs#the-freeze-engine, #restore-all | moved |
+| wf#before-shutting-down | Restore-All rules (sequential, one failure never stops the batch, which records fail the first form, the `-2` suffix, session creation) | fs#restore-all | moved (agent_restore.py:1290–1316, 950–960, 850; agent_launch_utils.py:2337) |
+| wf#what-unverified-means | outcome table | fa-ref#states-shown | already-stated |
+| wf#what-unverified-means | causes | wf + fs#restore-verification | kept / already-stated |
+| wf#what-unverified-means | Codex hook at the first turn; a late hook upgrades the restore | fs#restore-verification | already-stated |
+| wf#what-unverified-means | the grace is a waiting period | fa-ref#configuration | already-stated ("It sets a waiting period, not an outcome.") |
+| wf#when-something-goes-wrong | `restore failed:` / `last restore failed:` | wf + fa-ref#states-shown | kept / already-stated |
+| wf#when-something-goes-wrong | `cannot restore:` reasons | wf | kept |
+| wf#when-something-goes-wrong | `restore did not start` | wf + how-to#bring-an-agent-back | kept, **corrected** placement (below) |
+| wf#when-something-goes-wrong | respawn a dead stand-in, settle transitional records, unmark a stuck agent | fs#the-freeze-engine | moved (agent_freeze.py:1280–1286, 1446ff) |
+| wf#when-something-goes-wrong | reconcile cadence | fs#the-freeze-engine, #cleanup-rules | moved, **corrected** (below) |
+| wf#when-something-goes-wrong | there is no `ait frozen` command | fs#the-freeze-engine | moved |
+| wf#when-something-goes-wrong | a session name held by another project | wf + how-to#bring-an-agent-back | kept / already-stated |
+| wf#marks-and-frozen-agents | mark plus cyan F; the column never shifts | wf table + tuis/monitor/how-to L70 | kept / already-stated |
+| wf#marks-and-frozen-agents | the `P` filter over both; separate counters; counted once as frozen; Np/Nf | tuis/monitor/reference L39, L141–145 | already-stated |
+| wf#marks-and-frozen-agents | Space still cycles a frozen agent's mark | tuis/monitor/reference L38 (Space row, no exception) | implicit only; open point for review |
+| wf#limits | no expiry; missing capture → retired; `ait frozenagent` lists all | wf#limits + fs#cleanup-rules | kept / already-stated |
+| wf#limits | `capture.ansi` / `capture.txt` | fs#where-the-state-lives | already-stated |
+| wf#limits | depth semantics: cap plus one pane height | fa-ref#configuration | moved (agent_freeze.py:204, `capture-pane -S -<cap>` with no `-E`) |
+
+**Code-verified corrections:**
+1. **Skip reasons: four, plus a catch-all, not three.**
+   `agent_reopen.py:301–307` defines `missing`, `unregistered`, `unverified`
+   and `inaccessible`. `ide_frozen_offer.sh` adds "project directory
+   unreadable" and "project could not be verified".
+2. **Reconcile does not run after every freeze and restore.** It runs from
+   the `reconcile` verb (agent_freeze.py:1983) and from the monitor
+   maintenance pass (monitor_shared.py:1719), which starts at 60 s and then
+   repeats every 600 s (monitor_shared.py:496, 511). The fs cleanup rules
+   were corrected. The monitor_shared.py:1675 docstring carries the same
+   false claim (code; not touched here).
+3. **`restore did not start`** is the pre-begin case (agent_sessions.py:1779):
+   nothing was dispatched and the record is unchanged. It is not a stuck
+   record, so it gets its own bullet.
+
+**Open points:**
+- No page states outright that Space cycles a frozen agent's mark.
+- Stale code comments: `aitask_session_hook.sh` says the freeze-time Codex
+  capture is "Linux only", and the monitor_shared.py:1675 docstring makes
+  the reconcile claim.
+
+### Restructure report, Agent C: `implementation-trails.md` + `sitrep.md`
+
+**Files:**
+- `workflows/implementation-trails.md`: 162 → 110;
+- `workflows/sitrep.md`: 133 → 67;
+- `skills/aitask-trail.md`: 96 → 103 (#storage only);
+- `tuis/board/reference.md`: 803 → 806 (By-Trail region only);
+- `tuis/sitrep/reference.md`: 324 → 382 (a Timing bullet, new § "Where the
+  list is stored" and § "Unparsed-output cases");
+- `tuis/monitor/reference.md` (`h` row only).
+
+Not changed: `tuis/trails/reference.md`, `concepts/artifacts.md` and
+`skills/aitask-sitrep.md`. The gate was clean on every allowed file at both
+checks. The inbound-anchor headings are byte-identical. The sitrep page's
+`##` sections are merged into one `## Keeping the list` procedure; none of
+the removed headings had an inbound link (grep).
+
+| Source#section | Fact | Destination | Outcome |
+|---|---|---|---|
+| trails#intro | the "why" (analysis lost in scrollback) | concepts/implementation-trails#why-it-exists | already-stated ("Without a trail, that answer stays in a terminal session and is lost when the window closes.") |
+| trails#intro | "until now" | — | dropped (current-state rule) |
+| trails#what-a-trail-records | "Distinguishing … is most of the value" | same | rewritten without the inflation |
+| trails#creating-a-trail | `T` in By-Topic resolves to the lane's topic root | page step 1 + board/reference#by-trail | moved (aitask_board.py:4955-4985) |
+| trails#creating-a-trail | run summary contents | skills/aitask-trail#the-run-summary | already-stated |
+| trails#lite-and-deep | an unlabelled trail means "depth not recorded" | board/reference#by-trail | already-stated |
+| trails#lite-and-deep | omitting the flag means lite, incl. the board's re-author | step 2 | kept, **corrected** wording (the board passes no `--deep`; board_trail_screen.py:984, :1803) |
+| trails#reading | a completed member is struck through | board/reference#by-trail | moved ("marked `✔` and struck through", board_trail_view.py:86-87, 316) |
+| trails#reading | `ait trails` tabs; `m`/`M`/`S` board-only; separate selections | board/reference#by-trail | already-stated |
+| trails#reading | detail screen; `a` reveal | board/reference#by-trail | already-stated |
+| trails#keeping-current | refresh-cost table | board/reference#by-trail + tuis/trails/reference#what-each-refresh-reads | already-stated |
+| trails#keeping-current | drift: a new related task appears | board/reference#by-trail | moved (`new_related_task`, trail_gather.py:111-118, 217-221) |
+| trails#keeping-current | targeted refresh; earlier versions retrievable | skills/aitask-trail#modes, #storage | already-stated |
+| trails#keeping-current | moving cards never stales a trail | board/reference#moving-a-wave-into-a-column | already-stated |
+| trails#feeding-a-work-report | `M` review, wave order, named skips, ghosts | board/reference#moving-a-wave-into-a-column | already-stated |
+| trails#where-a-trail-is-stored | owner rules | skills/aitask-trail#storage | moved (SKILL.md.j2:68-77, 385-392); added: the owner must be a live local task |
+| trails#where-a-trail-is-stored | discovery active+archived; archived-owner note; staleness ≠ owner | skills/aitask-trail#storage | moved (trail_discovery.py:333-385; board_trail_screen.py:877-880) |
+| trails#where-a-trail-is-stored | fold copies `artifacts:`; listed once | skills/aitask-trail#storage | moved, **corrected** order (trail_discovery.py:126-136) |
+| trails#where-a-trail-is-stored | one document, several views | skills/aitask-trail#storage | moved |
+| trails#never-does | no metadata rewrite; no fabrication; one confirmed write | skills/aitask-trail#invariants | already-stated |
+| trails#never-does | gates/deps/archival never read a trail | page (kept) | verified: no trail reads in aitask_gate.sh, lib/gate_*.py, aitask_archive.sh |
+| trails#tips | reach for a trail when ordering is hard; start lite; refresh first | concept #how-to-use; page steps | already-stated |
+| sitrep#where-the-list-lives | `.aitask-sitrep/`, `raw/`, `cases/`, locked writer, rolling backup | tuis/sitrep/reference#where-the-list-is-stored | moved, extended (aitask_sitrep_todo.sh:16-23, 61-63; sitrep_todo.py:14-36; aitask_setup.sh:3347) |
+| sitrep#output-the-harvest-could-not-read | five `ait sitrep case` commands | tuis/sitrep/reference#unparsed-output-cases | moved (page keeps `list`, `replay`); added `review`, flags, statuses (sitrep_corpus.py:47-90) |
+| same | exported fixtures must be redacted | tuis/sitrep/reference#unparsed-output-cases | moved (sitrep_corpus.py:862) |
+| same | failure causes | page | **corrected** (below) |
+| sitrep#shortcodes | 7-row table | skills/aitask-sitrep#capabilities | already-stated |
+| sitrep#shortcodes | show/collect/dismiss/restore are TUI keys | skills/aitask-sitrep#done-in-the-sitrep-tui-not-here | already-stated |
+| sitrep#closing | `h` dialog outcomes | tuis/monitor/reference `h` row | moved with exact strings (sitrep_close.py:197-215, 414-423) |
+| sitrep#closing | frozen sweep "every few minutes" | tuis/sitrep/reference#timing + page | **corrected** (below) |
+| sitrep (other sections) | all facts | the 7-step procedure | kept |
+
+**Code-verified corrections:**
+1. **The work report step said `w` works from By-Trail.** `w` is hidden in
+   By-Trail (aitask_board.py:2609-2614). The step now switches to a kanban
+   view first.
+2. **The `h` dialog has a fourth outcome.** "Nothing to harvest (<reason>)"
+   is a success that still offers a close (sitrep_close.py:197-215).
+3. **The monitor `h` row** said a live `agent-sitrep` window "is closed
+   without being harvested". The report is `skipped`, and the dialog offers
+   Close agent / Keep (sitrep_close.py:520-523, 186-187, 418-422).
+4. **The frozen-capture sweep** runs in the monitor and the minimonitor, every
+   600 s after a 60 s grace, then re-checks
+   (monitor_shared.py:496, 511, 687-688, 726).
+5. **The board's `T`/`R`** launch the skill without `--deep`.
+6. **Fold dedupe order:** active unfolded, then active folded, then archived.
+7. **Staleness** also comes from a new related task (`new_related_task`).
+8. **Unparsed-output causes:**
+   - "rendered without its fence" is replaced by "not in a form the harvest
+     recognizes", since joined unfenced banners are accepted
+     (`ACCEPT_JOINED_BANNER`);
+   - `created_unparsed` is added.
+
+**Open points:**
+- The monitor `h` row is long for a table cell (t2258_5).
+- Not verified, and not moved: that `ait artifact create` refuses while the
+  owner file is dirty (an existing skill sentence), and the board's "`d`
+  about half a second".
+
+## Step 3 result: guide lesson
+
+One addition to the "Page types" growth-signs paragraph of
+`doc_update_guide.md`, covering two more signs:
+- an opening that argues again for a feature whose concept page already says
+  why it exists (seen on implementation-trails);
+- a table of keys, shortcodes or refresh costs that a TUI or skill reference
+  already lists (seen on sitrep and implementation-trails).
+
+`test_docs_review_contract.sh` passes 71/71. Committed by path on the
+task-data branch.
+
+## Step 5 result: depth (run 1)
+
+`grep -L '^depth:'` over the six group pages is empty. Depths:
+freeze-and-restore-agents, sitrep, parallel-planning and parallel-development
+are `intermediate`; implementation-trails is `advanced`. The edited
+destinations (frozenagent/reference, development/framework-session,
+skills/aitask-trail, board/reference, sitrep/reference, monitor/reference)
+are all `advanced`.
+
+## Step 6 result: links (run 1, before the fix pass)
+
+- `check_links.py --build`: `SWEEP: PASSED`, exit 0.
+- `check_link_relevance.py`: 7 reported, 0 unresolved, 0 anchors not found.
+  - The parallel-development:46 flag is gone (the link text now names the
+    preflight).
+  - `crash-recovery:30` remains, on the deferred page (ledger).
+  - The other six are pre-existing, in other sections (concepts/gates:66,
+    development/_index:117, development/gates:124 and :177,
+    tuis/monitor/how-to:242, workflows/risk-evaluation:38). None is a link
+    this child added or retargeted.
+- `test_website_doc_lists.sh` passes 63/63, and
+  `test_docs_vocabulary_coverage.sh` passes 32/32.
+
+## Step 4 result: review round 1 (`/aitask-docs-review … --caller audit --budget 0`, independent agent)
+
+`BUDGET_USED:0`. Every page reports `reader=not-run(not-beginner)`.
+
+| Page | level | prose | unresolved |
+|---|---|---|---|
+| workflows/freeze-and-restore-agents | 3 | 3 | 0 |
+| workflows/implementation-trails | 3 (one advisory retag) | 6 | 1 (tautology intent) |
+| workflows/sitrep | 2 | 5 | 1 (banner link target) |
+| workflows/parallel-planning | ok | 3 | 0 |
+| workflows/parallel-development | ok | 6 | 1 (test-suite wording) |
+| tuis/frozenagent/reference (changed) | ok | 2 | 0 |
+| development/framework-session (changed) | ok | 2 | 0 |
+| skills/aitask-trail (changed) | ok | 2 | 0 |
+| tuis/board/reference (changed) | ok | ok | 0 |
+| tuis/sitrep/reference (changed) | ok | 1 | 0 |
+| tuis/monitor/reference (changed) | ok | ok | 0 |
+
+**Facts that may be wrong (reviewer):**
+1. On freeze, after a failed restore a *new* viewer takes the pane, and its
+   header reads `last restore failed:` (frozenagent_app.py:598-611). The
+   same wording appears in tuis/frozenagent/how-to and _index.
+2. On sitrep, "never picks a task" is true of the agent only: the TUI's `p`
+   launches `/aitask-pick`.
+3. On parallel-development, the preflight is off in all shipped profiles,
+   and `parallel_assessment` is a separate pre-claim assessment.
+4. On framework-session, `reconcile` always exits 0, and some commands print
+   summary lines.
+
+**Declined:** the advisory retag of implementation-trails to
+`intermediate`. The approved plan keeps it `advanced`, matching its concept
+page.
+
+## Post-phase result: moved_fact_survival_check, run 1 (independent agents, one per source)
+
+| Source | claims | preserved | weakened | missing | corrected (agree/disagree) | rhetoric |
+|---|---|---|---|---|---|---|
+| freeze-and-restore-agents | 135 | 131 | 1 | 0 | 3 (3/0) | 7 |
+| implementation-trails | 110 | 106 | 0 | 1 | 3 (3/0) | 9 |
+| sitrep | 110 | 107 | 0 | 0 | 3 (3/0) | 2 |
+| parallel-planning | 37 | 31 | 0 | 0 | 6 (5/1) | 2 |
+| parallel-development | 45 | 44 | 0 | 0 | 1 (1/0) | 1 |
+
+**Gaps:**
+- freeze: the survivor record is "never mistaken for a viewer" (weakened).
+- trails:
+  - the dependency-graph/board framing (missing);
+  - two old inaccuracies carried through: every entry has evidence links,
+    which is deep only; and scope widening, which is deep only.
+- parallel-planning: "Whatever the profile" over-claims (disputed).
+  **Fixed in-session:** now "With the shipped profiles", with the
+  `ASK_STALE` and default-profile nuances. The moved-fact row's "only" was
+  corrected.
+- sitrep: minor wording ("full monitor's title bar").
+
+The fixes for every other gap and every review finding go to one fix agent
+(scratchpad `fix_brief.md`).
+
+## Fix pass (review round 1 + survival run 1): report summary
+
+One fix agent, scratchpad `fix_brief.md`, verified each fact in the code
+first. Every finding was applied. ST-P1 was done on the workflow page, but
+the sitrep reference still says "collect-and-re-check" in places (open
+point for t2258_5).
+
+**Files:**
+- freeze 162 → 174, trails 110 → 84, sitrep 67 → 61, parallel-planning 54,
+  parallel-development 64;
+- frozenagent/reference 239 → 240, development/framework-session 151 → 153,
+  skills/aitask-trail 103, board/reference 806 → 828 (the glyph table moved
+  into By-Trail as "**Classification glyphs.**"), sitrep/reference
+  382 → 400, monitor/reference (`h` row);
+- fact-only: frozenagent/how-to and frozenagent/_index;
+- new `aidocs/framework/testing_conventions.md` § "The suite inside a task
+  worktree".
+
+| Source#section | Fact | Destination | Outcome |
+|---|---|---|---|
+| freeze#when-to-freeze (table) | parked shows `P` | monitor/reference#pane-interaction | already-stated ("unmarked → prioritized (`★`) → parked (`P`) → unmarked") |
+| freeze#when-to-freeze (table) | `N parked` / `N frozen` counters | monitor/reference#multi-session-view | already-stated |
+| freeze#when-to-freeze (table) | frozen shows its mark plus a cyan `F` | minimonitor/how-to:56 | already-stated ("a frozen card shows the mark plus a cyan **F**"); not on the monitor reference (open point, t2258_5) |
+| freeze#when-to-freeze | "Parking hides an agent… readable" | same page, table rows | already-stated |
+| freeze step 2 | keys r, m, /, n, shift+↑/↓, mouse | frozenagent/reference#keybindings | already-stated (rows quoted by the agent) |
+| freeze#what-unverified-means | `restored` / `restored, unverified — capture kept` strings | frozenagent/reference#states-shown | already-stated |
+| freeze#when-something-goes-wrong | "viewer comes back… `restore failed:`" | — | **corrected**: a new viewer takes the pane and shows `last restore failed: …` (frozenagent_app.py:598-611; agent_sessions.py:1796-1801); also fixed in frozenagent how-to, _index and reference |
+| freeze#when-something-goes-wrong | `cannot restore:`, `restore did not start`, `restore still <state> after the grace` | frozenagent/reference#states-shown | already-stated |
+| fs#cleanup-rules | reconcile schedule; "the coordinator reconciles after every operation" | fs#the-freeze-engine | **corrected**: the coordinator never runs reconcile; only the monitor tick (monitor_shared.py:1719) and a hand run (agent_freeze.py:1983) do |
+| fs#the-freeze-engine | exit status 0/1 for every command | same | **corrected**: `reconcile` always exits 0 (agent_freeze.py:1983-1986); summary lines `RESTORE_ALL:` (agent_restore.py:1347), `GONE_COUNT:` (agent_reopen.py:404, 867), `COMPANION_COUNT:` (:443), `FREEZE_ELIGIBLE:` (agent_freeze.py:1943-1947) |
+| trails#what-a-trail-records | glyph/classification table + drift comment | board/reference#by-trail ("Classification glyphs.") | moved (board_trail_view.py:88-94; schema :383-390) |
+| trails#what-a-trail-records | "both look like 'do that one first'" | — | dropped (staged framing, not accurate); the distinction is kept in prose |
+| trails#what-a-trail-records | "recommendations recorded as recommendations" | same page | **corrected**: relations are marked fact or advisory (SKILL.md.j2:896-898) |
+| trails#intro s2 | section preview | same page, steps | already-stated |
+| trails#tips | let the summary answer | trails reading step 3 | already-stated; "written when the reasoning was fresh" dropped (rhetoric) |
+| trails#tips | trails are durable, reports are drafts | trails#feeding-a-work-report | moved |
+| trails (last para) | a task may appear in several trails | trails#where-a-trail-is-stored | already-stated |
+| trails | every entry has evidence links | same page | **corrected**: only in a deep trail (SKILL.md.j2:419) |
+| trails step 3 + skill step 4 | the agent proposes widening the scope | same pages | **corrected**: deep only; lite names the work in its overview (SKILL.md.j2:422-426, 448-452) |
+| skill#storage | "about the owner, not about freshness" | — | dropped (staged contrast); the fact is kept |
+| sitrep#output-the-harvest-could-not-read | full cause list | sitrep/reference#unparsed-output-cases | moved, with reason codes (sitrep_harvest.py:173-175, 510-546) |
+| same | "local record that parser fixes can be checked against" | sitrep/reference#unparsed-output-cases | moved |
+| sitrep step 7 | four outcome bullets | same step (two sentences) + monitor `h` row | moved |
+| sitrep | shortcode paragraph | sitrep step 2 | moved |
+| sitrep | "never picks a task" | same page | **corrected**: the agent never picks; the TUI's `p` opens a launch dialog for `/aitask-pick` (sitrep_tui_actions.py:92, 1031-1061) |
+| sitrep step 7 | "shadow or notes panes" | same + monitor `h` row | **corrected**: bound helper panes are shadow and scratchpad (monitor_core.py:1142-1176, 4338-4365) |
+| pd#git-worktrees | "and the test suite behave the same" | aidocs/framework/testing_conventions.md § "The suite inside a task worktree" | moved (aitask_init_data.sh:79-85) |
+| pd#choosing-what-to-run-alongside | the preflight runs before implementation; `parallel_assessment` extends it | same page | **corrected**: all shipped profiles set `parallel_admission: "off"` (an omitted key means `warn`); `parallel_assessment` is a separate pre-claim assessment (profiles.md:50-51) |
+| pd | "Task numbers are allocated centrally" | same page | made concrete (aitask_claim_id.sh:3, 29) |
+
+**Coordinator touch-ups after the fix pass:**
+- removed the bold lead-ins on parallel-planning;
+- sitrep "red banner" → "red warning naming the file" (one meaning per term
+  on the page);
+- fs:72 "is restored by re-picking" → "can only be brought back by
+  re-picking".
+
+**Links after the fix pass:**
+- `check_links.py --build`: PASSED.
+- Relevance: 8 reported. One is new: freeze:114 `frozen.restore_ack_grace` →
+  frozenagent/reference#configuration. I opened it: the section documents
+  `restore_ack_grace` under the `frozen:` block, so it is relevant (false
+  positive).
+- The rest are unchanged (pre-existing, other sections, plus the deferred
+  crash-recovery:30).
+
+## Survival check run 2 (on the fixes and the fix-pass cuts, independent agent)
+
+| Scope | Items | Preserved | Corrected (agree/disagree) | Weakened | Missing |
+|---|---|---|---|---|---|
+| Fix-pass table rows | 29 | 19 (+2 dropped-ok rhetoric) | 8 (8/0) + 1 mislabelled (fixed above) | 0 | 0 |
+| Run-1 gaps | 4 | 4 confirmed fixed | — | 0 | 0 |
+| Blocks removed from destination pages | 61 claims | 52 | 9 (9/0) | 0 | 0 |
+| New source blocks since run 1 | 9 claims | 9 | — | 0 | 0 |
+
+Nits applied after review round 2: trails Enter "evidence" is now qualified
+as deep only, and parallel-planning:52 is qualified with "With the shipped
+profiles". The stale code docstrings (agent_freeze.py:13 and
+monitor_shared.py:1675-1676) go to Upstream defects.
+
+## Step 4 result: review round 2 (independent agent, after the fix pass)
+
+| Page | level | prose | after the coordinator's fixes |
+|---|---|---|---|
+| workflows/freeze-and-restore-agents | ok | 3 | all 3 applied (repeated failed-restore sentence cut; Limits now says the capture leaves out old output; the Space table cell is "press `Space` once") |
+| workflows/implementation-trails | ok | 2 | both applied. The opening no longer re-argues the feature; the dependencies/board framing **moved** to `concepts/implementation-trails#why-it-exists` (gate clean); "draft the report again" |
+| workflows/sitrep | ok | ok | — |
+| workflows/parallel-planning | ok | ok | survival-run-2 nit applied ("With the shipped profiles" at :52) |
+| workflows/parallel-development | ok | 2 | both applied ("The merge mutex serializes that step"; "the agent can be restored, or its task picked again") |
+| tuis/frozenagent/_index (changed) | 1, pre-existing (an outcome table at main-concept; t2258_5) | 1 | contradiction fixed ("keeps the capture and puts a new viewer back in the pane") |
+| tuis/frozenagent/how-to (changed) | ok | 1 | stale "viewer comes back" fixed |
+| tuis/frozenagent/reference (changed) | ok | 1 | `capture_max_lines` row reworded |
+| development/framework-session (changed) | ok | ok | — |
+| skills/aitask-trail (changed) | ok | 1 | fold order made unambiguous |
+| tuis/board, sitrep, monitor references (changed) | ok | ok | — |
+| aidocs/framework/testing_conventions | facts ok | — | — |
+
+Every unresolved item from round 2 used the reviewer's own suggested text,
+so no third review round was run. The trails Enter "evidence" sentence is now
+qualified as deep only (survival run 2 nit). The link check after these
+edits passed.
+
+**Not chased (owner t2258_5):**
+- `tuis/frozenagent/_index.md`'s outcome-string table at `main-concept` is
+  pre-existing.
+- `tuis/sitrep/reference.md` still says "collect-and-re-check" in places.
+- The frozen `F` glyph is not on `tuis/monitor/reference.md`.
+- `tuis/frozenagent/how-to.md:105` uses `restore failed: respawn:…`
+  (unproven which viewer shows it).
+
+## Step 7: ledger close-out
+
+- `workflows/crash-recovery.md` was **still dirty** at close-out (2026-11-12,
+  after review round 2). The one-line t2284 diff at L71 was unchanged, and
+  t2284 was still `Implementing`. It was never edited by this task: every
+  gate check, from planning through close-out, saw it dirty. Agent B never
+  ran, so `commands/lock.md` and `aidocs/gates/ledger-driven-reentry.md`
+  were not touched either.
+- **Outcome: follow-up t2258_14** (`audit_deferred_pages_workflows_parallel_local`,
+  child of t2258, `--no-sibling-dep`, `depends: [2284]`). It carries the
+  inventory row, the full Agent B restructure design, the inbound-anchor
+  list and the binding method.
+- The late-audit loop did not apply, because no ledger page was audited at
+  close-out.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-12 20:30)
+- **Requested by user:** the new `aidocs/framework/testing_conventions.md`
+  § "The suite inside a task worktree" stated the worktree data links
+  unconditionally. The source paragraph (`workflows/parallel-development.md`)
+  limited them to projects that keep task data on a separate branch, and in
+  legacy mode `aitask_init_data.sh` returns `LEGACY_MODE` without creating
+  links.
+- **Verified:** `aitask_init_data.sh:141-146` prints `LEGACY_MODE` and exits
+  0 when `aitasks/` is a real directory in the main checkout ("task data is
+  tracked on the code branch, so the worktree checkout already has it").
+- **Changes made:** the section now opens with "On a project that keeps task
+  data on a separate branch". It adds the legacy-mode case: the task data is
+  already in the checkout, the helper links nothing, and a legacy worktree
+  without the links is not broken. The survival row for PD-P5 stays `moved`;
+  it is now `moved` with the scope restored.
+- **Files affected:** `aidocs/framework/testing_conventions.md`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **Inventory and verdicts:** all six pages of the Parallel group (local
+    part), measured at 86d4f4aba.
+  - **Three restructures, each into one how-to procedure:**
+    - `freeze-and-restore-agents` (316 → about 168 lines). The `ait ide`
+      check went to a new `tuis/frozenagent/reference` § "The `ait ide`
+      frozen-agent check"; the `aitask_frozen.sh` contract to a new
+      `development/framework-session` § "The freeze engine" /
+      § "Restore-All"; the CLI eligibility facts to fs#which-cli-owns-the-session.
+    - `implementation-trails` (162 → 84, stays `advanced`). The storage
+      rules went to `skills/aitask-trail#storage`, the glyph table and its
+      drift comment to `tuis/board/reference#by-trail`, and the dependency/board
+      framing to `concepts/implementation-trails#why-it-exists`.
+    - `sitrep` (133 → 61). The store layout and the case commands went to
+      `tuis/sitrep/reference`, and the `h` dialog strings to the
+      `tuis/monitor/reference` `h` row.
+  - **Two minor pages retagged `advanced` → `intermediate`:**
+    `parallel-planning` and `parallel-development`.
+  - **Fact-only fixes** on `tuis/frozenagent/how-to` and `_index`, which
+    contradicted the corrected failed-restore behaviour.
+  - **One contributor fact** went to `aidocs/framework/testing_conventions.md`
+    § "The suite inside a task worktree", scoped to separate-data-branch
+    projects after the user's review.
+  - **One guide lesson**, committed on the task-data branch.
+  - **Checks:** two review rounds and two claim-level survival runs, ending
+    at 0 weakened / 0 missing. Links pass, as do doc lists 63/63, vocabulary
+    32/32 and the docs-review contract 71/71. Every leaf page has `depth`.
+- **Deviations from plan:**
+  - `crash-recovery.md` (Agent B) was never restructured. It was dirty from
+    t2284 at planning and still at close-out, so it went to follow-up
+    t2258_14, as the ledger rule requires. `commands/lock.md` and
+    `aidocs/gates/ledger-driven-reentry.md` were therefore not touched.
+  - The trails glyph table moved to `tuis/board/reference` (review round 1),
+    not kept on the workflow page as planned.
+  - `concepts/implementation-trails.md` got one sentence that review round 2
+    asked to move there from the workflow page's opening (gated clean). It
+    was not in the plan's file list.
+  - The frozenagent `how-to` and `_index` were fact-fixed, which was not
+    planned (gated clean; full audit stays with t2258_5).
+  - No third review round: round-2 findings were applied using the
+    reviewer's own text, then link-checked.
+- **Issues encountered:**
+  - `crash-recovery.md` became dirty during planning (t2284's L71 edit),
+    which led to the plan revision adding the ledger entry and the
+    late-audit loop.
+  - The fix-pass agent mislabelled one moved-fact row (reconcile schedule:
+    "already-stated" when it was a correction). Survival run 2 caught it,
+    and the row was fixed.
+- **Key decisions:**
+  - `implementation-trails` keeps `advanced`, matching its concept page. The
+    reviewer's advisory retag was declined.
+  - `aitask_frozen.sh` is public architecture, because the site tells users
+    to run `reconcile`. Its contract is on `development/framework-session`.
+  - Outcome strings at `intermediate` are described in words; the exact
+    strings stay on the `advanced` reference pages.
+- **Code-verified corrections (about 30, with file:line in the restructure
+  and fix-pass reports above).** The main ones:
+  - reconcile never runs after freeze or restore, only on the monitor tick
+    and by hand;
+  - a failed restore brings a new viewer, whose header shows
+    `last restore failed:`;
+  - there are four skip reasons plus a catch-all, not three;
+  - `reconcile` always exits 0;
+  - `w` is hidden in By-Trail;
+  - lite trails have no per-entry evidence and no scope-widening proposal;
+  - the parallel-admission preflight is off in every shipped profile, and
+    `parallel_assessment` is separate;
+  - plan verification depends on the profile;
+  - `/aitask-pick` syncs task data itself;
+  - the `h` dialog has a fourth outcome;
+  - the sitrep TUI's `p` launches a pick.
+- **Ledger outcomes:** `workflows/crash-recovery.md` → follow-up t2258_14
+  (still dirty from t2284 at close-out, never edited here).
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/agent_freeze.py:13` — the module docstring says
+    reconcile is "run after every freeze", but no freeze or restore path
+    calls it (only the CLI verb and `monitor_shared.py:1719` do).
+  - `.aitask-scripts/monitor/monitor_shared.py:1675-1678` — the docstring
+    says "the coordinator runs it after every freeze/restore"; the same
+    false claim.
+  - `.aitask-scripts/aitask_session_hook.sh:67` — the comment says the
+    freeze-time Codex session capture is "Linux only", but
+    `lib/agent_sessions.py` (t2048) and the docs cover Linux and macOS.
+  - `.aitask-scripts/lib/implementation_trail.schema.json:95` — the
+    `digest` description lists "boardcol/boardidx presence", but the digest
+    in `lib/trail_gather.py:487-495` does not include them (the docs are
+    right; the schema text is stale).
+- **Notes for sibling tasks:**
+  - **The method worked again:**
+    - parallel restructure agents on disjoint file sets with one brief;
+    - an independent review round and per-source survival agents in
+      parallel;
+    - one fix agent;
+    - round 2 of both.
+
+    `scratchpad/removed_blocks.py` (block splitter, whitespace-collapsed
+    exact match) is described in the post-phase. Re-create it from that
+    description.
+  - **A page can turn dirty mid-planning.** Re-gate right before each
+    agent, and plan the late-audit loop up front.
+  - **Expect wrong facts in "when it runs" claims** (reconcile, sweeps,
+    preflights) and in claims about profile defaults. Check the shipped
+    profiles, not only the profile docs.
+  - **Leftovers by owner:**
+    - **t2258_5:**
+      - frozenagent `_index` outcome table at `main-concept`;
+      - `tuis/sitrep/reference` still says "collect-and-re-check";
+      - the frozen `F` glyph is not on the monitor reference;
+      - the monitor `h` row is long for a table cell;
+      - frozenagent how-to:105 `restore failed: respawn:…`.
+    - **t2258_6:** `skills/aitask-pick/execution-profiles.md` does not
+      document `remote_drift_check` (`task-workflow/profiles.md:49` does).
+    - **t2258_14:** crash-recovery, carrying Agent B's full design.
