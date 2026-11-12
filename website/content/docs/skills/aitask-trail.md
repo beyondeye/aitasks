@@ -57,7 +57,7 @@ Given a bare handle with no mode flag, the skill asks whether you meant show or 
 1. **Resolve scope** — From the argument, or by asking what the trail should cover when invoked bare. Scope is recorded as one task, one topic, several topics, or an ad-hoc selection.
 2. **Gather** — Reads task and plan state for the scope: status, priority, effort, dependencies, gates, labels, board column, and plan content. Read-only throughout.
 3. **Analyse** — Groups the work into ordered waves, classifies each entry by why it sits where it does, and records the rationale, confidence, and supporting evidence. At `--deep`, also records observations, exclusions, and relations.
-4. **Review** — Presents the proposed waves and reasoning. Discoveries outside the requested scope are offered as an explicit scope expansion; they are never folded in silently.
+4. **Review** — Presents the proposed waves and reasoning. Discoveries outside the requested scope are never folded in silently. At `--deep` they are offered as an explicit scope expansion, which restarts the analysis over the wider scope when you accept it; a lite trail names out-of-scope prerequisite work in its overview instead.
 5. **Write once** — On confirmation, stores the trail as a versioned artifact and prints the run summary.
 
 Refresh follows the same shape, beginning from the recorded drift rather than a fresh scope.
@@ -82,7 +82,14 @@ Create and refresh end by printing a compact account of the trail that was just 
 
 ## Storage
 
-Trails are stored through the artifact substrate, owned by a task (see [Where a trail is stored]({{< relref "/docs/workflows/implementation-trails" >}}#where-a-trail-is-stored)) and versioned immutably — every earlier version stays retrievable. Manage them with [`ait artifact`]({{< relref "/docs/commands/artifact" >}}) (`ls`, `get`, `versions`, `rm`). Creating a trail writes the owner task's file, so `ait artifact create` refuses while that file has uncommitted changes — commit or revert them first. Refreshing one only rewrites the manifest, so it is unaffected.
+A trail is one structured document, stored as a [versioned artifact]({{< relref "/docs/concepts/artifacts" >}}) under a handle that one task owns: the handle is an entry in that task's `artifacts:` frontmatter (see the [field shape]({{< relref "/docs/development/task-format" >}}#nested-fields-artifacts-and-attachments)). No other task file is written. Which tasks belong to the trail is recorded inside the document, never as a field on the member tasks, so a task can appear in any number of trails without its own file changing.
+
+- **Owner.** A trail scoped to one task or one topic is owned by that task or by the topic's root. A trail spanning several topics, or an ad-hoc set of tasks, has no natural owner, so the skill asks you to choose one; no extra task is created to hold a trail. A new trail's owner must be a live task in this repository: when the default owner is archived, missing or in another project, the skill asks you to choose another.
+- **Discovery.** Trails are found by scanning task frontmatter, active and archived. Archiving the owner does not hide a trail: it stays listed and readable, and the view's subtitle reads `owner t<id> archived`. A trail goes stale when the tasks it recorded as inputs change or a related task appears; the owner need not be one of them.
+- **Folding the owner.** Folding copies the owner's `artifacts:` entry to the primary task, so the trail keeps an owner. Until the folded task's file is deleted when the primary is archived, two task files point at the same trail. It is still listed once, under the first owner found in this order: an active unfolded task, an active folded task, an archived task.
+- **One document, several views.** The By-Trail view, `ait trails` and the summary `/aitask-trail` prints all read that one document. None of them keeps a second copy that could disagree with it.
+
+Versions are immutable, and every earlier version stays retrievable. Manage them with [`ait artifact`]({{< relref "/docs/commands/artifact" >}}) (`ls`, `get`, `versions`, `rm`). Creating a trail writes the owner task's file, so `ait artifact create` refuses while that file has uncommitted changes: commit or revert them first. Refreshing one only rewrites the manifest, so it is unaffected.
 
 Trails are authored and refreshed through this skill, and read in [`ait trails`]({{< relref "/docs/tuis/trails" >}}) or in the board's By-Trail view (`z`).
 

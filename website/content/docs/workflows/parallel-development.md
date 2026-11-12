@@ -3,73 +3,62 @@ title: "Parallel Development"
 linkTitle: "Parallel Development"
 weight: 40
 description: "Working on multiple tasks simultaneously with concurrency safety"
-depth: [advanced]
+depth: [intermediate]
 ---
 
-The aitasks framework supports multiple developers (or multiple AI agent instances) working on different tasks simultaneously.
+Several developers, or several code agents, can work on different tasks of the same repository at the same time. aitasks keeps them from taking the same task, from colliding on task numbers and, with worktrees, from editing each other's files.
 
 ## How Concurrency Is Managed
 
-- **Status tracking via git:** When [`/aitask-pick`](../../skills/aitask-pick/) starts work on a task, it sets the status to "Implementing", records the developer's email in `assigned_to`, and commits + pushes the change. This makes the assignment visible to anyone who pulls the latest state
-- **Atomic task locking:** The atomic lock system prevents two PCs from picking the same task simultaneously. Locks are stored on a separate `aitask-locks` git branch using compare-and-swap semantics
-- **Atomic ID counter:** The atomic ID counter on the `aitask-ids` branch ensures globally unique task numbers even when multiple PCs create tasks against the same repo
-- **Task data branch (optional):** When enabled, task/plan files live on a separate `aitask-data` branch accessed via a worktree at `.aitask-data/`. This keeps task management commits off the main branch and allows independent sync via `./ait git push`/`./ait git pull`
+- Task status is shared through git. When [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}) starts work on a task, it sets the task to `Implementing`, records your email in `assigned_to`, and commits and pushes the change, so anyone who syncs sees who is working on what.
+- A task lock stops two agents taking the same task, even from different machines. See [Concepts: Locks]({{< relref "/docs/concepts/locks" >}}); how the lock is stored is on [`ait lock`]({{< relref "/docs/commands/lock" >}}#how-it-works).
+- Task numbers come from a shared counter in the repository (on its own [branch]({{< relref "/docs/concepts/git-branching-model" >}})), so tasks created on different machines never get the same number.
+- Task and plan files can live on their own branch, synced with `./ait git push` and `./ait git pull`, so task bookkeeping stays out of your code history. See [Concepts: Git branching model]({{< relref "/docs/concepts/git-branching-model" >}}).
 
-Running many agents at once also means accumulating agents you are finished with. Rather than killing one and losing its summary, [freeze it]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}): the process ends, its output stays readable in its own pane, and the task can be restored or re-picked later.
+When you run many agents at once, you also collect agents that have finished. Rather than killing one and losing its summary, [freeze it]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}): the process ends, its output stays readable in its own pane, and the agent can be restored, or its task picked again, later.
 
 ## Git Worktrees for Isolation
 
-When working on multiple tasks in parallel, use the git worktree option in [`/aitask-pick`](../../skills/aitask-pick/). The worktree is an isolated working directory at `aiwork/<task_name>/` on a separate branch, so each task's changes don't interfere with each other. It is created once the plan is approved and the remote drift check has passed — not when the branch is chosen — so the branch is cut from an up-to-date base. After implementation, the branch is merged back into the profile's `output_branch`, which defaults to the base branch the worktree was cut from, and the worktree is cleaned up.
+To keep parallel tasks out of each other's files, choose the worktree option in [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}) (the `create_worktree` profile key). The task then gets its own working directory at `aiwork/<task_name>/` on a separate branch. The worktree is created after the plan is approved and the remote drift check has passed, so the branch is cut from an up-to-date base. After implementation, the branch is merged into the profile's `output_branch`, which defaults to the base branch the worktree was cut from, and the worktree is removed.
 
-`aiwork/` is gitignored, so a worktree never shows up as untracked state in the main checkout — which matters when a broad `git add` runs in another session. On projects that keep task data on a separate branch, the worktree is also given the same `aitasks/` and `aiplans/` links as the main checkout, so `ait` commands and the test suite behave identically inside it.
+`aiwork/` is in `.gitignore`, so a worktree never shows up as untracked files in the main checkout, where a broad `git add` in another session would pick it up. When task data lives on its own branch, the worktree gets the same `aitasks/` and `aiplans/` links as the main checkout, so `ait` commands behave the same inside it.
 
 ## Serialized Merge-Back
 
-Worktrees keep concurrent tasks out of each other's files, but the merge back is different: it runs in the shared repository root, not in the worktree, so every task reaching it drives the same HEAD, index and working tree. That step is therefore **serialized** — one task merges at a time.
+Worktrees keep concurrent tasks out of each other's files, but the merge back runs in the shared repository root, not in the worktree, so every task that reaches it uses the same HEAD, index and working tree. The merge mutex serializes that step: one task merges at a time.
 
-What this means in practice:
+In practice:
 
-- **A queued agent is told what it is waiting on.** The merge-approval prompt names the task currently holding the merge, so a queue looks like a queue rather than a hang.
-- **A conflict-parked merge keeps the shared tree reserved** until the human resolving it is done. Without that, the next task's merge would absorb the half-resolved conflict work into its own merge commit.
-- **The reservation is held through post-merge verification and cleanup**, so a build or test result belongs to the task that produced it rather than to whatever else landed in the meantime.
-- **A session that dies mid-merge leaves the reservation held.** It stays held until the next task finds that session provably gone, or until you clear it — see [Recovering a stuck merge mutex]({{< relref "/docs/development/merge-mutex" >}}#recovering-a-stuck-merge-mutex).
+- A queued agent is told what it is waiting for. The merge-approval prompt names the task currently holding the merge mutex, so you can tell a waiting agent from a stuck one.
+- A merge stopped on a conflict keeps the merge mutex held until the person resolving it is done. Otherwise the next task's merge would take the half-resolved conflict into its own merge commit.
+- The merge mutex is held through post-merge verification and cleanup, so a build or test result belongs to the task that produced it, not to whatever else landed in the meantime.
+- A session that dies mid-merge leaves the merge mutex held. It stays held until the next task finds that session provably gone, or until you clear it; see [Recovering a stuck merge mutex]({{< relref "/docs/development/merge-mutex" >}}#recovering-a-stuck-merge-mutex).
 
-Under `create_worktree: false` none of this applies: there is no task branch, the merge step does not run at all, and shared-checkout mode is unaffected.
+With `create_worktree: false` none of this applies: there is no task branch, no merge step runs, and work in the shared checkout is not held back.
 
-For what the mutex does and does not cover, see [Merge mutex]({{< relref "/docs/development/merge-mutex" >}}).
+For what the merge mutex covers and what it does not, see [Merge mutex]({{< relref "/docs/development/merge-mutex" >}}).
 
 ## Choosing What to Run Alongside
 
-Worktrees keep concurrent tasks out of each other's *files*; they do not tell
-you which task is a sensible one to start right now. Two surfaces answer that:
+A worktree does not tell you which task is sensible to start now. Two tools help:
 
-- [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick/parallel-admission" >}})
-  runs a **parallel-admission preflight** before implementation, checking the
-  task you picked against the file surfaces of work already in flight. Opt in to
-  `parallel_assessment` and it also answers the question **before the task is
-  claimed**, reading what the in-flight tasks' descriptions say they touch.
-- [`/aitask-backlog-roadmap`]({{< relref "/docs/skills/aitask-backlog-roadmap" >}})
-  ranks the background-work backlog into parallel-safe and coordination lanes,
-  so the question can be answered before a task is picked at all.
+- The [parallel-admission preflight]({{< relref "/docs/skills/aitask-pick/parallel-admission" >}}) of `/aitask-pick` checks the task you picked against the files that work already in flight touches. It runs before implementation when the `parallel_admission` profile key enables it. All three shipped profiles set that key to `"off"`; a profile that leaves the key out gets `warn`, which runs the preflight. A separate key, `parallel_assessment`, adds a check before the task is claimed, based on what the in-flight tasks' descriptions say they touch. It is off unless a profile sets it to `show` or `ask`.
+- [`/aitask-backlog-roadmap`]({{< relref "/docs/skills/aitask-backlog-roadmap" >}}) ranks the background-work backlog into lanes that are safe to run in parallel and lanes that need coordinating, so you can choose before you pick a task at all.
 
-**Neither reserves anything.** Both observe the state at the moment they run, so
-overlapping work can begin the instant after either one passes — the preflight
-is a snapshot, not a claim, and the roadmap's lanes are an estimate. Treat a
-clear result as "no known conflict at check time", never as an assurance that a
-file will still be free when you reach it.
+Neither reserves anything. Both look at the state at the moment they run, and overlapping work can start right after either one passes. Read a clear result as "no known conflict when checked", never as a promise that a file will still be free when you reach it.
 
 ## Best Practices
 
-- Run `git pull` before starting `/aitask-pick` to see the latest task status and assignments
-- Use git worktrees when multiple developers work in parallel, or when running multiple code agent sessions on tasks that touch overlapping files
-- Working on the current branch (without worktrees) is safe when you are a single developer giving work to multiple code agent sessions on tasks that don't touch the same files
+- `/aitask-pick` syncs task data with the remote before it lists tasks, so you see current statuses and assignments. Pull your code branch yourself before you start, as usual.
+- Use worktrees when several developers work in parallel, or when several agent sessions work on tasks that touch the same files.
+- Working on the current branch without worktrees is fine when you alone hand tasks to several agent sessions and the tasks do not touch the same files.
 
 ## Parallel Planning
 
-Complex tasks that need [child decomposition](../task-decomposition/) can have their planning and decomposition phase run in parallel with any other work. Since only task and plan files are created — no source code is touched — there's zero risk of conflicts. See [Parallel Task Planning](../parallel-planning/) for the full workflow.
+Planning and decomposing a complex task writes only task and plan files and changes no source code, so it can run alongside any other work. See [Parallel Task Planning]({{< relref "/docs/workflows/parallel-planning" >}}).
 
 ## Parallel Exploration
 
-`/aitask-explore` is read-only — it searches and reads code but never modifies source files. This makes it safe to run in a separate terminal tab while another agent session implements a task. Use this pattern to stay productive: explore and create new tasks while waiting for builds, tests, or ongoing implementations to complete.
+`/aitask-explore` reads and searches code but never changes source files, so you can run it in another terminal while an agent implements a task, and create new tasks from what you find while builds, tests or implementations run.
 
 **See also:** [Concepts: Git branching model]({{< relref "/docs/concepts/git-branching-model" >}}), [Concepts: Locks]({{< relref "/docs/concepts/locks" >}})

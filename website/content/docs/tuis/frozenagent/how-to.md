@@ -64,8 +64,8 @@ of them:
   `cannot restore: no session was recorded for this agent — re-pick it instead (P)`.
   Re-pick is the way back here, and is the reason it exists.
 
-Neither asks for confirmation, because neither can leave you with nothing: if the
-attempt fails, the viewer comes back and the capture is intact. Watch the header:
+Neither asks for confirmation, because neither can leave you with nothing: a failed
+attempt keeps the capture. Watch the header:
 it reads `dispatching…` while the attempt is in flight, then settles.
 
 **A successful, verified restore or re-pick does delete the capture.** Once the
@@ -79,8 +79,8 @@ capture is deliberately kept rather than deleted. You lose nothing; you simply
 still have the transcript. Agents whose CLI does not report a session on startup
 reach this outcome every time.
 
-If the attempt fails, the viewer comes back and the capture is intact —
-`restore failed: <reason> — capture kept`.
+If the attempt fails, the capture is intact and a new viewer takes the pane
+again. Its header reads `last restore failed: <reason> — capture kept`.
 
 **Your scratchpad stays where it was.** A
 [scratchpad]({{< relref "/docs/tuis/scratchpad" >}}) opened beside the agent

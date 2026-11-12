@@ -206,3 +206,16 @@ over the tree. The same test checks that every cwd-changing test calls
 that a guarded fixture `cd` after a return to a stand-in repository leaves that
 repository untouched. The scanner is line-based rather than a shell parser: it
 skips comments, quoted text and heredoc bodies, and cannot see into `eval`.
+
+## The suite inside a task worktree
+
+On a project that keeps task data on a separate branch, a task worktree at
+`aiwork/<task_name>/` gets the same `.aitask-data`, `aitasks/` and `aiplans/`
+links as the main checkout (`aitask_init_data.sh --link-worktree`, run by the
+task workflow when it creates the worktree), so the test suite behaves the same
+inside it; without those links, suite modules that read
+`aitasks/metadata/*.json` fail with `FileNotFoundError`. In legacy mode the task
+data is tracked on the code branch, so the worktree checkout already has
+`aitasks/` and `aiplans/` as ordinary directories, and the helper links nothing
+(it prints `LEGACY_MODE`, `aitask_init_data.sh:141-146`). A legacy worktree
+without the links is therefore not broken.

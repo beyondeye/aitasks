@@ -26,6 +26,8 @@ A trail is advice only: it never changes your tasks.
 
 ## Why it exists
 
+Task dependencies record what cannot start yet, and the board records what
+you want first, but neither records which tasks should land next, and why.
 When many tasks are in play, working out what should land next is expensive: an
 agent has to read the tasks, their plans and the state of the repository, and
 weigh them against each other. Without a trail, that answer stays in a terminal

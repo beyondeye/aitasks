@@ -126,7 +126,7 @@ Three ways out of a frozen record, none of which is reversible in the same way:
   pane, leaving nothing running. It confirms first:
   `Drop the frozen record and its capture? This cannot be undone.` with a
   **Drop** button. **R** and **P** do not confirm, because a failed attempt
-  leaves the viewer and the capture where they were.
+  keeps the capture and puts a new viewer back in the pane.
 
 **The capture is not preserved by choosing restore or re-pick.** Once the resumed
 agent identifies itself, the record deletes the transcript — the `restored`
@@ -141,7 +141,7 @@ While a restore is in flight the header reads `dispatching…`; a drop reads
 |---|---|
 | `restored` | the resumed agent confirmed itself; the capture is deleted |
 | `restored, unverified — capture kept` | the agent is running but nothing confirmed it was the same session, so **the capture is kept**. A success, not a fault |
-| `restore failed: <reason> — capture kept` | the attempt failed and the viewer is back; the capture is intact |
+| `restore failed: <reason> — capture kept` | the attempt failed; the capture is intact |
 | `restore ended — capture kept` | the attempt ended without a recorded reason; the capture is intact |
 | `cannot restore: <reason> — re-pick it instead (P)` | the record cannot be resumed, and the reason says why; nothing was dispatched and re-pick is still available |
 | `restore did not start — run 'ait frozenagent' or reconcile` | nothing was dispatched |
@@ -149,8 +149,8 @@ While a restore is in flight the header reads `dispatching…`; a drop reads
 | `dropped — capture removed` | the record and its capture are gone |
 | `drop failed — record kept` | nothing was deleted |
 
-A viewer that comes back after a failed restore shows what the store remembers:
-`last restore failed: <reason> — capture kept`.
+After a failed restore, a new viewer takes the pane again and shows what the
+store remembers: `last restore failed: <reason> — capture kept`.
 
 ## List mode
 

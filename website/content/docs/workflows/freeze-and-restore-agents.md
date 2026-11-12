@@ -6,311 +6,167 @@ description: "Freeze finished agents to free their processes while keeping their
 depth: [intermediate]
 ---
 
-A working day with aitasks ends with more agents than you need. Ten or twenty
-panes, each holding a code agent that has finished its task — and what you
-actually want from most of them is the last screen: the workflow summary, the
-list of tasks it spawned, the analysis it produced. The process behind that
-screen is still running, still holding its context, still costing you memory and
-a share of the machine.
-
-**Freezing** ends the agent and keeps the screen. The agent's process — and the
-context it was holding — goes away; its pane is taken over by the
-[frozen-agent viewer]({{< relref "/docs/tuis/frozenagent" >}}), which replays
-the captured output in place. What you trade a code agent for is that viewer:
-a small terminal app that reads a file. The record of the agent — its task, its
-session, its window — is kept so you can bring it back later.
+Freezing ends a code agent that has finished its task and keeps its output
+readable in the same pane, so the agent stops using memory and a share of the
+machine. You can bring it back later by restoring its session or by re-picking
+its task.
 
 ## When to freeze
 
-Three states an agent can be in, and they differ in what is running:
+An agent can be live, parked or frozen:
 
 | | Live | Parked | Frozen |
 |---|---|---|---|
 | **Process** | running | running | ended |
 | **Output** | live in its pane | live in its pane | captured and replayed by the viewer |
-| **Costs you** | memory, context, a share of the machine | the same — parking changes nothing about the process | the agent process and its context are released; the viewer holds the pane, and the capture holds disk under `~/.config/aitasks/frozen/` |
-| **In the monitors** | a normal card | `P`, hidden by the `P` filter, counted as `N parked` | `F`, hidden by the same filter, counted as `N frozen` |
-| **How you come back** | it is already there | press `Space` to unpark | restore the session, or re-pick the task |
+| **Costs you** | memory, context, a share of the machine | the same; parking does not touch the process | the agent process and its context are released; the viewer holds the pane, and the capture uses some disk |
+| **In the monitors** | a normal card | hidden by the `P` filter | hidden by the `P` filter |
+| **How you come back** | it is already there | press `Space` once | restore the session, or re-pick the task |
 
-Parking is a signal to *you*: the agent keeps working and the monitors stop
-showing it. Freezing is a decision about the *agent*: you are done with it as a
-process, and you want its results readable. An agent you are still waiting on
-gets parked; an agent that has delivered gets frozen.
+Park an agent you are still waiting on, and freeze one that has delivered.
+Parking is one of the agent's
+[marks]({{< relref "/docs/tuis/monitor/reference" >}}#pane-interaction):
+**Space** cycles the mark from unmarked to prioritized to parked and back to
+unmarked.
+Freezing keeps an agent's mark, and **Space** still cycles it, but it never
+brings a frozen agent back. The mark and filter keys, and the counters for
+parked and frozen agents, are in
+the [monitor reference]({{< relref "/docs/tuis/monitor/reference" >}}).
 
-## The daily loop
+## Freeze an agent and bring it back
 
-**Freeze what has finished.** Press **f** in
-[`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) on the focused card, or in
-[`ait minimonitor`]({{< relref "/docs/tuis/minimonitor" >}}) on the followed
-agent. A dialog confirms (`Freeze this agent?`) and explains the trade. Nothing
-about your layout changes: the viewer takes over the same pane in the same
-window, keeping the window's name, so an agent pane with a minimonitor companion
-beside it still looks exactly like that.
+1. Freeze an agent that has finished. Press **f** in
+   [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) on the focused card, or
+   in [`ait minimonitor`]({{< relref "/docs/tuis/minimonitor" >}}) on the
+   followed agent, and confirm at `Freeze this agent?`. The
+   [frozen-agent viewer]({{< relref "/docs/tuis/frozenagent" >}}) takes over the
+   same pane in the same window and keeps the window's name, so your layout does
+   not change.
+2. Read the output when you get to it. The pane is already the viewer.
+   Press **G** for the closing summary, and copy a selection with **y** or
+   **ctrl+c**. The copy reaches your system clipboard even from a pane you
+   cannot see. The keys for search, plain text, Markdown and selecting lines
+   are listed in the
+   [viewer's keybindings]({{< relref "/docs/tuis/frozenagent/reference" >}}#keybindings). The
+   [how-to]({{< relref "/docs/tuis/frozenagent/how-to" >}}#copy-a-spawned-task-list-out-of-a-frozen-transcript)
+   shows how to copy a spawned-task list out of a transcript.
+3. Copy what you want to keep before you bring the agent back. A restore or
+   re-pick that the resumed agent confirms deletes the capture.
+4. Choose how to bring it back. Re-picking the task usually costs less than
+   restoring it:
+   - **R** (restore) relaunches the agent with its recorded session. Use it when
+     you want the agent's context back: a long investigation, a half-finished
+     conversation. It needs a recorded session id and the CLI that ran it. An
+     OpenCode agent cannot resume a session, so it can only be re-picked; which
+     other agents qualify is in
+     [Which CLI owns the session]({{< relref "/docs/development/framework-session" >}}#which-cli-owns-the-session).
+   - **P** (re-pick) starts the task over with a fresh agent, which reads the
+     task file instead of replaying a long transcript. It costs fewer tokens and
+     less time, and when the task file already says everything that matters it
+     loses nothing. It needs a task id on the record.
+5. Press the key in the viewer. **R** and **P** belong to the viewer. From
+   `ait monitor`, press **s** to switch to the frozen agent's window; from
+   `ait minimonitor`, press **Tab** to move to the pane beside it. The monitors'
+   own keys keep their usual meaning on a frozen agent.
+6. Drop the agent when you are done with it. **k** deletes the record and its
+   capture and closes the viewer's pane. It confirms first, because it is the one
+   action that leaves you with neither the agent nor its output.
 
-**Read it whenever you get to it.** The pane is the viewer, so there is nothing
-to launch — press **G** for the closing summary, **r** for plain text, **m** to
-render the capture as Markdown. Search with **/** and **n**, select with
-**shift+↑** / **shift+↓** or the mouse, and copy with **y** or **ctrl+c**,
-which reaches your system clipboard even from a pane you cannot currently see.
-The [how-to]({{< relref "/docs/tuis/frozenagent/how-to" >}}) walks through pulling a
-spawned-task list out of a transcript.
-
-**Come back by the cheaper route.** Two ways back, and the obvious one is
-usually not the cheaper one:
-
-- **R — restore** relaunches the agent with its recorded session. Worth it when
-  the agent's *context* is what you want back: a long investigation, a
-  half-finished conversation.
-- **P — re-pick** starts the task over with a fresh agent, which reads the task
-  file instead of replaying a long transcript. That is cheaper in tokens and in
-  time, and for a task whose file already says everything that matters it loses
-  nothing.
-
-Both keys belong to the viewer. From a monitor, move into the frozen agent's
-pane first — **s** in `ait monitor` switches to its window, **Tab** in
-`ait minimonitor` moves to the pane beside it — and press them there. The
-monitors' own keys keep their usual meaning on a frozen agent.
-
-Each route needs something the other does not, and a record may carry only one:
-re-pick needs a **task id**, restore needs a recorded **session id**. An agent
-whose CLI cannot resume a session — OpenCode today — can only be re-picked.
-Restore also needs to know which CLI the session belongs to, and it relaunches
-only that CLI. For an agent you start by hand, outside `ait`, the restore uses
-the agent and model the record names when freezing could recover them (the
-agent was started with a model the framework knows). Without them it would use
-the project's default agent for raw sessions, and resumes only when that default
-runs the same CLI. When the CLI could not be told, or it differs, the restore is
-refused and the agent stays frozen; re-picking its task is still available (see
-[which CLI owns the session]({{< relref "/docs/development/framework-session" >}}#which-cli-owns-the-session)).
-So can a Codex agent started by hand that Codex runs through its shared
-app-server daemon: nothing can yet tell which conversation belongs to its pane,
-so no session id is recorded for it (see
-[when the hook records]({{< relref "/docs/development/framework-session" >}}#when-it-records)).
-A Codex agent you type at a shell prompt that runs in its own process (started
-with `-c tui.alternate_screen=never`) is read through that shell, but only while
-it is the shell's foreground job; a suspended or background Codex is never taken
-for the pane's agent. Its conversation is restorable only when the framework can
-name its model: from the launch's `-m`, when that is a model the framework
-knows, or else from a Codex model already on the agent's record. Without
-either, the agent is re-picked.
-
-**A successful, verified restore or re-pick deletes the capture.** Once the
-resumed agent identifies itself the transcript has served its purpose and the
-record drops it. Choosing restore or re-pick is therefore not a way to keep the
-output: copy what you want with **y** (or **ctrl+c**) first.
-
-**Drop when you are done.** **k** deletes the record and its capture and closes
-the stand-in pane. It confirms first, because that is the one action that leaves
-you with neither the agent nor its output.
+The restored or re-picked agent runs in the viewer's pane.
 
 ## Before shutting down
 
-**Z** freezes every agent on the machine — every project, parked agents
-included, not just the ones in the list you are looking at. The confirmation
-names the real count, which is why that number is usually larger than what is on
-screen. It is the key for shutting the machine down with your work recoverable.
+1. Press **Z** in `ait monitor` or `ait minimonitor`. It freezes every agent on
+   the machine, in every project, parked agents included. The confirmation names
+   the real count, so the number is often larger than what you see on screen.
+2. Shut down or reboot.
+3. When the machine is back up, run `ait ide` in any project. Before it attaches,
+   it lists the frozen agents whose viewer is gone, for every project, and asks
+   once per project what to do:
+   - **V** (the default): bring the viewers back. The agents stay frozen.
+   - **R**: bring the viewers back, then restore every agent that can resume.
+   - **P**: bring the viewers back, then re-pick every agent that has a task.
+   - **S**: change nothing. The agents stay listed in `ait frozenagent`.
 
-When the machine is back up, run `ait ide` in any project as usual. Frozen
-agents whose viewer is gone — the tmux server died with the machine, so every
-viewer did — are listed before `ait ide` attaches, for **every** project, one
-group per project with the current one first: window name, task, when it was
-frozen, and whether it can be restored or re-picked. Then `ait ide` asks one
-question per project it can act on:
+   All the questions come first; then everything runs.
 
-| Answer | What happens |
-|---|---|
-| **V** (default) | Each viewer comes back in a new window under its recorded name. The agents stay frozen; restore or drop them from the viewer as usual. |
-| **R** | The viewers come back, then every agent that can resume is restored inside its viewer. The rest stay as viewers. |
-| **P** | The same, but each agent that has a task is re-picked instead of resumed. |
-| **S** | Nothing changes. The records stay listed in `ait frozenagent`. |
+This project's agents land in the session `ait ide` opens. Another project's
+agents land in that project's own tmux session, and `ait ide` names those
+sessions when it is done. Which projects it acts on, and the
+`--no-frozen-check` option that turns the check off, are in
+[The `ait ide` frozen-agent check]({{< relref "/docs/tuis/frozenagent/reference" >}}#the-ait-ide-frozen-agent-check).
 
-All the questions come first; then everything runs.
-
-**Where they land.** The current project's agents go into the session `ait ide`
-is opening, including one you chose with `--session`. Every other project's
-agents go into **that project's own tmux session**, never into the one being
-opened: the first session that belongs to the project, or a new one created the
-way `ait ide` would create it, under the project's `tmux.default_session` name.
-When `ait ide` is done it names those sessions; switch to one with `j` from any
-TUI, or run `ait ide` in that project. If a project's session cannot be created
-(its configured name is already taken by another project, for example), that
-project's records are reported as failed and stay frozen; the other projects
-are not affected.
-
-**Which projects are acted on.** The current project, and any other project that
-is registered (see `ait projects list`; `ait ide` registers a project the first
-time it runs there) and whose directory still exists. Any other project's group
-is listed with the reason and not touched. Nothing is created for it, and no
-question is asked:
-
-- *project directory gone*: the records belong to a directory that no longer
-  holds a project. Drop them in `ait frozenagent`.
-- *not a registered project*: run `ait ide` in that project, or register it
-  with `ait projects add <path>`.
-- *project registry unreadable*: the registry file could not be read, so no
-  other project is acted on until it can be.
-
-**Companions.** A viewer brought back this way gets its minimonitor beside it,
-as any agent window does, and so does an agent restored inside its viewer.
-`ait ide` also gives every viewer that is already open but lost its minimonitor
-a new one, across all projects. A window that already has a minimonitor, even
-one that is still starting, does not get a second.
-
-Every frozen record also stays listed in `ait frozenagent`. A record marked
-`viewer open, untracked` has a viewer window
-the framework lost track of (an earlier attempt that did not finish): it is
-picked up rather than duplicated. **R** and **P** skip such a record, and say
-so, if picking it up fails. A record marked `an earlier restore's agent is
-still running, untracked` is different. A restore into a new window did not
-finish, and the agent it started is still running in a window the framework
-does not track. It is never mistaken for a viewer. Restore, re-pick and drop all
-refuse that record and name the window, because going ahead would start a second
-agent on the same session or delete the record while that agent runs. Close
-that window, then try again.
-
-Without a terminal — a script, or `ait ide` piped into something — nothing is
-asked: a one-line note says how many frozen agents are waiting in this project
-and in the others. Pass `--no-frozen-check` to skip the check, and the
-minimonitor top-up, entirely.
-
-To do the same without `ait ide`:
-
-```bash
-./.aitask-scripts/aitask_frozen.sh gone --root "$PWD"     # list this project's
-./.aitask-scripts/aitask_frozen.sh gone --all-roots       # list every project's, grouped
-./.aitask-scripts/aitask_frozen.sh reopen --root "$PWD"   # bring the viewers back
-./.aitask-scripts/aitask_frozen.sh companions --all-roots # give open viewers their minimonitor
-```
-
-You can also bring agents back one at a time from `ait frozenagent` list mode —
-it lists every frozen record across all projects, and **R** / **P** act on the
-highlighted row — or all at once:
-
-```bash
-./.aitask-scripts/aitask_frozen.sh restore --all           # resume each session
-./.aitask-scripts/aitask_frozen.sh restore --all --repick  # re-pick each task instead
-```
-
-Restore-All works through the records sequentially, and one record's failure
-never stops the batch: with three frozen agents and one missing binary, the other
-two come back. A record with no recorded session id, one whose CLI cannot
-resume, or one whose CLI is unknown or is not the one the restore would launch,
-is reported as a failure by the first form and keeps its capture — those are the
-ones to bring back by re-picking.
-
-Agents whose windows survived come back in them. Agents whose windows are gone —
-after a tmux restart, say — come back in **new windows under their recorded
-names**; if a name is already taken, the next one gets a `-2` suffix. A project
-with no tmux session at all gets one created the way `ait ide` would. The full
-set of landing places is in
-[Where the agent comes back]({{< relref "/docs/tuis/frozenagent/how-to" >}}#bring-an-agent-back).
+To bring agents back one at a time instead, run `ait frozenagent`. It lists every
+frozen record across all projects, and **R** and **P** act on the highlighted
+row.
 
 ## What "unverified" means
 
-A restore succeeds in one of two ways, and they are not the same outcome:
-
-| Outcome | What happened | The capture |
-|---|---|---|
-| `restored` | the session that came back was confirmed to be the one asked for — by the resumed agent's session hook, or, for a Codex agent, from the transcript the resumed process holds open | **deleted** |
-| `restored, unverified — capture kept` | the agent is running, nothing confirmed it is the same session, and the framework confirmed it on the process alone | **kept** |
-
-Both are successes. The second is not a fault, and it is the safer of the two:
-precisely because nobody confirmed the session, the transcript is kept rather
-than deleted.
-
-You will see it whenever nothing confirms the session within the grace. The
+A restore succeeds in one of two ways. It is verified when the resumed agent
+confirms it is the same session, and the capture is then deleted. It is
+unverified when the agent is running but nothing confirmed it resumed the same
+session, so the capture is kept instead of deleted. You see it when the
 [session hook]({{< relref "/docs/commands/setup-install" >}}#session-hooks) was
-declined at `ait setup`, the CLI reports no session at startup, or the agent is
-a Codex resume whose session cannot be read from its process (for example a
-Codex started by hand whose TUI is routed through the shared app-server daemon,
-which holds the transcript instead).
-
-Codex fires the hook only at a session's first turn, not at launch. So a resumed
-Codex agent never confirms itself through the hook within the grace, which is
-why the transcript check exists. When its hook does fire later, at your first
-message, an unverified restore is upgraded to `restored` and the capture is
-deleted.
-
-`frozen.restore_ack_grace` sets how long the restore waits for that
-acknowledgement. It is a **waiting period, not an outcome lever**: an agent that
-never acknowledges ends unverified however high you set it. See the
-[reference]({{< relref "/docs/tuis/frozenagent/reference" >}}#configuration).
+declined at `ait setup`, when the agent's CLI reports no session at startup, or
+for a Codex agent whose session cannot be read from its process. Raising
+[`frozen.restore_ack_grace`]({{< relref "/docs/tuis/frozenagent/reference" >}}#configuration)
+helps only an agent that confirms itself slowly. Every message the viewer shows
+is listed in [States shown]({{< relref "/docs/tuis/frozenagent/reference" >}}#states-shown),
+and how a restore is confirmed is in
+[Restore verification]({{< relref "/docs/development/framework-session" >}}#restore-verification).
 
 ## When something goes wrong
 
-**A failed restore costs you nothing.** The viewer comes back in its pane and the
-capture is intact. The header reports what happened —
-`restore failed: <reason> — capture kept` — and the viewer shows the store's
-memory of it the next time you open the record.
+The viewer's messages for these cases are listed in
+[States shown]({{< relref "/docs/tuis/frozenagent/reference" >}}#states-shown).
 
-**A record that cannot be resumed is refused before anything starts.** The
-viewer names the reason — no session id to resume, an agent that does not
-support resuming, or a session whose CLI is unknown or is not the one the
-restore would launch — as `cannot restore: <reason>`, and leaves the record
-untouched. Re-pick is the way forward.
+- A failed restore keeps the capture, and a new viewer takes the pane again.
+  Its header gives the reason.
+- A record that cannot be resumed has no session id, an agent that cannot
+  resume, or a CLI that is unknown or is not the one the restore would launch.
+  The viewer says so and starts nothing. You can still re-pick the task with
+  **P**.
+- A refusal that names another window means an earlier restore's agent is
+  still running there. Close that window first, then try again.
+- A session name held by another project stops a restore that would have to
+  create that session. Give the two projects different `tmux.default_session`
+  values; see
+  [Bring an agent back]({{< relref "/docs/tuis/frozenagent/how-to" >}}#bring-an-agent-back).
+- A restore that did not start, for example because tmux could not be queried
+  to find where the agent should land, left the record unchanged, so you can
+  try again.
+- A record that stays stuck, such as a restore still in progress when the
+  viewer stops watching it, a viewer whose pane died, or an agent that came
+  back but still shows as frozen, is settled by a reconcile pass. An open `ait monitor` or
+  `ait minimonitor` runs one regularly. To run it yourself:
 
-**`restore did not start` is the other shape of failure.** Nothing was
-dispatched, for a reason only the coordinator could see — for example, tmux
-could not be queried to find out where the agent should land.
+  ```bash
+  ./.aitask-scripts/aitask_frozen.sh reconcile
+  ```
 
-**A stand-in that died is respawned.** So is a freeze or a restore whose
-coordinator was killed part-way: records in a transitional state are settled from
-what tmux can actually be seen to hold. An agent that came back but still shows
-as frozen, because its frozen marker could not be removed, is unmarked the same
-way, and can then be frozen again. That settling — **reconcile** — runs
-after every freeze and restore, and on the maintenance tick of any open
-`ait monitor` or `ait minimonitor`. To run it yourself:
-
-```bash
-./.aitask-scripts/aitask_frozen.sh reconcile
-```
-
-There is no `ait frozen` command; the viewer is `ait frozenagent`, and the engine
-is the script above.
-
-**A session name held by another project** stops a restore that would have had to
-create that session, rather than borrowing it. That case and the closed-window
-routes are covered in
-[Where the agent comes back]({{< relref "/docs/tuis/frozenagent/how-to" >}}#bring-an-agent-back).
-
-## Marks and frozen agents
-
-Freezing does not disturb the mark you put on an agent. A frozen card shows its
-★ or `P` *plus* a cyan `F`, so the mark column never shifts, and `Space` still
-cycles the mark of a frozen agent.
-
-The `P` filter hides parked and frozen agents together — it is one filter over
-both kinds of set-aside agent, not two. The counters stay separate: `N parked`
-and `N frozen` (`Np` and `Nf` in minimonitor's narrow header), both reported
-whether or not the rows are hidden, and an agent that is both frozen and marked
-parked is counted once, as frozen.
+  The script's other commands are in
+  [The freeze engine]({{< relref "/docs/development/framework-session" >}}#the-freeze-engine).
 
 ## Limits
 
-- **Frozen records do not expire.** There is no age-based cleanup: a record lives
-  until you drop it or a verified restore consumes it. A record whose capture
-  file has gone missing is retired, since there is nothing left to read or
-  restore from.
-- **Disk.** Each record keeps `capture.ansi` and `capture.txt` under
-  `~/.config/aitasks/frozen/<id>/`. `ait frozenagent` with no arguments lists
-  every record on the machine, which is also the way to find what is still
-  taking up space.
-- **The capture is the tail of the scrollback.** `frozen.capture_max_lines`
-  (50000 by default) is a *depth*, not a total: the freeze reaches that many
-  lines back through the pane's history and runs to the bottom of the visible
-  pane, so a stored capture holds roughly the cap plus a pane height. A pane with
-  more history than the cap has already lost its earliest output before the
-  freeze runs.
+- Frozen records do not expire. A record lives until you drop it or a
+  confirmed restore consumes it. A record whose capture file has gone missing is
+  removed, because there is nothing left to read or restore. `ait frozenagent`
+  with no arguments lists every record on the machine, which is also how you
+  find what still takes up disk space.
+- The capture is the tail of the scrollback. `frozen.capture_max_lines`
+  (50000 by default) sets how far back a freeze reaches. The capture of a pane
+  with more history than that leaves out its earliest output.
 
 ## See also
 
-- [Frozen Agent]({{< relref "/docs/tuis/frozenagent" >}}) — the viewer TUI, its
+- [Frozen Agent]({{< relref "/docs/tuis/frozenagent" >}}): the viewer TUI, its
   keys and its messages.
-- [Framework session]({{< relref "/docs/concepts/framework-session" >}}) — the
+- [Framework session]({{< relref "/docs/concepts/framework-session" >}}): the
   record behind all of this. What identifies an agent, what the states mean and
   where the store lives are in
   [Framework Session Store]({{< relref "/docs/development/framework-session" >}}).
-- [Session hooks]({{< relref "/docs/commands/setup-install" >}}#session-hooks) —
-  what `ait setup` installs to make a verified restore possible.
-- [Crash Recovery]({{< relref "/docs/workflows/crash-recovery" >}}) — what to do
+- [Session hooks]({{< relref "/docs/commands/setup-install" >}}#session-hooks):
+  what `ait setup` installs to make a confirmed restore possible.
+- [Crash Recovery]({{< relref "/docs/workflows/crash-recovery" >}}): what to do
   when an agent died instead of being frozen.

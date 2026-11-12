@@ -301,6 +301,82 @@ M existing`, `Nothing new to harvest` or `Harvest failed: <why>`, then
   task item's details open, and every 60 seconds.
 - Collect-and-re-check runs once at startup (reported in a short message, no
   panel) and on `r`.
+- While `ait monitor` or a minimonitor runs, it harvests every frozen agent's
+  capture that is not in a list yet, each into its own repository's list, and
+  then re-checks the list of every repository it shows that has one. It does
+  this every 10 minutes, the first time a minute after it starts; a failed pass
+  is retried on the next one.
+
+## Where the list is stored
+
+The list lives in `<main worktree>/.aitask-sitrep/`. `ait sitrep`, the TUI and
+the harvest map a linked task worktree to its main worktree, and the sitrep
+agent runs only from the main worktree, so a repository has one list.
+
+| Path | Holds |
+|------|-------|
+| `todo.md` | The items, grouped Pick now / Next / Waiting / Recently done / Dismissed, the situation text per work area, and one context entry per item |
+| `qa.md` | The dated Q&A log |
+| `todo.md.bak`, `qa.md.bak` | The previous good copy of each file, which `R` restores |
+| `sources/` | Passages the harvest retained, so an item's source survives a dropped frozen capture |
+| `raw/` | The whole output of each [unparsed-output case](#unparsed-output-cases), byte for byte |
+| `cases/` | The case records: where each output came from, what the parser found, and each review |
+| `recovered/` | The file `R` replaced, kept when you restore |
+
+- **Git** — the folder is git-ignored and never committed. `ait setup` adds
+  `.aitask-sitrep/` to the project's `.gitignore`; when the folder is still not
+  ignored, the harvest adds it to the repository's local `info/exclude` file,
+  and it fails rather than write into a folder git would track.
+- **One writer** — every write goes through the list's writer, which holds a
+  lock, replaces a file in one step, and keeps the previous good copy as the
+  `.bak` file. The TUI, the harvest and the sitrep agent all write through it.
+- **Not rebuildable** — dismissals, the agent's derived items and the Q&A log
+  exist only here.
+- **Never pruned** — nothing deletes `sources/`, `raw/` or `cases/`.
+
+## Unparsed-output cases
+
+A case is the kept output of one wrap-up the harvest could not read reliably,
+with a note of each problem and the lines it is on, and one "Analyze unparsed
+agent output …" review item (see
+[Output the harvest could not read]({{< relref "/docs/workflows/sitrep" >}}#output-the-harvest-could-not-read)).
+The harvest keeps a case when it finds any of these in the output:
+
+| Reason | What the harvest found |
+|--------|------------------------|
+| `banner_incomplete` | A closing banner whose fields are cut off or missing |
+| `banner_unparsed` | A line that starts like a banner (`✔ aitask workflow complete` or `■ aitask workflow stopped`) but is not in a form the harvest recognizes |
+| `bad_followup` | A malformed follow-up task id in a banner |
+| `passage_truncated` | A closing message too long to keep whole |
+| `created_unparsed` | A created-task reference (`Created: aitasks/…`) that cannot be read |
+| `marker_without_banner` | The line showing that a run's workflow sent its wrap-up to the harvest, with no banner after it |
+| `pipe_without_banner` | A wrap-up a workflow sent to the harvest that holds no banner |
+
+An agent frozen mid-work, with no banner at all, is not a case. The harvest
+still writes every item it found before it keeps the case. The kept cases form
+a local record that parser changes can be checked against: `replay` shows what
+the current parser finds in one, and `export` turns one into a test fixture.
+
+`ait sitrep case` works on them; every verb takes `--root <path>` (default the
+current directory, mapped to the main worktree).
+
+| Command | Does |
+|---------|------|
+| `ait sitrep case list [--pending \| --reviewed]` | Every kept case with its status and its review item |
+| `ait sitrep case show <case>` | Where the output came from, what went wrong, and what was found |
+| `ait sitrep case read <case> [--lines A-B]` | The kept output, checked against its checksum first |
+| `ait sitrep case replay <case> [--apply]` | What the current parser finds in the kept output now. Writes nothing; with `--apply` it writes the items it finds and a new analysis, and leaves the review item alone |
+| `ait sitrep case export <case> --out <dir> [--allow-unresolved]` | Writes `input.txt` and `case.json` as a test fixture. Refused while the current parser still cannot read the output, unless `--allow-unresolved` |
+| `ait sitrep case review <case> --outcome <outcome>` | Records a review and closes the review item; the sitrep agent runs it during triage |
+
+A case's status comes from its review item: `pending` while the item is open,
+`dismissed` when you dismissed it, `reviewed` or `resolved` (a parser change
+handles it) once a review closed it, and `incomplete` for records without an
+item, which the next harvest of that output completes. `--pending` lists
+`pending` and `incomplete` cases; `--reviewed` lists the rest.
+
+An exported `input.txt` is a verbatim capture: remove other projects' content
+and conversation text from it before you commit it.
 
 ## Launch and environment
 
@@ -309,9 +385,9 @@ M existing`, `Nothing new to harvest` or `Harvest failed: <why>`, then
 | `ait sitrep` | Opens the sitrep window with the TUI below the agent, or switches to it; adds the TUI when it is missing |
 | `ait sitrep tui [--root <path>]` | Runs the TUI alone. `--root` defaults to the current directory; a linked task worktree maps to its main worktree. An empty value or a path with a `..` segment is refused |
 
-- **Store** — `<main worktree>/.aitask-sitrep/` (`todo.md`, `qa.md`), the same
-  store the sitrep agent and the harvest use. The TUI writes it only through the
-  list's writer.
+- **Store** — `<main worktree>/.aitask-sitrep/`, the same store the sitrep
+  agent and the harvest use; see [Where the list is stored](#where-the-list-is-stored).
+  The TUI writes it only through the list's writer.
 - **Damaged files** — the TUI keeps the last good view, and a red banner says
   `Store unusable: <error>` (or `Q&A log unusable: <error>`) and
   `Press R to restore the last good generation.`

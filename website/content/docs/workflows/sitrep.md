@@ -6,128 +6,56 @@ description: "Keep one persisted todo list per repository, so finished agent win
 depth: [intermediate]
 ---
 
-A finished agent's last screen often holds the only record of what is left: the follow-up tasks it created, "push main when CI is green", the next wave of a trail. Keeping its window open just to remember that does not scale — after a few agents you no longer know which window said what, and closing one loses the information.
+Sitrep keeps one todo list per repository, filled from finished agents' wrap-ups, so you can close their windows without losing what they said was left to do: the follow-up tasks they created, "push main when CI is green", the next wave of a trail. The sitrep agent keeps the list current, turns closing notes into action and watch items, and answers your questions from the sources the items point at.
 
-**Sitrep** is a steward agent that keeps **one persisted todo list for the repository**. Finished agents' wrap-ups are collected into it automatically, so their windows can be closed. Sitrep keeps the list current, turns the closing notes into concrete action and watch items, and answers your questions about what is going on — from the sources, not from memory.
+The sitrep agent is advisory. It never picks a task, pushes, commits or edits code, it changes only its own list, and it never types into another pane. The [sitrep TUI]({{< relref "/docs/tuis/sitrep" >}}) types into the sitrep agent only when you press one of its request keys, and launches `/aitask-pick` for an item's task only when you press `p`.
 
-Sitrep is **advisory only**. It never picks a task, pushes, commits or edits code. It changes only its own list, and only through the list's locked writer. The sitrep agent never types into another pane. The [sitrep TUI]({{< relref "/docs/tuis/sitrep" >}}), the list view beside it, types into the sitrep agent only when you press one of the TUI's request keys.
+## Keeping the list
 
-## Opening sitrep
+1. Open sitrep. From inside tmux, run:
 
-Run, from inside tmux:
+   ```bash
+   ait sitrep
+   ```
 
-```bash
-ait sitrep
-```
+   The first time, this opens a window named `agent-sitrep` in your current tmux session, with three panes: the sitrep agent at the top left, which you talk to; the [sitrep TUI]({{< relref "/docs/tuis/sitrep" >}}) below it, which shows the list and does the routine work on it; and a [minimonitor]({{< relref "/docs/tuis/minimonitor" >}}) column on the right. Running `ait sitrep` again from any window, or from a linked task worktree of the same repository, takes you to that same window: there is one sitrep per repository. If the agent or the TUI is missing from the window, `ait sitrep` adds it back. When the agent exits, the TUI and the minimonitor stay; press `A` in the TUI, or run `ait sitrep`, to start a new agent.
 
-The first time, this opens a new window named `agent-sitrep` in your current tmux session, with three panes:
+   From the TUIs, press `S`: in [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) it opens the sitrep window of the focused agent's repository, in a minimonitor that of the agent it follows, and in the TUI switcher (`j`) that of the selected session. Outside tmux, `ait sitrep` refuses; `ait codeagent invoke sitrep` starts the agent in the current terminal instead, without its own window or the one-per-repository check.
 
-- the **sitrep agent** at the top left, which you talk to;
-- the **[sitrep TUI]({{< relref "/docs/tuis/sitrep" >}})** below it, which shows the list and does the routine work on it;
-- a **[minimonitor]({{< relref "/docs/tuis/minimonitor" >}})** column on the right.
+   The sitrep agent runs on Claude Code. Its code agent and model are the `sitrep` operation in [`ait codeagent`]({{< relref "/docs/commands/codeagent" >}}) and the Settings TUI.
+2. Let it start. The sitrep TUI reads every finished agent's wrap-up that the list does not hold yet and adds what it finds to the list; this is the **harvest**. A harvest also runs when an agent is frozen or finishes a task workflow. The TUI then re-checks every item it can verify: whether a task is still open, picked, archived or folded, whether a commit has reached the remote, and how far a trail has progressed. The sitrep agent greets you with the number of items in Pick now, Next and Waiting, the wrap-ups waiting for triage, and its shortcodes. You type shortcodes such as `>t`, `>q` and `>tr` to the agent, and the TUI's request keys type the same codes for you, for the selected item; every shortcode is listed under [Capabilities]({{< relref "/docs/skills/aitask-sitrep" >}}#capabilities). Press `r` in the TUI to harvest and re-check again at any time.
+3. Read the list. The TUI groups the items as Now (the agent's Pick now), Next and Waiting, with one "What to do" line each. `d` also shows the done and dismissed items, and `Enter` opens an item's details and the sources it points at. An item is a task, an action, a question or a watch. For tasks, pushes and trails, the list shows the live state as the last re-check found it, and how long ago that was. An item whose state could not be verified, such as a task in a linked project that is not registered, is shown as unknown and never treated as done. The list never copies a task's content; ask for details and sitrep reads the task, plan or retained output the item points at. See [How to Read the List]({{< relref "/docs/tuis/sitrep/how-to" >}}#how-to-read-the-list).
+4. Triage the wrap-ups. Every finished agent run arrives as a "Triage wrap-up of t42 …" item. Press `t` on it in the TUI to triage that one run, or type `>t` to the agent to triage every open wrap-up at once. The agent reads each run's closing message and proposes the items worth tracking:
+   - **actions**: push a branch, deploy, tell someone, run something by hand. A push with a known commit is tracked against the remote and closes itself once the commit lands.
+   - **watches**: CI, an external event, or an [implementation trail]({{< relref "/docs/workflows/implementation-trails" >}}) the run pointed at. A trail watch reports the trail's next wave and whether the trail is stale.
 
-Running it again from any window, or from a linked task worktree of the same repository, takes you to that same window: there is **one sitrep per repository**. When the agent or the TUI is missing from the window, `ait sitrep` adds the missing one back. When the agent exits, the TUI and the minimonitor stay; press **`A`** in the TUI, or run `ait sitrep`, to start a new agent above the TUI.
+   It shows all proposals in one list and asks once before writing anything. A trail that several wrap-ups point at gets one watch, linked to all of them. Follow-up tasks a run created are already in the list as task items, so they are not proposed again. An "Analyze unparsed agent output …" item is triaged the same way; see [Output the harvest could not read](#output-the-harvest-could-not-read).
+5. Ask. Press `a` on an item to ask about it, or ask the agent in your own words: "is main pushed?", "what did the t2175 runs leave open?", "what is this trail waiting for?". Sitrep answers from the sources the items point at: task and plan files, the agents' retained closing output, commits and trails. When an answer relies on an item that was last checked more than an hour ago, it says so and suggests `r`. Every question and answer is kept in a dated log next to the list, which `l` opens in the TUI.
 
-From the TUIs, press **`S`**: in [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) it opens the sitrep window of the focused agent's repository, in a [minimonitor]({{< relref "/docs/tuis/minimonitor" >}}) that of the agent it follows, and in the TUI switcher (`j`) that of the selected session.
+   For a stale trail, sitrep offers to refresh it with [`/aitask-trail`]({{< relref "/docs/skills/aitask-trail" >}}); on your yes, that skill asks again before it writes a new version. For what to pick next, it relates the Pick now items to the ranking of [`/aitask-backlog-roadmap`]({{< relref "/docs/skills/aitask-backlog-roadmap" >}}). The sitrep agent never ranks or picks a task itself; it names the `/aitask-pick` command for you to run in another agent window, and pressing `p` on the item in the TUI opens a dialog that launches it for you.
+6. Dismiss what you will not do. Press `x` on an item in the TUI and give a reason. Only you dismiss: the agent may suggest it, and when you ask it to dismiss, it names the key. A dismissed item stays dismissed; later harvests and re-checks never bring it back.
+7. Close finished agents with `h`. In [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) or a minimonitor, press `h` on a finished agent. Its output is harvested into the list first: the whole screen of a live agent, or the kept capture of a [frozen]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}) one. A dialog then shows each new or already-known item, any warnings about a wrap-up that looked incomplete, and the outcome. Closing is offered when the output was read, when part of it could not be read reliably and the whole output was kept for a sitrep review (see [Output the harvest could not read](#output-the-harvest-could-not-read)), and when it held nothing new. When the output could not be captured or harvested, the dialog says why, the agent and its output are kept, and no close is offered.
 
-Outside tmux, `ait sitrep` refuses. `ait codeagent invoke sitrep` starts the agent in the current terminal instead, without its own window or the one-per-repository check.
+   Where closing is offered, the dialog offers **Close agent** for a live agent, **Drop** for a frozen one (which also deletes its kept capture), and **Keep**. **Close agent** closes only the agent's own pane and its [shadow]({{< relref "/docs/workflows/shadow-agent" >}}) and [scratchpad]({{< relref "/docs/tuis/scratchpad" >}}) panes; other panes in the window stay, and a minimonitor companion closes itself once it is alone in the window. If the agent was frozen, restored or restarted while the dialog was open, nothing is closed and you are asked to press `h` again. On a live sitrep window, `h` harvests nothing and only offers to close it.
 
-The sitrep agent currently runs on Claude Code. Its code agent and model are the `sitrep` operation in [`ait codeagent`]({{< relref "/docs/commands/codeagent" >}}) and the Settings TUI.
-
-## What happens when it starts
-
-1. The sitrep TUI collects every finished agent's wrap-up that is not in the list yet (the same harvest that runs automatically when an agent is frozen or finishes a task workflow).
-2. It then re-checks every item it can verify: whether a task is still open, picked, archived or folded; whether a commit has reached the remote; how far a trail has progressed. Press **`r`** in the TUI to collect and re-check again at any time.
-3. The sitrep agent reads the list and greets you with its shape (how many items are in **Pick now**, **Next** and **Waiting**, how many wrap-ups are waiting for triage) and its shortcodes.
-
-## The list
-
-Each item is a **task**, an **action**, a **question** or a **watch**, and is **open**, **done**, **dismissed** or **unknown**. *Unknown* means the state could not be verified (for example a task in a linked project that is not registered) — it is never treated as done.
-
-For tasks, pushes and trails, sitrep shows the item's live state as the re-check last found it, with how long ago that was. It never copies a task's content into the list; when you want details, it reads the task, plan or retained output the item points at.
-
-The sitrep TUI shows the list grouped as **Now** (the agent's *Pick now*), **Next** and **Waiting**, with one "What to do" line per item; **`d`** also shows the done and dismissed items. **Enter** opens an item's details and the sources it points at. See [How to Read the List]({{< relref "/docs/tuis/sitrep/how-to" >}}#how-to-read-the-list).
-
-## Triage: turning wrap-ups into items
-
-Every finished agent run arrives as a triage item — "Triage wrap-up of t42 …". Press **`t`** on it in the sitrep TUI to triage that one run, or type `>t` to the agent to triage every open wrap-up at once. The agent reads each run's closing message and proposes the items worth tracking:
-
-- **actions** — push a branch, deploy, tell someone, run something by hand. A push with a known commit is tracked against the remote and closes itself once the commit lands.
-- **watches** — CI, an external event, an [implementation trail]({{< relref "/docs/workflows/implementation-trails" >}}) the run pointed at. A trail watch reports the trail's next wave and whether the trail is stale.
-
-It shows all proposals in one list and asks once before writing anything. A trail that several wrap-ups point at gets one watch, linked to all of them. Follow-up tasks a run created are already in the list as task items, so they are not proposed again.
+While `ait monitor` or a minimonitor is open, it also harvests, about every 10 minutes, every frozen agent's capture that no list holds, so those agents can be dropped. The full monitor's title bar shows `sitrep N now` while the list has open Pick now items.
 
 ## Output the harvest could not read
 
-Sometimes an agent's wrap-up cannot be read reliably: the banner is cut off or rendered without its fence, a follow-up id is malformed, the closing message is too long, or a run's workflow ended but no banner followed. Then the harvest still writes every item it did find, and it also **keeps the agent's whole output** in the list's store, together with what went wrong and where. It adds one item, "Analyze unparsed agent output …", for sitrep. An agent that was simply frozen mid-work, with no banner at all, is not such a case.
+Sometimes an agent's wrap-up cannot be read reliably, for example because its closing banner is cut off. The closing banner is the short block, starting `✔ aitask workflow complete` or `■ aitask workflow stopped`, that a task workflow prints as its last output. The harvest then still writes every item it found, keeps the agent's whole output with a note of what went wrong and where, and adds one "Analyze unparsed agent output …" item. An agent frozen mid-work, with no closing banner at all, is not such a case. Every cause is listed under [Unparsed-output cases]({{< relref "/docs/tuis/sitrep/reference" >}}#unparsed-output-cases).
 
-During triage (`t` on the review item in the TUI, or `>t`), sitrep reads the kept output around each problem, proposes the follow-up tasks and actions the harvest missed, and records what it found. Closing or dismissing that item never deletes the kept output: the cases form a local record that parser fixes can be checked against.
+1. Triage the item: `t` on it in the TUI, or `>t`. Sitrep reads the kept output around each problem, proposes the follow-up tasks and actions the harvest missed, and records what it found.
+2. To look at the kept output yourself, run `ait sitrep case list` for every kept case and its review state, then `ait sitrep case replay <case>` to see what the current parser would find in it now; replay writes nothing. The other case commands are in the [sitrep TUI reference]({{< relref "/docs/tuis/sitrep/reference" >}}#unparsed-output-cases).
 
-```bash
-ait sitrep case list                  # every kept case and its review state
-ait sitrep case show <case>           # where it came from, what went wrong, what was found
-ait sitrep case read <case> --lines 40-60
-ait sitrep case replay <case>         # what the current parser would now find (writes nothing)
-ait sitrep case export <case> --out <dir>   # a test fixture, once a parser fix resolves it
-```
-
-The kept output stays in the git-ignored store and is never pruned automatically. An exported fixture is a verbatim capture: remove other projects' content and conversation text before committing it.
-
-## Asking questions
-
-Press **`a`** on an item in the sitrep TUI to ask about it, or ask the agent in your own words — "is main pushed?", "what did the t2175 runs leave open?", "what is this trail waiting for?". Sitrep answers from the sources the items point at: task and plan files, the agents' retained closing output, commits, trails. When an answer relies on an item that was last checked more than an hour ago, it says so and suggests the TUI's **`r`** to re-check it. Every question and answer is kept in a dated log next to the list.
-
-## Trails and what to pick next
-
-- **Trails.** Sitrep reports a trail's progress and, when the trail is stale, offers to refresh it with [`/aitask-trail`]({{< relref "/docs/skills/aitask-trail" >}}) — on your yes, and that skill asks again before it writes a new version.
-- **What to pick.** Sitrep relates the Pick now items to the backlog ranking of [`/aitask-backlog-roadmap`]({{< relref "/docs/skills/aitask-backlog-roadmap" >}}). It never ranks tasks itself and never picks one: it names the `/aitask-pick` command for you to run in another agent window.
-
-## Dismissing items
-
-Press **`x`** on an item in the sitrep TUI to dismiss it, and give a reason. Only you dismiss: the agent may suggest it, and when you ask it to, it names the key. A dismissed item stays dismissed — later harvests and re-checks never bring it back.
-
-## Shortcodes
-
-You type these to the sitrep agent. The request keys of the [sitrep TUI]({{< relref "/docs/tuis/sitrep" >}}) type the same codes for you, for the item you have selected.
-
-| Code | What it does | TUI key |
-|---|---|---|
-| `>t [c<N>]` | Triage the harvested wrap-ups into action and watch items: all open ones, or only item `c<N>` | `t` |
-| `>w [<theme>]` | Rewrite the short situation text: every work area that needs it, or only one | `w` |
-| `>q [c<N>]` | Ask anything, optionally about one item (or just ask in your own words) | `a` |
-| `>tr [c<N>]` | Report trail progress, and offer to refresh a stale trail | `T` |
-| `>p` | What to pick next | `n` |
-| `>c` | List the kept unparsed-output cases, or replay one against the current parser | — |
-| `>?` | Show the menu again | — |
-
-Showing the list, collecting and re-checking, dismissing and restoring are keys of the sitrep TUI (`r`, `x`, `R`), not shortcodes.
-
-## Closing a finished agent
-
-In [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) or a [minimonitor]({{< relref "/docs/tuis/minimonitor" >}}), press **`h`** on a finished agent:
-
-1. The agent's terminal output is collected into the list first — the whole screen of a live agent, or the kept capture of a [frozen]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}) one.
-2. A dialog shows what was captured: each new or already-known item, any warnings about a wrap-up that looked incomplete, and the outcome. There are three outcomes:
-   - **Harvested** — the output was read and its items are in the list.
-   - **Harvested — output kept for sitrep review** — part of the output could not be read reliably, so the whole output was saved in the store with a review item (see [Output the harvest could not read](#output-the-harvest-could-not-read)). Closing is safe.
-   - **Harvest failed** — nothing was certified, so the agent and its output are kept and no close is offered.
-3. Only then does it offer to close the agent: **Close agent** for a live agent, **Drop** for a frozen one (which also deletes its kept capture), or **Keep**.
-
-If the output could not be captured or collected, the dialog says why and offers no close — the agent stays. The close also applies only to the agent that was harvested: if the pane was frozen, restored or restarted while the dialog was open, nothing is closed and you are asked to press `h` again. A live sitrep window is never harvested; `h` on it just offers to close it.
-
-**Close agent** closes only the agent's own pane and its shadow or notes panes. Other panes in the window stay, and a [minimonitor]({{< relref "/docs/tuis/minimonitor" >}}) companion closes itself once it is alone in the window.
-
-While the monitor is open it also collects, every few minutes, any frozen agent whose capture is not in the list yet, so those agents can be dropped. The monitor's title bar shows `sitrep N now` while the list has open **Pick now** items.
+Closing or dismissing the item never deletes the kept output, and nothing deletes it automatically.
 
 ## Where the list lives
 
-The list is stored per repository in `.aitask-sitrep/`, which is git-ignored and never committed. Kept unparsed output lives there too, in `raw/`, with its case records in `cases/`. It is not rebuildable — your dismissals, the agent's derived items and the Q&A log exist nowhere else — so it is written only by one locked writer with a rolling backup. If a file is ever damaged, the sitrep TUI shows a red banner, keeps showing the last good view, and **`R`** restores the file from that backup.
-
-Sitrep's own window is never collected into the list: its screen only shows the list back to you.
+The list belongs to the repository's main working copy; a linked task worktree uses the same list. It stays on this machine and is never committed. It cannot be rebuilt: your dismissals, the agent's derived items and the Q&A log exist nowhere else. If one of its files is damaged, the sitrep TUI shows a red warning naming the file, keeps showing the last good view, and `R` restores the file from its backup. Sitrep's own window is never harvested into the list, because its screen only shows the list back to you. The files and folders are listed under [Where the list is stored]({{< relref "/docs/tuis/sitrep/reference" >}}#where-the-list-is-stored).
 
 ## See also
 
-- [Sitrep TUI]({{< relref "/docs/tuis/sitrep" >}}) — the list view, its keys and its requests to the agent
-- [`/aitask-sitrep`]({{< relref "/docs/skills/aitask-sitrep" >}}) — the skill reference
-- [Freeze and Restore Agents]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}) — freezing finished agents, whose wrap-ups sitrep collects
+- [Sitrep TUI]({{< relref "/docs/tuis/sitrep" >}}): the list view, its keys and its requests to the agent
+- [`/aitask-sitrep`]({{< relref "/docs/skills/aitask-sitrep" >}}): the skill reference
+- [Freeze and Restore Agents]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}): freezing finished agents, whose wrap-ups sitrep harvests
 - [Implementation Trails]({{< relref "/docs/workflows/implementation-trails" >}})

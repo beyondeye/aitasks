@@ -265,7 +265,8 @@ brief: [Implementation trails]({{< relref "/docs/concepts/implementation-trails"
 created and re-authored by the [`/aitask-trail`]({{< relref "/docs/skills/aitask-trail" >}})
 skill — on the board, focus a task
 in a kanban or By-Topic view and press `T` to start one (`T` is hidden in In-Flight
-and in By-Trail itself). The By-Trail view is a **read-only projection** of a stored
+and in By-Trail itself). In By-Topic, `T` starts from the focused lane's topic root
+rather than the focused card. The By-Trail view is a **read-only projection** of a stored
 trail: it never writes the trail itself.
 
 The same view also runs on its own as [`ait trails`]({{< relref "/docs/tuis/trails" >}}),
@@ -279,10 +280,32 @@ selector is the same as in `ait trails`, see
 [In the trail selector]({{< relref "/docs/tuis/trails/reference" >}}#in-the-trail-selector)
 (`Ctrl+R` re-scans only there). Each wave
 becomes a column headed `W1 · <title>`, and each card shows the member's
-classification glyph, its confidence, its task status, and any drift marker.
-`Enter` opens the full narrative for that member. Members that are not live
+classification glyph, its confidence, its task status, and any drift marker; a
+member whose task is done is marked `✔` and struck through. `Enter` opens the full narrative for that member. Members that are not live
 tasks in this repository — cross-repo members, archived tasks, and tasks that
 have gone missing — appear as read-only ghost cards.
+
+**Classification glyphs.** The trail classifies each entry by why it sits where
+it does, and the card shows the classification's glyph:
+
+| Glyph | Classification | Meaning |
+|---|---|---|
+| `◆` | Hard prerequisite | A true blocker: the later work cannot proceed until this lands |
+| `▲` | Preferred predecessor | Not strictly blocking, but markedly cheaper or safer to do first |
+| `●` | Core | The work the trail exists to sequence |
+| `⇄` | Coordination only | No dependency, but it touches a shared surface, so it should not land at the same time |
+| `○` | Optional | Related and worth doing, but the trail does not depend on it |
+
+<!--
+  Drift note for maintainers — this table states two things with two different
+  canonical sources. Update it when either moves:
+    * the five classification names -> the `entry.classification` enum in
+      .aitask-scripts/lib/implementation_trail.schema.json
+    * the glyph mapping (◆ ▲ ● ⇄ ○) -> TRAIL_CLASSIFICATION_GLYPHS in
+      .aitask-scripts/board/board_trail_view.py
+  The schema does NOT define the glyphs; checking it alone will not catch a
+  glyph change.
+-->
 
 **Work in other projects.** A member blocked by a task in another project
 carries a `↗` line and `🌐 blocked (cross-repo)`, and a cross-repo ghost shows
@@ -362,7 +385,9 @@ marker:
 Up to two reasons are shown per card, with `(+N more)` when there are others; the
 complete list is in the detail screen. Common reasons are `status_changed`,
 `task_completed`, `task_archived`, `task_folded`, `task_deleted`,
-`dependency_changed`, `gate_state_changed`, and `plan_changed`. Drift is a signal
+`dependency_changed`, `gate_state_changed`, `plan_changed`, and `new_related_task`
+(a task outside the trail that is in one of the trail's topics, depends on or
+verifies a member, or is a member's risk-mitigation follow-up). Drift is a signal
 that the trail's sequencing advice may be out of date — `R` re-authors it.
 
 ##### Moving a wave into a column

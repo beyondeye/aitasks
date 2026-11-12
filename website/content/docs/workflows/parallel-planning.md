@@ -3,74 +3,52 @@ title: "Parallel Task Planning"
 linkTitle: "Parallel Planning"
 weight: 45
 description: "Front-load complex task design work while other implementations run in parallel"
-depth: [advanced]
+depth: [intermediate]
 ---
 
-When you know a feature is complex enough to need [child task decomposition](../task-decomposition/), you can run just the planning and decomposition phase — without writing any code. This produces a full set of child tasks with ready-to-use implementation plans, and it can safely happen in parallel with any other ongoing work.
+When a feature is complex enough to need [child task decomposition]({{< relref "/docs/workflows/task-decomposition" >}}), you can run only its planning and decomposition, without writing any code. The result is a set of child tasks, each with an implementation plan, and you can produce it while other work is running.
 
-## Why This Is Safe
+## Why this is safe
 
-This workflow is pure design work. No source code is modified — only task definitions and implementation plans are created. That means there's no risk of conflicts with whatever implementation is happening in other terminals or on other machines.
+Planning changes no source code: it writes only task files and plan files, so it cannot conflict with an implementation running in another terminal or on another machine.
 
-And the plans don't go stale. When a child task is later picked for implementation, the existing plan is automatically verified against the current codebase before any code is written. If the code has changed since the plan was created, the plan gets updated first. This double verification — once during decomposition, once at implementation time — means the upfront design work stays reliable even if weeks pass before implementation begins.
+A plan is checked again when its child is picked for implementation, so it can wait. How it is checked depends on the [execution profile]({{< relref "/docs/skills/aitask-pick/execution-profiles" >}}). The `fast` profile verifies a plan against the current code when it has never been verified, and asks you when its last verification is more than 24 hours old. The default profile asks whether to use the plan, verify it or write a new one. With the shipped profiles, the workflow also tells you before implementation starts when the branch you are building on has moved on the remote.
 
-## When to Use This
+## When to use it
 
-- **Complex features you want to think through** — You know the task needs decomposition, but implementation is queued behind other work. Use the waiting time productively by doing the design
-- **Preparing parallel workloads** — Child task decompositions often produce independent subtasks that can be safely executed in parallel. Doing the decomposition upfront means you can hand multiple children to multiple agents simultaneously
-- **Design sessions** — You want to iterate on the architecture with the AI agent (refining child scopes, adjusting dependencies, splitting or merging subtasks) without committing to implementation yet
+- A complex feature waiting its turn. The task needs decomposition, but implementation is queued behind other work, so you do the design while you wait.
+- Preparing parallel work. A decomposition often produces children that do not depend on each other. With their plans written, you can hand several of them to separate agents at once.
+- Design sessions. You want to iterate on child scopes, dependencies and splits with the agent before committing to any implementation.
 
-## How It Works
+## Steps
 
-1. **Create the parent task** — Write the task description covering the full feature scope. End the description with a line like *"this is a complex task that requires decomposition into child tasks"* to signal that decomposition is expected
+1. Create the parent task. Describe the full scope of the feature, and end the description with a line such as *"this is a complex task that requires decomposition into child tasks"*, so the agent expects to decompose it.
+2. Pick it with `/aitask-pick <N>`. During planning, the agent assesses the task's complexity and offers to break it into child tasks.
+3. Refine the decomposition. Review the proposed children and ask for changes to their scopes and dependencies. The agent writes an implementation plan for every child.
+4. Stop after planning. At the checkpoint, choose **Stop here**. The parent goes back to `Ready`, the child tasks and their plans are committed, and no code has changed.
+5. Implement later. Pick each child with `/aitask-pick <parent>_<child>` when you are ready.
 
-2. **Pick the task** — Run `/aitask-pick <N>`. During the planning phase, the agent will assess complexity and offer to break the task into child subtasks
+After the session you have:
 
-3. **Iterate on the decomposition** — This is the interactive part. Review the proposed child tasks, ask for changes, adjust scopes and dependencies. The agent writes detailed implementation plans for every child task during this phase
+- child task files in `aitasks/t<N>/`, each with its context, the files to change and how to verify the result;
+- implementation plans in `aiplans/p<N>/`, written so that an agent with a fresh context can follow them;
+- the parent task, which tracks progress and is archived automatically when its last child is archived.
 
-4. **Stop after planning** — At the checkpoint, select "Stop here." The parent task reverts to Ready status, and all child tasks and their plans are committed. No code has been touched
-
-5. **Implement later** — Pick individual children with `/aitask-pick <parent>_<child>` whenever you're ready. Each child's plan is verified against the current codebase before implementation begins
-
-## What You Get
-
-After the planning session, you have:
-
-- Child task files in `aitasks/t<N>/` — each with full context, key files to modify, and verification steps
-- Implementation plans in `aiplans/p<N>/` — detailed step-by-step plans ready for a fresh agent context to execute
-- A parent task that tracks overall progress and auto-archives when all children complete
-
-The children can then be implemented one at a time or [in parallel using worktrees](../parallel-development/).
+You can implement the children one at a time or [in parallel using worktrees]({{< relref "/docs/workflows/parallel-development" >}}).
 
 ## Deferring a single task's implementation
 
-The same front-loading works for a task that needs no decomposition. Pick it, let
-the agent plan it, and at the checkpoint choose **"Approve and stop here"**: the
-plan is committed, the lock released, and the task returns to `Ready` with no code
-written. Planning is cheap on context, so several tasks can be planned this way
-back to back and implemented later.
+A task that needs no decomposition can be planned ahead the same way. Pick it, let the agent plan it, and at the checkpoint choose **Approve and stop here**. The plan is committed, the task's [lock]({{< relref "/docs/concepts/locks" >}}) is released, and the task returns to `Ready` with no code written. Planning uses little of the agent's context, so you can plan several tasks this way one after another and implement them later.
 
-Such a task carries a marker recording that its plan was approved and its
-implementation deliberately deferred, so it is not confused with one nobody has
-looked at yet:
+The task then carries a marker saying its plan was approved and its implementation deferred, which sets it apart from a task nobody has looked at yet:
 
 ```bash
 ait ls --plan-approved 20      # tasks with an approved plan awaiting implementation
 ait ls -v 20                   # shows "Plan: approved <YYYY-MM-DD HH:MM>" on each
 ```
 
-The board shows the same thing three ways: the task card's status reads `📋 Ready · Planned`, the
-In-Flight view collects these tasks into a **Planned** lane of their own, and the task detail
-dialog carries the approval time as `Plan approved:` under Tracking & provenance. From the Planned
-lane only **p** (pick) applies — direct resume is refused there on purpose, so picking one always
-goes back through the planning checkpoint. See
-[In-Flight Lanes and Workflow Phases]({{< relref "/docs/tuis/board/reference" >}}#in-flight-lanes-and-workflow-phases).
+The board shows the marker in three places: the task card's status reads `📋 Ready · Planned`, the In-Flight view gathers these tasks in a **Planned** lane, and the task detail dialog shows the approval time as `Plan approved:` under Tracking & provenance. In the Planned lane only **p** (pick) works; resuming directly is refused there, so picking the task always goes back through the planning checkpoint. See [In-Flight Lanes and Workflow Phases]({{< relref "/docs/tuis/board/reference" >}}#in-flight-lanes-and-workflow-phases).
 
-Re-pick it with `/aitask-pick <N>` whenever you are ready. The agent tells you an
-approved plan is waiting and offers to use it as-is, so the planning phase is
-skipped. The plan is still checked against the current state of the repository
-first — if the branch you are building on has moved, you are told before any code
-is written, and the marker is dropped so the task stops advertising a plan that
-needs re-verifying.
+Pick it again with `/aitask-pick <N>` when you are ready. The agent tells you an approved plan is waiting, and the profile's plan preference (or your answer, when the profile sets none) decides whether the plan is used as it is, verified first or replaced. With the shipped profiles, before any code is written, the workflow checks whether the branch you are building on has moved on the remote. If you choose to stop there and re-verify the plan, the marker is cleared, so the task no longer shows a plan that needs checking.
 
-When the work spans two registered projects, [Cross-Project Dependencies]({{< relref "/docs/workflows/cross_project_dependencies#planning-paired-work-across-two-repos" >}}) extends this decomposition into a paired plan — one parent per repo, joined by cross-repo dependency edges.
+When the work spans two registered projects, [Cross-Project Dependencies]({{< relref "/docs/workflows/cross_project_dependencies" >}}#planning-paired-work-across-two-repos) extends this decomposition into a paired plan: one parent per repository, joined by cross-repo dependencies.

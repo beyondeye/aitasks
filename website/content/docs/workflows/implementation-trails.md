@@ -6,157 +6,79 @@ description: "Record which tasks should land next, in what waves, and why — as
 depth: [advanced]
 ---
 
-When several tasks are in play at once, the most valuable thing you work out is rarely captured anywhere. The dependency graph records which tasks *cannot* start yet. The board records which tasks you *want* first. Neither records the thing you actually reasoned your way to: **which tasks should land next, in what waves, and why** — that this one is a true blocker, that one is a cheap fix worth doing first, that a third only overlaps on a shared file and needs sequencing rather than waiting, and that a red test suite outside the topic entirely is the real thing standing in the way.
-
-That analysis is expensive to produce and, until now, it lived in terminal scrollback until the window closed.
-
-**An implementation trail makes that answer durable: a versioned artifact holding the recommended landing order together with the reasoning and the evidence behind it, which you can re-open weeks later, refresh when reality moves, and read on the board as wave columns.**
+An implementation trail is a stored, versioned recommendation of which tasks should land next, in what waves, and why. [Implementation trails]({{< relref "/docs/concepts/implementation-trails" >}}) explains why you would keep one.
 
 ## What a Trail Records
 
-A trail is organized into **waves** — ordered groups that land as a unit before the next wave starts. Each wave holds ordered **entries**, each referring to a task, and every entry carries its own rationale, a confidence level, and links to the evidence behind it.
+A trail is organized into **waves**: ordered groups that land as a unit before the next wave starts. Each wave holds ordered **entries**, each referring to a task, and every entry carries its own rationale, a confidence (`high`, `medium` or `low`) and, in a deep trail, links to the evidence behind it.
 
-Each entry is classified by *why it is in that position*:
+Each entry is classified by why it is in that position, as a hard prerequisite, a preferred predecessor, core work, coordination only, or optional; the glyph each one shows on a card, and what it means, are in the [board reference]({{< relref "/docs/tuis/board/reference" >}}#by-trail). Only a hard prerequisite is a reason to wait: a coordination-only entry only has to land at a different time.
 
-| Glyph | Classification | Meaning |
-|---|---|---|
-| `◆` | Hard prerequisite | A true blocker — the later work cannot proceed until this lands |
-| `▲` | Preferred predecessor | Not strictly blocking, but markedly cheaper or safer to do first |
-| `●` | Core | The substance of the trail — the work it exists to sequence |
-| `⇄` | Coordination only | No dependency, but it touches a shared surface, so it should not land concurrently |
-| `○` | Optional | Related and worth doing, but the trail does not depend on it |
+A deep trail also records two things that are not members:
 
-<!--
-  Drift note for maintainers — this page states two things with two different
-  canonical sources. Update it when either moves:
-    * the five classification names -> the `entry.classification` enum in
-      .aitask-scripts/lib/implementation_trail.schema.json
-    * the glyph mapping (◆ ▲ ● ⇄ ○) -> TRAIL_CLASSIFICATION_GLYPHS in
-      .aitask-scripts/board/board_trail_view.py
-  The schema does NOT define the glyphs; checking it alone will not catch a
-  glyph change.
--->
+- **Observations**: evidence-backed facts that shape the ordering without being tasks, such as a failing baseline suite, an in-flight conflict, a task whose premise has gone stale, or a shared file two efforts both edit.
+- **Exclusions**: work named as not blocking, so a later reader does not argue it again.
 
-Distinguishing a hard prerequisite from a coordination-only overlap is most of the value. Both look like "do that one first" on a board, but only one of them is a reason to wait.
-
-Alongside the waves, a trail records two things that are *not* members:
-
-- **Observations** — evidence-backed facts that shape the ordering without being tasks themselves: a failing baseline suite, an in-flight conflict, a task whose premise has gone stale, a shared file two efforts both edit.
-- **Exclusions** — work deliberately named as *not* blocking, so a later reader does not re-litigate it.
-
-Everything the agent asserts is separated from what it observed: observations cite evidence, and recommendations are recorded as recommendations. A trail never invents time estimates, progress percentages, or delivery commitments.
+Each observation cites its evidence. Each of a deep trail's relations between entries is marked either as a fact read from the repository, such as a recorded `depends` edge, or as an advisory recommendation the trail is making. A trail never contains time estimates, progress percentages or delivery commitments.
 
 ## Creating a Trail
 
-**From the board** — focus a task in one of the kanban views or By-Topic, and press **`T`**. In By-Topic this resolves to the focused lane's topic root, so you get a trail for the whole topic rather than the one card. `T` is not available in the In-Flight or By-Trail views; from By-Trail, use **`R`** to re-author the trail you are already looking at.
+1. Start the creation workflow from one of three places:
+   - In the board, focus a task in a kanban view or in By-Topic and press `T`. In By-Topic it starts from the focused lane's topic root instead of the card. `T` is hidden in the In-Flight and By-Trail views; in By-Trail, `R` re-authors the trail you are looking at.
+   - In `ait trails`, focus a live member card and press `T`.
+   - In your coding agent, run the skill:
 
-**From `ait trails`** — focus a live member card and press **`T`** to open the same creation workflow for that task. The trail is written only after you confirm the agent's proposal; afterwards press **`s`**, which re-scans for trails, and select it — it opens in a new tab.
+     ```
+     /aitask-trail                      # asks what the trail should cover
+     /aitask-trail 312                  # a single task, or its topic
+     /aitask-trail --topics 312,408     # spanning several topics
+     ```
+2. Choose the depth. Without a flag the trail is **lite**: waves, entries and the narrative. Add `--deep` (`/aitask-trail 312 --deep`) to also record observations, exclusions, relations between entries and per-entry evidence links. A deep trail takes noticeably longer to analyse, so it suits a trail you plan to keep and refresh. The board's `T` and `R` launch the skill without `--deep`, so they produce a lite trail; run the skill yourself for a deep one.
+3. Review the proposal. The agent reads task and plan state without changing anything and shows you the proposed waves with their reasoning. If it finds a blocker outside the scope you asked for, such as a broken test baseline unrelated to your topic, a deep trail proposes widening the scope and lets you decide; a lite trail names that work in its overview instead. When the scope has no natural owner task, it asks you to choose one; the owner rules are under [Storage]({{< relref "/docs/skills/aitask-trail" >}}#storage).
+4. Confirm. The trail is written once, after your confirmation; nothing is stored before it.
 
-**From your agent** — invoke the skill directly:
-
-```
-/aitask-trail                      # asks what the trail should cover
-/aitask-trail 312                  # a single task, or its topic
-/aitask-trail --topics 312,408     # spanning several topics
-```
-
-The flow is the same either way: the agent gathers task and plan state read-only, analyses it, shows you the proposed waves with their reasoning, and writes **once** after you confirm. Nothing is stored until you approve it, and analysis never modifies a task.
-
-The run ends by printing the trail it wrote — the depth and overview, each wave with its entries in order, the recorded relations, and a pointer to the By-Trail view — so a trail created from your agent can be read without switching to the board.
-
-If the analysis turns up a blocker outside the scope you asked for — the classic case being a broken test baseline that has nothing to do with your topic — it proposes widening the scope and lets you decide. It does not quietly expand on its own.
-
-### Lite and Deep
-
-Trails come at two depths:
-
-```
-/aitask-trail 312            # lite (the default)
-/aitask-trail 312 --deep     # full analysis
-```
-
-**Lite** produces the waves, entries, and narrative — the part you act on. **Deep** adds observations, exclusions, cross-entry relations, and per-entry evidence links. Deep costs meaningfully more analysis time, so it suits a trail you expect to keep and refresh rather than a quick sequencing question.
-
-Omitting the flag always means lite, including when the board re-authors a trail for you. A trail records the depth it was written at, and a trail written before depth was recorded shows no label at all — an unlabelled trail means "depth not recorded", never "deep".
+The run ends by printing the trail it wrote: its depth and overview, each wave with its entries in order, the recorded relations, and the keys that open the By-Trail view. In `ait trails`, press `s` and select the new trail; it opens in a new tab. The [run summary]({{< relref "/docs/skills/aitask-trail" >}}#the-run-summary) lists everything the printout contains.
 
 ## Reading a Trail on the Board
 
-Press **`z`** for the By-Trail view, then **`s`** to choose which trail to show. Exactly one trail is active at a time.
+1. Press `z` for the By-Trail view, then `s` to choose the trail. The view shows one trail at a time. To keep several trails open, one tab each, run [`ait trails`]({{< relref "/docs/tuis/trails" >}}), or press `j` then `i` from any TUI; it opens straight into the trail selector and uses the same keys. Moving tasks into columns (`m`, `M`) and sync (`S`) are only in the board, and the two TUIs keep separate trail selections.
+2. Read the waves. Each wave is a column headed `W1 · …`, with its entries in order. A card shows the classification glyph, the confidence and the task's live status; a member whose task is done is marked `✔` and struck through. Members that are not live local tasks (archived, cross-repo or deleted) appear as read-only ghost cards. For members blocked by work in another project, and for `L`, which jumps to linked trails in other projects, see [Cross-repo dependencies in implementation trails]({{< relref "/docs/workflows/cross_project_dependencies" >}}#cross-repo-dependencies-in-implementation-trails).
+3. Read the summary pane below the columns: the trail's own answer to "what should land next, and why". Press `v` to open it in a scrollable dialog when it is longer than the pane.
+4. Press `Enter` on a card for that member's reasoning: its rationale, its wave, the drift affecting it and, in a deep trail, the evidence behind them. Material about other cards is withheld and shown as a count; press `a` to reveal the whole document and `a` again to go back.
 
-To read a trail without the board, run [`ait trails`]({{< relref "/docs/tuis/trails" >}}) — or press **`j`** then **`i`** from any TUI. It opens straight into the trail selector and shows the same view with the same keys, and it can keep several trails open, one tab each; moving tasks into a column stays in the board — **`M`** moves the whole focused wave, **`m`** only the focused card's task — and so does sync (`S`). The two keep separate trail selections.
-
-Each wave becomes a column headed `W1 · …`, with entries in order. Cards carry the classification glyph, the confidence, and the task's live status — a member that has since been completed shows struck through, so a partially-landed wave is obvious at a glance. Members that are not live local tasks — archived, cross-repo, or since deleted — appear as read-only ghost cards. A cross-repo member shows its live status from its own project, a member blocked by a task in another project is marked `🌐 blocked (cross-repo)`, and **`L`** lists the trails in other projects linked to this one and jumps to the one you choose — see [Cross-repo dependencies in implementation trails]({{< relref "/docs/workflows/cross_project_dependencies" >}}#cross-repo-dependencies-in-implementation-trails).
-
-Below the columns sits the **summary pane**: the trail's prose answer to "what should land next, and why". Press **`v`** to open it full-screen when it outgrows the pane.
-
-Press **`Enter`** on a card for that member's own reasoning. The detail screen leads with the focused entry — its rationale, its wave, the drift affecting it, and the evidence behind both — and withholds the trail-wide material that belongs to *other* cards, summarizing it as a count. Press **`a`** to reveal the whole document and **`a`** again to go back.
+Every key of the view is in the [board reference]({{< relref "/docs/tuis/board/reference" >}}#by-trail).
 
 ## Keeping a Trail Current
 
-A trail is a snapshot of reasoning, so the useful question is whether reality has moved since it was written. The board tells you: a stale trail carries a `⚠ stale` badge naming how many reasons it found. Drift is things like a member being completed, archived, folded or deleted; a status or dependency change; a gate outcome; a plan being rewritten; or a new related task appearing.
+A trail whose evidence has moved shows `⚠ stale` with the number of drift reasons it found. Drift is, for example, a member being completed, archived, folded or deleted, a status or dependency change, a gate outcome, a rewritten plan, or a new related task.
 
-Four keys refresh different things, and they are worth knowing in cost order — reach for the cheapest that answers your question:
+1. When you open an older trail, press `d` first. It re-checks the stored trail against live task state and updates the badge, and it never writes the trail.
+2. If the change was made on another machine, sync first. In the board, `S` runs a full task-data sync, which can pull, push and merge, then redraws. In `ait trails`, run `ait sync` in a shell, then press `r` to re-read the task files, `d` to fetch the trail again and re-check its freshness, and `s` to re-scan the project for trails.
+3. If the drift means the reasoning is out of date, press `R`. An agent re-authors the trail and writes a new version after you confirm; every earlier version stays retrievable. `R` re-authors at the lite depth, so run `/aitask-trail --refresh <handle> --deep` to keep a deep trail deep.
 
-| Key | Cost | What it does |
-|---|---|---|
-| `r` | instant | Re-reads task files from disk and redraws — no subprocess, no agent |
-| `d` | seconds | Re-checks the stored trail against live task state and updates the freshness badge |
-| `S` | slower | Syncs task data with the remote (pull / push / merge), then recomputes — board only; in `ait trails`, sync with `ait sync` and then use `r`, `d`, and `s` |
-| `R` | an agent run | Hands the trail to an agent to be re-authored, producing a new version |
-
-Only **`R`** writes a new trail version — `r` and `d` are read-only projections of what is already stored. **`S`** does not author a trail either, but it is not read-only: it runs a full task-data sync, which can pull, push and merge, exactly as syncing from any other view does.
-
-Refreshing is targeted rather than wholesale: it re-analyses what the named drift reasons actually implicate and produces a new version, and every earlier version remains retrievable.
-
-> **Moving cards around does not stale a trail.** Board column and position are deliberately excluded from the freshness computation, so reorganizing your board — including the wave moves below — never makes a trail look out of date.
+Only `R` writes a new version. Moving cards between board columns never makes a trail stale. What each refresh key reads and costs is in the [board reference]({{< relref "/docs/tuis/board/reference" >}}#by-trail) and in [What each refresh reads]({{< relref "/docs/tuis/trails/reference" >}}#what-each-refresh-reads).
 
 ## Feeding a Work Report
 
-Trails and [work reports](../work-report/) connect through the board column, and nothing else.
+A trail reaches a [work report]({{< relref "/docs/workflows/work-report" >}}) only through the board columns you move its tasks into.
 
-With a wave in view, press **`M`** to move that whole wave's tasks into a board column, in wave order. Press **`m`** to move just the focused card. Then run the work report on that column with **`w`** as you normally would.
+1. In By-Trail, focus a card in the wave and press `M` to move the whole wave's tasks into a column, or `m` to move only the focused card's task. `M` first lists the tasks for review, keeps wave order, and names the members it skips; see [Moving a wave into a column]({{< relref "/docs/tuis/board/reference" >}}#moving-a-wave-into-a-column).
+2. Choose the destination column.
+3. Switch to a kanban view (for example `a` for All), focus that column and press `w` to draft the work report as usual.
 
-This is deliberately a manual bridge. A report contains exactly the tasks you selected, in board order — a trail never adds tasks to a report or reorders one behind your back. Its influence reaches a report only through a move you performed and can see on the board first.
-
-A few details worth knowing about `M`:
-
-- It **always** shows you the task list for review before asking for a destination.
-- It preserves wave order exactly, so a wave moved into an empty column lands in the order the trail recommends.
-- It tells you what it is skipping and names the items — read-only ghost members, and child tasks that move with their parent — rather than reporting a bare count.
-
-Ghost members cannot be moved at all: there is no local task file behind them, and the board says so instead of failing quietly.
+The report contains exactly the tasks in the columns you selected, in board order. A trail never adds tasks to a report or reorders one. You can draft the report again from the column at any time; the trail keeps the reasoning and its history.
 
 ## Where a Trail Is Stored
 
-A trail is one structured document, stored as a [versioned artifact]({{< relref "/docs/concepts/artifacts" >}}) under a handle that **one task owns**: the handle is an entry in that task's `artifacts:` frontmatter (see the [field shape]({{< relref "/docs/development/task-format" >}}#nested-fields-artifacts-and-attachments)). No other task file is written. Which tasks belong to the trail is recorded inside the document, never as a field on the member tasks, so a task can appear in any number of trails without its own file changing.
-
-- **Who owns it.** A trail scoped to one task or one topic is owned by that task or that topic's root. A trail spanning several topics, or an ad-hoc set of tasks, has no natural owner, so `/aitask-trail` asks you to choose one. No extra task is created just to hold a trail.
-- **How it is found.** Trails are found by scanning task frontmatter, active **and archived**. Archiving the owner therefore does not hide a trail: it stays listed and readable, and the trail view notes that its owner is archived. That note is about the owner, not about freshness — a trail goes stale when the tasks it recorded as inputs change, and a chosen owner need not be one of them.
-- **When the owner is folded.** Folding the owner copies its `artifacts:` entry to the primary task, so the trail keeps an owner. Until the folded task's file is deleted when the primary is archived, two task files point at the same trail; it is still listed once, preferring an active, unfolded owner.
-- **One document, several views.** The By-Trail view, `ait trails` and the summary `/aitask-trail` prints are all read from that one document. None of them is stored as a second copy that could disagree with it.
-
-To list, fetch or delete stored versions, see [Storage]({{< relref "/docs/skills/aitask-trail" >}}#storage) on the `/aitask-trail` page.
+A trail is one structured document, stored as a [versioned artifact]({{< relref "/docs/concepts/artifacts" >}}) whose handle is an entry in one owner task's `artifacts:` frontmatter. Membership is recorded inside the document, so a task can appear in any number of trails without its own file changing. Who owns a trail, how trails are found (archived owners included), what folding the owner does, and how to list or delete versions are in [Storage]({{< relref "/docs/skills/aitask-trail" >}}#storage) on the `/aitask-trail` page.
 
 ## What a Trail Never Does
 
-A trail is **advisory by construction**. It records a recommendation; it does not enforce one.
+- It never changes a task's `depends`, `priority`, board position or topic, and it never changes what a work report contains. Turning trail ordering into real dependencies is a decision you make by hand.
+- Gate checks, dependency checks and archival never read a trail, so a trail can never block or unblock a task.
 
-- It never rewrites `depends`, `priority`, board position, or a task's topic. Converting trail ordering into real dependencies stays a decision you make by hand.
-- It never changes what a work report contains.
-- It never fabricates estimates, progress, or commitments.
-- Analysis is read-only and every stored change is a single write you confirmed.
-- Nothing that enforces anything reads it: gate checks, dependency checks and archival never consult a trail, so a trail can never block or unblock a task.
-
-Topic membership and trail membership are separate on purpose: a task belongs to exactly one topic, but it may appear in several trails, and one trail may span several topics. See [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}), and [Where a Trail Is Stored](#where-a-trail-is-stored) for why appearing in a trail never changes a task's file.
-
-## Tips
-
-- **Reach for a trail when the ordering question is expensive, not routine.** A handful of tasks with obvious dependencies does not need one; a dozen tasks across three topics with a shaky baseline underneath is exactly the case it pays for.
-- **Start lite.** Add `--deep` when a trail has earned its keep and you want the evidence trail with it.
-- **Refresh before you trust an old trail.** Press `d` when you re-open one — it is cheap, and a stale badge is more useful than a confident-looking wave that has already half landed.
-- **Let the summary do the talking.** When someone asks what is next, the summary pane is already the answer, written when the reasoning was fresh.
-- **Trails are durable; reports are drafts.** Keep the trail, regenerate the report.
+The full list is in the skill's [Invariants]({{< relref "/docs/skills/aitask-trail" >}}#invariants). A task belongs to exactly one topic, and one trail may span several topics; see [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}).
 
 ---
 
-**Next:** [Work Report](../work-report/) — turn a wave you have moved into a column into a manager-facing summary.
+**Next:** [Work Report]({{< relref "/docs/workflows/work-report" >}}) — turn a wave you have moved into a column into a manager-facing summary.
