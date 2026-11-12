@@ -167,3 +167,101 @@ measured rules (or the unmeasured agent), because its step 5 renders the fake co
   → mitigation: none
 - An agent may not boot (authentication) at measurement time. Step 1 records it as unmeasured and t2275 must
   treat it as unprovable, which the task explicitly allows · severity: low · → mitigation: none
+
+## Measurement (spike, 2026-11-12, tmux 3.8, isolated `-S /tmp/ait_t2280_*/s -f /dev/null` server)
+
+Agents: claude 2.1.322, codex-cli **0.167.2** (it had updated since t2211_4's 0.167.0), opencode 1.18.34.
+One single-pane W x 30 session per agent and width, cwd a neutral `/tmp/ait_t2280_*/proj`, agent env with
+`CLAUDE*` / `AITASK*` / `TMUX*` / `AIT_*` removed (an inherited `CLAUDE_CODE_*` var otherwise added a warning row
+to claude's footer). Text typed with `send-keys -l`; captures `capture-pane -p -e -S -15`; each run after one
+warm-up turn. 80 captures in the first run, 42 more in the second (end-of-text) → 122 in `tests/shadow_recheck_fixtures.py`. No agent unmeasured.
+
+| agent | W | recheck rows (plan/impl/generic) | content width (midtoken rows) | wrap width (edges fit/fit/wrap) | hyphen break | result |
+|---|---|---|---|---|---|---|
+| claude | 60 | 3/3/2 | 56 = W−4 (56,56,56,19) | 56: 55 fit, 56 fit, 57 wrap | never (compound moves whole at 55/56/57) | all match |
+| claude | 44 | 3/3/3 | 40 = W−4 (40,40,40,19) | 40: 39 fit, 40 fit, 41 wrap | never | all match |
+| codex | 60 | 3/3/2 | 57 = W−3 (6,57,57,57,9; token moved to own row first) | 57: 56 fit, 57 fit, 58 wrap | yes: hyphen-ended prefix stays iff ≤ 57 (56, 57 break after `-`; 58 moves) | hyphen_28_56 **failed pre-fix** |
+| codex | 44 | 3/3/3 | 41 = W−3 (6,41,41,41,9) | 41: 40 fit, 41 fit, 42 wrap | yes: ≤ 41 | hyphen_20_40 **failed pre-fix** |
+| opencode | 60 | 3/3/2 | 51 = border−5 = W−9 (6,51,51,51,27) | 50 = cw−1: 49 fit, 50 fit, 51 wrap | yes: prefix ≤ 51 = cw stays (49,50,51 break; 52 moves) | recheck_plan/impl + hyphen_25_49/50 **failed pre-fix** |
+| opencode | 44 | 4/4/3 | 35 = W−9 (6,35,35,35,27) | 34: 33 fit, 34 fit, 35 wrap | yes: ≤ 35 (33,34,35 break; 36 moves) | recheck_plan/impl + hyphen_17_33/34 **failed pre-fix** |
+
+- **All the W-relative width rules hold at 60 and 44** (claude W−4, codex W−3, opencode content = border−5,
+  word wrap at content−1); hard breaks fill exactly the content width; claude breaks a long token in place, codex
+  and opencode move it to its own row first — as at 120. Appended text and the foreign draft are rejected
+  everywhere; post-Enter at +0.5 s reads `working` (claude, codex) or already `ready` (opencode, W=44).
+- **Defect found: hyphen breaks.** codex and opencode also break a line right after a `-` inside a word. The
+  120 set never exercised it (no hyphen landed on a wrap). `payload_matches` read such a break as a hard break,
+  which must fill the content width, so the real PLAN/IMPLEMENT recheck prompt (`re-run`, `plan-challenge`,
+  `sub-procedure`) was **unprovable for opencode at both shadow widths** (rows `…re-run the plan-` /
+  `challenge …` at 60; `…round 1: re-` / `run the plan-challenge review sub-` at 44), and codex only escaped by
+  luck. In opencode the `re-`/`run` break at 44 (32 + `run` 3 = 35 = cw) shows the fragment's trailing space
+  counts, i.e. the same cw−1 threshold as its word wrap.
+- **Corrected rule (shipped, revised in Change Request 1):** `ComposerPayload.hyphen_breaks` (codex, opencode
+  True; claude False). A break is justified iff the piece it moved would not have fit: `row + sep + piece > limit`
+  (sep 1 at a consumed space, 0 after a row ending in `-`). The piece, for a hyphen-breaking agent, is the
+  smallest one it could have kept (`[^\s-]*-|[^\s-]+`: up to the first hyphen); for claude the whole word.
+  The limit follows the piece's ending, all measured: before a space `wrap_width`; ending in a hyphen or ending
+  the text `content_width`. Otherwise the row is judged as a hard break. No leniency remains.
+- **End-of-text (measured in the second run):** `endword_*` / `endhyphen_*` at cw−1, cw, cw+1 for all agents at
+  60/44, plus opencode at 120: a final piece stays on the row up to cw itself (opencode's cw−1 applies only before a
+  space). Codex at exactly cw moves its cursor onto an empty row → `composer_payload` None (unprovable: a typed
+  blank line looks identical) — pinned, not loosened.
+- Scrub: every capture checked for user name, home path, hostname, git name and email local parts — no hit,
+  nothing substituted.
+
+## Final Implementation Notes
+
+- **Actual work done:** spike driver (scratchpad) measured claude/codex/opencode at W=60/44; new
+  `tests/shadow_recheck_fixtures.py` (122 captures after Change Request 1, `UNMEASURED = {}`, `WIDTHS`), new
+  `tests/test_shadow_recheck_composer.py` (17 tests after Change Request 1: coverage, real-prompt pin, proof, rejection, post-Enter,
+  width rules tied to midtoken/edge layouts, hyphen bound from layouts, load-bearing + unjustified-break tests);
+  grammar fix in `review_loop.py` (`ComposerPayload.hyphen_breaks`, set by `_codex_payload` /
+  `_opencode_payload`, grammar comment) and `agent_request_delivery.py` (`_FRAGMENT_RE`,
+  `_moved_piece`, `_hyphen_justified`, `payload_matches` hyphen branch + docstring).
+- **Deviations from plan:** added the `hyphen_<k>_<p>` probes (all agents, both widths, opencode also at cw+1)
+  once the first opencode run failed — needed to pin the break rule per agent before fixing it. The fix had to
+  touch `payload_matches` (agent_request_delivery.py), not only `composer_payload`.
+- **Issues encountered:** agent env inheritance from this session (fixed by filtering the server env); codex
+  updated to 0.167.2 mid-window.
+- **Key decisions:** the moved piece is the smallest one the agent could have kept (conservative: smaller only
+  makes a break harder to justify), and its fit limit follows its ending — every ending measured, none assumed.
+  The codex cursor-row case at exactly W−3 stays unprovable (fail closed) instead of loosening `_codex_payload`,
+  because a typed blank line renders identically.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/agent_request_delivery.py:176 — payload_matches rejected genuine codex/opencode hyphen breaks (fixed here) and accepted typed newlines before a hyphenated compound and after an opencode final word at the content width (fixed here); latent in the t2211_4 sitrep delivery at 120 columns as well`
+  - `.aitask-scripts/monitor/review_loop.py:1145 — _codex_payload is None when the last composer row fills exactly W-3 (cursor wraps to a blank row): such a sitrep request or recheck prompt holds instead of submitting; by design (indistinguishable from a typed blank line), recorded, not fixed`
+- **Negative controls (throwaway, mocks only):** `payload_matches` always-True → 35 red (all appended / draft /
+  post-Enter + perturbations); claude rule W−5 → 26 red (midtoken + edges + rules); no hyphen breaks (pre-fix
+  state) → 10 genuine captures unprovable (opencode recheck_plan/impl ×2 widths + 6 hyphen probes).
+- **Notes for t2275:** fixtures names are stable (`<agent>_w<W>_<variant>`); the minimonitor fake's composer must
+  hyphen-break for codex/opencode; `payload_matches` (which t2275 moves to `agent_submit.py`) now has the hyphen
+  branch and `_FRAGMENT_RE` / `_moved_piece` / `_hyphen_justified` must move with it; a codex composer whose last row fills exactly W−3 is unprovable (cursor row), so its fake must render that case as None.
+- **Verification run:** `tests/test_shadow_recheck_composer.py` 14 OK; `tests/test_sitrep_request_delivery.py` +
+  `tests/test_review_loop.py` 231 OK; `tests/test_sitrep_request_delivery_live.sh` PASS (all mutants red as
+  required). Full suite: 12004 passed, 6 skipped, serial carve-out 15 passed, but `PYTHON SUITE: FAILED`.
+  The only failures (1 collection error + 3 collection-guard assertions) all name `test_aitask_questions_mcp`, a
+  module **another session staged** in the shared tree (`import anyio` — not installed); unrelated to this change.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-12 11:30)
+- **Requested by user:** the hyphen branch compared every moved piece against `wrap_width`, but opencode keeps a
+  hyphen-ended piece up to `content_width`. A typed newline after `a*42-` before `b*7-c*10` (43 + 8 = 51 = cw)
+  was accepted, so Enter could be authorised on changed multiline input. Apply the measured boundary per
+  ending, measure or reject unmeasured endings, add a negative regression.
+- **Verified:** reproduced (True before the fix). The word branch had the same class of false acceptance
+  for hyphen-breaking agents: it measured the whole compound (`\S+`), so a newline before `b*10-c*40` whose
+  first piece fitted was accepted. Also reproduced.
+- **Changes made:** `_moved_piece` (smallest piece + ending-based limit) used by both the word and hyphen branches;
+  the end-of-text ending was measured instead of assumed (second spike run, 42 captures incl. opencode@120);
+  `tests/test_sitrep_request_delivery.py::test_opencode_wraps_one_column_short_of_a_hard_break` corrected. Its
+  synthetic final-word-at-cw "justified" assertion contradicted the measurement (opencode keeps it on the row), so
+  it now asserts the space-followed case (unchanged rule) plus the final-word case at cw (rejected) and cw+1
+  (accepted). New tests: retyped real opencode composer through `composer_payload` (rejected at cw, accepted at
+  cw+1), the compound case, and the `EndOfTextTests` (layouts + `content_width+1` contract perturbation).
+- **Controls:** limit-always-`wrap_width` (the reviewed defect) → 13 red; whole-compound word piece → 3 red;
+  previous controls still red (51 / 34 / 58).
+- **Files affected:** `.aitask-scripts/monitor/agent_request_delivery.py`, `.aitask-scripts/monitor/review_loop.py`
+  (comment), `tests/shadow_recheck_fixtures.py`, `tests/test_shadow_recheck_composer.py` (17 tests),
+  `tests/test_sitrep_request_delivery.py` (one test corrected).
+- **Verification:** the three unit modules 248 OK; live delivery test PASS; pytest collects the new module (17).
