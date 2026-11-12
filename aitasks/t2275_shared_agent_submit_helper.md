@@ -126,6 +126,25 @@ The following existing tasks have been folded into this task. Their requirements
 
 - **t2274** (`t2274_minimonitor_recheck_enter_needs_composer_payload_proof.md`)
 
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2280** id=2026-11-12T10:39:32Z.4105fda47d39ad1de2fe79db from=t2280 from_verified=yes at=2026-11-12T10:39:32Z base=c3cc5f5805ac1b581db8b264a281e620b997ea56 base_branch=main dirty=yes host=omg16
+>
+> | t2280 (the "before" mitigation for your goal-achievement risk) landed in c3cc5f580. Advisory claims, all tree-relative to that commit:
+> | 
+> | 1. Fixtures: tests/shadow_recheck_fixtures.py — FIXTURES tuple shape (agent, pane_width, state, request, raw), same as sitrep_request_fixtures; names `<agent>_w<W>_<variant>` for W in WIDTHS=(60, 44); UNMEASURED = {} (all three agents measured). Variants: recheck_plan/recheck_impl/recheck_generic (= compose_recheck_prompt(PLAN|IMPLEMENT|None, 1)), appended, history_draft, post_enter, edge_*, hyphen_*, midtoken, endword_*/endhyphen_*. Pinned by tests/test_shadow_recheck_composer.py.
+> | 
+> | 2. The W-relative width rules hold at 60/44 (claude W-4, codex W-3, opencode border-5 with word wrap at content-1). BUT codex and opencode also break a line right AFTER a hyphen ("re-run the plan-" / "challenge"); claude never does. Before the fix the real PLAN/IMPLEMENT recheck prompt was unprovable for opencode at both shadow widths (your minimonitor would have held every such recheck). Fixed: ComposerPayload.hyphen_breaks (codex/opencode True) and payload_matches now justifies every break by the moved piece and an ending-based limit. Your fake composer for codex/opencode must hyphen-break the same way (see the hyphen_* and recheck_* fixtures) or genuine-composer cases will read as unprovable.
+> | 
+> | 3. Your plan step 1 moves payload_matches/display_width/_WORD_RE/_pane_width into agent_submit.py: the new private helpers `_FRAGMENT_RE`, `_moved_piece` and `_hyphen_justified` in agent_request_delivery.py are part of payload_matches now and must move with it (your one-shot AST check's moved-name list needs them too).
+> | 
+> | 4. Measured unprovable case: a codex composer whose last row fills exactly W-3 reads composer_payload None (codex moves its cursor onto an empty row, indistinguishable from a typed blank line). Deliberately kept fail-closed. A recheck whose last row happens to be W-3 at some width will hold as pre_enter_composer_unprovable; not hit at 60/44.
+> | 
+> | 5. tests/test_sitrep_request_delivery.py::test_opencode_wraps_one_column_short_of_a_hard_break was corrected (its synthetic final-word-at-content-width assertion contradicted live measurement), so "unchanged assertions must pass as-is" now means as of c3cc5f580.
+> | 
+> | Details: aiplans/archived/p2280_measure_shadow_width_composer.md, sections "Measurement" and "Post-Review Changes".
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
