@@ -134,6 +134,14 @@ turn into lessons. A `main-concept` page of any type still defines each term in
 a clause at first use; `intermediate` and `advanced` pages link to the page that
 defines it, and define it in place only when no page does.
 
+Signs that a how-to has grown into a lesson or a reference page: a walkthrough
+that repeats steps the page already listed (write the steps once, as one
+numbered procedure, and keep the example inside it), several walkthroughs that
+differ only in their example, and a table of config keys, error messages or
+symptoms with their fixes. Each table is reference material for the command's
+reference page; the how-to keeps the few keys and fixes its steps need and links
+to the rest.
+
 ## How a subject spans levels
 
 Give each page type its own page, and let each page set its own `depth`. The TUI
@@ -155,6 +163,11 @@ link it from the pages that lead there. A fact found to be wrong is corrected, o
 note in the review saying why. Moving a fact is the time to check it against the code: a fact
 that sat on a page nobody read closely is often out of date, and copying it
 to its owning page would make it look authoritative.
+
+Before calling a script's output, status line or flag contributor-only, check
+whether a site page tells readers to run that script and whether its `--help`
+documents the output for callers. Either one makes it public architecture: its
+contract goes on an `advanced` reference page, and the how-to links there.
 
 Outside `concepts/`, a short page may end with one section headed "Details",
 written one level above the rest; the page's `depth` is the level of everything
@@ -299,7 +312,9 @@ Sourced from `aidocs/framework/documentation_conventions.md` and
   known-issue sections, and model-self-detection lists.
 - **Generic example project names.** User-facing docs use invented placeholder
   names (frontend / backend / the docs site), never the author's real repos
-  (never "aitasks" / "aitasks_mobile" in examples).
+  (never "aitasks" / "aitasks_mobile" in examples), and never the framework's
+  own scripts or modules as the reader's code (a walkthrough that "fixes a bug
+  in `aitask_ls.sh`").
 - **Never say "sister" repo.** Use "cross-repo" or "linked repo/project", and
   scrub any existing "sister" wording on pages you touch.
 
