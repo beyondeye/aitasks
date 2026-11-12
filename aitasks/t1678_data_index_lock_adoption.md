@@ -144,3 +144,12 @@ design; it is instructed to report rather than edit across the boundary.
 > | - Measured: while an operation is in progress, both ways out act on uncertain entries. Committing a resolved merge commits them, and `merge --abort` removed a new file staged into a stopped merge from both the index and the worktree.
 > | 
 > | Trail: t2277 is related to the art:trail-parallel-git-and-sync implementation trail but is not currently a member. Membership changes are left for a separate trail refresh.
+
+> **✉ note:t1912** id=2026-11-12T17:44:52Z.36fd86d0a7b3c715292afaef from=t1912 at=2026-11-12T17:44:52Z base=86d4f4aba660abfb560be589d704b42b20b9a61f base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t1912 (planned 2026-11-12, children t1912_1..7 not landed yet):
+> | t1912_4 removes the stats writers' (aitask_usage_update.sh / aitask_verified_update.sh)
+> | pre/post task_data_converge and their clone+push into aitask-data; counters move to
+> | the orphan branch aitask-stats written via plumbing only. After t1912_4 lands these
+> | writers never touch the shared .aitask-data index or worktree, so lock adoption
+> | should not spend effort on them. Plan: aiplans/p1912_move_codeagent_stats_to_plumbing_branch.md
