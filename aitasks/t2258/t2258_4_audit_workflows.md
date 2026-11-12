@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2258
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-09 23:09
-updated_at: 2026-11-12 10:05
+updated_at: 2026-11-12 11:37
 ---
 
 ## Context
@@ -81,3 +82,8 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > | The guide now has a detail-placement boundary: behaviour detail on reference/workflow pages, public architecture in development/ at advanced, contributor-only detail in aidocs/. See aiplans/archived/p2258/p2258_3_*.md.
 
 > **👁 note:read** id=2026-11-12T08:05:12Z.3dcad23042908634b265340a by=t2258_4 at=2026-11-12T08:05:12Z mode=explicit ids=2026-11-10T14:18:09Z.ce4b2042150a2b416728cf15,2026-11-12T06:51:10Z.5f4acf693ab7120a7a441386
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-12T09:38:00Z status=pass attempt=1 type=human
