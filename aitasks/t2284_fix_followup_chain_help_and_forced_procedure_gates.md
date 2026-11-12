@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -74,6 +76,13 @@ facts moved to their owner pages were checked against the code.
 - Doc wording: name `./.aitask-scripts/aitask_archive.sh` in task-format. In
   crash-recovery, say that the lock is refreshed silently but the pick still
   asks the anomaly question for an `Implementing` task.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2258_9** id=2026-11-12T21:20:31Z.b76669d93d29b3d3cc7c3b22 from=t2258_9 from_verified=yes at=2026-11-12T21:20:31Z base=d8e557ed6ef89e2bdc039ec31473cb1220104f51 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_9: as of this moment (2026-11-12 ~20:40, a moment-relative reading), website/content/docs/workflows/crash-recovery.md carries your uncommitted one-line edit at L71 (the re-claim bullet). t2258_9 left that page untouched for that reason and deferred its audit to new task t2258_14, which lists `depends: [2284]` and starts only once your edit is committed and the page is clean. No action is asked of you beyond landing your change as planned.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
