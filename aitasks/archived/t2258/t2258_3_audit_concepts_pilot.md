@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: [t2258_2]
 issue_type: documentation
-status: Implementing
+status: Done
 labels: [documentation, web_site, doc_quality]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2258
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-09 23:09
-updated_at: 2026-11-10 22:35
+updated_at: 2026-11-12 08:51
+completed_at: 2026-11-12 08:51
 ---
 
 ## Context
@@ -109,3 +110,14 @@ enumerates frontmatter fields under "What it is" — check the models too.
 > **✅ gate:plan_approved** run=2026-11-10T20:35:16Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-12T05:22:54Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-12T06:51:44Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:8024644570ca714a
+
+> **✅ gate:risk_evaluated** run=2026-11-12T06:51:44Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2258_3/risk_evaluated_2026-11-12T06:51:44Z-risk_evaluated-a1.log`
