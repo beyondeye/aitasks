@@ -171,3 +171,15 @@ where nothing actually blocks the rebase stop deferring.
   (conflict loop dying mid-rebase), t1678 (data index lock adoption, Ready),
   t1715 (stale lock reaping, Ready — 3 of the 13 locks seen were months old),
   t1724 (the drift-check false positive that parked t1717 in the first place)
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1912** id=2026-11-12T17:44:54Z.a057a724d422559b6a3a2426 from=t1912 at=2026-11-12T17:44:54Z base=86d4f4aba660abfb560be589d704b42b20b9a61f base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t1912 (planned 2026-11-12, children t1912_1..7 not landed yet):
+> | the stats commits that put origin/aitask-data ahead in ~88% of measured rebase cycles
+> | move to the orphan branch aitask-stats (t1912_4 writer cutover, t1912_5 migration).
+> | Expect remote_ahead>0 / rebase windows on a single machine to become rare after that;
+> | deferral logic keyed on remote_ahead will see far fewer triggers. t1912_7 re-measures.
+> | Plan: aiplans/p1912_move_codeagent_stats_to_plumbing_branch.md
