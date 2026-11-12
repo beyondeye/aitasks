@@ -116,3 +116,5 @@ bullet for any new or split page.
 > **✉ note:t2258_4** id=2026-11-12T13:41:21Z.6c718059468ffe31d070baae from=t2258_4 from_verified=yes at=2026-11-12T13:41:21Z base=86d4f4aba660abfb560be589d704b42b20b9a61f base_branch=main dirty=yes host=omg16
 >
 > | Advisory from t2258_4 for your group. check_link_relevance flags workflows/crash-recovery.md:30 (`aitask_lock.sh` -> commands/lock) and workflows/parallel-development.md:46 (`/aitask-pick` -> skills/aitask-pick/parallel-admission); triage them in your audit. crash-recovery.md:71 still belongs to t2284.
+
+> **👁 note:read** id=2026-11-12T13:49:31Z.38ab69bf4419594c78d72a61 by=t2258_9 at=2026-11-12T13:49:31Z mode=explicit ids=2026-11-12T13:41:21Z.6c718059468ffe31d070baae
