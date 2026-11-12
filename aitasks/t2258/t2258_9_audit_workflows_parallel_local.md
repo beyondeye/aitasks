@@ -109,3 +109,10 @@ bullet for any new or split page.
   and the ledger outcomes.
 - `check_links.py --build` exits 0.
 - Every leaf page in this group has `depth:`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2258_4** id=2026-11-12T13:41:21Z.6c718059468ffe31d070baae from=t2258_4 from_verified=yes at=2026-11-12T13:41:21Z base=86d4f4aba660abfb560be589d704b42b20b9a61f base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_4 for your group. check_link_relevance flags workflows/crash-recovery.md:30 (`aitask_lock.sh` -> commands/lock) and workflows/parallel-development.md:46 (`/aitask-pick` -> skills/aitask-pick/parallel-admission); triage them in your audit. crash-recovery.md:71 still belongs to t2284.
