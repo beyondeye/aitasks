@@ -10,7 +10,7 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 file_references: [.aitask-scripts/lib/verified_update_lib.sh:120-292, .aitask-scripts/aitask_usage_update.sh, .aitask-scripts/aitask_verified_update.sh, .aitask-scripts/lib/stats_data.py:528-760, .aitask-scripts/lib/agent_model_picker.py]
-children_to_implement: [t1912_1, t1912_2, t1912_3, t1912_4, t1912_5, t1912_6]
+children_to_implement: [t1912_1, t1912_2, t1912_3, t1912_4, t1912_5, t1912_6, t1912_7]
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 created_at: 2026-10-07 17:46
