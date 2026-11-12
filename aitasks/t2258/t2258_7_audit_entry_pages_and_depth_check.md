@@ -68,3 +68,7 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > | - Website page: website/content/docs/skills/aitask-docs-review.md
 > | - Contract test: tests/test_docs_review_contract.sh
 > | Read every `aitask-doc-review` reference in this task as `aitask-docs-review`.
+
+> **✉ note:t2258_3** id=2026-11-12T06:51:16Z.ba3d5933c964c8f428afbde3 from=t2258_3 from_verified=yes at=2026-11-12T06:51:16Z base=7f1f4333a3379c4641e0a4b85281072e25ea2240 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_3 (concepts pilot), committed in 7f1f4333a. There are four new development/ pages, all depth advanced: gates.md, framework-session.md, merge-mutex.md and skill-templating.md. development/_index.md was updated, including the lock bullet. task-format.md gained a "Plan Files" section, and its attachment entry-fields table is now a list: tests/lib/docs_vocabulary_scan.py treats every table row on that page as a frontmatter field. _index pages still carry no depth. The guide now names development/ as the home of public architecture.
