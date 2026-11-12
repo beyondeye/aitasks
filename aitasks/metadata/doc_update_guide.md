@@ -140,7 +140,10 @@ numbered procedure, and keep the example inside it), several walkthroughs that
 differ only in their example, and a table of config keys, error messages or
 symptoms with their fixes. Each table is reference material for the command's
 reference page; the how-to keeps the few keys and fixes its steps need and links
-to the rest.
+to the rest. Two more signs: an opening that argues again for the feature
+when its concept page already says why it exists (link to the concept page and
+start with the goal), and a table of keys, shortcodes or refresh costs that a
+TUI or skill reference page already lists (keep the one or two the steps use).
 
 ## How a subject spans levels
 
