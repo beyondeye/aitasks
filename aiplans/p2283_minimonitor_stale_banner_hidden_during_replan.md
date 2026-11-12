@@ -258,3 +258,30 @@ through the standard workflow.
 - A non-recording profile never ledger-retires, so the warning stays up until a
   screen phase or a new round appears · severity: low. This is the documented,
   intended fail-toward-showing direction · → mitigation: none
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned.
+  - `monitor_core.py`: `_ledger_content_identity()` is a SHA-256 over each gate-run block's `raw_marker` and `raw_body_lines`. `GateSummaryCache` now caches it as a 5th element in the same mtime-gated entry and exposes it as `ledger_identity_for(info)`. `None` covers no info, no path, a stat miss, and an exception.
+  - `minimonitor_app.py`: added the `_LIVE_PHASE_SOURCES` allow-list, the 4-tuple binding, `_task_info_for_pane`, `_phase_evidence_for_pane` (early `(None, None)` for an unresolved task), and the two-branch `_feedback_phase_retired`.
+  - `tests/test_minimonitor_concern_action.py`: the fixture gained `app._source` (default `workflow-prompt`) and `app._ledger` cells, plus 9 new t2283 tests and a verbatim pre-fix predicate used as the negative control.
+  - `tests/test_monitor_gate_cache.py`: the shared setUp moved into a `_GateCacheFixture` base, and `LedgerIdentityTest` adds 6 tests.
+  - `aidocs/framework/shadow_agent.md`: documents the two-branch predicate and the rationale.
+- **Deviations from plan:** One addition: the plan-review concern about an unresolved task. `GateSummaryCache.phase_for(None, …)` still composes the live tiers and returns PLAN/`native-prompt` from a native plan-approval dialog. `_phase_evidence_for_pane` therefore returns before composing, and `test_an_unresolved_task_never_retires_even_on_a_live_phase` pins this with fake caches and with the real cache plus real `compose`.
+- **Issues encountered:**
+  - With the old fixture (signals defaulting to source `none`), 6 existing t1573 tests failed after the predicate change. This was expected: `none` now needs ledger evidence. Defaulting the fixture source to a live one restored their original meaning.
+  - In the gate-cache parse-failure test, patching `gate_ledger.parse_gate_run_blocks` also broke the unguarded phase derivation. The test now patches `monitor_core._ledger_content_identity` instead.
+- **Key decisions:**
+  - Live sources are an allow-list, so an unrecognised source fails toward showing the warning.
+  - An empty ledger has a real identity, not `None`, so a first-round approval (AC3) still retires the warning.
+  - The identity comes from `info.body`, the same source as the ledger phase.
+- **Verification:**
+  - **Neighbouring suites:** 453 passed.
+  - **Baseline red proof** (detached scratch worktree at HEAD, with the tuple-shape precondition removed):
+    - Fails on the defect assertion: AC1 ("a ledger state that predates the feedback retired it").
+    - Also fail at baseline (old rule retires on an unchanged ledger): re-approval, ledger-origin, underivable and unattributed.
+    - Pass at baseline, as regression guards: first-round, review-approval, the unresolved-task test, and the negative control.
+  - **Mutant without the unresolved-task early return:** all 3 subtests fail.
+  - **Full suite:** 11998 passed, 4 failed and 1 collection error, none caused by this change.
+    - `test_aitask_questions_mcp.py` is another session's staged file and needs `anyio`, which is not installed. It causes the collection error and the `test_no_zero_collection` ×2 and `test_collection_parity` failures.
+    - `test_board_movement`'s benchmark failed under suite load and passes alone.
+- **Upstream defects identified:** None
