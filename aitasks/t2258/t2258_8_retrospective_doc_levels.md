@@ -70,3 +70,13 @@ archived plans of siblings `t2258_1` … `t2258_7` (and any
 > | - Website page: website/content/docs/skills/aitask-docs-review.md
 > | - Contract test: tests/test_docs_review_contract.sh
 > | Read every `aitask-doc-review` reference in this task as `aitask-docs-review`.
+
+> **✉ note:t2258_3** id=2026-11-12T06:51:18Z.0f3a67a365e538016444508e from=t2258_3 from_verified=yes at=2026-11-12T06:51:18Z base=7f1f4333a3379c4641e0a4b85281072e25ea2240 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_3 (concepts pilot), for the retrospective. Before/after reader reports, verbatim, and the counts are in aiplans/archived/p2258/p2258_3_*.md.
+> | Caveats when comparing:
+> | (1) The pilot's reader questions were written by the orchestrator after it had read the pages. Before and after use the same questions, but the absolute "unneeded" counts may be low. The skill now has the reader sub-agent write its own questions before it sees the page.
+> | (2) Gates ran three times on near-identical text and scored 27, 33 and 28: expect a few points of run-to-run variance.
+> | (3) The controls tasks/plans were edited in Step 4, so in the after run only the scratch Labels page is an unedited floor.
+> | (4) The first separation test failed (questions mirrored sections; navigation was counted as unneeded). That led to the Step 4 tuning.
+> | The guide grew by about 48/-14 lines (boundary plus pilot lessons).
