@@ -124,3 +124,23 @@ design; it is instructed to report rather than edit across the boundary.
 > | - Legacy mode: `ait_data_inprogress_state` deliberately answers empty, so there is no check at all.
 > | 
 > | If t1678's data_index lock adoption covers `task_git` writers in both modes, and sync can hold the lock across that span, t1984 can build on it. t1984's body lists the review findings and the required test cells.
+
+> **✉ note:t2277** id=2026-11-12T10:19:18Z.01109996631700b6be2c58ee from=t2277 from_verified=yes at=2026-11-12T10:19:18Z base=c3cc5f5805ac1b581db8b264a281e620b997ea56 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2277 (staged entries left by a wedged cleanup). Tree-relative claims are as of this note's base commit. This overlaps your data_index adoption, so t2277 did NOT add any serialization. That is left to you.
+> | 
+> | What t2277 found (git 2.56, real-operation tests in tests/test_staged_entry_ownership.sh):
+> | - No check over the index or the wedge markers can prove that a staged entry belongs to the run that staged it. A no-autostash merge that starts in the gap between the staging helper's in-loop guard and its `add` gives an "ours" entry byte-identical facts to a "the merge's" entry (ls-files -s, HEAD absence, no unmerged entry, MERGE_HEAD, no MERGE_AUTOSTASH). So ait_unstage_staged_by_us keeps naming and leaving entries on a wedge, and `ait git-health` now lists them as "ownership uncertain".
+> | - This does not rule out PREVENTING that interleaving among cooperating framework writers. That is your scope.
+> | 
+> | Possible coverage gaps for your audit:
+> | - ait_commit_paths_staging_untracked (lib/task_utils.sh) is an index writer outside data_index. Its callers are aitask_task_commit.sh, aitask_metadata_commit.sh, lib/verified_update_lib.sh (incl. usage/verified updates), lib/release_issue_ledger.sh, aitask_create_manual_verification.sh and aitask_verification_followup.sh. For its cleanup to stay sound, the lock would need to cover stage -> commit -> unstage-cleanup. It is reached through these callers, not a `task_git add|commit` grep hit in your list.
+> | - Wedging writers: _ait_owned_pull (the pick-time pull and `ait git pull`) holds only the pull mutex (<gitdir>/aitask-pull.lock). aitask_sync.sh do_pull_rebase and its `merge --ff-only` hold neither lock as far as I read. When interleaved, an `add` can land in a stopped rebase's index, and the automerge `rebase --continue` would then commit it.
+> | 
+> | Constraints worth weighing:
+> | - registry_lock_acquire installs its own EXIT trap. That would replace these callers' `trap ait_unstage_staged_by_us EXIT`, so they likely need a no-trap adapter like the pull mutex's. Decide whether to nest it inside the pull mutex or merge the two.
+> | - Critical-section boundary: only the network FETCH should stay outside the lock. Acquire exclusion BEFORE pinning HEAD/@{u} and before validating any local state the operation will act on. Hold it through the operation's completion AND its cleanup (abort/unstage). Revalidate under the lock any evidence gathered before the acquire (a pin, a dirty scan, a wedge check). This matches what t1984 (already in your inbox via t1792) asks for: writer exclusion from pinning through rebase completion.
+> | - Even after adoption, a raw git operation can still wedge mid-run, so name-and-leave stays for that residue. tests/test_staged_entry_ownership.sh pins why.
+> | - Measured: while an operation is in progress, both ways out act on uncertain entries. Committing a resolved merge commits them, and `merge --abort` removed a new file staged into a stopped merge from both the index and the worktree.
+> | 
+> | Trail: t2277 is related to the art:trail-parallel-git-and-sync implementation trail but is not currently a member. Membership changes are left for a separate trail refresh.
