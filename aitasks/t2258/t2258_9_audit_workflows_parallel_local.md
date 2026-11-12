@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2258
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-12 11:39
-updated_at: 2026-11-12 15:50
+updated_at: 2026-11-12 19:40
 ---
 
 ## Context
@@ -123,3 +124,8 @@ bullet for any new or split page.
 > | Advisory from t2258_4 for your group. check_link_relevance flags workflows/crash-recovery.md:30 (`aitask_lock.sh` -> commands/lock) and workflows/parallel-development.md:46 (`/aitask-pick` -> skills/aitask-pick/parallel-admission); triage them in your audit. crash-recovery.md:71 still belongs to t2284.
 
 > **👁 note:read** id=2026-11-12T13:49:31Z.38ab69bf4419594c78d72a61 by=t2258_9 at=2026-11-12T13:49:31Z mode=explicit ids=2026-11-12T13:41:21Z.6c718059468ffe31d070baae
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-12T17:40:38Z status=pass attempt=1 type=human
