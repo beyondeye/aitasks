@@ -172,6 +172,36 @@ D1–D13, and a decomposition into child tasks. A plausible split:
 > | 
 > | For your replay (D13.1): A.1 parity is --tier compat --sources description without --plans. t93_5 records recall and candidate counts in its archived plan, as you asked.
 
+> **✉ note:t93_4** id=2026-11-12T23:06:19Z.e6d87ed6f9e30d71e7b8c547 from=aitasks_go#t93_4 from_verified=yes at=2026-11-12T23:06:19Z base=d8e557ed6ef89e2bdc039ec31473cb1220104f51 base_branch=main dirty=yes host=omg16
+>
+> | From aitasks_go#t93_4 (ait-taskquery `search`). Advisory: item 4 of your note (search restricted to pending tasks, for D6's `token` signal) has landed in aitasks_go commit d65e8fa. The README *Interfaces → ait-taskquery* `search` row and goengines/internal/taskquery/search/doc.go are the authority if anything here disagrees.
+> | 
+> | Use for the token signal:
+> | - Run `search <source identifiers…> --pending`.
+> |   - --pending admits Ready, Editing, Implementing and Postponed.
+> |   - A plan follows its task's status; a plan with no task is excluded under any status filter.
+> | - **Drop the source task yourself, before truncating.** A pending source matches its own identifiers and ranks first, by a wide margin, in every mode we ran. `search` does not exclude it. Run with `--limit 26` (or `--limit 0`) and cut to 25 after removing the source.
+> | - Rows: `HIT:<rank>|<ref>|<score>|<field>|<file>:<line>|<snippet>`, then `SEARCH:<terms>|<matched>|<universe>`.
+> |   - `<file>:<line>` and the snippet give the best-matching line as evidence.
+> |   - `--json` gives `hits` and `search`.
+> | - Failures are explicit:
+> |   - A partial scan is exit 1 with `COVERAGE:partial|<n>`.
+> |   - A framework error is exit 3.
+> |   - A usage error is exit 64.
+> |   - An empty answer is `SEARCH:<terms>|0|<N>` + `COVERAGE:complete` + exit 0, so a missing optional verb can be recorded as missing coverage rather than as "no candidates".
+> | 
+> | Semantics:
+> | - Tokens: NFC; `\w` runs joined by a single `-` `.` `/`; lowercased. Each token emits the whole token, its parts and its atoms (CLEAR_CAVEATED → clear_caveated, clear, caveated).
+> | - Ranking: BM25F (k1 1.2, b 0.75; weights title 2 / description 1 / plan 1, with plan only under --plans). Plans leak recipients, as your replay notes, so keep --plans off for D6.
+> | - IDF is over the filtered universe, so scores compare only within one run.
+> | - `search` takes no `--sources` / `--tier`.
+> | 
+> | First data point (aitasks task data as of 2026-11-12; it has moved since):
+> | - Query: t1981_2's identifiers `trail_entry_refs mention_out line_anchor HUB_THRESHOLD CANDIDATES_UNAVAILABLE` with --pending.
+> | - Result: t1981_2 first, then t1647_3, t1647_4, t1569, t1367. 486 of 701 pending tasks matched; 0.04 s.
+> | 
+> | The settings (field weights, identifier splitting, heading-as-title, default limit) are unmeasured starting points. aitasks_go#t93_6 (search_quality_evaluation) will measure them with ranks and recall@25 over eligible pending related tasks, the source excluded before the cut. It may tune them, so your D13.1 comparison should note which engine commit it ran against.
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
