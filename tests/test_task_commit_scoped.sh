@@ -480,8 +480,10 @@ assert_eq "Test 9d: no capture file left behind" "" "$(capture_files "$T9D")"
 # The staged entry is deliberately PRESERVED, not unstaged: while an operation is
 # in progress no index state proves the entry is ours (a new file the incoming
 # side of a stopped merge adds with identical content is indistinguishable), so
-# ait_unstage_staged_by_us names it on stderr instead of resetting it. When
-# t2277 lands a safe unwind, the "preserved" assertion is the one to flip.
+# ait_unstage_staged_by_us names it on stderr instead of resetting it. That is
+# the intended behaviour, not a placeholder: tests/test_staged_entry_ownership.sh
+# drives real operations to show why (t2277), and preventing the interleaving
+# among the framework's own writers is t1678's serialization.
 echo "--- Test 9e: wedge after one path was staged ---"
 T9E="$(tc_repo)"
 dirty_staged_bystander "$T9E"

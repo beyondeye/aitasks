@@ -595,9 +595,12 @@ fi
 # The wedge lands AFTER the helper staged the new `.rec` path, so the scoped
 # commit's guard dies with it in the shared index. On a wedged worktree the
 # cleanup cannot prove the entry is still ours (the in-progress operation may own
-# it), so it leaves it and names it on stderr (safe unwind: t2277). _ril_record_cleanup runs that
-# cleanup in a nested subshell for lock-release isolation; the warning must
-# survive that wrapper, which used to discard both streams.
+# it), so it leaves it and names it on stderr. The preservation is deliberate:
+# tests/test_staged_entry_ownership.sh shows with real operations why no check
+# can prove such an entry ours (t2277), and preventing the interleaving is
+# t1678's serialization. _ril_record_cleanup runs that cleanup in a nested
+# subshell for lock-release isolation; the warning must survive that wrapper,
+# which used to discard both streams.
 U13="https://github.com/o/r/issues/13"
 ifx_task "$BR" 13 "$U13"
 git -C "$BR/.aitask-data" add -A

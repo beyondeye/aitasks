@@ -416,8 +416,34 @@ operations stuck:
 - A detached HEAD on the worktree.
 - An in-progress `rebase`, `merge`, `cherry-pick`, `revert`, or `bisect`, with a
   recovery hint (`./ait git <op> --abort` or `--continue`).
+- Entries staged in the worktree's index, listed with their status (the first
+  20, then a count of the rest).
 
-A clean worktree reports no in-progress operations. Reach for `git-health` when
+### Staged entries of uncertain ownership
+
+Every session on the machine shares the `.aitask-data` index, so `git-health`
+cannot tell whose a staged entry is. It may belong to a commit another session
+is making right now, to an in-progress git operation, or to a run that stopped
+part-way. A run that stops while the worktree is mid-operation leaves the paths
+it staged in place and names them on stderr, because it cannot prove they are
+its own. The check only reports these entries. It never unstages anything.
+
+Before changing any of them:
+
+1. Inspect each one with `./ait git diff --cached -- <path>`, then run
+   `ait git-health` again a moment later. An entry another session was
+   committing will be gone by then.
+2. If an operation is in progress, check with whoever started it before you
+   continue **or** abort it. Both act on these entries. Continuing (with
+   `--continue`, or by committing a resolved merge) commits every staged entry
+   along with the operation. Aborting can discard them: `merge --abort` removes
+   a new file staged into a stopped merge from both the index and the
+   worktree. Copy aside any file you want to keep first.
+3. Unstage an entry only once no operation is in progress and you have
+   confirmed it is yours: `./ait git reset -q -- <path>`. This keeps the file
+   in the worktree.
+
+A clean worktree reports no in-progress operations and nothing staged. Reach for `git-health` when
 a fresh clone or a moved checkout looks like it is missing tasks — see the
 [installation troubleshooting notes]({{< relref "/docs/installation#what-gets-installed" >}})
 and the [Repository Maintenance]({{< relref "/docs/workflows/repo-maintenance" >}})

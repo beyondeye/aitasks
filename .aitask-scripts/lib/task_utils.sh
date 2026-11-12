@@ -552,9 +552,60 @@ task_git_health() {
     if (( ${#hits[@]} > 0 )); then
         warn "In-progress operations: ${hits[*]}"
         info "Recover with: ./ait git <rebase|merge|cherry-pick|revert> --abort  (or --continue)"
-    elif [[ "$branch" != "HEAD" ]]; then
-        success "Clean — no in-progress rebase/merge/cherry-pick/revert/bisect."
     fi
+
+    local staged_rc=0
+    _ait_git_health_staged ${hits[@]+"${hits[@]}"} || staged_rc=$?
+    if (( ${#hits[@]} == 0 )) && [[ "$branch" != "HEAD" ]] && (( staged_rc == 0 )); then
+        success "Clean — no in-progress rebase/merge/cherry-pick/revert/bisect, and nothing staged."
+    fi
+    return 0
+}
+
+# _ait_git_health_staged [<in-progress state>...] — the git-health report of
+# entries staged in the SHARED .aitask-data index. Returns 0 = verified nothing
+# staged, 1 = entries listed, 2 = the index could not be read (an unknown, never
+# an all-clear). Prints nothing on 0.
+#
+# It reports, it never acts: no entry is unstaged here, and no guard bypass is
+# suggested. Ownership is genuinely undecidable from the index — every session
+# on the machine shares it, and t2277 measured (tests/test_staged_entry_ownership.sh)
+# that an entry a run staged and an entry an in-progress merge brought in can be
+# byte-identical in every index fact. So the wording is "ownership uncertain",
+# never "abandoned" or "ownerless". While an operation is in progress the
+# recovery itself acts on these entries: continuing commits them, and aborting
+# can discard them (merge --abort removes a new file staged into a stopped merge
+# from the index AND the worktree) — hence inspect and coordinate first.
+_AIT_GIT_HEALTH_STAGED_CAP=20
+_ait_git_health_staged() {
+    local out="" rc=0
+    # core.quotePath=true: an unusual path comes back C-quoted, safe to print.
+    out="$(git -C .aitask-data -c core.quotePath=true diff --cached --name-status --no-renames 2>/dev/null)" || rc=$?
+    if (( rc != 0 )); then
+        warn "Staged entries: could not read the index (git diff --cached exited $rc) — unknown, not none."
+        return 2
+    fi
+    [[ -z "$out" ]] && return 0
+
+    local -a staged_lines=()
+    local line
+    while IFS= read -r line; do staged_lines+=("$line"); done <<<"$out"
+    local n=${#staged_lines[@]} i
+    warn "Staged entries in the shared .aitask-data index — ownership uncertain ($n):"
+    for (( i = 0; i < n && i < _AIT_GIT_HEALTH_STAGED_CAP; i++ )); do
+        # printf, never echo -e: a C-quoted path carries backslash escapes.
+        printf '    %s\n' "${staged_lines[i]}" >&2
+    done
+    if (( n > _AIT_GIT_HEALTH_STAGED_CAP )); then
+        printf '    … and %d more\n' "$(( n - _AIT_GIT_HEALTH_STAGED_CAP ))" >&2
+    fi
+    info "  Every session on this machine shares this index. An entry may belong to a commit another session is making right now, to an in-progress git operation, or to a run whose cleanup left it in place and named it on stderr. This check cannot tell which."
+    if (( $# > 0 )); then
+        info "  An operation is in progress ($*), and these entries are in its index. Before you continue OR abort it, inspect them (./ait git diff --cached --name-status) and check with whoever started the operation and with any session committing these paths. Continuing (--continue, or committing a resolved merge) commits every staged entry, including ones that are not the operation's. Aborting can discard them: a new file staged into a stopped merge is removed from the index AND the worktree by merge --abort. Copy aside any uncertain new file you want to keep before either step."
+    fi
+    info "  Inspect before changing anything: ./ait git diff --cached -- <path>. Re-run ./ait git-health in a moment: an entry another session was committing will be gone."
+    info "  Unstage only an entry you have confirmed is yours and unwanted, and only with no operation in progress: ./ait git reset -q -- <path>  (the file in the worktree is kept)."
+    return 1
 }
 
 # Run git commands targeting the task data worktree
@@ -1060,9 +1111,13 @@ AIT_STAGE_UNTRACKED_ERRF=""
 # stopped `git merge` adds with identical content is stage 0, absent from HEAD,
 # not unmerged and has the same blob id, yet resetting it drops it from the
 # pending merge. No index state proves ownership, so the entries are left alone
-# and NAMED on stderr instead of vanishing silently (t2271; a safe unwind needs
-# ownership or serialization evidence — t2277). An explicit
-# AIT_GIT_SKIP_STATE_CHECK=1 keeps its existing meaning: the reset runs.
+# and NAMED on stderr instead of vanishing silently (t2271). No check over the
+# index or the wedge markers separates "ours" from "the operation's" — t2277
+# measured an ours/not-ours pair with byte-identical index facts
+# (tests/test_staged_entry_ownership.sh). Preventing the interleaving among
+# cooperating framework writers is t1678's data_index lock adoption; what is
+# left is listed by `ait git-health`. An explicit AIT_GIT_SKIP_STATE_CHECK=1
+# keeps its existing meaning: the reset runs.
 ait_unstage_staged_by_us() {
     if [[ -n "${AIT_STAGE_UNTRACKED_ERRF:-}" ]]; then
         rm -f -- "$AIT_STAGE_UNTRACKED_ERRF"
@@ -1075,7 +1130,7 @@ ait_unstage_staged_by_us() {
     fi
     if [[ -n "$wedge" ]]; then
         warn "Data worktree (.aitask-data) is mid-${wedge}: these paths this run staged were LEFT in the shared index, because the in-progress operation may own their entries: ${AIT_STAGED_BY_US[*]}
-Once the operation is resolved, check './ait git status' and unstage any that are still yours with: ./ait git reset -q -- <path>..."
+Before you continue or abort that operation, inspect the staged entries (./ait git-health lists them) and check with its owner: continuing commits these paths with the operation, and aborting can discard them from the index and the worktree. Copy aside any you want to keep first. Unstage one only after the operation is finished and you have confirmed it is yours: ./ait git reset -q -- <path>"
         AIT_STAGED_BY_US=()
         return 0
     fi
