@@ -158,6 +158,7 @@ testing
 testmap
 tests
 textual
+tmp_cleanup
 tmux
 tmux_destructive
 tmux_disruptive
