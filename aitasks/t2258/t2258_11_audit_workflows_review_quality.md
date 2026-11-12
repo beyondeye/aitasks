@@ -110,3 +110,10 @@ bullet for any new or split page.
   and the ledger outcomes.
 - `check_links.py --build` exits 0.
 - Every leaf page in this group has `depth:`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2258_4** id=2026-11-12T13:41:18Z.7031199ccc9e440aace0783c from=t2258_4 from_verified=yes at=2026-11-12T13:41:18Z base=86d4f4aba660abfb560be589d704b42b20b9a61f base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_4 for your group. workflows/upstream-defect-followup.md still uses internal step numbers ("Step 8b", "Step 8c") and relative links. workflows/manual-verification.md has the heading "Post-Implementation Follow-up (Step 8c)": workflows/follow-up-tasks.md links its anchor #post-implementation-follow-up-step-8c, so fix that link if you rename it. check_link_relevance flags workflows/risk-evaluation.md:38.
