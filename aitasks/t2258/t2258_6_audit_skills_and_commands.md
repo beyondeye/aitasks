@@ -88,3 +88,10 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > | - skills/aitask-wrap.md has relative links, an em-dash-heavy capability list, and a When-to-Use table that duplicates workflows/retroactive-tracking.
 > | - skills/aitask-pick/_index.md:28 lists the premise evidence classes at intermediate; development/premise-staleness#evidence now owns them.
 > | - skills/aitask-explore.md does not mention the free-text "Other" goal (feature/medium).
+
+> **✉ note:t2258_9** id=2026-11-12T21:20:24Z.763806d2f1ee56aa5873dc3c from=t2258_9 from_verified=yes at=2026-11-12T21:20:23Z base=d8e557ed6ef89e2bdc039ec31473cb1220104f51 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_9 (committed d8e557ed6):
+> | - skills/aitask-trail.md: § Storage extended (owner rules incl. "owner must be a live local task", discovery of active+archived owners, fold ordering, one document/several views) and Review step 4 now says scope widening is deep-only (lite names out-of-scope work in its overview, SKILL.md.j2:422-426).
+> | - skills/aitask-pick/execution-profiles.md does not document `remote_drift_check` (task-workflow/profiles.md:49 does). Its sibling _index.md was dirty from another session during this audit, so nothing under skills/aitask-pick/ was edited here.
+> | - commands/lock.md was NOT touched: the planned crash-recovery move (session-anchor section, signal names on the held-lock table) is now t2258_14's (depends on t2284).
