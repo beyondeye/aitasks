@@ -15,11 +15,16 @@ Two doc surfaces:
    - `tuis/` — one page per interactive TUI.
    - `commands/` — the `ait` CLI subcommand reference.
    - `installation/` — install, per-agent setup, known issues.
+   - `development/` — the framework's public architecture, for users and
+     integrators: task and plan file formats, where state lives, library
+     scripts meant to be called; also a focused `advanced` reference page for
+     a subject whose detail has no other page.
    - `getting-started.md`, `overview.md`, `_index.md` — landing/intro pages.
 2. **Design docs** — `aidocs/` (e.g. `aidocs/framework/`, `aidocs/applink/`).
-   Internal engineering references, not the marketing site. Update these when
-   the change alters framework internals a maintainer needs documented, but
-   they are **not** the user-facing surface the gate primarily targets.
+   Internal engineering references for people who change the framework, not
+   the user-facing site. Update these when the change alters contributor-only
+   detail (see "Reader levels"), but they are **not** the user-facing surface
+   the gate primarily targets.
 
 ## Reader levels
 
@@ -41,11 +46,26 @@ when it has content of its own, such as a TUI's overview page; one that is only
 a list of links to its pages may leave it out.
 
 Each level allows everything the level before it allows, plus what its entry
-adds. Two kinds of detail are kept apart below: behaviour detail (the exact
-rules a user can observe or rely on) and code mechanism (how the code achieves
-them: internal loops and counters, process lifecycle, function names, and the
-reasons for internal design choices). Code mechanism goes to `aidocs/`, the
-engineering docs for contributors, at every level.
+adds. Three kinds of detail are kept apart below. Behaviour detail is the exact
+rules a user can observe or rely on. Public architecture is how the framework
+is put together, as far as a user or an integrator needs it to understand,
+configure or extend the framework: the data layout and file formats (which
+fields exist and what they mean), where state lives, which component writes
+what, the concurrency and atomicity
+guarantees a reader of that state relies on, extension points, and the library
+scripts and functions an integrator is meant to call. Contributor-only detail is
+how the code achieves all of that, which only someone changing the framework
+needs: internal loops and counters, how a guarantee is implemented, the exact
+encoding of a derived value no integrator computes, private
+helpers (every function no integrator is meant to call), code structure,
+rejected alternatives and design history, and test strategy. Public architecture
+goes to the site's `development/` section, at `advanced`. Contributor-only
+detail goes to `aidocs/`, the engineering docs for contributors, and never onto
+the site, whatever a page's level. A fact that mixes kinds is split, and each
+part goes to its own owner: "the file is replaced atomically, so readers need no
+lock" is public architecture; the lock and rename that do it are
+contributor-only. Why a feature exists, as its user sees it, stays on its
+concept page.
 
 - `main-concept`: the reader is new. The page says what the thing is for before
   any detail. It drops every term the idea does not need and defines the rest at
@@ -75,8 +95,8 @@ the TUI's reference page: the agent list refreshes every
 after two refreshes in a row each find it alone in its window; a check that
 fails or still sees another pane starts the count again, and repeated failures
 never close it; it makes no check in its first 5 seconds, so a slow start
-cannot close it. Code mechanism (the tmux query, the counter, the `exit()` call)
-goes to `aidocs/`. The Before also gets the timing wrong: one refresh is never
+cannot close it. Contributor-only detail (the tmux query, the counter, the
+`exit()` call) goes to `aidocs/`. The Before also gets the timing wrong: one refresh is never
 enough. State timing only as far as the code guarantees it; this code gives no
 deadline.
 
@@ -125,10 +145,16 @@ pages that own the detail.
 
 The page that owns a detail is the page about the detail's subject that allows
 its kind: the feature's workflow page for steps, its reference page for
-behaviour detail, `aidocs/` for code mechanism. Every fact survives a cut: move
-it to its owning page, or link there if that page already states it. If the
-feature has no such page, put the fact on the closest reference page. A fact
-found to be wrong is corrected, or dropped with a note in the review saying why.
+behaviour detail, a `development/` page for public architecture, and `aidocs/`
+for contributor-only detail. Every fact survives a cut: move it to its owning
+page, or link there if that page already states it. A single behaviour fact
+whose feature has no reference page goes on the closest reference page. When a
+substantial block of behaviour detail or public architecture has no suitable
+page, create a focused `advanced` reference page for it in `development/` and
+link it from the pages that lead there. A fact found to be wrong is corrected, or dropped with a
+note in the review saying why. Moving a fact is the time to check it against the code: a fact
+that sat on a page nobody read closely is often out of date, and copying it
+to its owning page would make it look authoritative.
 
 Outside `concepts/`, a short page may end with one section headed "Details",
 written one level above the rest; the page's `depth` is the level of everything
@@ -156,6 +182,14 @@ Behaviour detail and the reasons behind internal design choices go to their
 owning pages (see "How a subject spans levels"). A concept page may repeat the
 plain definition its workflow page opens with; the workflow's steps and
 reference details stay on their own pages.
+
+Signs that a concept page has grown into a reference page: `###` subsections,
+tables that list cases and their results, headings named after a mechanism
+("How the key is stored", "Operation leases"), script paths and status lines.
+Each one marks detail to move. Set a concept page's `depth` by who meets the
+idea, not by the detail it carries: a page tagged `advanced` only because of
+its mechanism usually drops to `intermediate` or `main-concept` once that
+mechanism has moved to its owning page.
 
 `tasks.md`, `plans.md`, `folded-tasks.md` and `execution-profiles.md` (about
 30–40 lines each) show the section order and length. Copy their structure only.
