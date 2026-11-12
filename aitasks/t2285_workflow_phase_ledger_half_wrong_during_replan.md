@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [minimonitor, shadow, workflow_phase]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1573
 followup_kind: upstream_defect
 created_at: 2026-11-12 11:22
-updated_at: 2026-11-12 11:22
+updated_at: 2026-11-12 15:41
 ---
 
 ## Origin
