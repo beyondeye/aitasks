@@ -45,6 +45,7 @@ description: "Complete CLI reference for all ait subcommands"
 | [`ait issue-update`](issue-integration/#ait-issue-update) | Update or close linked GitHub/GitLab/Bitbucket issues |
 | [`ait release-notify`](issue-integration/#ait-release-notify) | Tell resolved issues which release ships their fix |
 | [`ait pr-import`](pr-import/#ait-pr-import) | Import pull requests as tasks or extract PR data for AI analysis |
+| [`ait chatlink`]({{< relref "/docs/commands/chatlink" >}}) | Run the Discord bug-report gateway (`--headless`) or open its read-only status TUI |
 
 ### Cross-repo
 

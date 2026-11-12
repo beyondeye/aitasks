@@ -61,7 +61,9 @@ echo "Long description" | ait create --batch --name "my_task" --desc-file -
 | `--deps DEPS` | Comma-separated dependency task numbers |
 | `--verifies IDS` | Comma-separated task IDs this task verifies (usually a `manual_verification` task, but any issue type may carry it) |
 | `--also-blocks-dependents GATES` | Comma-separated gates that must also pass before this task's dependents unblock, beyond the registry defaults. Writes [`also_blocks_dependents`]({{< relref "/docs/development/task-format" >}}) |
-| `--file-ref REF` | Add a file reference (`path`, `path:N`, or `path:N-M`; repeatable) |
+| `--file-ref REF` | Add a file reference (`path`, `path:N`, `path:N-M`, or `path:N-M^N-M` for several ranges on one path; repeatable). Syntax: [`file_references`]({{< relref "/docs/development/task-format" >}}#frontmatter-fields) |
+| `--auto-merge` | Fold pending tasks that already reference the same files into the new task (see [Folding tasks that reference the same files](#folding-tasks-that-reference-the-same-files)) |
+| `--no-auto-merge` | List pending tasks that already reference the same files as a warning, and fold nothing (the default) |
 | `--parent, -P NUM` | Create as child of parent task number |
 | `--no-sibling-dep` | Don't auto-add dependency on previous sibling |
 | `--anchor ID` | Put the task in the [topic]({{< relref "/docs/concepts/topic-anchoring" >}}) rooted at task `ID` (writes `anchor`). Accepts `130`, `t130` or a child id such as `130_2`, stored without the `t` prefix; the task must exist, and an archived task is a valid root. Mutually exclusive with `--followup-of`; rejected with `--parent`, because a child derives its topic from its parent (re-anchor it after creation with `ait update --anchor`) |
@@ -85,6 +87,29 @@ echo "Long description" | ait create --batch --name "my_task" --desc-file -
 - Updates parent's `children_to_implement` list when creating child tasks
 - Name sanitization: lowercase, underscores, no special characters, max 60 chars
 - Duplicate ID detection: `ait ls` warns if duplicate task IDs are found; `ait update` fails with a suggestion to run `ait setup`
+
+### Folding tasks that reference the same files
+
+When a task with file references is committed, `ait create` looks for pending
+tasks (status `Ready` or `Editing`) whose `file_references` name any of the
+same files. This runs for `--batch --commit`, for a finalized draft and for the
+interactive flow's "Finalize now"; a draft saved without finalizing is not
+checked. Only the path counts, so
+`lib/auth.py:42-68` matches a task that references `lib/auth.py:300` or the
+whole file. If the commit itself fails, no search runs.
+
+By default the matching tasks are listed as a warning and nothing is folded. In
+the interactive flow, run in a terminal without `--auto-merge`, you are first
+asked whether to fold them into the new task, in a picker headed
+`Fold N matching task(s) into t<id>`; answering No gives the same warning. With `--auto-merge`, or after a Yes, they are folded into the new
+task: their descriptions are merged into its body, each one becomes `Folded`
+with `folded_into` set to the new task, and the result is committed. A matching
+task that has child tasks is skipped with a warning, because a parent with
+children cannot be folded.
+
+At fold time the new task's `file_references` gains every entry the folded
+tasks held (including entries those tasks had absorbed from tasks folded into them), copied as exact strings with duplicates removed and no range
+arithmetic: its own entries stay first, in their order.
 
 ---
 
@@ -204,7 +229,7 @@ ait update --batch 10 --remove-child t10_1      # Remove child from parent
 | `--add-verifies ID` | Add one verified task ID (repeatable) |
 | `--remove-verifies ID` | Remove one verified task ID (repeatable) |
 | `--also-blocks-dependents GATES` | Set the extra dependent-unblocking gates (comma-separated, replaces all; use `""` to clear) |
-| `--file-ref REF` | Add a file reference (`path`, `path:N`, or `path:N-M`; repeatable) |
+| `--file-ref REF` | Add a file reference (`path`, `path:N`, `path:N-M`, or `path:N-M^N-M`; repeatable) |
 | `--remove-file-ref REF` | Remove a file reference (exact-string match; repeatable) |
 | `--boardcol COL` | Board column ID. Validated against the project's configured columns (plus `unordered`); an unknown id is rejected. Use `""` to clear |
 | `--boardidx IDX` | Board sort index |

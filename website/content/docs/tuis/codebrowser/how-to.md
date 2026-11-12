@@ -110,13 +110,13 @@ This is the recommended workflow for going deeper: use the codebrowser's visual 
 Capture a task whose `file_references` frontmatter points at exactly the lines you're looking at:
 
 1. Open a file in the code viewer
-2. Optionally select a range (**Shift+Up / Shift+Down** or mouse drag). No selection is fine — the cursor line is used as a fallback
+2. Optionally select a range (**Shift+Up / Shift+Down** or mouse drag). Without a selection of two or more lines, the task references the whole file
 3. Press **n**
-4. An `AgentCommandScreen` appears with the title `Create task — <relpath> (lines N-M)` and a pre-filled command `aitask_create.sh --file-ref <relpath>:N-M`
-5. Choose **Run** (new terminal) or **Run in tmux** (tmux window). You can also edit the command before running — for example, append `--auto-merge` to fold pending tasks that already reference this file
+4. A command dialog appears with the title `Create task — <relpath> (lines N-M)` (or `Create task — <relpath> (full file)` without such a selection) and a pre-filled command `aitask_create.sh --file-ref <relpath>:N-M`
+5. Choose **Run in terminal** on the **Direct** tab, or **Run in tmux** on the **Tmux** tab. You can also edit the command before running — for example, append `--auto-merge` to fold pending tasks that already reference this file
 6. Walk through the interactive create flow as usual. At the top you will see a `Pre-populated file references: <relpath>:N-M` banner
 
-The finalized task file contains `file_references: [<relpath>:N-M]` in its frontmatter. Fallback behavior: no selection produces `path:<cursor_line>`; a single-line selection produces `path:N` (not `path:N-N`). For the full story — including how auto-merge detects and folds overlapping pending tasks — see [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}).
+The finalized task file contains `file_references: [<relpath>:N-M]` in its frontmatter. For the full story — including how auto-merge detects and folds overlapping pending tasks — see [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}).
 
 ### How to Navigate from Code to Task History
 

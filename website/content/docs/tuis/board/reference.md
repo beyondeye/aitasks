@@ -650,7 +650,7 @@ The board reads and displays the following frontmatter fields from task files:
 | `folded_tasks` | list | Read-only | Task IDs that were merged into this task |
 | `folded_into` | string | Read-only | Task ID this task was folded into |
 | `anchor` | string | Yes | Topic root used by the By-Topic view. Empty means the task is its own topic root, except a child task, which stays in its parent's topic. Setting it moves the task into the topic rooted at that task id. |
-| `file_references` | list | Read-only | Pointers to source files / line ranges (e.g., `foo.py:10-20`). Pressing **Enter** on a focused row opens `ait codebrowser` at the referenced location. See [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}). |
+| `file_references` | list | Read-only | Pointers to source files / line ranges (e.g., `foo.py:10-20`). Pressing **Enter** on a focused row opens `ait codebrowser` at the referenced location (see [Opening file references](#opening-file-references); the workflow is in [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}})). |
 | `boardcol` | string | Auto-managed | Column ID (set by board operations) |
 | `boardidx` | integer | Auto-managed | Sort index within column (set by board operations) |
 | `boardgroup` | string | Auto-managed | Group slug within the column (see [Group Header Anatomy](#group-header-anatomy)) |
@@ -706,10 +706,38 @@ For details on the underlying lock mechanism, see the [`ait lock` command refere
 | **Remove Dep Confirm** | `Enter` on missing dependency | Offer to remove stale dependency reference |
 | **Child Picker** | `Enter` on Children field (multiple children) | Select which child task to open |
 | **Folded Task Picker** | `Enter` on Folded Tasks field (multiple) | Select which folded task to view (read-only) |
+| **File Reference Picker** | `Enter` on File Refs field (multiple entries) | Select which file reference to open in the codebrowser |
 | **Lock Email** | "🔒 Lock" button in task detail | Enter email for lock ownership; confirms to acquire lock via `aitask_lock.sh` |
 | **Unlock Confirm** | "🔓 Unlock" button (when lock belongs to different user) | Shows lock details (who, where, when); offers "Force Unlock" or "Cancel" |
 | **Sync Conflict** | Sync detects merge conflicts | Shows conflicted files; offers "Launch agent to resolve" (code agent dialog), "Resolve Interactively" (opens terminal) or "Dismiss" |
 | **Settings** | `O` key / command palette "Options" | Configure board settings (auto-refresh interval, sync on refresh) |
+
+### Opening file references
+
+The **File Refs** row in Task Detail shows the task's `file_references` entries
+as written, comma-separated, or `(none)` dimmed when the list is empty. Focus
+it with **Up** / **Down** or **Tab** and press **Enter**:
+
+| Entries | Enter |
+|---------|-------|
+| 0 | Nothing happens |
+| 1 | Opens that entry in the codebrowser |
+| 2 or more | Opens the File Reference Picker; the entry you pick opens in the codebrowser, and **Escape** or Cancel closes the picker |
+
+The entry opens in the codebrowser of this project's tmux session. That is the
+session the board runs in when the session belongs to this project, and
+otherwise the session named by the project's `tmux.default_session` setting,
+when that session is running and belongs to this project. If the session
+has a window named `codebrowser`, the board makes it that session's current window and that
+codebrowser moves to the file at its next check, which runs once a second; otherwise the board opens
+a new `codebrowser` window on the file. When the project has no running tmux
+session, the board shows the warning "No tmux session of this project to focus
+the codebrowser in" and opens nothing. When a tmux command fails, the board
+shows the error `Codebrowser launch failed: <err>`, where `<err>` names the
+command that failed, such as `tmux new-window failed`. When you press **Enter** on
+several entries in quick succession, the last one wins. How the codebrowser
+places the cursor and selection for a range is in the
+[codebrowser reference]({{< relref "/docs/tuis/codebrowser/reference" >}}#opening-a-file-at-a-line-range).
 
 ### Git Integration Details
 

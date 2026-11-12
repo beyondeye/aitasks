@@ -64,7 +64,7 @@ depth: [advanced]
 | `Shift+Up` | Extend selection upward | Code viewer |
 | `Shift+Down` | Extend selection downward | Code viewer |
 | `Escape` | Clear selection | Code viewer |
-| `n` | Create a task with `file_references` seeded from the selection or cursor line | Code viewer |
+| `n` | Create a task with `file_references` seeded from the selection or the whole file (see [Creating a task from the viewer](#creating-a-task-from-the-viewer)) | Code viewer |
 | `PageUp` | Move cursor up by one screen | Code viewer |
 | `PageDown` | Move cursor down by one screen | Code viewer |
 
@@ -83,6 +83,47 @@ depth: [advanced]
 | Click in code viewer | Position cursor at clicked line |
 | Drag in code viewer | Select line range |
 | Scroll wheel in code viewer | Scroll content |
+
+### Creating a task from the viewer
+
+`n` opens a command dialog titled `Create task — <path> …` with a pre-filled
+command, `<project>/.aitask-scripts/aitask_create.sh --file-ref <ref>`, where
+`<path>` is the open file relative to the project root. The reference depends
+on the selection:
+
+| Viewer state | `--file-ref` value | Dialog title ends with |
+|--------------|--------------------|------------------------|
+| A selection of two or more lines | `<path>:<start>-<end>` | `(lines <start>-<end>)` |
+| A one-line selection, or no selection | `<path>:1-<last line>` (the whole file) | `(full file)` |
+| An empty file | `<path>` | the path |
+| No file open | none: the command is `aitask_create.sh` alone | the dialog is titled `Create task` |
+
+The command field is editable, so you can add flags such as `--auto-merge`
+before running it. The **Direct** tab runs it with **Run in terminal**; the
+**Tmux** tab runs it with **Run in tmux**, in a window you choose, and offers
+`create-<file name>` (`create-task` when no file is open) as the name for a new window. The interactive create flow
+then starts with a `Pre-populated file references: <ref>` line. The
+[Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}})
+workflow walks through the rest, and [`ait create`]({{< relref "/docs/commands/task-management" >}}#folding-tasks-that-reference-the-same-files)
+describes how overlapping pending tasks are found and folded.
+
+### Opening a file at a line range
+
+`ait codebrowser --focus <path>[:<range>]` starts the codebrowser on `<path>`,
+relative to the project root, where `<range>` is `N`, `N-M` or several ranges
+joined with `^` (the [`file_references`]({{< relref "/docs/development/task-format" >}}#frontmatter-fields)
+syntax). The board's **File Refs** row opens a reference the same way, in a
+codebrowser that is already running when there is one (see the
+[board reference]({{< relref "/docs/tuis/board/reference" >}}#opening-file-references)).
+
+The viewer holds one contiguous selection, so several ranges are shown as one
+span from the lowest start to the highest end, whatever their order and even
+when they overlap: `10-20^30-40` and `30-40^10-20` both select lines 10 to 40,
+and `10-100^20-30` selects lines 10 to 100. A range is selected with the cursor on its last line; a single line `N`
+puts the cursor on line `N` with nothing selected. Line numbers past the end of
+the file are clamped to its last line. A path outside the project, a path that
+is not a file, or a malformed range leaves the view unchanged and shows a
+warning.
 
 ### Annotation Data Pipeline
 

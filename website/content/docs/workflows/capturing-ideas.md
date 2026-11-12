@@ -6,22 +6,18 @@ description: "Quickly capture task ideas without breaking your flow"
 depth: [intermediate]
 ---
 
-The most important thing when a new task idea comes to mind is capturing it immediately, before the thought fades. The [`ait create`](../../commands/task-management/#ait-create) script is designed for this: you can write a task description as a raw stream of consciousness without worrying about structure, grammar, or completeness.
+When a new task idea comes to mind, capture it before the thought fades. The [`ait create`]({{< relref "/docs/commands/task-management#ait-create" >}}) command is built for this: you can write a task description as a raw stream of consciousness without worrying about structure, grammar, or completeness.
 
-**The philosophy: capture intent now, refine later.**
+In interactive mode, `ait create` walks you through metadata selection (priority, effort, labels) in fzf menus, lists you filter by typing a few letters and pick from with the arrow keys, then lets you enter the description as one or more blocks of text. There is no need to open an external editor or write a polished specification: the planning workflow turns rough, unstructured descriptions into implementation plans when the task is picked.
 
-In interactive mode, `ait create` walks you through metadata selection (priority, effort, labels) via fast fzf menus, then lets you enter the description as consecutive text blocks. There is no need to open an external editor or craft a polished specification — the follow-up planning workflow is designed to turn rough, unstructured descriptions into actionable implementation plans.
+A useful setup is a terminal tab with `ait create` ready to launch at all times. When an idea strikes, even mid-implementation on another task, switch to that tab, type the idea, assign basic metadata, and get back to work. You can save the task as a local draft that is not committed (no network needed) and finalize it later.
 
-**Recommended setup:** Keep a terminal tab with `ait create` ready to launch at all times. When an idea strikes — even mid-implementation on another task — switch to that tab, type the idea, assign basic metadata, and get back to work. The task is saved as a local draft in `aitasks/new/` (gitignored, no network needed) and can be finalized later.
+From there, a task is refined in three stages:
 
-**The iterative refinement pipeline:**
-
-1. **Capture** — Create the task with [`ait create`](../../commands/task-management/#ait-create) or [`/aitask-create`](../../skills/aitask-create/), or use [`/aitask-explore`](../../skills/aitask-explore/) to explore the codebase first and create a task from your findings. Write whatever comes to mind, even multiple paragraphs of loosely connected ideas
-2. **Organize** — Use [`ait board`](../../commands/board-stats/#ait-board) to visually triage: drag tasks between kanban columns, adjust priority and effort, add labels. See the [Board documentation](../../tuis/board/) for detailed how-to guides
-3. **Refine** — When picked for implementation with [`/aitask-pick`](../../skills/aitask-pick/), the planning phase explores the codebase and produces a structured implementation plan from your raw intent
-
-This pipeline means you never need to spend time writing perfect task descriptions upfront. The framework handles progressive refinement at each stage.
+1. **Capture.** Create the task with [`ait create`]({{< relref "/docs/commands/task-management#ait-create" >}}) or [`/aitask-create`]({{< relref "/docs/skills/aitask-create" >}}), or use [`/aitask-explore`]({{< relref "/docs/skills/aitask-explore" >}}) to explore the codebase first and create a task from your findings. Write whatever comes to mind, even multiple paragraphs of loosely connected ideas
+2. **Organize.** Use [`ait board`]({{< relref "/docs/commands/board-stats#ait-board" >}}) to triage: move tasks between kanban columns, adjust priority and effort, add labels. See the [Board documentation]({{< relref "/docs/tuis/board" >}}) for detailed how-to guides
+3. **Refine.** When the task is picked for implementation with [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}), the planning phase explores the codebase and produces a structured implementation plan from your raw intent
 
 ---
 
-**Next:** [Retroactive Tracking](../retroactive-tracking/) — wrap ad-hoc changes into the aitasks framework after the fact.
+**Next:** [Retroactive Tracking]({{< relref "/docs/workflows/retroactive-tracking" >}}): wrap ad-hoc changes into the aitasks framework after the fact.

@@ -55,7 +55,7 @@ Detailed description of what needs to be done.
 | `folded_into` | task number | Task this was folded into (set by `/aitask-fold` or `/aitask-explore`) |
 | `anchor` | task id (`130`, `130_2`) | Topic-group key pointing at a subject's **root** task, so loosely-related and follow-up tasks cluster together. Absent ⇒ the task is its own root. See [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}). |
 | `followup_kind` | `manual_verification`, `risk_mitigation`, `upstream_defect`, `verification_failure`, `carry_over`, `qa_test_gap`, `review_finding`, `docs_gap` | Marks the task as an **auto-spawned follow-up** and records which seam spawned it. Absent ⇒ genuine new work. Orthogonal to `issue_type`, which stays the task's real type (an upstream defect is still a `bug`). Clearing it removes the key — there is no empty-value form. `manual_verification` additionally requires `issue_type: manual_verification`. |
-| `file_references` | `[path, path:N, path:N-M, path:N-M^N-M]` | Structured pointers to source files / line ranges. 1-indexed, inclusive. Exact-string dedup. A YAML flow list: an entry YAML would misread — one holding a comma, bracket, `#` or space, or a word such as `on` or `null` — is written double-quoted (`["a,b.py"]`), and only string entries are read as paths. See [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}) |
+| `file_references` | `[path, path:N, path:N-M, path:N-M^N-M]` | Structured pointers to source files / line ranges. 1-indexed, inclusive; `^` joins several ranges on one path (`lib/login.py:10-20^30-40`). Exact-string dedup, so `foo.py:10-20` and `foo.py:10-20^30-40` are two entries; entries keep the order they were added in. Each path is relative to the project root. Values given to `--file-ref` are validated as described after the table. Pending tasks that name a path are listed by [`aitask_find_by_file.sh`](#finding-tasks-by-file-reference). A YAML flow list: an entry YAML would misread — one holding a comma, bracket, `#` or space, or a word such as `on` or `null` — is written double-quoted (`["a,b.py"]`), and only string entries are read as paths. See [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}) |
 | `artifacts` | list of mappings | **Nested.** Versioned, handle-addressed artifacts attached to the task. Each entry carries `handle` (`art:<id>`), `kind`, and an optional `name` — nothing else: the current version, the version history and the backend live in the artifact manifest, so a new version never rewrites the task file. Written by `ait artifact create` / `rm`, never by hand — and because those commands commit the whole task file, they refuse to run while it has uncommitted changes, so commit or revert your edits first. `create` also refuses an archived task, because a new artifact must attach to an active one. `ls` keeps working on any archived owner, and `rm` on one whose file is still under `aitasks/archived/` (not one packed into a numbered archive). See the [nested-field example](#nested-fields-artifacts-and-attachments) |
 | `attachments` | list of mappings | **Nested.** Content-addressed file attachments. Each entry carries `hash`, `name`, `mime`, `size`, `added_at` and `backend`. Written by `ait attach add` / `rm`, never by hand — and because those commands commit the whole task file, they refuse to run while it has uncommitted changes, so commit or revert your edits first. `add` also refuses an archived task, because a new attachment must go on an active one. `ls` keeps working on any archived task, and `rm` on one whose file is still under `aitasks/archived/` (not one packed into a numbered archive). See the [nested-field example](#nested-fields-artifacts-and-attachments) and [Attachments]({{< relref "/docs/concepts/attachments" >}}) |
 | `verifies` | `[t10_1, t10_2]` | Task IDs this task verifies (used by `manual_verification` sibling tasks that gate release on human-checked behavior) |
@@ -75,6 +75,12 @@ Detailed description of what needs to be done.
 | `active_gates_filtered` | `[docs_updated]` | **Framework-derived.** Gates the profile ceiling removed (declared but not enforced) |
 | `active_gates_profile` | profile name | **Framework-derived.** Provenance stamp: the execution profile that produced the active set |
 | `active_gates_digest` | `<g>.<p>.<o>` | **Framework-derived.** Three-part integrity digest over the resolve inputs and stored outputs; on mismatch (e.g. a later `gates:` edit) enforcement falls back to the raw `gates:` field until the next pick re-materializes |
+
+`--file-ref` (on `ait create` and `ait update`) and `--remove-file-ref` (on `ait update`) check each
+`file_references` value against
+`^[^:]+(:[0-9]+(-[0-9]+)?(\^[0-9]+(-[0-9]+)?)*)?$`, and refuse control
+characters and bytes that are not UTF-8. An invalid value stops the command
+before anything is written.
 
 ### Nested fields: `artifacts` and `attachments`
 
@@ -168,6 +174,41 @@ they are internal surfaces the workflow calls at defined points, and setting one
 by hand produces a value the next pick recomputes or clears. Where a field *is*
 meant to be set by a person, the flag is named in its own row — see
 `verification_baseline`, `premise_baseline` and `boardgroup`.
+
+## Finding tasks by file reference
+
+`aitask_find_by_file.sh` lists the pending tasks whose `file_references` name a
+given file. `ait` has no command for it, so call the script directly:
+
+```bash
+./.aitask-scripts/aitask_find_by_file.sh [--project <name>] <path>
+```
+
+It prints one `TASK:<task_id>:<task_file>` line per matching task, for example
+`TASK:42:aitasks/t42_fix_login.md` or
+`TASK:16_2:aitasks/t16/t16_2_cleanup.md`, and prints nothing when no task
+matches. It reads parent tasks in `aitasks/` and child tasks one directory
+below, and returns only tasks whose status is `Ready` or `Editing`: archived
+tasks and tasks in any other status are never listed.
+
+Matching compares the path part of each entry only. The line range and any
+`^` ranges are stripped from the entry, so `lib/auth.py`, `lib/auth.py:42` and
+`lib/auth.py:10-20^30-40` all match `lib/auth.py`. Pass `<path>` without a
+range, because it is compared as written. A task whose `file_references` holds
+something other than path strings is matched on its readable entries, with a
+warning on stderr.
+
+`--project <name>` runs the same search inside a linked project, resolved
+through the [project registry]({{< relref "/docs/workflows/multi_project" >}}#the-project-registry);
+it must come before `<path>`.
+
+The exit status is 0 on success, including when nothing matches, and 1 for a
+missing or invalid argument. It is 2 when the `file_references` fields could
+not be read, for example because no Python with PyYAML is available.
+
+`ait create` runs this search to find the tasks that
+[`--auto-merge`]({{< relref "/docs/commands/task-management" >}}#folding-tasks-that-reference-the-same-files)
+can fold into a new task.
 
 ---
 
