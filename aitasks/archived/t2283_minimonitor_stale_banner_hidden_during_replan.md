@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [minimonitor, shadow, workflow_phase]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 1573
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-11 22:39
-updated_at: 2026-11-12 09:00
+updated_at: 2026-11-12 11:37
+completed_at: 2026-11-12 11:37
 ---
 
 ## Symptom
@@ -140,3 +141,14 @@ the retire predicate now requires new evidence, with the re-plan rationale.
 > **✅ gate:plan_approved** run=2026-11-12T07:00:02Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-12T09:17:23Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-12T09:37:01Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:0fccedad358aeb0a
+
+> **✅ gate:risk_evaluated** run=2026-11-12T09:37:01Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2283/risk_evaluated_2026-11-12T09:37:01Z-risk_evaluated-a1.log`
