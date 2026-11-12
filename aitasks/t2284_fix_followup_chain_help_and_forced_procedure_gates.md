@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2258
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-12 08:47
-updated_at: 2026-11-12 09:04
+updated_at: 2026-11-12 15:51
 ---
 
 ## Origin
@@ -73,3 +74,8 @@ facts moved to their owner pages were checked against the code.
 - Doc wording: name `./.aitask-scripts/aitask_archive.sh` in task-format. In
   crash-recovery, say that the lock is refreshed silently but the pick still
   asks the anomaly question for an `Implementing` task.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-12T13:51:46Z status=pass attempt=1 type=human
