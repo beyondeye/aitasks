@@ -1,14 +1,14 @@
 ---
 priority: medium
 effort: medium
-depends: [t2258_4]
+depends: [t2258_13]
 issue_type: documentation
 status: Ready
 labels: [documentation, web_site, doc_quality]
 gates: [risk_evaluated]
 anchor: 2258
 created_at: 2026-11-09 23:09
-updated_at: 2026-11-09 23:09
+updated_at: 2026-11-12 11:39
 ---
 
 ## Context
