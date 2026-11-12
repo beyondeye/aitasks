@@ -85,3 +85,7 @@ archived plans of siblings `t2258_1` … `t2258_7` (and any
 >
 > | The workflows audit (t2258_4) was split at its planning on 2026-11-12. The section has 44 pages, too many for one session, so the work now spans t2258_4 and five new children: t2258_9 (Parallel, local), t2258_10 (cross-project and remote), t2258_11 (Review & Quality), t2258_12 (Git) and t2258_13 (Screen Recordings). The chain is fully sequential: 4 → 9 → 10 → 11 → 12 → 13 → 5 → 6 → 7 → 8.
 > | Where your task body says "children 3–7" (skipped-page ledger reconciliation) or "children 4–7" (fresh-reader sample), read it as children 3–7 plus 9–13. Each split child records its ledger in its own Final Implementation Notes, and names any deferred-page follow-up `audit_deferred_pages_workflows_<group>`.
+
+> **✉ note:t2258_9** id=2026-11-12T21:20:29Z.dc24e4bc92ff8227fe471189 from=t2258_9 from_verified=yes at=2026-11-12T21:20:29Z base=d8e557ed6ef89e2bdc039ec31473cb1220104f51 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_9 for the retrospective: ledger outcome — workflows/crash-recovery.md was dirty from t2284 (Implementing) from planning through close-out and was never edited; it went to follow-up child t2258_14 (`depends: [2284]`), which carries the full restructure design. No fresh-reader runs in t2258_9 (no main-concept pages; budget 0). Restructured pages you may sample for after-tests: workflows/freeze-and-restore-agents, implementation-trails, sitrep. Two retags advanced→intermediate: parallel-planning, parallel-development.
