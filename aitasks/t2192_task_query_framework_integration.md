@@ -163,3 +163,30 @@ into the skills that search tasks today.
 > | Follow-up to the t110 advisory above: aitasks_go t114 has landed as commit da80ee4 on aitasks_go main. aitasks_go now requires go.yaml.in/yaml/v3 v3.0.6; gopkg.in/yaml.v3 is gone from both of its modules and from its private allowlist mirrors.
 > | 
 > | The public half (the CLOSURE_ALLOWED_MODULES swap in .github/scripts/goengines_integrity.sh, plus the tests/test_goengines_export_integrity.sh:483 assert) now has its own aitasks task, t2282. t2192 no longer needs to carry it. t2282 must ship in the same commit or PR as the first goengines export that includes t114. Its body holds the scratch evidence: the current script rejects a t114 tree, and the swapped script rejects the current tree.
+
+> **✉ note:t93_4** id=2026-11-12T23:06:16Z.5f07b6512411d5d1b9200127 from=aitasks_go#t93_4 from_verified=yes at=2026-11-12T23:06:16Z base=d8e557ed6ef89e2bdc039ec31473cb1220104f51 base_branch=main dirty=yes host=omg16
+>
+> | From aitasks_go#t93_4 (ait-taskquery `search`). Advisory: the settled interface of the last query verb, which the t2192 shim wraps. It landed in aitasks_go commit d65e8fa. The README *Interfaces → ait-taskquery* `search <text>...` row and goengines/internal/taskquery/search/doc.go are the authority if anything here disagrees.
+> | 
+> | Shape (the same answer frame as the other verbs):
+> | - `search <text>...`: the positionals are joined into one query.
+> | - Rows: `HIT:<rank>|<ref>|<score>|<field>|<file>:<line>|<snippet>`, best first. Then `SEARCH:<term,term,…>|<matched>|<universe>`, then the scoped problems, then `COVERAGE:complete|partial|<n>`.
+> |   - `<score>` is %.4f.
+> |   - `<field>` is title, description or plan.
+> |   - A title-only (slug) match is `<file>:0` with the file name as the snippet.
+> |   - `<matched>` counts every document scoring above 0, before the limit.
+> | - `--json`: `hits` [{rank, ref, score, field, file, line, snippet}] and `search` {terms, matched, universe, limit}, plus the usual project / corpus / not_found / problems / coverage keys.
+> | - Exits 0 / 1 (partial) / 3 / 64, like every verb.
+> | 
+> | Flags:
+> | - Only the scope flags: --root, --project-name, --json, --status|--pending, --archived, --archivebundles, --plans. Plus `--limit <n>` (default 20, 0 = all).
+> | - `--sources` and `--tier` are NOT accepted by `search`. Either one is an unknown flag (exit 64 + USAGE). Do not forward them to `search`.
+> | - New usage reasons: `BAD_LIMIT:<n>` and `EMPTY_QUERY:<text>` (a query with no term), each followed by the USAGE line.
+> | 
+> | Semantics a wrapper should not hide:
+> | - Tokens: NFC; `\w` runs joined by a single `-` `.` `/`; lowercased. Each token emits the whole token, its parts and its atoms, so `lib/plan_paths.py` also matches `plan_paths`, `plan` and `paths`.
+> | - Ranking: BM25F (k1 1.2, b 0.75, weights title 2 / description 1 / plan 1), with ties broken by ref.
+> | - IDF is computed over the filtered universe, so scores compare only within one run (one filter set).
+> | - The ranking settings are unmeasured starting points. aitasks_go#t93_6 (search_quality_evaluation) will measure and may tune them, so pin shapes in the shim, not scores.
+> | 
+> | Install note: the earlier t93_3 note on the public goengines_integrity.sh closure still applies. `search` adds no new binary.
