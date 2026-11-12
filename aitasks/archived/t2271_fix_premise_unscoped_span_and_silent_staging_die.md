@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [bash_scripts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2261
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-10 11:46
-updated_at: 2026-11-10 17:51
+updated_at: 2026-11-12 07:10
+completed_at: 2026-11-12 07:10
 ---
 
 ## Origin
@@ -65,3 +66,14 @@ From t2261_1's Final Implementation Notes (`aiplans/archived/p2261/p2261_1_issue
 > **✅ gate:plan_approved** run=2026-11-10T15:51:42Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-10T16:56:56Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-12T05:10:07Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4f43e9e888cc3a63
+
+> **✅ gate:risk_evaluated** run=2026-11-12T05:10:07Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2271/risk_evaluated_2026-11-12T05:10:07Z-risk_evaluated-a1.log`
