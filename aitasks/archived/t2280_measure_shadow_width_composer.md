@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: test
-status: Implementing
+status: Done
 labels: [sitrep, tui, tmux]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2175
 followup_kind: risk_mitigation
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-10 22:36
-updated_at: 2026-11-12 08:44
+updated_at: 2026-11-12 12:40
+completed_at: 2026-11-12 12:40
 ---
 
 ## Origin
@@ -75,3 +76,14 @@ these fixtures, so leave the fixture names stable and documented.
 > **✅ gate:plan_approved** run=2026-11-12T06:44:38Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-12T10:08:37Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-12T10:39:58Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:08a26d59df704d05
+
+> **✅ gate:risk_evaluated** run=2026-11-12T10:39:58Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2280/risk_evaluated_2026-11-12T10:39:58Z-risk_evaluated-a1.log`
