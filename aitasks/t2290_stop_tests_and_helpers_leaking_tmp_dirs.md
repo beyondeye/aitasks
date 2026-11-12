@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tests, test_infrastructure, tmp_cleanup]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-13 00:43
-updated_at: 2026-11-13 00:43
+updated_at: 2026-11-13 00:59
 ---
 
 ## Problem
