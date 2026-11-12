@@ -74,3 +74,5 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > | - task-notes.md: See also now points to commands/lock#how-it-works for the lock record live delivery reads.
 > | Open item: crash-recovery.md:71 says a same-session re-claim refreshes silently. aitask_pick_own.sh:782-806 still emits RECLAIM_STATUS for an Implementing task, so the re-pick is not silent. This is tracked in t2284, which you may want to coordinate with.
 > | The guide now has a detail-placement boundary: behaviour detail on reference/workflow pages, public architecture in development/ at advanced, contributor-only detail in aidocs/. See aiplans/archived/p2258/p2258_3_*.md.
+
+> **👁 note:read** id=2026-11-12T08:05:12Z.3dcad23042908634b265340a by=t2258_4 at=2026-11-12T08:05:12Z mode=explicit ids=2026-11-10T14:18:09Z.ce4b2042150a2b416728cf15,2026-11-12T06:51:10Z.5f4acf693ab7120a7a441386
