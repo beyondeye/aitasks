@@ -223,7 +223,8 @@ replaced. At fold time the folded content is incorporated into the primary
 task's description (see `## Merged from t<N>` headers). The folded file
 remains on disk only as a reference for post-implementation cleanup; it is
 deleted during archival. Always use "merged" / "incorporated" language in
-code, procedures, and docs — never "superseded" / "replaced".
+code, commit messages, procedures, and docs — never "superseded" /
+"replaced".
 
 ### Script Modes
 Most scripts support both **interactive** (uses `fzf`) and **batch** (CLI

@@ -48,6 +48,13 @@ is ignored and the raw `gates:` field governs instead. So a declared gate that
 the profile filtered out **never blocks archival**, and the fallback can only
 over-block, never under-enforce.
 
+**Digest encoding.** `active_gates_digest` is three 12-character hashes (the
+first 12 hex characters of a sha256, `_hash12()` in `lib/gate_ledger.py`, with a
+byte-identical bash twin `_gate_hash12` in `aitask_gate.sh`) joined by dots, in
+the order `<gates>.<profile>.<outputs>` (`build_active_digest()`). The site's
+`development/gates.md` page describes which inputs each part covers; the hash
+width and the canonical input strings are contributor-only.
+
 This differs from the dependency-unblock criterion: unblocking dependents
 filters to the registry's `blocks_dependents` gates (integration gates only);
 **archival requires *all* active gates**, including post-integration sign-off

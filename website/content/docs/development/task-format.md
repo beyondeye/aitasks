@@ -96,13 +96,67 @@ attachments:
 ```
 
 Neither is hand-edited. `artifacts` entries are written by
-[`ait artifact`]({{< relref "/docs/commands/artifact" >}}) and
-`attachments` entries by [`ait attach`]({{< relref "/docs/commands/attach" >}}); both commands manage the blob, the
-manifest and the task file as one commit, so editing the block by hand
-desynchronises it from the store.
+[`ait artifact`]({{< relref "/docs/commands/artifact" >}}), which commits the
+blob, the artifact's manifest and the task file as one commit, and
+`attachments` entries by [`ait attach`]({{< relref "/docs/commands/attach" >}}),
+which commits them as described under
+[Where attachment blobs live](#where-attachment-blobs-live). Editing the block
+by hand desynchronises it from the store.
 
 For what an attachment is and why it is identified by its hash, see
 [Attachments]({{< relref "/docs/concepts/attachments" >}}).
+
+#### `attachments:` entry fields
+
+A task never refers to an attachment by path or URL. It refers to it by
+`hash`, whose `sha256:` prefix names the digest algorithm. Each entry's fields
+belong either to this task or to the blob, the stored copy of the bytes that
+every task attaching the same bytes shares:
+
+- `hash` (blob): `sha256:<64 hex digits>`; the identity.
+- `name` (this task): display label; defaults to the file's basename, unique per task.
+- `added_at` (this task): when it was attached (`YYYY-MM-DD HH:MM`).
+- `mime` (blob): detected content type.
+- `size` (blob): size in bytes.
+- `backend` (blob): where the stored copy lives.
+
+Because the name lives in the task file and not with the blob, two tasks that
+attach the same bytes can each give them their own name.
+
+#### Where attachment blobs live
+
+In branch mode (task data on its own branch, checked out in `.aitask-data/`),
+blobs and their ledger files live in the task data worktree, beside `aitasks/`
+and `aiplans/`, sharded by the first two hex digits of the hash:
+
+```text
+.aitask-data/
+  attachments/
+    blobs/<first 2 hex>/<remaining 62 hex>        the file's bytes
+    meta/<first 2 hex>/<remaining 62 hex>.json    reference ledger for that blob
+    .attach.lock                                  serializes every change
+```
+
+In legacy mode the same `attachments/` tree sits at the repository root.
+
+A blob's storage path and its cache key are both derived from its hash, so no
+lookup table maps names to files. A blob's ledger file lists the tasks that
+reference it (`refs`); when the last reference is removed, it records the time
+the blob became orphaned. How each command and task operation changes
+`refs`, and when `ait attach gc` deletes a blob, is on the
+[`ait attach`]({{< relref "/docs/commands/attach" >}}#references-over-a-tasks-life) page.
+
+`ait attach add` writes the blob, the blob's ledger file and the task file, and
+commits all three together as one `ait:` commit, so they cannot drift apart.
+`ait attach rm` commits the ledger file and the task file the same way. Only one
+`ait attach add` or `rm` runs at a time in a repository; one started meanwhile
+waits up to 30 seconds, then stops with an error asking you to retry.
+
+`local`, this layout committed with the task data, is the only backend
+`ait attach add` accepts, and `ait attach move` is not implemented. Each machine also keeps a cache under
+`~/.cache/ait/artifacts/<hash>`, or under `$XDG_CACHE_HOME/ait/artifacts/<hash>`
+when `XDG_CACHE_HOME` is set; for the local backend a cache entry is a link to
+the stored blob.
 
 ### Fields the workflow writes for you
 
@@ -120,21 +174,60 @@ meant to be set by a person, the flag is named in its own row — see
 ## Topic Anchoring
 
 The optional `anchor` field groups related tasks around a topic root without
-making them children of that root. A root task omits the field; its own task id
-is its topic key. A related task stores the root id in bare form:
+making them children of that root (what a topic is for:
+[Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}})). A root task
+omits the field; its own task id is its topic key. A related task stores the
+root id in bare form:
 
 ```yaml
+---
+priority: medium
+effort: low
+status: Ready
 anchor: 130
+---
 ```
 
+Task ids are normalized when they are written: `--anchor t130` and
+`--anchor 130` both store `anchor: 130`, and child ids use the same bare form,
+such as `130_2`. The target must exist, and a completed or archived task is a
+valid root, so a long-running topic keeps collecting follow-ups after its
+original root has been archived.
+
 Anchors are written by `aitask_create.sh --anchor <id>` or derived with
-`--followup-of <source_id>`, which always resolves to the source task's root
-rather than chaining follow-ups together. Children created with `--parent`
-inherit the parent's root, so a topic can include a parent, its child tasks, and
-loose follow-ups in one board lane.
+`--followup-of <source_id>`; the flag rules are under
+[`ait create`]({{< relref "/docs/commands/task-management" >}}#ait-create):
+
+```bash
+./.aitask-scripts/aitask_create.sh --batch --commit \
+  --name polish_search_errors \
+  --type enhancement \
+  --anchor 130 \
+  --desc "Improve the search error messages discovered while working on t130."
+```
+
+```bash
+./.aitask-scripts/aitask_create.sh --batch --commit \
+  --name add_search_latency_metrics \
+  --type enhancement \
+  --followup-of 130_2 \
+  --desc "Track latency for the search path touched by t130_2."
+```
+
+A child created in batch mode with `--parent P` inherits `anchor = P.anchor`
+when the parent has one; otherwise it inherits `anchor = P`. So a topic can
+include a parent, its child tasks and loose follow-ups in one board lane.
+
+A child can still have no `anchor:` line. Interactive `ait create` (without
+`--batch`) writes no anchor for any task, child or not, and
+`ait update --anchor ""` clears a child's anchor like any other task's. The
+board's By-Topic view places such a child in its parent's topic: the parent's
+`anchor` when the parent has one, else the parent's id. Clearing the field
+therefore makes a standalone task its own root again, while an anchorless child
+stays in its parent's topic.
 
 Use `aitask_update.sh --batch <id> --anchor <root>` to move a task to a topic,
-or `--anchor ""` to clear the field and make the task its own root again.
+or `--anchor ""` to clear the field.
 
 ## Status Workflow
 
@@ -148,8 +241,10 @@ Ready → Editing → Implementing → Done → Archived
 - **Implementing** — Active development in progress (assigned to someone)
 - **Postponed** — Deferred for later
 - **Folded** — Task was merged into another task via `/aitask-fold` or `/aitask-explore`; deleted on archival of the primary task
-- **Done** — Implementation complete, pending archival
+- **Done** — Finished. Archiving sets this status in the same step that moves the task file, so archived tasks keep it
 - **Archived** — Task and plan files moved to `archived/` directories
+
+The workflow makes these transitions when it picks, archives or aborts a task; the logic is in [`aitask_pick_own.sh`](https://github.com/beyondeye/aitasks/blob/main/.aitask-scripts/aitask_pick_own.sh), [`aitask_archive.sh`](https://github.com/beyondeye/aitasks/blob/main/.aitask-scripts/aitask_archive.sh) and the [task abort procedure](https://github.com/beyondeye/aitasks/blob/main/.claude/skills/task-workflow/task-abort.md).
 
 ---
 
@@ -161,9 +256,50 @@ Tasks support parent-child hierarchies for breaking complex work into subtasks:
 - **Child tasks** live in `aitasks/t<parent>/` (e.g., `aitasks/t10/t10_1_add_login.md`)
 - **Child plans** live in `aiplans/p<parent>/` (e.g., `aiplans/p10/p10_1_add_login.md`)
 
-Parent tasks track remaining children via the `children_to_implement` frontmatter field. When all children are complete, the parent is automatically archived.
+Parent tasks track remaining children via the `children_to_implement` frontmatter field. When all children are complete, the parent is automatically archived. The parent counts as completed work when any of its children was completed; it gets a superseded or obsolete `archived_reason` (see [Frontmatter Fields](#frontmatter-fields)) only when none was.
 
 Child task IDs use the format `t<parent>_<child>_<name>.md` where both parent and child identifiers are numbers only. Do not insert tasks "in-between" (e.g., no `t10_1b`). If you discover a missing step, add it as the next available number and adjust dependencies.
+
+---
+
+## Plan Files
+
+A task's plan is a markdown file in `aiplans/`, named after its task with `p`
+in place of `t`: the plan for `aitasks/t130_add_login.md` is
+`aiplans/p130_add_login.md`, and child plans live in `aiplans/p<parent>/` as
+described above. The agent writes the plan while it plans the task, and you
+approve it before any code changes. Each plan opens with a header:
+
+```markdown
+---
+Task: t16_2_add_login.md
+Parent Task: aitasks/t16_implement_auth.md
+Sibling Tasks: aitasks/t16/t16_1_*.md, aitasks/t16/t16_3_*.md
+Archived Sibling Plans: aiplans/archived/p16/p16_*_*.md
+Worktree: aiwork/t16_2_add_login
+Branch: aitask/t16_2_add_login
+Base branch: main
+Output branch: main
+---
+```
+
+| Field | Meaning |
+|-------|---------|
+| `Task` | The task file the plan implements |
+| `Parent Task`, `Sibling Tasks`, `Archived Sibling Plans` | Child plans only: where the parent, the other children and the finished children's plans are |
+| `Worktree` | The separate checkout the task works in, when it has one; omitted otherwise |
+| `Branch` | The branch the work is committed on; omitted when that is the primary branch |
+| `Base branch` | The branch the task branch is cut from |
+| `Output branch` | The branch the work is merged into when the task is done |
+
+A task worked on the current branch, with no worktree, records the checked-out
+branch in both `Base branch` and `Output branch`. After the header come the context, the
+implementation steps, the files to change and how to verify the result; as the
+task runs, the agent adds what it did differently, the changes asked for at
+review and its final notes. The full rules, including how an existing plan is
+checked again before it is reused, are in
+[`task-workflow/planning.md`](https://github.com/beyondeye/aitasks/blob/main/.claude/skills/task-workflow/planning.md)
+on GitHub.
 
 ---
 

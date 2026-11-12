@@ -8,17 +8,43 @@ depth: [main-concept]
 
 ## What it is
 
-A **task** is a markdown file with YAML frontmatter in the `aitasks/` directory, named `t<N>_<short_name>.md` (for example `aitasks/t130_add_login.md`). The frontmatter block carries the task's structured metadata — prioritization (`priority`, `effort`), scheduling and dependencies (`status`, `depends`, `boardcol`), classification (`issue_type`, `labels`), ownership (`assigned_to`), and a long tail of fields the workflow writes for itself; the free-form markdown body describes the work. The [Task File Format reference]({{< relref "/docs/development/task-format" >}}) documents every field. Tasks persist exactly the same way source code does: as files committed to git. Every CLI command, TUI, and code agent skill operates on those files directly.
+A **task** is one piece of work, written down as a markdown file in your
+repository's `aitasks/` directory, for example `aitasks/t130_add_login.md`. The
+top of the file holds its **frontmatter**: a block of `name: value` lines in
+YAML, between two `---` lines, that records facts about the task such as its
+priority, its status and the tasks it waits for. Below the frontmatter, ordinary
+markdown describes the work.
+
+Tasks are committed to git like source code. Every part of aitasks reads and
+writes these files directly: the `ait` command line, its full-screen terminal
+apps (TUIs) such as the board, and the **skills**, the instructions a coding
+agent such as Claude Code follows when you type a command like `/aitask-pick`.
 
 ## Why it exists
 
-Treating task tracking as a problem that belongs in version control means the full history of every task is visible in `git log`, branches and worktrees can carry their own task state, and a code agent can read, write, and reason about tasks with the same tools it uses for source code. The frontmatter schema is intentionally small enough for an LLM to keep in context, but expressive enough to drive prioritization, dependency resolution, and Kanban-style triage.
+Keeping tasks in git means every change to a task is in its git history, and
+a coding agent can read
+and edit tasks with the same tools it uses for code. The frontmatter is small
+enough for an agent to keep in mind, and still enough to sort tasks by priority,
+order them by what they wait for, and lay them out as cards in the columns of a
+board.
 
 ## How to use
 
-The complete frontmatter schema and worked examples live in the [Task File Format reference]({{< relref "/docs/development/task-format" >}}).
+The usual way to make a task is
+[`ait create`]({{< relref "/docs/commands/task-management" >}}#ait-create),
+typically started from the [board]({{< relref "/docs/tuis/board" >}}). A coding agent can also write tasks for you:
+[`/aitask-explore`]({{< relref "/docs/skills/aitask-explore" >}}) and
+[`/aitask-wrap`]({{< relref "/docs/skills/aitask-wrap" >}}) create them from the
+code you are working on, and
+[`/aitask-pr-import`]({{< relref "/docs/skills/aitask-pr-import" >}}) turns a pull
+request into one. All of them just write a file into `aitasks/`. The
+[Capturing ideas]({{< relref "/docs/workflows/capturing-ideas" >}}) and
+[Create tasks from code]({{< relref "/docs/workflows/create-tasks-from-code" >}})
+workflows walk through the common ways.
 
-There are many ways to produce a task — they all just write a file into `aitasks/`. The most common entry points are [`ait create`]({{< relref "/docs/commands/task-management" >}}#ait-create) (typically launched from inside a TUI like [Board]({{< relref "/docs/tuis/board" >}}) or Brainstorm), code-aware capture from [`/aitask-explore`]({{< relref "/docs/skills/aitask-explore" >}}) and [`/aitask-wrap`]({{< relref "/docs/skills/aitask-wrap" >}}), and import flows like [`/aitask-pr-import`]({{< relref "/docs/skills/aitask-pr-import" >}}). The [Capturing ideas]({{< relref "/docs/workflows/capturing-ideas" >}}) and [Create tasks from code]({{< relref "/docs/workflows/create-tasks-from-code" >}}) workflows walk through the recommended patterns.
+Every frontmatter field, including the ones the workflow writes for itself, is
+listed in the [Task File Format reference]({{< relref "/docs/development/task-format" >}}).
 
 ## See also
 

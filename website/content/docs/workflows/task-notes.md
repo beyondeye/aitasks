@@ -104,4 +104,4 @@ Acknowledgements are shared state: a note acknowledged on one machine does not r
 - [`/aitask-note`]({{< relref "/docs/skills/aitask-note" >}}) — the skill
 - [`ait note`]({{< relref "/docs/commands/note" >}}) — the CLI, its output codes, and what each note records
 - [Follow-Up Tasks]({{< relref "/docs/workflows/follow-up-tasks" >}}) — when what you learned is new work
-- [Locks]({{< relref "/docs/concepts/locks" >}}) — the record live delivery reads to find a task's agent
+- [`ait lock`]({{< relref "/docs/commands/lock" >}}#how-it-works) — the lock record live delivery reads to find a task's agent

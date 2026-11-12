@@ -108,7 +108,18 @@ The argument is position-independent and can appear anywhere in the argument str
 1. `--profile <name>` argument (highest priority)
 2. `userconfig.yaml` → `default_profiles.<skill>` (personal)
 3. `project_config.yaml` → `default_profiles.<skill>` (team)
-4. Interactive selection / auto-select (fallback)
+4. The `default` profile (fallback)
+
+In `default_profiles.<skill>`, `<skill>` is one of the valid skill names above (`pick` for `/aitask-pick`). How a profile-aware skill turns the resolved profile into the instructions it follows is in [Skill Templating and Dispatch]({{< relref "/docs/development/skill-templating" >}}).
+
+To start a profile-aware skill from the shell under a chosen profile, use [`ait skillrun`]({{< relref "/docs/commands/skillrun" >}}), for example `ait skillrun pick --profile fast 42`.
+
+## Editing the profile in a launch dialog
+
+The launch dialog that `ait board` and other TUIs open to start a skill has a **Profile** row with **(E)dit**. It opens the same profile editor as `ait settings`, with two ways to save:
+
+- **(S)ave** writes `aitasks/metadata/profiles/local/<name>.yaml`. This is the user-layer override (gitignored), and it shadows any project profile of the same name for future runs.
+- **Save as (O)ne-shot** writes `aitasks/metadata/profiles/local/_skillrun_<unique>.yaml` and changes the launch command to `--profile _skillrun_<unique>`, the same mechanism as `ait skillrun --profile-override`. One-shot files at least an hour old are removed, best-effort, whenever a launch dialog opens.
 
 ## Notes
 

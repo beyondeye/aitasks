@@ -80,7 +80,7 @@ description: "Complete CLI reference for all ait subcommands"
 | Command | Description |
 |---------|-------------|
 | [`ait codeagent`](codeagent/) | Manage code agent and model configuration |
-| [`ait skillrun`](../concepts/skill-templating/#invocation-paths) | Launch a code agent with a profile-aware aitask skill |
+| [`ait skillrun`]({{< relref "/docs/commands/skillrun" >}}) | Launch a code agent with a profile-aware aitask skill |
 | [`ait explain-runs`](explain/#ait-explain-runs) | Manage aitask-explain run directories (list, delete, cleanup) |
 | [`ait explain-cleanup`](explain/#ait-explain-cleanup) | Remove stale aitask-explain run directories |
 | [`ait artifact`](artifact/) | Create, version, fetch and move a task's handle-addressed artifacts (see [Artifacts](../concepts/artifacts/)) |

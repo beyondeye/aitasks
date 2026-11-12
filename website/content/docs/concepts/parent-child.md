@@ -8,15 +8,15 @@ depth: [main-concept]
 
 ## What it is
 
-A **parent task** is a regular task whose work has been split into smaller **child tasks**. The parent file lives at the usual location (`aitasks/t<N>_<name>.md`); its children live in a sibling subdirectory `aitasks/t<N>/` named `t<N>_<M>_<name>.md` — for example `aitasks/t130/t130_1_add_login_form.md`. The parent's `children_to_implement` frontmatter field lists the child IDs that still need work. Children automatically depend on each other in order, and when the last child is archived the parent is archived too. The parent counts as completed work when any of its children was completed; it is marked superseded or obsolete only when none was.
+A **parent task** is a regular task whose work has been split into smaller **child tasks**. Each child is a task file of its own, kept in a folder named after the parent's number: the children of `aitasks/t130_add_login.md` are files such as `aitasks/t130/t130_1_add_login_form.md`. The parent keeps track of which children still need work. By default each child depends on the one before it, so the children are done in number order, and when the last child is archived (moved out of the list of open tasks) the parent is archived too.
 
 ## Why it exists
 
-Many real-world tasks are too large for a single agent session — context gets cluttered, plans drift, and review becomes unwieldy. Decomposition lets the planning agent capture the whole problem once, then hand each child off to a fresh context with only the relevant slice of background. Archived child plans flow back as primary context for subsequent siblings, so later children inherit the gotchas, patterns, and decisions established earlier — without re-deriving them.
+Many real tasks are too large for one conversation with a coding agent: the conversation fills up with detail, the plan drifts, and the review gets too big to follow. Splitting the work lets the agent that plans the parent describe the whole problem once, then hand each child to a fresh conversation that gets only the background it needs. When a child is archived, its **plan**, the step-by-step description of the work that the agent wrote and you approved before coding (see [Plans]({{< relref "/docs/concepts/plans" >}})), becomes the first thing the agents working on the next children read, so they inherit the problems, patterns and decisions found earlier instead of working them out again.
 
 ## How to use
 
-The [Task decomposition workflow]({{< relref "/docs/workflows/task-decomposition" >}}) walks through creating a parent with children. Picking a child task is the same as picking a regular task — `/aitask-pick 130_2`. The board TUI shows parents with pending children as **Has children**, and drilling in lets you pick a specific child.
+When you pick a large task with `/aitask-pick`, the agent can offer to split it into children while it plans; you can also ask for a split in the task's description. The [Task decomposition workflow]({{< relref "/docs/workflows/task-decomposition" >}}) walks through it. You start work on a child the same way as on any other task, by typing `/aitask-pick 130_2` (the parent's number, then the child's) into your coding agent. In the [board]({{< relref "/docs/tuis/board" >}}), the task board that `ait board` opens in your terminal, a parent's card shows how many children it has, and opening it lets you pick a specific child. The file and field rules are in the [Task File Format reference]({{< relref "/docs/development/task-format" >}}#parent-child-hierarchies).
 
 ## See also
 

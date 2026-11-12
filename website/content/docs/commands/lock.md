@@ -3,7 +3,7 @@ title: "Lock"
 linkTitle: "Lock"
 weight: 36
 description: "ait lock command for atomic task locking to prevent concurrent work"
-depth: [intermediate]
+depth: [advanced]
 ---
 
 ## ait lock
@@ -20,7 +20,7 @@ ait lock --list                    # Show all active locks
 
 | Command | Description |
 |---------|-------------|
-| `<task_id>` | Lock a task. Auto-detects email from `userconfig.yaml`, falling back to `emails.txt`. Exit 0 = locked, 1 = held by another owner, 13 = held by another **live** session of yours on this host, 14 = held by a session of yours whose liveness could not be established (see [Locks]({{< relref "/docs/concepts/locks" >}})) |
+| `<task_id>` | Lock a task. Auto-detects email from `userconfig.yaml`, falling back to `emails.txt`. Exit 0 = locked, 1 = held by another owner, 13 = held by another **live** session of yours on this host, 14 = held by a session of yours whose liveness could not be established (see [When a Pick Meets a Held Lock](#when-a-pick-meets-a-held-lock)) |
 | `--lock <task_id> [--email EMAIL]` | Explicit lock syntax (same as bare task ID) |
 | `--unlock <task_id>` | Release a task lock. Idempotent (succeeds even if not locked) |
 | `--check <task_id>` | Check lock status. Exit 0 = locked (stdout is the lock record, as raw YAML), exit 1 = free (stdout empty) |
@@ -69,7 +69,7 @@ This matches the behavior of the [board TUI](../../tuis/board/) lock button.
 
 ### How It Works
 
-Locks are stored as YAML files (`t<N>_lock.yaml`) on a separate orphan git branch (`aitask-locks`) that exists only on the remote. Atomicity is achieved via git's push rejection on non-fast-forward updates -- if two users try to lock the same task simultaneously, only one push succeeds and the other retries (up to 5 attempts).
+Locks are stored as YAML files (`t<N>_lock.yaml`) on a separate orphan git branch (`aitask-locks`) that exists only on the remote. Atomicity is achieved via git's push rejection on non-fast-forward updates -- if two users try to lock the same task simultaneously, only one push succeeds and the other retries (up to 5 attempts). Releasing a lock, including a forced unlock, is likewise one commit pushed to that branch.
 
 Each lock file contains:
 
@@ -83,9 +83,29 @@ pid_starttime: 1234567
 pid_starttime_kind: proc
 ```
 
-When the lock is taken from an agent session, it also records that session's process: `pid`, plus a start-time token (`pid_starttime`, `pid_starttime_kind`) that tells it apart from a recycled PID. A lock that predates this, or was taken where no session process could be identified, has no `pid` fields. That record is what lets a later pick tell a live holder from a crashed one (see [Locks]({{< relref "/docs/concepts/locks" >}})), and it is also what [`ait note --with-live`]({{< relref "/docs/commands/note" >}}#output) reads to find the live agent session implementing a task.
+When the lock is taken from an agent session, it also records that session's process: `pid`, plus a start-time token (`pid_starttime`, `pid_starttime_kind`) that tells it apart from a recycled PID. A lock that predates this, or was taken where no session process could be identified, has no `pid` fields. That record is what lets a later pick tell a live holder from a crashed one (see [When a Pick Meets a Held Lock](#when-a-pick-meets-a-held-lock)), and it is also what [`ait note --with-live`]({{< relref "/docs/commands/note" >}}#output) reads to find the live agent session implementing a task.
 
 **Locking does not change task metadata.** The task's `status` and `assigned_to` fields are not modified -- locking is purely a reservation mechanism. The status changes to `Implementing` later when the task is actually picked for implementation (via `/aitask-pick` or similar).
+
+A lock is released when its task is archived or aborted, or when you run `ait lock --unlock`. [Stale Lock Cleanup](#stale-lock-cleanup) removes locks left behind by tasks that are already archived. A session that crashes cannot release its own lock, so the lock stays until a later pick takes it over or force-unlocks it, as the next section describes.
+
+### When a Pick Meets a Held Lock
+
+Each lock belongs to one agent session, so several agents in one checkout under the same email still exclude each other. A competing `/aitask-pick` on a locked task resolves by who holds the lock:
+
+| Who holds it | Outcome |
+|---|---|
+| A different owner (any host) | Refused with `LOCK_FAILED`, naming the owner |
+| You, from this same session | Refreshed without a refusal, so a resume or re-pick of your own task can take it again. When the task is already `Implementing` and assigned to you, the pick then shows the [anomaly prompt]({{< relref "/docs/workflows/crash-recovery" >}}#lock-anomaly-fallback) |
+| You, from another session on this host, still running | Refused: nothing is claimed, and you are asked whether to leave it alone or force the claim |
+| You, from another session on this host, whose liveness cannot be established | Refused the same way: nothing is claimed, and you are asked whether to leave it alone or reclaim it anyway |
+| You, from a session that is provably gone | Claimed, with a [crash-recovery]({{< relref "/docs/workflows/crash-recovery" >}}) prompt |
+| You, from another host | Claimed, with a [multi-PC reclaim prompt]({{< relref "/docs/workflows/crash-recovery" >}}#multi-pc-reclaim) |
+| You, via a lock that never recorded a session process (an older lock with no `pid` fields, or a claim made outside tmux without `AIT_AGENT_PID`) | Claimed, with the [anomaly prompt]({{< relref "/docs/workflows/crash-recovery" >}}#lock-anomaly-fallback), because there is no holder to verify |
+
+When a different owner holds the lock, the interactive pick asks whether to force-unlock it and claim the task, or to pick a different task. [`/aitask-pickrem`]({{< relref "/docs/skills/aitask-pickrem" >}}) asks nothing: it force-unlocks only when its profile sets `force_unlock_stale`, and otherwise stops.
+
+The two refusals of your own sessions, what they leave untouched, and how to override them are on [Crash Recovery: When the Holder Is Still Running]({{< relref "/docs/workflows/crash-recovery" >}}#when-the-holder-is-still-running). The three claim prompts are on [Crash Recovery: When the Recovery Path Fires]({{< relref "/docs/workflows/crash-recovery" >}}#when-the-recovery-path-fires).
 
 ### Stale Lock Cleanup
 

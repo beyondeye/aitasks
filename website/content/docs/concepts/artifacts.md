@@ -8,9 +8,9 @@ depth: [advanced]
 
 ## What it is
 
-An **artifact** is a versioned output that belongs to a task — an HTML plan, an implementation trail, a report, a mockup. The task's `artifacts:` frontmatter records only a stable **handle** such as `art:t42-htmlplan`, plus a kind and an optional name. Everything that changes over time lives in a separate **manifest**: which version is current, the list of every version, and which backend stores them. Each version is an immutable blob identified by the SHA-256 of its bytes, so every fetch is checked against its hash and each machine keeps a local cache under `~/.cache/ait/artifacts/`.
+An **artifact** is a versioned output that belongs to a task, such as an HTML plan, an implementation trail, a report or a mockup. The task's `artifacts:` frontmatter records only a stable **handle** such as `art:t42-htmlplan`, plus a kind and an optional name. Everything that changes over time lives in a separate **manifest**: which version is current, the list of every version, and which backend stores them. Each version is an immutable blob identified by the SHA-256 of its bytes, so every fetch is checked against its hash. Each machine keeps a local cache of fetched versions under `~/.cache/ait/artifacts/`.
 
-Resolving a handle therefore goes handle → manifest → backend → local cache. The backend is where the blobs actually live:
+The backend is where the blobs actually live:
 
 | Backend | Where blobs live | Pick it when |
 |---------|------------------|--------------|
@@ -18,19 +18,15 @@ Resolving a handle therefore goes handle → manifest → backend → local cach
 | `dir` | A directory every teammate mounts at the same absolute path (NAS, network share) | Your team already shares a mounted store |
 | `gitbranch` | A dedicated git branch (by default `aitask-artifacts`), pushed to `origin` when the repository has one | You want blobs in git without growing the task data branch — no mount and no credentials |
 
-Three `gitbranch` rules are easy to trip over:
-
-- **A write is pushed before it counts.** When the repository has an `origin`, a write succeeds only once `origin` has accepted it, so `origin` must be reachable. In a repository with no `origin`, the local branch is the store and nothing is pushed.
-- **The branch belongs to the store.** Pointing the backend at an existing ordinary branch, or at a reserved name such as `main` or `aitask-data`, is refused.
-- **A rename is a migration.** Changing the configured branch once the store exists needs `ait artifact gitbranch-migrate`, not `ait artifact move`.
-
-The exact rules and messages are on the [`ait artifact` command page]({{< relref "/docs/commands/artifact" >}}).
+The rules each backend follows (for `gitbranch`: when a write counts, which
+branches it may use, and how to rename its branch) are on the
+[`ait artifact` command page]({{< relref "/docs/commands/artifact" >}}).
 
 ## Why it exists
 
-Some outputs are too large, or change too often, to live inside a task file — and a task file that is rewritten on every revision makes a noisy history. Artifacts keep the task file stable: it records the handle once, and a new version or a move to another backend touches only the manifest. Because the handle never changes, links to it stay valid, and any machine with the project's configuration can fetch the same artifact.
+Some outputs are too large, or change too often, to live inside a task file, and a task file rewritten on every revision has a noisy history. Artifacts keep the task file stable: it records the handle once, and a new version or a move to another backend touches only the manifest. Because the handle never changes, links to it stay valid, and any machine with the project's configuration can fetch the same artifact.
 
-The backend choice is what lets large blobs stay off the task data branch: start on `local`, then move artifacts to `dir` or `gitbranch` when the data branch should stay small.
+Choosing `dir` or `gitbranch` keeps large blobs off the task data branch: start on `local`, then move artifacts to `dir` or `gitbranch` when the data branch should stay small.
 
 ## How to use
 

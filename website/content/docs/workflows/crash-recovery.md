@@ -181,8 +181,8 @@ The sync only ever fast-forwards. If your local merge target has commits the rem
 
 ## See also
 
-- [Concepts: Locks](../../concepts/locks/) — the `aitask-locks` branch and the lock metadata the recovery reads
-- [Concepts: Gates](../../concepts/gates/) — the `## Gate Runs` ledger a resumed task is re-entered from
+- [Concepts: Locks](../../concepts/locks/) — what the task lock is for
+- [Gate rules: the ledger]({{< relref "/docs/development/gates" >}}#the-ledger) — the `## Gate Runs` ledger a resumed task is re-entered from
 - [Parallel Development](../parallel-development/) — the broader concurrency picture this fits into
 - [`/aitask-pick`](../../skills/aitask-pick/) — the skill that runs the recovery
-- [`ait lock`](../../commands/lock/) — manual lock inspection and force-release
+- [`ait lock`](../../commands/lock/) — the lock record the recovery reads, every outcome of a pick that meets a held lock, and manual inspection and force-release

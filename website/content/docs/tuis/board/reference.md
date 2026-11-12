@@ -227,10 +227,20 @@ It splits filtering into a **base radio** (mutually exclusive — exactly one is
 Pressing the key for the currently active base is a no-op. Locked and Free are leaf-level inverses (`Locked ∪ Free = All`, `Locked ∩ Free = ∅`) — the Locked view additionally includes parent/sibling cards as context.
 
 **By-Topic lanes:** The By-Topic view uses the task's `anchor` field when set;
-otherwise a child falls back to its parent topic and a standalone task falls
-back to its own id. If the root task is archived or not currently loaded, the
-anchor id still remains the stable lane key. Topics with only one visible task
-are collected in the trailing **Ungrouped** lane. See [Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}) for creation flags, inheritance rules, and when to use anchors instead of parent-child tasks or dependencies.
+otherwise a child falls back to its parent topic (the parent's `anchor`, else
+the parent's id) and a standalone task falls back to its own id. Lanes are built
+from every task the board loads (the task files under `aitasks/` and their
+child tasks; archived tasks are not loaded), before any search filter applies.
+A topic with two or more loaded tasks gets its own lane,
+labelled `t<id>` and the root task's name. If the root task is archived or not
+currently loaded, the anchor id still remains the stable lane key, so follow-ups
+anchored to an archived root keep clustering together, and the label takes the
+name of the lane's first task instead. Topics with only one task are collected
+in the trailing **Ungrouped** lane. The flags that set an anchor are under
+[`ait create`]({{< relref "/docs/commands/task-management" >}}#ait-create), the
+inheritance rules under the task file format's [Topic Anchoring section]({{< relref "/docs/development/task-format" >}}#topic-anchoring),
+and when to use an anchor instead of parent-child tasks or dependencies on
+[Topic anchoring]({{< relref "/docs/concepts/topic-anchoring" >}}).
 
 **By-Topic lane sort order:** Lanes are ordered most-recently-touched first by
 default. In the By-Topic view, press `o` to open a picker and choose the lane
@@ -639,7 +649,7 @@ The board reads and displays the following frontmatter fields from task files:
 | `children_to_implement` | list | Read-only | Child task IDs for parent tasks |
 | `folded_tasks` | list | Read-only | Task IDs that were merged into this task |
 | `folded_into` | string | Read-only | Task ID this task was folded into |
-| `anchor` | string | Yes | Topic root used by the By-Topic view. Empty means the task is its own topic root. |
+| `anchor` | string | Yes | Topic root used by the By-Topic view. Empty means the task is its own topic root, except a child task, which stays in its parent's topic. Setting it moves the task into the topic rooted at that task id. |
 | `file_references` | list | Read-only | Pointers to source files / line ranges (e.g., `foo.py:10-20`). Pressing **Enter** on a focused row opens `ait codebrowser` at the referenced location. See [Creating Tasks from Code]({{< relref "/docs/workflows/create-tasks-from-code" >}}). |
 | `boardcol` | string | Auto-managed | Column ID (set by board operations) |
 | `boardidx` | integer | Auto-managed | Sort index within column (set by board operations) |

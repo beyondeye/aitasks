@@ -8,15 +8,26 @@ depth: [intermediate]
 
 ## What it is
 
-A **folded task** is a task whose content has been **merged into** another (the *primary* task). Folding sets the folded task's `status` to `Folded` and writes a `folded_into` field pointing at the primary; the primary in turn lists every folded child in its `folded_tasks` frontmatter field. At fold time the folded task's body is incorporated into the primary's description under a `## Merged from t<N>` header — the folded file remains on disk only as a reference for archival cleanup, and it is deleted (not archived) when the primary is archived.
+A **folded task** is a task whose content has been merged into another task, the
+*primary* task. Its wording is copied into the primary's description, and the
+folded file stays on disk only as a reference until the primary is archived,
+when it is deleted. The fields folding writes are in the
+[Task File Format reference]({{< relref "/docs/development/task-format" >}}#frontmatter-fields).
 
 ## Why it exists
 
-When two or more pending tasks turn out to describe the same underlying work, splitting them across separate plans wastes context and produces redundant commits. Folding consolidates them into a single coherent unit while still preserving each original task's framing inside the primary's description. Folded tasks are **merged**, not superseded or replaced — the original wording remains visible in the primary's body so reviewers can see what was rolled in. This wording matters: code, commit messages, and procedures all use "merged" / "incorporated" rather than "superseded" / "replaced".
+When two or more pending tasks turn out to describe the same work, splitting it
+across separate plans wastes context and produces redundant commits. Folding
+turns them into one task and keeps each original task's wording inside the
+primary's description, so reviewers can see what was merged in.
 
 ## How to use
 
-Use [`/aitask-fold`]({{< relref "/docs/skills/aitask-fold" >}}) to interactively merge two or more existing tasks. Folding can also happen ad-hoc during planning — if a plan in [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}) names additional tasks to fold in, the workflow runs the fold inline before continuing. Both parent-level and child-level tasks can be folded.
+Use [`/aitask-fold`]({{< relref "/docs/skills/aitask-fold" >}}) to merge two or
+more existing tasks. Folding can also happen while
+[`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}) plans a task: when the
+task's description or you ask for other tasks to be folded in, the workflow folds
+them before planning continues. Both standalone tasks and child tasks can be folded; a parent task that still has children cannot.
 
 ## See also
 

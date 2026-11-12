@@ -435,6 +435,10 @@ relies on are:
 {# comment #}              {#- comment -#}
 ```
 
+A template that must show a literal `{{` or `{%` (for example a skill that
+documents Jinja syntax) wraps it in `{% raw %} … {% endraw %}`, so the renderer
+emits it instead of evaluating it.
+
 Out of scope: `{% extends %}` and `{% block %}` (template inheritance
 with arbitrary Python is intentionally excluded — see the renderer's
 module docstring at `.aitask-scripts/lib/skill_template.py:8-11`),

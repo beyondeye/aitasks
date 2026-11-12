@@ -32,11 +32,11 @@ What this means in practice:
 - **A queued agent is told what it is waiting on.** The merge-approval prompt names the task currently holding the merge, so a queue looks like a queue rather than a hang.
 - **A conflict-parked merge keeps the shared tree reserved** until the human resolving it is done. Without that, the next task's merge would absorb the half-resolved conflict work into its own merge commit.
 - **The reservation is held through post-merge verification and cleanup**, so a build or test result belongs to the task that produced it rather than to whatever else landed in the meantime.
-- **A session that dies mid-merge leaves the reservation held.** It is cleared deliberately, not automatically — see [Recovering a stuck merge mutex]({{< relref "/docs/concepts/locks#recovering-a-stuck-merge-mutex" >}}).
+- **A session that dies mid-merge leaves the reservation held.** It stays held until the next task finds that session provably gone, or until you clear it — see [Recovering a stuck merge mutex]({{< relref "/docs/development/merge-mutex" >}}#recovering-a-stuck-merge-mutex).
 
 Under `create_worktree: false` none of this applies: there is no task branch, the merge step does not run at all, and shared-checkout mode is unaffected.
 
-For what the mutex does and does not cover, see [Concepts: The merge mutex]({{< relref "/docs/concepts/locks#the-merge-mutex" >}}).
+For what the mutex does and does not cover, see [Merge mutex]({{< relref "/docs/development/merge-mutex" >}}).
 
 ## Choosing What to Run Alongside
 

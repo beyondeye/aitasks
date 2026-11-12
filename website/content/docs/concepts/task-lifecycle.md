@@ -12,22 +12,22 @@ Every task carries a `status` field that captures where it is in its life:
 
 | Status | Meaning |
 |--------|---------|
-| `Ready` | Created and triaged. Available to be picked. |
-| `Editing` | Being authored or revised in a TUI; not yet ready for implementation. |
-| `Implementing` | A skill has claimed the task; an agent is actively working on it. |
-| `Postponed` | Deferred — left visible but skipped during normal selection. |
-| `Done` | Implementation finished and committed. Awaiting archival. |
-| `Folded` | The task has been merged into another (the `folded_into` task). |
+| `Ready` | Ready to start work on; new tasks start here. |
+| `Editing` | Still being written or revised; not ready to start yet. |
+| `Implementing` | A coding agent has started work on it and holds its [task lock]({{< relref "/docs/concepts/locks" >}}). |
+| `Postponed` | Put aside for later. It stays listed, but task selection skips it. |
+| `Done` | Finished; archived tasks keep this status. |
+| `Folded` | Merged into another task (see [Folded tasks]({{< relref "/docs/concepts/folded-tasks" >}})). |
 
-Transitions are driven by the workflow scripts: picking a task moves `Ready → Implementing` and acquires a lock; a successful run moves `Implementing → Done` (then `Done → Archived` as the file moves into `aitasks/archived/`); aborting reverts to `Ready` and releases the lock. Folded is a terminal status — folded files are deleted (not archived) when the primary they were merged into is archived.
+The workflow changes the status for you. Picking a task, which you do with `/aitask-pick` in your coding agent or from the board, starts work on it: it moves from `Ready` to `Implementing`, and the agent takes a [lock]({{< relref "/docs/concepts/locks" >}}) on it. When the work is finished and committed, archiving sets the status to `Done` and moves the file into the archive of finished tasks. Aborting puts it back to `Ready` (or `Editing`, if you choose) and releases the lock. `Folded` is final: a folded file is deleted, not archived, when the task it was merged into is archived.
 
 ## Why it exists
 
-A small, fixed set of statuses lets the prioritization, board, and selection logic stay simple: every script that asks "what's next?" only has to reason about a handful of states. Recording transitions as commits — rather than as silent in-place edits — means `git log` for a task file is also its audit trail.
+The status tells you, the board and task selection which tasks can be started, which are being worked on and which are finished. The set is kept small and fixed, so the board and task selection each handle only a handful of states. Each status change the workflow makes is committed to git, so the task file's git history is also its history.
 
 ## How to use
 
-You rarely set `status` by hand. The workflow scripts do it as side effects of picking, archiving, aborting, and folding. The full transition logic lives in the implementation scripts on GitHub: [`aitask_pick_own.sh`](https://github.com/beyondeye/aitasks/blob/main/.aitask-scripts/aitask_pick_own.sh), [`aitask_archive.sh`](https://github.com/beyondeye/aitasks/blob/main/.aitask-scripts/aitask_archive.sh), and the [task abort procedure](https://github.com/beyondeye/aitasks/blob/main/.claude/skills/task-workflow/task-abort.md).
+You rarely set `status` by hand: picking, archiving, aborting and folding set it. To put a task aside, set it to `Postponed` on the board's task detail screen or with `ait update`, and back to `Ready` when it should be picked again. The statuses and where archived files go are listed in the [Task File Format reference]({{< relref "/docs/development/task-format" >}}#status-workflow).
 
 ## See also
 

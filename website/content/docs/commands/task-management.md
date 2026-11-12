@@ -8,7 +8,7 @@ depth: [intermediate]
 
 ## ait create
 
-Create new task files with YAML frontmatter metadata. Supports standalone and parent/child task hierarchies.
+Create new task files with YAML frontmatter metadata. Supports standalone and parent/child task hierarchies. It is typically started from inside a TUI such as the [board]({{< relref "/docs/tuis/board" >}}) or the brainstorm TUI.
 
 **Interactive mode** (default — requires fzf):
 
@@ -64,6 +64,8 @@ echo "Long description" | ait create --batch --name "my_task" --desc-file -
 | `--file-ref REF` | Add a file reference (`path`, `path:N`, or `path:N-M`; repeatable) |
 | `--parent, -P NUM` | Create as child of parent task number |
 | `--no-sibling-dep` | Don't auto-add dependency on previous sibling |
+| `--anchor ID` | Put the task in the [topic]({{< relref "/docs/concepts/topic-anchoring" >}}) rooted at task `ID` (writes `anchor`). Accepts `130`, `t130` or a child id such as `130_2`, stored without the `t` prefix; the task must exist, and an archived task is a valid root. Mutually exclusive with `--followup-of`; rejected with `--parent`, because a child derives its topic from its parent (re-anchor it after creation with `ait update --anchor`) |
+| `--followup-of ID` | Put the task in the topic of source task `ID`, flattened to the root: if the source has an `anchor`, the new task gets the same `anchor`; if the source is an anchorless child such as `130_2`, the new task anchors to its parent id, `130`, even when that parent has an `anchor` of its own; otherwise it anchors to the source itself. A follow-up of an anchored follow-up therefore points at the same root. The source must exist. Mutually exclusive with `--anchor`; rejected with `--parent` |
 | `--assigned-to, -a EMAIL` | Assignee email |
 | `--issue URL` | Linked issue tracker URL |
 | `--pull-request URL` | Linked pull request URL |
@@ -206,6 +208,7 @@ ait update --batch 10 --remove-child t10_1      # Remove child from parent
 | `--remove-file-ref REF` | Remove a file reference (exact-string match; repeatable) |
 | `--boardcol COL` | Board column ID. Validated against the project's configured columns (plus `unordered`); an unknown id is rejected. Use `""` to clear |
 | `--boardidx IDX` | Board sort index |
+| `--anchor ID` | Move the task to the [topic]({{< relref "/docs/concepts/topic-anchoring" >}}) rooted at task `ID` (normalized and validated as for `ait create --anchor`). `""` clears the field: a standalone task becomes its own topic root again, while a child stays in its parent's topic (see [Topic Anchoring]({{< relref "/docs/development/task-format" >}}#topic-anchoring)) |
 | `--pull-request URL` | Linked pull request URL (use `""` to clear) |
 | `--contributor NAME` | External contributor name for `Co-Authored-By` (use `""` to clear) |
 | `--contributor-email EMAIL` | External contributor email (use `""` to clear) |

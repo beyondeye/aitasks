@@ -8,133 +8,64 @@ depth: [main-concept]
 
 ## What it is
 
-Topic anchoring is a lightweight way to group related tasks around the same
-subject. A task can carry an `anchor` frontmatter field whose value is the task
-id of the topic root. On the board, tasks with the same topic key are clustered
-together in the By-Topic view.
-
-An anchor is not a dependency, a label, or a parent-child relationship. It is a
-grouping key for work that belongs near the same subject but does not need the
-strict lifecycle of a decomposed parent task.
-
-Topic membership is also distinct from
-[implementation trail]({{< relref "/docs/workflows/implementation-trails" >}})
-membership, and the two differ in both directions: a task resolves to exactly one
-topic, but it may appear in any number of trails, and a single trail may span
-several topics. A trail is a projection of recommended ordering, not a regrouping —
-referencing a task in one never changes its anchor.
-
-## How the key is stored
-
-A topic root omits the `anchor:` line. Its own task id is its topic key.
-Follow-up and related tasks store the root id in `anchor`, using the bare id
-form:
-
-```yaml
----
-priority: medium
-effort: low
-status: Ready
-anchor: 130
----
-```
-
-Task ids are normalized when they are written. `--anchor t130` and
-`--anchor 130` both store `anchor: 130`; child ids use the same bare form, such
-as `130_2`. Anchor targets are validated to exist, and completed or archived
-tasks remain valid roots. That lets a long-running topic keep collecting
-follow-ups even after the original root has been archived.
-
-## Creating anchored tasks
-
-Use `--anchor <id>` when you already know the topic root:
-
-```bash
-./.aitask-scripts/aitask_create.sh --batch --commit \
-  --name polish_search_errors \
-  --issue-type enhancement \
-  --anchor 130 \
-  --desc "Improve the search error messages discovered while working on t130."
-```
-
-Use `--followup-of <source_id>` when the new task comes from another task and
-should inherit that task's topic:
-
-```bash
-./.aitask-scripts/aitask_create.sh --batch --commit \
-  --name add_search_latency_metrics \
-  --issue-type enhancement \
-  --followup-of 130_2 \
-  --desc "Track latency for the search path touched by t130_2."
-```
-
-`--followup-of` flattens to the root. If the source has `anchor: 130`, the new
-task also gets `anchor: 130`. If the source is an anchorless child like
-`130_2`, the new task anchors to `130`. If the source is an anchorless parent,
-the new task anchors to that parent. Follow-ups never form anchor chains.
-
-`--anchor` and `--followup-of` are mutually exclusive. Both are rejected when
-creating a child with `--parent`, because children derive their topic from the
-parent.
-
-## Children and re-anchoring
-
-A child created with `--parent P` inherits `anchor = P.anchor` when the parent
-has one; otherwise it inherits `anchor = P`. This makes a topic lane span the
-parent, its children, and loose follow-up work.
-
-To move an existing task to another topic, edit the anchor directly:
-
-```bash
-./.aitask-scripts/aitask_update.sh --batch 180 --anchor 130
-```
-
-To make a task its own topic root again, clear the field:
-
-```bash
-./.aitask-scripts/aitask_update.sh --batch 180 --anchor ""
-```
-
-## When to use it
-
-Use a topic anchor when tasks should be near each other for triage and review,
-but can be planned, picked, implemented, and archived independently.
-
-Use a parent-child task when one larger piece of work needs to be decomposed
-into ordered child tasks that share a parent lifecycle.
-
-Use `depends` when one task cannot be implemented until another task lands.
-
-Use labels when you need broad filtering across many unrelated topics, such as
-`ui`, `docs`, or `performance`.
-
-These relationships can be combined. For example, a follow-up can be anchored
-to a feature topic and also depend on a bug fix that must land first.
-
-## Board view
-
-Press `y` in the board TUI to switch to the By-Topic base view. The board builds
-topic lanes from each task's topic key: `anchor` when present, else a child's
-parent topic, else the task's own id. Topics with two or more visible tasks get
-their own lane, labelled by the root task when available. Single-task topics are
-collapsed into the trailing `Ungrouped` lane.
-
-If the root task is archived or otherwise not loaded in the current task set,
-the anchor id still remains the stable lane key. The lane label falls back to
-that id, so follow-ups anchored to an archived root continue to cluster
+A **task** in aitasks is a markdown file that describes one piece of work,
+kept in your repository and committed to git. A **topic** is a group of loosely
+related tasks about one subject. The subject is named after one of them, the
+**topic root**: usually the task the others came from, such as a feature whose
+work turned up a few smaller fixes. Other tasks join the topic by recording
+the root's task number in a field called its **anchor**; a child task is in its
+parent's topic without one. That number is how aitasks keeps the group
 together.
 
-The task detail screen also exposes the anchor field for edits, which is useful
-when a task starts as standalone and later becomes part of a broader topic.
+A topic does not tie its tasks together in any other way. Each one is still
+planned, picked up, implemented and archived on its own. Archiving moves a
+finished task out of the active task list, and an archived task stays a valid
+topic root, so a topic can keep collecting new tasks after its root is done.
+
+## Why it exists
+
+Work on one task often turns up more: a follow-up fix, a related cleanup, an
+idea for later. Those tasks belong near the task they came from when you sort
+and review your backlog, but they are not steps of it and do not have to wait
+for it. Without a topic they scatter across your task list, and the link back
+to their origin lives only in your memory.
+
+aitasks has other ways to relate tasks, and you pick by what the tasks need:
+
+- Use a topic when tasks should sit near each other for sorting and review but
+  can each be done independently.
+- Use **child tasks** when one larger task is split into ordered parts that are
+  finished as a set; a child task is one of those parts, and its parent is
+  done when all of them are. A parent and its children share one topic.
+- Use a **dependency** when a task cannot start until another one is done.
+- Use a **label**, a tag such as `ui` or `docs`, to filter across many
+  unrelated subjects.
+
+These combine: a follow-up can belong to a feature's topic and also depend on
+a bug fix that must land first.
+
+## How to use
+
+Most tasks join a topic without your help. A follow-up task that aitasks
+itself creates from another task joins that task's topic, and a child task
+joins its parent's topic.
+
+To put a new task in a topic yourself, create it with `ait create` in batch mode and give it either the root's task number or the task it follows up; for a follow-up it finds the root for you. `ait update` moves an existing task to another topic or makes it a
+root of its own. You can also edit the anchor on the task detail screen of the board, the terminal view that `ait board` opens, which shows your tasks as cards in columns.
+
+To see your topics, press `y` in the board for the By-Topic view. Each
+topic with at least two tasks gets its own column, headed by its root task,
+and the tasks that are alone in their topic share one last column.
 
 ## See also
 
-- [Tasks]({{< relref "/docs/concepts/tasks" >}}) - the base task file model
-- [Parent and child tasks]({{< relref "/docs/concepts/parent-child" >}}) - the stricter decomposition relationship
-- [Task File Format]({{< relref "/docs/development/task-format" >}}) - the frontmatter schema
-- [Board reference]({{< relref "/docs/tuis/board/reference" >}}) - By-Topic view details
-- [Implementation Trails]({{< relref "/docs/workflows/implementation-trails" >}}) - recommended landing order across tasks, projected separately from topics
-- [Implementation trails (concept)]({{< relref "/docs/concepts/implementation-trails" >}}) - what a trail is and why it is kept
+- [Tasks]({{< relref "/docs/concepts/tasks" >}}) — the base task file model
+- [Parent and child tasks]({{< relref "/docs/concepts/parent-child" >}}) — the stricter decomposition relationship
+- [Task Management]({{< relref "/docs/commands/task-management" >}}#ait-create) — the `ait create` and `ait update` options that set an anchor
+- [Task File Format]({{< relref "/docs/development/task-format" >}}#topic-anchoring) — how the anchor is stored, inherited by children and cleared
+- [Board reference]({{< relref "/docs/tuis/board/reference" >}}#base-filters-radio) — how the By-Topic view builds and labels its columns
+- [Implementation Trails]({{< relref "/docs/workflows/implementation-trails" >}}) — recommended landing order across tasks, projected separately from topics
+- [Implementation trails (concept)]({{< relref "/docs/concepts/implementation-trails" >}}) — what a trail is and why it is kept
 
 ---
 

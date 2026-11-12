@@ -7,9 +7,11 @@ depth: [intermediate]
 ---
 
 `ait attach` manages a task's file attachments — content-addressed blobs stored
-beside the task rather than inside it. For the conceptual model (content
-addressing, where blobs live, reference counting), see the
-[Attachments concept page]({{< relref "/docs/concepts/attachments" >}}).
+beside the task rather than inside it. For what an attachment is and why it is
+identified by its content, see the
+[Attachments concept page]({{< relref "/docs/concepts/attachments" >}}); for the
+`attachments:` fields and where blobs are stored, see the
+[Task File Format]({{< relref "/docs/development/task-format" >}}#nested-fields-artifacts-and-attachments).
 
 ## ait attach
 
@@ -108,6 +110,23 @@ changes nothing.
 `rm` **does not delete the blob.** When it removes the last reference, the
 ledger records the time the blob became orphaned; the blob itself is reclaimed
 only by a later `ait attach gc`.
+
+### References over a task's life
+
+Each blob's reference ledger lists the tasks that reference it. This is how
+each operation on a task affects that list:
+
+- `ait attach add` adds the task.
+- `ait attach rm` removes the task, as described under [rm](#rm).
+- Archiving a task changes nothing. An archived task still references its
+  attachments, because its history stays browsable, so they are kept
+  indefinitely. They stay listable and fetchable; `add` refuses an archived
+  task, and `rm` refuses one already packed into a [numbered archive]({{< relref "/docs/development/task-format" >}}#archive-storage).
+- [Folding]({{< relref "/docs/concepts/folded-tasks" >}}) a task into another
+  moves its references to the primary task.
+- Deleting a task from `ait board` releases its references. When other tasks
+  had been folded into it, the delete restores them, and each takes back the
+  references it still lists.
 
 ### gc
 

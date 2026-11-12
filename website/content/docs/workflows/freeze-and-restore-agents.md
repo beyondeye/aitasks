@@ -81,11 +81,11 @@ agent was started with a model the framework knows). Without them it would use
 the project's default agent for raw sessions, and resumes only when that default
 runs the same CLI. When the CLI could not be told, or it differs, the restore is
 refused and the agent stays frozen; re-picking its task is still available (see
-[the session hook]({{< relref "/docs/concepts/framework-session" >}}#the-session-hook)).
+[which CLI owns the session]({{< relref "/docs/development/framework-session" >}}#which-cli-owns-the-session)).
 So can a Codex agent started by hand that Codex runs through its shared
 app-server daemon: nothing can yet tell which conversation belongs to its pane,
 so no session id is recorded for it (see
-[the session hook]({{< relref "/docs/concepts/framework-session" >}}#the-session-hook)).
+[when the hook records]({{< relref "/docs/development/framework-session" >}}#when-it-records)).
 A Codex agent you type at a shell prompt that runs in its own process (started
 with `-c tui.alternate_screen=never`) is read through that shell, but only while
 it is the shell's foreground job; a suspended or background Codex is never taken
@@ -225,8 +225,7 @@ a Codex resume whose session cannot be read from its process (for example a
 Codex started by hand whose TUI is routed through the shared app-server daemon,
 which holds the transcript instead).
 
-Codex fires the hook only at a session's first turn, not at launch (measured on
-Codex 0.163.0; Codex 0.153.4 fires it only under `codex exec`). So a resumed
+Codex fires the hook only at a session's first turn, not at launch. So a resumed
 Codex agent never confirms itself through the hook within the grace, which is
 why the transcript check exists. When its hook does fire later, at your first
 message, an unverified restore is upgraded to `restored` and the capture is
@@ -308,8 +307,9 @@ parked is counted once, as frozen.
 - [Frozen Agent]({{< relref "/docs/tuis/frozenagent" >}}) — the viewer TUI, its
   keys and its messages.
 - [Framework session]({{< relref "/docs/concepts/framework-session" >}}) — the
-  record behind all of this: what identifies an agent, what the states mean, and
-  where the store lives.
+  record behind all of this. What identifies an agent, what the states mean and
+  where the store lives are in
+  [Framework Session Store]({{< relref "/docs/development/framework-session" >}}).
 - [Session hooks]({{< relref "/docs/commands/setup-install" >}}#session-hooks) —
   what `ait setup` installs to make a verified restore possible.
 - [Crash Recovery]({{< relref "/docs/workflows/crash-recovery" >}}) — what to do

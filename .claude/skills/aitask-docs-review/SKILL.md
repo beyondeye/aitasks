@@ -108,7 +108,9 @@ If any of the three is missing, there is no level model: go to Step 6.
 One pass per page, in this conversation, with no sub-agent.
 
 1. Read the page's level from its frontmatter, under the declared level field.
-   Accept both forms, `field: value` and `field: [value]`.
+   Accept both forms, `field: value` and `field: [value]`. When no sub-agent is
+   available and the page is at the beginner level, write its Step 4 questions
+   now, before reading the body (Step 4, item 6).
 2. **No level set:** record a level finding saying the field is required, and set
    `reader=not-run(untagged)` for the page. Still run the prose check.
 3. **Level check:** compare the page with the guide's contract for its level and
@@ -136,28 +138,46 @@ testing in anthropics/skills `doc-coauthoring`; the procedure here is our own.)
 3. **Budget:** take candidates in that order while budget is left. Each test,
    sub-agent or self-review, uses 1. Every candidate left over gets
    `reader=not-run(cap)` and is listed in the report.
-4. **Questions:** for each tested page, write 5 to 10 questions that a reader at
-   the beginner level would bring to this page.
-5. **Sub-agent:** start a sub-agent and give it, in the prompt itself:
-   - the page text, inline;
+4. **Questions:** each tested page gets 5 to 10 questions that a reader at the
+   beginner level would bring to it. They ask what a newcomer wants from the
+   subject (what it is, why they would want it, how to start, what happens in
+   the common situations), never what the page's own sections happen to cover.
+   So they must come from a context that has **not seen the page body**: by this
+   step Step 3 has read it, and a caller that drafted the page wrote it.
+   Questions that mirror the body make whatever the body explains look needed,
+   which hides the "details not needed" signal the test exists to measure. The
+   reader sub-agent writes them (item 5). When the page is tested again after an
+   edit, reuse the first test's questions, so the two reports can be compared.
+5. **Sub-agent:** start a sub-agent. Its first prompt carries only:
+   - the page's title and its `description`;
    - the beginner level's persona sentence from the guide, as "you are this
      reader";
-   - the questions;
-   - the instruction to answer from the page text alone and not to open files,
-     search or browse.
+   - a request for the 5 to 10 questions it would bring to such a page.
+
+   On a re-test, give it the earlier questions instead of asking. Record the
+   questions. Then, in the same conversation, give it:
+   - the page text, inline;
+   - the instruction to answer those questions from the page text alone, and
+     not to open files, search or browse.
 
    Collect its answers. Then ask it, in the same conversation:
    - what was ambiguous;
    - what it assumed the reader already knew;
    - every term it had to guess the meaning of;
-   - every detail it did not need to answer the questions;
+   - every detail it did not need to answer the questions, leaving out the
+     page's frontmatter and its navigation (lists of links to related pages, a
+     link to the next page), which are not content the reader is asked to use;
    - anything that contradicts something else on the page.
 
    Compare its answers with the page: a wrong answer, or an answer it had to
    guess, is a finding. Record `reader=subagent`.
-6. **No sub-agents available:** answer the same questions yourself as that
-   reader, from the page text alone, then go through the same five follow-up
-   questions as a checklist. Record `reader=self-review`.
+6. **No sub-agents available:** write the questions yourself from the title,
+   `description` and persona before Step 3 reads the page body (see Step 3,
+   item 1). If you saw the body before this review began, for example because
+   you drafted it, say so in the reader report: the questions may mirror the
+   page. Then answer them yourself as that reader, from the page text alone, and
+   go through the same five follow-up questions as a checklist. Record
+   `reader=self-review`.
 7. A reader finding is **reported, not fixed** by this step: it goes in the
    reader report and, unless a Step 3 fix already covers it, in the unresolved
    list.

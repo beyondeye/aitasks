@@ -114,7 +114,7 @@ The internal script `.aitask-scripts/aitask_lock.sh` prevents race conditions wh
 - A separate git orphan branch `aitask-locks` holds per-task lock files (`t<id>_lock.yaml` in YAML format with task ID, email, timestamp, and hostname)
 - Atomicity uses the same compare-and-swap approach as the ID counter: git plumbing commands + push rejection on non-fast-forward, with random backoff up to 5 retries
 - A task is locked when picked (during status change to "Implementing") and unlocked when archived or aborted
-- Locks are idempotent: the same email can refresh its own lock, and unlocking a non-existent lock succeeds silently
+- Locks are idempotent: the agent session that holds a lock can refresh it, and unlocking a non-existent lock succeeds silently. Each lock belongs to one agent session, so a lock held by another running (or unverifiable) session on the same host is refused even under the same email, as described in [`ait lock`]({{< relref "/docs/commands/lock" >}}#when-a-pick-meets-a-held-lock)
 - Available commands: `--init`, `--lock <task_id> --email <email>`, `--unlock <task_id>`, `--check <task_id>`, `--list`, `--cleanup`
 - The `--cleanup` command removes stale locks for tasks that have already been archived. It runs before every task pick, and reports its outcome rather than always exiting 0: exit `11` means the lock branch could not be read, exit `12` means the removal push was rejected on every retry. Both warn on stderr and name what was left uncleaned. The pick itself is never blocked — a failed sweep is forwarded as a warning and the workflow continues
 - Initialized via `ait setup` alongside the atomic ID counter

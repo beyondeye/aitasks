@@ -7,10 +7,11 @@ depth: [advanced]
 ---
 
 `ait gates` and `ait gate` operate on a task's **verification gates** — the named
-checks a task must satisfy before it can archive. For the conceptual model
-(declared intent versus the enforced set, the ledger, the registry, and
-gate-guarded archival), see the
-[Gates concept page]({{< relref "/docs/concepts/gates" >}}). The
+checks a task must satisfy before it can archive. For what gates are for, see
+the [Gates concept page]({{< relref "/docs/concepts/gates" >}}); for the rules
+behind them (declared intent versus the enforced set, the ledger, the registry,
+and gate-guarded archival), see
+[Gate rules]({{< relref "/docs/development/gates" >}}). The
 [task file format]({{< relref "/docs/development/task-format" >}}#frontmatter-fields)
 documents the `gates` / `active_gates` fields.
 
@@ -54,7 +55,7 @@ ait gates run 42 --dry-run          # Show what would be dispatched
 
 | Option | Description |
 |--------|-------------|
-| `--gate <name>` | Run only this gate. Reports rather than runs if the gate is not in the task's active set or its predecessors are unsatisfied |
+| `--gate <name>` | Run only this gate, even if it already passed and even if its retry budget is spent. Reports rather than runs if the gate is not in the task's active set or its predecessors are unsatisfied |
 | `--dry-run` | Print what would be dispatched (unlocked / machine / human) and change nothing |
 
 Output is one line per gate, plus a summary:

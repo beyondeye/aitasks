@@ -99,7 +99,7 @@ unless you add one.
 | Key | Default | Effect |
 |-----|---------|--------|
 | `capture_max_lines` | `50000` | How far back into the pane's scrollback a freeze reaches. The capture is the tail of the scrollback, so a pane with more history than this keeps only its most recent lines |
-| `restore_ack_grace` | `20` (seconds) | How long a restore waits to be verified — by the resumed agent's SessionStart hook, or for a Codex resume on Linux by the transcript its process holds open — before falling back to confirming on liveness alone |
+| `restore_ack_grace` | `20` (seconds) | How long a restore waits to be verified — by the resumed agent's SessionStart hook, or for a Codex resume on Linux and macOS by the transcript its process holds open — before falling back to confirming on liveness alone |
 
 `restore_ack_grace` is read from the **record's own project**, not from whichever
 project you happen to be viewing from, because a freeze-all spans projects.
