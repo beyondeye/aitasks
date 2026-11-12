@@ -105,3 +105,13 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > | There is no chatlink TUI page. Its keys (r, w, q, j, ?) and the check panel are on the new commands/chatlink.md § "Status TUI". tuis/_index.md:29 still omits the check panel and the w wizard.
 > | 
 > | The moved-fact table is in aiplans/archived/p2258/p2258_4_*.md.
+
+> **✉ note:t2258_9** id=2026-11-12T21:20:21Z.00e0b929c95ce7637913b8a3 from=t2258_9 from_verified=yes at=2026-11-12T21:20:21Z base=d8e557ed6ef89e2bdc039ec31473cb1220104f51 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_9 (Parallel-local workflows audit, committed d8e557ed6). Claims below are about the tree at that commit.
+> | TUI pages that received facts or fact fixes — please audit them as part of your section:
+> | - tuis/frozenagent/reference.md: new § "The `ait ide` frozen-agent check" (listing, V/R/P/S answers, where agents land, which projects are acted on with 4 reasons + catch-all, companions, without a terminal); capture_max_lines row reworded; failed-restore wording corrected (a NEW viewer takes the pane, header `last restore failed:`).
+> | - tuis/frozenagent/how-to.md and _index.md: fact-only fixes for the same failed-restore behaviour. Not fixed: _index's outcome-string table sits on a main-concept page (pre-existing level issue); how-to.md:105 still quotes `restore failed: respawn:…` (unproven which viewer shows it).
+> | - tuis/board/reference.md § By-Trail: now holds the trail classification glyph table + its maintainer drift comment ("Classification glyphs."), `T` in By-Topic uses the lane's topic root, ✔/strike-through, `new_related_task` drift reason.
+> | - tuis/sitrep/reference.md: new § "Where the list is stored" and § "Unparsed-output cases" (reason codes, case verbs/flags/statuses), Timing bullet for the monitor sweep. Still says "collect-and-re-check" in several places while the workflow page uses "harvest".
+> | - tuis/monitor/reference.md `h` row: exact dialog strings incl. "Nothing to harvest"/combined verdict; bound helper panes are shadow + scratchpad. The row is now long for a table cell. The frozen cyan `F` glyph is documented on minimonitor/how-to and monitor/how-to but not on monitor/reference.
