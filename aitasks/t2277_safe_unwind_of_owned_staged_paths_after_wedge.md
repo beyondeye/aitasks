@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -69,7 +71,8 @@ equality.
   a stop, as in the counter-example above), not fabricated index entries.
 - When a safe unwind lands, flip the "preserved" assertions in
   `tests/test_task_commit_scoped.sh` (Test 9e) and
-  `tests/test_issue_update_ledger.sh` (case u).
+  `tests/test_issue_update_ledger.sh` (case s2; this task originally said "case u",
+  which is an unrelated corrupt-record case).
 - Keep the stderr naming for any entry the cleanup still cannot prove is
   ours.
 
@@ -77,3 +80,5 @@ equality.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-12T10:12:54Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-12T11:03:49Z status=pass attempt=1 type=human
