@@ -10,13 +10,13 @@ active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t2258_4, t2258_5, t2258_6, t2258_7, t2258_8, t2258_9, t2258_10, t2258_11, t2258_12, t2258_13]
+children_to_implement: [t2258_5, t2258_6, t2258_7, t2258_8, t2258_9, t2258_10, t2258_11, t2258_12, t2258_13]
 artifacts:
   - handle: art:trail-docs-improvement
     kind: implementation_trail
     name: Website docs improvement
 created_at: 2026-11-09 14:07
-updated_at: 2026-11-12 11:39
+updated_at: 2026-11-12 15:41
 ---
 
 ## Problem
