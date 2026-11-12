@@ -280,3 +280,67 @@ table.
 Commit code and tests with paths named (the main index holds another session's
 staged files). Commit the plan via `aitask_task_commit.sh`, then archive per the
 workflow.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-12 10:40)
+- **Requested by user:** remove the unused `assert_non_empty` helper from
+  `tests/test_staged_entry_ownership.sh` (verified: defined, never called).
+- **Changes made:** removed it; the test still passes 75/75, shellcheck clean.
+- **Files affected:** `tests/test_staged_entry_ownership.sh`.
+
+## Final Implementation Notes
+- **Actual work done:** As re-scoped by the user (option 1, detect + prove,
+  no unwind):
+  - `ait git-health` gained `_ait_git_health_staged`: it lists staged entries
+    of the shared `.aitask-data` index as "ownership uncertain" (capped at 20,
+    then "… and K more").
+    - When an operation is in progress, it adds an inspect-and-coordinate line
+      before continue OR abort.
+    - It ends with an inspect-first hint and a reset hint gated on
+      "confirmed is yours and unwanted, no operation in progress".
+    - It never unstages anything and never suggests `AIT_GIT_SKIP_STATE_CHECK`.
+    - An unreadable index gives "unknown, not none", and no `Clean` line.
+    - The `Clean` line now reads "… and nothing staged."
+  - The cleanup warning in `ait_unstage_staged_by_us` now qualifies the guard's
+    `--abort`/`--continue` list. Its behaviour is unchanged (name and leave).
+  - New `tests/test_staged_entry_ownership.sh` (75 assertions): R1, R1-NC, R2,
+    R2c, R2a, C1, H1-H4, with real merges and a measured mutation table in its
+    header.
+  - Test 9e / (s2) comments now say preservation is deliberate. The task body's
+    stale "case u" is corrected to (s2).
+  - New docs subsection in `website/content/docs/commands/sync.md`.
+  - Advisory note sent to t1678 (note id
+    `2026-11-12T10:19:18Z.01109996631700b6be2c58ee`, `LIVE_NONE:unlocked`).
+- **Deviations from plan:**
+  - Two plan-review corrections from the user were applied before approval:
+    - the recovery guidance must not say "resolve or abort first";
+    - the t1678 note must place the lock before pinning.
+  - The plan's capability probe needed fixing in two ways. `git merge -h`
+    prints `--[no-]autostash`, so a literal `--autostash` match always skipped
+    R1. The probe now matches the bare word and reads the help text with
+    `|| true`.
+  - The H* cases share one fixture, applied in sequence: H1, H2, H4, then H3.
+  - `mapfile` was replaced by a read loop, and the array was renamed
+    `staged_lines`. Shellcheck's scope-blind SC2178/SC2128 had fired on an
+    unrelated `lines` variable elsewhere in the file.
+- **Issues encountered:**
+  - R1's "points at git-health" assertion first matched the guard's own
+    "Run './ait git-health'" text, so mutant M5 survived it. It now asserts the
+    cleanup's specific phrase.
+- **Key decisions:**
+  - Ownership is treated as undecidable from index state and wedge markers, and
+    C1 pins this with a test.
+  - Serialization is left to t1678 (user decision).
+  - R2c/R2a are characterization tests of git itself. They keep the guidance's
+    claims ("continuing commits", "abort can delete") true across git versions.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/task_utils.sh:assert_data_worktree_clean` and
+    `assert_task_data_writable` — their die messages claim
+    "'--abort' below discards only the partially replayed remote commits; your
+    own committed work stays on the branch". That is incomplete when the index
+    holds staged entries the operation does not own: measured, `merge --abort`
+    removed a new file staged into a stopped merge from both the index and the
+    worktree. t2277 qualifies the claim only in the cleanup warning that
+    follows. The shared guard text is pinned verbatim by other tests and was
+    left unchanged.
