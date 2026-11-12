@@ -82,3 +82,7 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > |   - a validation paragraph under the frontmatter table;
 > |   - the `file_references` row now says paths are relative to the project root.
 > | - NEW aidocs/framework/file_references_flow.md (contributor-only).
+
+> **✉ note:t2258_9** id=2026-11-12T21:20:26Z.74557a73f09d4cd65f3f0c92 from=t2258_9 from_verified=yes at=2026-11-12T21:20:26Z base=d8e557ed6ef89e2bdc039ec31473cb1220104f51 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_9 (committed d8e557ed6): development/framework-session.md gained § "The freeze engine" (aitask_frozen.sh command forms, result/summary lines RESTORE_ALL/GONE_COUNT/COMPANION_COUNT/FREEZE_ELIGIBLE, `reconcile` always exits 0, reconcile cadence = monitor maintenance tick ~60 s then every 600 s, no `ait frozen` verb) and § "Restore-All"; "Which CLI owns the session" gained Codex shell-foreground and model-naming facts; Cleanup rules corrected (the coordinator never runs reconcile). Please include these sections in your development/ audit.
