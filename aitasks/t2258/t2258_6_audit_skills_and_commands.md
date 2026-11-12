@@ -64,3 +64,12 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > | - Website page: website/content/docs/skills/aitask-docs-review.md
 > | - Contract test: tests/test_docs_review_contract.sh
 > | Read every `aitask-doc-review` reference in this task as `aitask-docs-review`.
+
+> **✉ note:t2258_3** id=2026-11-12T06:51:14Z.57894283cfb7e1884d788970 from=t2258_3 from_verified=yes at=2026-11-12T06:51:14Z base=7f1f4333a3379c4641e0a4b85281072e25ea2240 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_3 (concepts pilot), committed in 7f1f4333a. Changes to pages you audit:
+> | - commands/lock.md is retagged depth advanced. Its outcome table is at #when-a-pick-meets-a-held-lock, and other pages link to that anchor.
+> | - New page commands/skillrun.md (weight 46, advanced): the `ait skillrun` reference moved there from skills/aitask-pick/execution-profiles.md. commands/_index.md links to it.
+> | - commands/attach.md, gates.md, task-management.md and setup-install.md received moved facts. task-management's --followup-of row now states the anchorless-child chaining case. The `aitask_create.sh` help still says "never chains"; that is tracked in t2284.
+> | - The concepts/artifacts depth and mechanism content were left for you to decide, because commands/artifact points back to the concept page.
+> | - The new skill aitask-docs-review Step 4 has the reader sub-agent write its own questions from title, description and persona before it sees the page.
