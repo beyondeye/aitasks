@@ -336,3 +336,91 @@ Post-Implementation per task-workflow (current branch, no worktree).
 ### Planned mitigations
 - timing: pre-phase | name: relations_store_regression_baseline | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: orphan_ref_store parameterization regressing relations | desc: per-assertion relations test baseline before/after the parameterization
 - timing: post-phase | name: refresh_timeout_bound | type: test | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: refresh latency pushing a --batch sync past the runner budget | desc: hanging ext:: remote; refresh(timeout=1) returns unreachable:timeout well within bound, CLI exits 0
+
+## Baseline
+
+Pre-phase `relations_store_regression_baseline`, taken with `TMPDIR` redirected
+to a `/home` scratch dir (the `/tmp` tmpfs user quota was exhausted on this
+machine; without the redirect `test_setup_relations.sh` failed 8/13 on
+"Disk quota exceeded", an environment failure unrelated to the code).
+
+| module | before step 1 | after step 1 |
+|---|---|---|
+| test_relations_store.py | 48 PASSED | 48 PASSED, same ids |
+| test_relations_worker.py | 53 PASSED | 53 PASSED, same ids |
+| test_relations_consume.py | 50 PASSED | 50 PASSED, same ids |
+| test_relations_config.py | 17 PASSED | 17 PASSED, same ids |
+| test_relations_analysis_cli.py | 24 PASSED | 24 PASSED, same ids |
+| test_relations_cli.sh | 34/34 | 34/34 |
+| test_relations_enqueue.sh | 21/21 | 21/21 |
+| test_setup_relations.sh | 13/13 | 13/13 |
+| test_codeagent_relations.sh | 49/49 | 49/49 |
+
+Python verdicts were compared per test id (`pytest -v`, sorted, `diff`): identical.
+The bash suites print only failing assertions, so per-assertion evidence is the
+zero-failure total.
+
+## Implementation notes (deviations and findings)
+
+- **Write-id nonce (bug found by the forced-conflict test).** Two writers that
+  pin the same tip and compute the same increment, with the same identity and in
+  the same second, build byte-identical commits. The second leased push then
+  reports "up to date" as OK and one increment is silently lost. This happens in
+  the same-user, two-machine case. `_render` now appends a
+  `Stats-Write-Id: <uuid4>` trailer to every commit message. The test failed
+  (2 != 3) before the fix and passes after, so it is its own pre-fix control.
+- **Opportunistic tracking-ref update (observed, git 2.56).** `fetch_pinned`'s
+  explicit `+refs/heads/aitask-stats:<tmp>` fetch also updates
+  `refs/remotes/origin/aitask-stats` when the configured refspec maps it, even
+  with a negative `^refs/heads/aitask-stats` entry. It is harmless, because the
+  loader never reads it. The visibility tests instead prove the loader reads
+  neither the tracking ref's presence (a tracking ref at the newest tip still
+  reads the old value) nor its absence (deleted after refresh, the new value
+  stays).
+- `tests/test_artifact_gitbranch_backend.sh`: the reserved-ref loop now includes
+  `aitask-stats`.
+- The refresh helper passes `--root "$SCRIPT_DIR/.."`, not `.`, so it does not
+  depend on the caller's cwd.
+
+## Final Implementation Notes
+
+- **Actual work done:** All seven plan steps and both inline mitigations landed as planned.
+  - `lib/orphan_ref_store.py` gained keyword-only `tmp_prefix` / `ident`, with defaults unchanged.
+  - New stdlib-only `lib/model_stats_store.py`:
+    - pure ports `bump_usage` / `record_verified`, plus `merge_buckets`, `merge_stats`, `parse_blob` / `render_blob`;
+    - `update` (leased read-modify-write);
+    - `refresh`;
+    - loader `load_agent_stats` / `load_all_stats` / `branch_state`, plus `metadata_dir` / `legacy_models`.
+  - New CLI `aitask_model_stats.py` with verbs `bump-usage`, `record-verified`, `refresh`, `export` and `show`.
+  - `ait_model_stats_refresh` in `lib/task_utils.sh`, called after `do_fetch` in `aitask_sync.sh` and in `aitask_pick_own.sh` `sync_remote`.
+  - `aitask-stats` reserved in `artifact_registry.RESERVED_REFS`, the seed comment, the settings help text and `aitask_web_merge.sh` `is_skip_branch` (the last is a site the original plan missed).
+  - Three new test files: `test_model_stats_store.py` (40 tests), `test_model_stats_parity.sh` (67 checks against the real jq writers) and `test_model_stats_refresh_routes.sh` (27 checks).
+- **Deviations from plan:**
+  - Every commit carries a `Stats-Write-Id: <uuid4>` trailer (see Issues).
+  - The negative-refspec test proves loader independence from `refs/remotes/origin/aitask-stats` instead of asserting that the ref is absent: git updates it opportunistically even under `^refs/...`.
+  - `update` builds on local when origin is a strict ancestor of local. That fast-forward loses nothing; only true divergence fails closed.
+  - The helper passes `--root "$SCRIPT_DIR/.."` rather than `.`.
+- **Issues encountered:**
+  1. Lost increment on identical commits. Two writers that pin the same tip and render the same increment, with the same identity and in the same second, build the same commit sha. The second leased push is then "up to date" and reports OK. The forced-conflict test failed (2 != 3) before the nonce fix.
+  2. The `/tmp` tmpfs user quota was exhausted on this machine, so tests ran with `TMPDIR=~/.cache/ait-t1912_1-tmp`. Under that redirect the full Python suite reported 24 failures, all in `test_shadow_q_harness.py`: its sandbox refuses an ancestor that contains `.claude`, and `/home/ddt` has one. The module passes 82/82 under the default `/tmp`. Everything else passed (12053 passed).
+- **Key decisions:**
+  - The loader never raises on git failure. It reads as legacy-only and reports once per project on stderr, because readers are display paths.
+  - The layout (toplevel, common dir) is cached per realpath of the root. Branch content is cached per (common dir, sha), with an LRU of 16 entries. The legacy overlay and the merge are recomputed on every load.
+  - `refresh` always exits 0. The helper stays silent for `REFRESHED`, `no_remote` and `absent`, and prints anything else to stderr prefixed `model-stats refresh:`.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/artifact_registry.py:58 — RESERVED_REFS omits aitask-relations (the relations orphan branch), so a gitbranch artifact store can be configured onto it while the branch does not exist yet; the same omission is in aitask_web_merge.sh:222 is_skip_branch and the seed/project_config.yaml reserved-ref comment`
+- **Notes for sibling tasks:**
+  - **t1912_2 (readers):**
+    - Use `mss.load_agent_stats(root, agent, metadata_path=…)`; cross-repo callers pass `metadata_path`.
+    - It returns `{model: {"usagestats":…, "verifiedstats":…}}`, containing only the keys that exist. A one-sided skill is a deep copy of the source entry, so while the branch is empty the values equal the file values byte for byte.
+    - `aitask_model_stats.py export --agent X` serves jq consumers.
+    - The loader does not apply `STATS_KEY_BY_OPERATION`; readers still do.
+  - **t1912_4 (writers):**
+    - Call `bump-usage` / `record-verified` with `--date` passthrough. The output is already `UPDATED:<agent>/<model>:<skill>:<value>`.
+    - `record_verified` returns `round(all_time.score_sum/runs)` with jq half-up rounding, and never writes `verified`.
+    - Map the raw score with the CLI's `--score 1-5` (×20 inside).
+  - **t1912_5 (migration):**
+    - `merge_buckets` is the absorb primitive.
+    - The marker path is `migrations/<agent>.json`; the loader only tests that it exists.
+    - Write through `mss.update`, or reuse `_render`'s nonce pattern: any new store commit path must keep commits unique.
+  - **All siblings:** a store write never touches `.aitask-data` (pinned by `TestDataWorktreeUntouched`, including `origin/aitask-data` not being fetched).
