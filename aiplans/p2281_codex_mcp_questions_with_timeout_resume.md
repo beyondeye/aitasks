@@ -480,3 +480,412 @@ multi-select compatibility checkpoint pass.
 - Next: obtain remaining live accepted-answer fresh-connection/repeated-timeout
   evidence; record go/no-go, then finish the
   approved hardening and multi-select compatibility work before integration.
+
+## Saved progress and abort (2026-11-12)
+
+- User explicitly requested saving progress and aborting, then specified that
+  no commit was needed. All prototype source, tests, launcher and evidence report
+  remain saved locally. No checkpoint code commit or archival was performed.
+- Task returned to Ready, assignment cleared, plan retained. Plan approval was
+  reopened through the gate ledger for a future pick; no deferred-approval marker
+  is retained. This is an incomplete implementation, not completion acceptance.
+- Last validation: 36 automated tests passed. Baseline and text-adapter
+  three-page live recovery passed; accepted-answer survival across a live restart
+  followed by another timeout is still unverified. Details and receipts are in
+  `aidocs/codeagents/codex_questions_prototype.md`.
+- Resume via `/aitask-pick 2281`, review this saved plan and local prototype, then
+  finish the remaining live checkpoint before hardening/integration. Shared
+  mapping/setup/monitor rollout, guarded approval consumption and caller-level
+  compatibility tests are still incomplete. Temporary fixtures/venv under `/tmp`
+  may need recreation; the report retains the observed evidence.
+
+## Resumed (2026-11-12, claudecode/fable5_2)
+
+- Re-picked; existing plan used as-is and approved again at the Checkpoint
+  ("Start implementation"). Remote drift check: `main` up to date.
+- Revalidated the saved prototype before touching it: 16 store, 9 selection and
+  11 STDIO transport/launcher tests passed. Installed CLI is now
+  `codex-cli 0.167.2` (the recorded live runs used 0.167.1); `--no-daemon`,
+  `--no-alt-screen`, `-C`, `--model` and `resume [SESSION_ID] [PROMPT]` are
+  still accepted. `/tmp/aitask-2281-venv` (mcp 2.3.0) and the three earlier live
+  state directories still exist.
+- Prepared (not launched) the reconnect fixture `/tmp/aitask-2281-live-reconnect`,
+  question session `8f6c70e5e61c4250b29dc00c01d09a8d`. **The live
+  accepted-answer-survives-restart + second-timeout run is still not done** — it
+  needs the user at a real Codex session. Steps 4–6 stay blocked on it.
+- Step 3 (partial): store-side receipt consumption guard. `Store.consume()`
+  (freshness re-proven in the claiming transaction, one consumer key per
+  receipt, same-consumer retry returns the original claim), `Store.acknowledge()`
+  and `Store.snapshot()` (approved bytes stored in a `snapshots` table from the
+  same read that was fingerprinted). Five new store tests; totals now 21 / 9 / 11,
+  all passing. Concrete action-boundary strategy: **consume, then act on the
+  stored snapshot** — never hash-then-reread the live file. No workflow caller
+  uses it yet; no MCP tool exposes it.
+- Not touched: shared mapping, setup, launch paths, monitor, skills. Unrelated
+  uncommitted monitor/shadow edits in the same checkout were left alone.
+- **Live checkpoint (later the same day).** Two attended runs on Codex 0.167.2 /
+  `gpt-6-astra`. Run 1 (`8f6c70e5…`, receipt `64e28a36…`): restart survived, but
+  q3 was answered in its form, so no second timeout. Run 2 (`1a80ae43…`,
+  receipt `51d3cda4…`): q1 form, q2 timeout, restart, q2 at the composer, q3
+  timeout, q3 at the composer; one receipt, q1 never re-asked. **Transport
+  recovery: go. Multi-select: no-go for a global switch** (see the report).
+- Step 3: corrupt/locked state fails closed, crash-before-commit keeps the old
+  state, bounded event history, `outstanding()` session recovery, production
+  server name and instructions (rule within the first 512 characters),
+  `consume` / `acknowledge` / `outstanding` MCP tools, form deadline bound
+  raised to 900 s. Not done: gate scripts requiring a claimed receipt, semantic
+  task-requirement manifests.
+- Step 4: launcher `.aitask-scripts/aitask_questions_mcp.sh`, entry point
+  renamed to `aitask_questions_server.py`, `[mcp_servers.aitask_questions]` in
+  `seed/codex_config.seed.toml`, `mcp>=2.3,<2.4` tier installed from `main()`
+  when the project's Codex config registers the server. No launch-argument
+  changes: the registration is project configuration. State directory is
+  per-user, outside the project, so no gitignore group was needed. The repo's
+  own `.codex/config.toml` and `aitasks/metadata/codex_config.seed.toml` were
+  not edited.
+- **Deviation / incident:** the dependency install first sat inside
+  `setup_codex_cli`, which `tests/test_agent_instructions.sh` and
+  `tests/test_setup_agent_config_seeds.sh` call directly; running them
+  installed `mcp 2.3.0` and its dependencies into the real `~/.aitask/venv`.
+  Moved to `main()` behind `questions_server_registered`;
+  `tests/test_setup_questions_server.sh` pins that the Codex setup function
+  cannot reach pip.
+- Step 5: `.agents/skills/codex_tool_mapping.md` rewritten for attended
+  questions; the commit-and-archive-on-defaults finalization fallback removed.
+  No `.claude/skills/` source was edited (no default-on-no-answer fallback
+  found there), so no goldens changed. `aitask-work-report` and
+  `aitask-screen-recording` still name `request_user_input` in prose.
+- Step 6: spec at `aidocs/codeagents/codex_questions.md`. Monitor and website
+  untouched (no live form capture; installed-configuration run not done).
+- Tests: 26 store, 9 selection, 13 STDIO, 37 setup/launcher assertions pass.
+  The STDIO module skips when the SDK is absent. Setup, seed, launch and
+  manifest suites pass. Two failures in untouched files:
+  `tests/test_codex_no_plan_injection.sh` (retired-manifest references) and
+  `tests/test_cd_guard_lint.sh` (`tests/test_issue_update_ledger.sh:231`).
+- **Still required before archival:** a live session started from the
+  installed configuration, multi-select restart and caller-shape evidence, a
+  form capture for monitor recognition, website pages.
+- **Review checkpoint (2026-11-12): user chose to keep everything uncommitted.**
+  The mapping rewrite stays uncommitted until multi-select compatibility and
+  the approval safeguards are validated as well. Next evidence: the
+  installed-configuration live run (steps in the report). Note: the rewritten
+  mapping is live in this working tree, so a Codex session started here reads
+  it even though it is not committed.
+
+## Continued after the review checkpoint (2026-11-12, same session)
+
+Everything below is uncommitted, by the user's instruction ("Keep everything
+uncommitted until review"). Evidence detail is in
+`aidocs/codeagents/codex_questions_prototype.md`.
+
+- **Installed-configuration live runs (user, then agent-driven through tmux).**
+  Repo-relative `command`, default state directory, 300 s deadline under the
+  360 s client timeout, restart recovery through `aitask_question_outstanding`,
+  claim and acknowledge all observed. The `-c mcp_servers.…env={…}` override
+  crashes Codex 0.167.2 at start (user report); removed from the steps.
+- **Defect found live and fixed:** a question deferred with Esc refused every
+  later prompt answer, leaving no way to answer it. `Store.submit` now accepts
+  an explicit prompt answer on a deferred occurrence; a late form response is
+  still `stale_attempt`. This reverses what
+  `test_defer_and_cancel_never_produce_receipt` used to pin for `deferred`.
+- **`outstanding()` now lists `retired` occurrences** (voided in the last 24 h,
+  unconsumed), after a live run where an edit to a bound file made an open
+  question vanish from recovery.
+- **Multi-select:** restart with an accepted page passed; dependency, guide and
+  finding shapes passed through the mapping's guidance, each with a
+  mid-question timeout. Verdict revised to go for the text route. The other
+  inventoried callers were not each run live.
+- **Step 3/5, gate enforcement — done, scoped to attended Codex.** Chosen by the
+  user over a follow-up: "retain the approved plan's action-boundary and gate
+  re-entry enforcement. Scope the changes to attended Codex approvals and
+  preserve other agents' behavior."
+  - `aitask_gate.sh append` refuses (exit 3, nothing written) a `pass` for
+    `plan_approved` / `review_approved` / `merge_approved` without
+    `approval=<session>:<receipt>` that this task may claim for that gate, or
+    `approval=profile:<name>` verified against the profile file.
+    `aitask_gate_record.sh` surfaces it as `GATE_RECORD_REFUSED`, exit 3.
+  - `resume-point` demotes `IMPLEMENT` to `PLAN` when the plan approval is
+    `STALE` or `UNBOUND`; `approval-check` prints the evidence. (The first
+    version resumed on `APPENDED`, any file starting with the approved bytes;
+    replaced after review, see "Review findings" below.)
+  - Active only when `CODEX_THREAD_ID` is set **and** the project owning
+    `TASK_DIR` registers the server. Keyed on `TASK_DIR`'s project rather than
+    the script's checkout so a gate test run from inside Codex is not judged
+    by, and never writes state for, the real checkout.
+  - New: `.aitask-scripts/aitask_questions/approval.py`,
+    `tests/test_gate_codex_approvals.sh` (62 assertions). Artifact limit raised
+    20 → 200 so a review can bind its change set.
+  - Not done from the plan's freshness contract: archive is not guarded (it
+    has no approval gate of its own); receipts are per-user, per-machine.
+- **Review findings on the enforcement (user review, same day) — six, all
+  confirmed and fixed.**
+  1. *History used as authority.* A claimed receipt stayed usable as
+     `duplicate` after the checkpoint was asked again, and `check` judged the
+     newest historical claim; a stale verdict was not persisted, so reverting
+     bytes restored `IMPLEMENT`. Now a claim has *standing*: `Store._revoke`
+     ends it permanently when the checkpoint is reopened or when any refresh
+     finds a bound entry uncovered; `claim` refuses a revoked earlier claim
+     (`stale_approval`); `check` judges the occurrence named in the ledger's
+     current record. Consequence: a review record after the reviewed files
+     changed again is refused (the earlier test pinned the opposite).
+  2. *`APPENDED` too wide.* Replaced by `plan-bookkeeping/v1`
+     (`aitask_questions/projection.py`): checkbox state, and appended sections
+     under `## Implementation Progress` / `## Post-Review Changes` /
+     `## Final Implementation Notes` only. Verdict renamed `BOOKKEEPING`. The
+     tolerance is recorded on the claim (`tolerates`), for the plan file only.
+  3. *Task requirements unbound.* For `plan_approved` on a task workflow the
+     server binds `task-requirements/v1` itself: the task body without
+     frontmatter and without ledger blocks. Checked at answer, claim and
+     re-entry; `claim` refuses an occurrence without it
+     (`task_requirements_not_bound`). Frontmatter is deliberately not bound.
+  4. *Deletions unrepresentable.* New `deleted` argument: path must be absent
+     and in `HEAD`; the committed original is fingerprinted and stored. A
+     rename is old path in `deleted` plus new path in `artifacts`. After the
+     claim only absence is re-proven, because `HEAD` moves with the commit.
+  5. *No run identity.* New optional `run` joins the supersession scope; a
+     task workflow is its own run and refuses one. `outstanding` rows carry
+     and can filter by `run`. The mapping tells skills without a task to pass
+     `$CODEX_THREAD_ID`; that it survives `codex resume` was not measured
+     live, and recovery does not depend on it (rows carry the value).
+  6. *Profile approvals demoted on re-entry.* `resume-point` now reads the
+     ledger's current record: `approval:profile:<name>` resumes while that
+     profile still pre-answers the step (`PROFILE`).
+  Tests: `tests/test_gate_codex_approvals.sh` 107 assertions (sections 7-11
+  are these six); `tests/test_aitask_questions.py` 30. Not re-run live in
+  Codex after these changes. Five mutants (no revocation, prefix-only
+  projection, no requirement binding, no profile re-entry, absence not
+  re-proven) each fail the shell test in an isolated copy.
+- **Second review round on the enforcement (2026-11-12) — six, all confirmed
+  and fixed.** Two of them reverse decisions of the first round.
+  1. *Claim and commit were separate operations over mutable files.* New
+     `aitask_gate.sh commit-approved` / `aitask_questions/commit.py`: the
+     review commit is built from the stored snapshots in a private index on
+     top of the branch tip, after each path's bound `base` blob is checked
+     against that tip; the commit object is recorded in the claiming
+     transaction; the branch moves by compare-and-swap. `review_approved`
+     occurrences bind file mode, per-path `base` and the branch (`target`).
+     A review pass is recordable only for such a commit
+     (`review_commit_missing`), and once committed the approval is judged by
+     the commit, not the files - so "record refused after a later edit"
+     (round 1, item 1) no longer applies after a guarded commit. Reproduced
+     with a `reference-transaction` hook that rewrites the file inside
+     `update-ref`: the commit holds the approved bytes.
+  2. *Bookkeeping could carry requirements.* `plan-bookkeeping/v2` tolerates
+     checkbox state only. Round 1's three allowed headings are gone:
+     `## Post-Review Changes` / `## Final Implementation Notes` end the plan
+     approval's standing, which costs a re-approval only on re-entry before
+     the review is recorded.
+  3. *Frontmatter requirements unbound.* `task-requirements/v2` adds
+     `issue_type`, `depends`, `xdeps`, `xdeprepo`, `gates`, `verifies`,
+     `folded_tasks`, compared by value. Reverses round 1's "frontmatter is
+     deliberately not bound".
+  4. *Legacy claims kept standing.* `projection.unmet` is checked first in
+     `Store.coverage`, so a saved plan claim without the current binding is
+     revoked on first read instead of only being refused at a new claim.
+  5. *Timed-out question read as idle.* The server stamps a waiting
+     occurrence with its process (pid, start time, ancestors); monitors read
+     the state read-only and flag the idle pane whose process is an ancestor
+     (`codex_question_at_prompt`). Cleared by answer, cancel, invalidation or
+     the process ending.
+  6. *Form pattern matched a quoted footer.* `codex_mcp_form` now needs the
+     footer as the last row with the option row or answer row directly above.
+  Tests: `tests/test_gate_codex_approvals.sh` 161 assertions (section 12 is
+  the commit boundary); `tests/test_aitask_questions.py` 34;
+  `tests/test_prompt_detection.py` 32; the MCP process test checks the
+  waiting stamp against a real server. Not run live in Codex.
+  Not done (merge binding and the archive guard followed in the third
+  round): the shadow's phase signal does not use the waiting state; a raw
+  `git commit` cannot be prevented, only kept from being recorded as reviewed.
+- **Third review round (user review, 2026-11-13) - six findings, all
+  confirmed and fixed.**
+  1. *Merge approval unbound.* `merge_approved` occurrences bind
+     `merge_source` / `merge_into` (new ask parameters): the commit the source
+     names and the destination branch (`Store._merge_target`,
+     `projection.MERGE_CHECKPOINT`). New `aitask_gate.sh merge-guard`;
+     `aitask_merge_task.sh begin` asks it in a Codex tool shell and merges the
+     bound commit, not the branch name (`--approval` for profiles that do not
+     record gates). A refusal is exit 2 + `APPROVAL_REFUSED:` on stderr, no
+     verdict, before the reservation - chosen so the broker's verdict
+     vocabulary, and so every agent's rendered Step 9, is unchanged.
+  2. *Archive unguarded.* New `aitask_gate.sh approvals-settled`;
+     `aitask_archive.sh` (`approval_guard`) refuses in a Codex tool shell
+     while the newest plan/review/merge question of the task is unanswered,
+     declined, voided, not approved, not recorded, not committed or stale.
+     Not overridden by `--ignore-gates`. A never-asked gate is not judged.
+     Review standing now survives the task branch's deletion after its merge.
+  3. *Raw `hash-object`.* Change-set entries bind `blob`, the object git
+     stores for the bytes at that path (clean filters applied); the commit
+     converts the stored bytes the same way and requires that object.
+  4. *Tree frozen before `pre-commit`.* The private index is re-read after the
+     hook; a change refuses the commit (`hook_changed_index:pre-commit`).
+  5. *Parent checked by object id only.* `base` is the whole tree entry
+     (mode, type, object), compared against the commit's actual parent.
+  6. *Pane identity through ancestry only.* Measured live (codex 0.167.2): a
+     hand-started Codex runs the server under the shared app-server daemon,
+     outside the pane; framework launches run it in-process. The ancestor
+     chain now stops below an app-server process (`detached`), and a detached
+     question is tied to the pane that shows its `session_id` - printed there
+     by the client itself as the first line of the tool result - while that
+     pane still runs `codex`. Validated live in a default Codex session with
+     the real `TmuxMonitor`: flagged while waiting after Esc, across a
+     quit/relaunch, cleared after the answer at the prompt. The client also
+     sends `_meta.threadId` with each call, but nothing on the pane side
+     maps a pane to a thread in daemon mode, so it is not used.
+  Tests: `tests/test_gate_codex_approvals.sh` 222 assertions (sections 13-15);
+  `tests/test_aitask_questions.py` 39; `tests/test_prompt_detection.py` 35.
+  Touched outside the question code: `aitask_merge_task.sh`,
+  `aitask_archive.sh` (both only inside `CODEX_THREAD_ID` branches).
+- **Fourth review round (user review, 2026-11-13) - four findings, all
+  confirmed and fixed.**
+  1. *Archive check blessed every claimed plan approval.* `settled()` now
+     uses the real standing. Because the workflow's closing sections make an
+     approved plan differ, one shape is recognised instead of a blanket pass:
+     `plan-closing-notes/v1`, verdict `NOTES` (`projection.plan_closed`) -
+     the approved text intact, followed only by `## Post-Review Changes` /
+     `## Final Implementation Notes`, no other `#`/`##` heading. `NOTES`
+     settles an archive, never resumes implementation, never re-records the
+     gate and is not a revocation. Changed requirements, any other plan
+     change and an earlier revocation are `plan_approved:stale`.
+  2. *Auto-archived parent unchecked.* `archive_child` decides up front
+     whether the run also archives the parent (no other child left in
+     `children_to_implement`) and runs `approval_guard` on the parent before
+     anything is written.
+  3. *Detached question tied by screen text and in-memory last sighting.*
+     Measured on codex 0.168.0: a terminal client exposes no link to its
+     thread (argv, open files, environment, its log rows; the daemon logs a
+     connection number only), so no vendor identity exists to use. The tie
+     is now to the client PROCESS in the pane's foreground (pid + start
+     time), made on the first sighting of the id by a client that hosts no
+     question server and whose cwd is inside the question's project, stored
+     in `prompt_ties.json` beside the state under a file lock. First
+     sighting wins; later monitors read the same file.
+  4. *Cached association outlived the client.* Follows from 3: a pane back
+     at its shell or running a new client has another foreground process.
+  Live, real `TmuxMonitor`: hand-started codex 0.168.0 flagged after Esc;
+  still flagged by a newly started monitor after the pane history was
+  cleared (not flagged with the tie file hidden); with a stand-in client and
+  a server kept alive, flagged while the client ran and not after Ctrl-C at
+  the shell, in one monitor process. On 0.168.0 the daemon ends a thread's
+  question server when its client quits (0.167.2 kept it).
+  Tests: `tests/test_gate_codex_approvals.sh` 237 assertions;
+  `tests/test_aitask_questions.py` 42 tests. 14 mutants, all killed.
+  Not closed: no monitor running while the id was visible; a second
+  hand-started client in the same project showing the id first; `/new`
+  inside a tied client. Folded tasks deleted by an archive are not checked.
+- **Fifth review round (user review, 2026-11-13) - three findings, all
+  confirmed and fixed. Supersedes item 3 of the fourth round.**
+  1. *The first client to show a session id owned the question.* No reliable
+     conversation identity exists (fourth round, measured), so the tie from
+     screen text and `prompt_ties.json` are removed. `Watcher.for_pane(pane_pid)`
+     takes no screen text, writes nothing and returns an `association`:
+     `process` (ancestry, kind `codex_question_at_prompt`) or `candidate`
+     (kind `codex_question_unassociated`): every pane whose foreground
+     process is a codex client running no sessions in its own process tree
+     (`owner.hosts_sessions`: no question server and no
+     `codex-code-mode-host` below it, measured on 0.166.0-0.168.0 - an
+     in-process client that never loaded the question server is thereby
+     excluded too), with its cwd inside the question's project. Derived from processes on each refresh,
+     so it needs no sighting and survives a monitor restart; it never names
+     one pane among several.
+  2. *`serves_questions` descended through a shared app-server.* The walk
+     (now `hosts_sessions`) skips app-server children, as `describe` stops
+     at them.
+  3. *Children read from the main thread only.* `_children` unions
+     `task/*/children`.
+  Tests: stand-in clients that start their server from the main thread, from
+  a worker thread, behind an app-server stand-in, or run a session host
+  only. 10 mutants, all killed. Live (codex 0.168.0, 101 panes, 18 running a
+  codex client, scratch state): only the hand-started client was a
+  candidate; nothing was written.
+  Limits: several hand-started clients in one project are all marked; on
+  0.167.2 a lingering server can mark a pane after its conversation closed.
+- **Sixth review round (user review, 2026-11-13) - one finding, confirmed
+  and fixed.** *Candidates rendered as ordinary PROMPT and were counted as
+  awaiting.* `monitor_shared`: `is_maybe_awaiting` / `is_awaiting`, badge
+  `ASKED? <t>` in `STATE_STYLE_MAYBE` (fits `PANE_STATUS_MAX_CELLS`), hollow
+  dot, `format_awaiting_terms` (separate `N asked?` term in both session
+  bars); monitor auto-switch ranks a PROMPT pane above a candidate. Tests
+  render cards and bars of both apps from snapshots a real `TmuxMonitor`
+  classified (`tests/test_monitor_completed_status.py`); 7 mutants, all
+  killed. Not changed: the applink status record still carries
+  `awaiting_input: true` with the kind for the mobile client to interpret.
+- **Seventh review round (user review, 2026-11-13) - one finding,
+  confirmed and fixed.** *The minimonitor review loop took a candidate as
+  positive awaiting evidence.* `monitor_shared.awaiting_evidence(snap)`
+  returns `(None, "")` for a candidate; `_service_review_loop` uses it for
+  the controller tick, the work classifier and both baseline writes. Test:
+  `test_candidate_for_an_unassociated_question_never_fires` in
+  `tests/test_minimonitor_concern_smoke.py` (real arm and service path; no
+  round delivered for the candidate, then one once the pane's own prompt is
+  seen). 2 mutants, both killed. Not changed: the applink status record
+  (kind is sent for the client to interpret) and the workflow-phase
+  resolver, which assigns no phase for this kind.
+- **Step 6.** `codex_mcp_form` prompt pattern (whole-line footer,
+  `skip_trailing_blank_rows`) and question-widget kind with the
+  `Field N/M (… required …)` block boundary, from live captures.
+  `review_loop.py` was deliberately not edited (another session has
+  uncommitted work in it); its coverage guard is satisfied through
+  `QUESTION_WIDGET_KINDS`. (A timed-out question waiting at the prompt was
+  not shown at this point; see the second review round, item 5.) Website: `known-issues.md`, `getting-started.md`,
+  `commands/codeagent.md`, `skills/_index.md` and seven skill pages;
+  `check_links.py --build` passed.
+- **Not changed:** `.claude/skills/` sources (so no goldens); the repo's
+  `aitasks/metadata/codex_config.seed.toml`; `aitask-work-report` /
+  `aitask-screen-recording` sources still mention `request_user_input` in
+  prose (the Codex wrapper line for work-report was corrected).
+- **Left for review / follow-up candidates:** per-caller live runs for the remaining multi-select
+  callers; other agents' question routes; the `[features]
+  default_mode_request_user_input` seed line is now unused by workflows.
+
+
+## Final Implementation Notes
+
+- **Actual work done:** A durable question server for attended Codex
+  workflows (`.aitask-scripts/aitask_questions/`, launcher
+  `aitask_questions_mcp.sh`, entry `aitask_questions_server.py`): questions
+  are shown as MCP forms; a form that times out, fails or is postponed stays
+  open and is answered at the ordinary prompt; answers survive a restart;
+  multi-select is paged. `ait setup` and the Codex seed register the server
+  and install its Python tier. The Codex tool mapping routes every workflow
+  question through it. Approvals are enforced for attended Codex only
+  (`CODEX_THREAD_ID` plus a registered server): the gate ledger takes a
+  `plan_approved` / `review_approved` / `merge_approved` pass only with a
+  claimable receipt, `resume-point` re-checks the plan approval,
+  `commit-approved` builds the reviewed commit from the reviewed content,
+  the merge lands only the approved revision, and archiving refuses a task
+  (and a parent archived with its last child) with an unsettled approval.
+  Monitors recognise an open form (`codex_mcp_form`), a question waiting at
+  the prompt (`codex_question_at_prompt`) and, for a hand-started Codex whose
+  server the shared daemon runs, candidate panes
+  (`codex_question_unassociated`, badge `ASKED?`).
+- **Deviations from plan:** The plan expected a waiting question to be tied
+  to one pane. For a daemon-hosted server no conversation identity exists
+  (measured on codex 0.167.2 and 0.168.0), so after three review rounds the
+  screen-text tie and its stored file were dropped in favour of marking
+  every candidate pane, rendered and counted apart from a prompt and
+  withheld from the review loop. Archiving accepts one narrow change to an
+  approved plan, the workflow's own closing sections
+  (`plan-closing-notes/v1`, verdict `NOTES`), which the plan did not foresee.
+- **Issues encountered:** `-c` MCP env overrides crash Codex during
+  bootstrap (avoided). Codex 0.168.0 ends a thread's question server when
+  its client quits; 0.167.2 kept it. Linux lists child processes per thread,
+  and framework-launched clients that never loaded the question server look
+  like hand-started ones unless their `codex-code-mode-host` child is
+  counted (`owner.hosts_sessions`). SDK 2.3.0 pre-parses JSON strings for
+  union annotations, so `prompt_answer` is a plain `str`.
+- **Key decisions:** Enforcement is scoped to attended Codex; other agents'
+  behaviour is unchanged. Receipts bind the reviewed content, and the gate
+  scripts, not the model, claim them. The monitor's question reader is
+  read-only and advisory. A candidate is never positive evidence about a
+  pane (`monitor_shared.awaiting_evidence`).
+- **Limits left open:** Several hand-started Codex clients in one project
+  are all marked `ASKED?` while a daemon-hosted question waits; on 0.167.2 a
+  lingering server can mark a pane after its conversation closed. Folded
+  tasks deleted by an archive are not checked for open approvals. The
+  applink status record sends the new kind with `awaiting_input: true`; the
+  mobile client does not render it apart yet. The archive guards were
+  validated by shell tests, not in a live Codex run.
+- **Upstream defects identified:**
+  - `tests/test_workflow_phase_standalone.sh:155-157 — guard expects two `agent_key_from_command(shadow_command)` sites in `minimonitor_app.py`; there are none, so the test fails`
+  - `tests/test_codex_no_plan_injection.sh — fails on `.aitask-scripts/retired_scripts_manifest.txt:58,73`, which lists the removed plan-mode files it forbids references to`
+  - `tests/test_issue_update_ledger.sh:231 — unconfined `cd … &&` chain fails `tests/test_cd_guard_lint.sh``
