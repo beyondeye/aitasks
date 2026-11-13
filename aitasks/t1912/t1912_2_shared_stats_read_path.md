@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t1912_1]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [verifiedstats, models, robustness]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 created_at: 2026-11-12 19:42
-updated_at: 2026-11-12 19:42
+updated_at: 2026-11-13 11:05
 ---
 
 ## Context
