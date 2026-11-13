@@ -78,7 +78,8 @@ from monitor.monitor_shared import (  # noqa: E402
     TaskPickConfirmDialog, ShadowRejectionsMixin, STATE_STYLE_DONE,
     FROZEN_GLYPH,
     format_compare_mode_glyph, format_mark_glyph, format_frozen_prefix,
-    format_pane_status, PANE_STATUS_MAX_CELLS,
+    format_pane_status, PANE_STATUS_MAX_CELLS, format_awaiting_terms,
+    awaiting_evidence,
     format_section_header, format_session_divider, format_shadow_glyph,
     format_state_dot, is_task_completed,
     format_shadow_stale_banner, format_staleness_detail, markup_literal,
@@ -2888,7 +2889,6 @@ class MiniMonitorApp(
         live = [a for a in agents if not a.parked and not a.frozen]
         frozen_count = sum(1 for a in agents if a.frozen)
         parked_count = sum(1 for a in agents if a.parked and not a.frozen)
-        awaiting_count = sum(1 for a in live if getattr(a, "awaiting_input", False))
         done_count = sum(1 for a in live
                          if a.pane.pane_id in self._completed_pane_ids
                          and not getattr(a, "awaiting_input", False))
@@ -2896,7 +2896,8 @@ class MiniMonitorApp(
                          if a.is_idle and not getattr(a, "awaiting_input", False)
                          and a.pane.pane_id not in self._completed_pane_ids)
 
-        awaiting_str = f" [bold magenta]{awaiting_count} awaiting[/]" if awaiting_count > 0 else ""
+        # PROMPT verdicts and candidate panes are separate terms (t2281).
+        awaiting_str = format_awaiting_terms(live, pad=" ")
         done_str = f" [{STATE_STYLE_DONE}]{done_count}d[/]" if done_count > 0 else ""
         idle_str = f" [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
         parked_str = f" [dim]{parked_count}p[/]" if parked_count > 0 else ""
@@ -5701,7 +5702,7 @@ class MiniMonitorApp(
         # Seed the classifier baseline from the arm-time snapshot (review
         # hardening 9): a sub-tick response right after arming must still
         # classify as work on the first tick.
-        self._loop_baseline = (snap.content, snap.awaiting_input_kind,
+        self._loop_baseline = (snap.content, awaiting_evidence(snap)[1],
                               snap.pane.pane_id, snap.pane.history_size,
                               (snap.pane.width, snap.pane.height))
         self._loop_shadow_hash = None
@@ -5776,19 +5777,23 @@ class MiniMonitorApp(
         # Only here, on a committed evidence tick — arm() seeds the baseline,
         # so no upkeep is needed while disarmed.
         work_signal = review_loop.UNKNOWN
+        # What the snapshot says about THIS pane. A pane that is only a
+        # candidate holder of a waiting question (t2281) is not positive
+        # evidence that the followed conversation waits: withheld as None.
+        loop_awaiting, loop_kind = awaiting_evidence(snap)
         if snap is not None:
             base = self._loop_baseline
             if base is not None and base[2] != snap.pane.pane_id:
                 base = None  # followed pane identity replaced
             if base is not None:
                 work_signal = review_loop.classify_followed_change(
-                    base[0], base[1], snap.content, snap.awaiting_input_kind,
-                    snap.awaiting_input,
+                    base[0], base[1], snap.content, loop_kind,
+                    loop_awaiting,
                     snap.agent_key,
                     base[3], snap.pane.history_size,
                     base[4], (snap.pane.width, snap.pane.height),
                 )
-            self._loop_baseline = (snap.content, snap.awaiting_input_kind,
+            self._loop_baseline = (snap.content, loop_kind,
                                    snap.pane.pane_id, snap.pane.history_size,
                                    (snap.pane.width, snap.pane.height))
         elif agent_presence is False:
@@ -5910,7 +5915,7 @@ class MiniMonitorApp(
         action = ctrl.tick(
             agent_present=agent_presence,
             shadow_present=(None if not shadow_ok else bool(shadow_pane)),
-            awaiting_input=(snap.awaiting_input if snap is not None else None),
+            awaiting_input=loop_awaiting,
             stale=stale_input,
             work_signal=work_signal,
             shadow_ready=shadow_ready,

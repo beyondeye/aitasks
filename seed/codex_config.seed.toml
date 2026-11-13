@@ -75,3 +75,18 @@ matcher = "startup|resume"
 type = "command"
 command = ".aitask-scripts/aitask_session_hook.sh"
 timeout = 10
+
+# aitask_questions — local STDIO MCP server for attended workflow questions
+# (plan approval, review decisions, selections). Each question is a form; a
+# form that times out stays pending and is answered at the ordinary prompt,
+# then resumed through the same server. Spec: aidocs/codeagents/codex_questions.md
+#
+# The command is REPO-RELATIVE for the same reason as the hook above. A form
+# stays open for AIT_QUESTIONS_TIMEOUT seconds (default 300, set in the
+# launcher); tool_timeout_sec must stay ABOVE that so the server, not the
+# client, ends an unanswered form. Codex does not reload MCP config while
+# running: restart it after `ait setup`.
+
+[mcp_servers.aitask_questions]
+command = ".aitask-scripts/aitask_questions_mcp.sh"
+tool_timeout_sec = 360

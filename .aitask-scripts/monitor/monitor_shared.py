@@ -55,6 +55,7 @@ from monitor.monitor_core import (  # noqa: E402,F401
     parked_capture_skip,
     # Moved to monitor_core (t2037_1) so the headless status server shares it.
     is_task_completed,
+    QUESTION_UNASSOCIATED_KIND,
 )
 # The subscription-backed `TmuxMonitor` stand-in both TUIs read through
 # (t2037_3). Imported by its package path so `isinstance` checks here, in the
@@ -163,6 +164,52 @@ def format_compare_mode_glyph(mode: str, is_override: bool) -> str:
 # SECTION_HEADER_STYLE); all five must stay mutually distinct.
 STATE_STYLE_PROMPT = "bold magenta"
 
+#: A question of this pane's project waits at SOME hand-started Codex pane and
+#: this pane is one that could hold it (t2281, `QUESTION_UNASSOCIATED_KIND`).
+#: Not a verdict about this pane, so it must never render as PROMPT: its own
+#: label (:data:`MAYBE_LABEL`), a hollow dot and the plain weight of the PROMPT
+#: hue - related to it, visibly weaker.
+STATE_STYLE_MAYBE = "magenta"
+MAYBE_LABEL = "ASKED?"
+MAYBE_DOT = "○"
+
+
+def is_maybe_awaiting(snap) -> bool:
+    """True for a pane flagged only as a CANDIDATE holder of a waiting
+    question. Every renderer and counter that reads ``awaiting_input`` asks
+    this first, so the uncertainty survives to the screen."""
+    return bool(getattr(snap, "awaiting_input", False)) and (
+        getattr(snap, "awaiting_input_kind", "") == QUESTION_UNASSOCIATED_KIND)
+
+
+def is_awaiting(snap) -> bool:
+    """True when THIS pane is waiting on the user (a PROMPT verdict)."""
+    return bool(getattr(snap, "awaiting_input", False)) and not is_maybe_awaiting(snap)
+
+
+def awaiting_evidence(snap) -> tuple[bool | None, str]:
+    """``(awaiting_input, awaiting_input_kind)`` as EVIDENCE ABOUT THIS PANE,
+    for consumers that act on it (the review loop). A candidate says nothing
+    about the conversation in the pane - the waiting question may belong to
+    another one - so it is ``(None, "")``: not observed, neither "waiting"
+    nor "not waiting". ``snap`` None is the same."""
+    if snap is None or is_maybe_awaiting(snap):
+        return None, ""
+    return snap.awaiting_input, snap.awaiting_input_kind
+
+
+def format_awaiting_terms(agents, *, pad: str) -> str:
+    """The session-bar terms for waiting agents: ``N awaiting`` for PROMPT
+    verdicts and, separately, ``N asked?`` for candidate panes. The second is
+    a count of PANES that could hold a waiting question, never of questions,
+    and is never added to the first."""
+    sure = sum(1 for a in agents if is_awaiting(a))
+    maybe = sum(1 for a in agents if is_maybe_awaiting(a))
+    text = f"{pad}[{STATE_STYLE_PROMPT}]{sure} awaiting[/]" if sure else ""
+    if maybe:
+        text += f"{pad}[{STATE_STYLE_MAYBE}]{maybe} asked?[/]"
+    return text
+
 #: COMPLETED/DONE. Spelled as a **hex literal, not a colour name**: these markup
 #: spans are parsed by Textual, whose palette is CSS colour names — it does NOT
 #: know Rich's xterm names, and an unknown name fails *silently* rather than
@@ -228,7 +275,8 @@ def phase_mark(sig) -> tuple[str, str]:
 
 def _state_color(snap: PaneSnapshot, completed: bool = False) -> str:
     """The single definition of the state→color mapping (t1133, t1322):
-    PROMPT (awaiting_input) > COMPLETED > IDLE > active, as
+    PROMPT (awaiting_input) > ASKED? (candidate, :func:`is_maybe_awaiting`)
+    > COMPLETED > IDLE > active, as
     :data:`STATE_STYLE_PROMPT` / :data:`STATE_STYLE_DONE` /
     :data:`STATE_STYLE_IDLE` / :data:`STATE_STYLE_ACTIVE`. Shared by the status
     badge, the agent dot, and the shadow glyph.
@@ -240,6 +288,8 @@ def _state_color(snap: PaneSnapshot, completed: bool = False) -> str:
     state. A completed agent parked on a final prompt still reads PROMPT, which
     is actionable now.
     """
+    if is_maybe_awaiting(snap):
+        return STATE_STYLE_MAYBE
     if getattr(snap, "awaiting_input", False):
         return STATE_STYLE_PROMPT
     if completed:
@@ -252,7 +302,8 @@ def _state_color(snap: PaneSnapshot, completed: bool = False) -> str:
 def format_state_dot(snap: PaneSnapshot, completed: bool = False) -> str:
     """The agent row's own status dot ``●``, colored by state (t1133 — was
     previously duplicated inline in monitor_app / minimonitor_app)."""
-    return f"[{_state_color(snap, completed)}]●[/]"
+    dot = MAYBE_DOT if is_maybe_awaiting(snap) else "●"
+    return f"[{_state_color(snap, completed)}]{dot}[/]"
 
 
 # Shadow-status glyph (t1133): a deliberately different shape from the agent's
@@ -2521,6 +2572,8 @@ def format_pane_status(snap: PaneSnapshot, completed: bool = False) -> str:
     active priority (t1322). See :func:`_state_color` for why ``completed`` is
     an explicit parameter rather than something derived from ``snap``. Never
     wider than :data:`PANE_STATUS_MAX_CELLS`."""
+    if is_maybe_awaiting(snap):
+        return f"[{STATE_STYLE_MAYBE}]{MAYBE_LABEL} {format_elapsed_compact(snap.idle_seconds)}[/]"
     if getattr(snap, "awaiting_input", False):
         return f"[{STATE_STYLE_PROMPT}]PROMPT {format_elapsed_compact(snap.idle_seconds)}[/]"
     if completed:

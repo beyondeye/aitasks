@@ -170,7 +170,7 @@ ait codeagent invoke task-pick 42          # Pick task 42
 ait codeagent invoke explain src/main.py   # Explain a file
 ```
 
-When the resolved agent is Codex CLI, every skill is launched directly in Codex's default mode, with the skill prompt passed as the initial CLI prompt. Interactive workflow checkpoints work there because `request_user_input` is available via the `default_mode_request_user_input` feature that `ait setup` enables. Direct `raw` and `batch-review` invocations remain passthrough.
+When the resolved agent is Codex CLI, every skill is launched directly in Codex's default mode, with the skill prompt passed as the initial CLI prompt. Interactive workflow checkpoints work there because `ait setup` registers the `aitask_questions` question server in the project's Codex config, and Codex loads it on every start — no extra launch arguments are involved. Direct `raw` and `batch-review` invocations remain passthrough.
 
 | Option | Description |
 |--------|-------------|

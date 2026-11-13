@@ -62,6 +62,15 @@ AIT_IMPORTS_CPYTHON_EXTRA=(minijinja segno plotext websockets msgpack)
 AIT_PIP_SPECS_CHAT=('discord.py>=2,<3' 'slack-bolt>=1,<2' 'slack-sdk>=3,<4')
 AIT_IMPORTS_CHAT=(discord slack_bolt slack_sdk)
 
+# Questions tier: the MCP SDK behind .aitask-scripts/aitask_questions_mcp.sh,
+# the server that gives Codex sessions durable attended workflow questions.
+# Installed into the CPython venv only as part of Codex CLI setup
+# (setup_codex_cli) — a project that never sets Codex up never pulls it. The
+# range is one minor wide on purpose: the server depends on SDK-level
+# elicitation behaviour that was validated against 2.3 only (t2281).
+AIT_PIP_SPECS_QUESTIONS=('mcp>=2.3,<2.4')
+AIT_IMPORTS_QUESTIONS=(mcp anyio)
+
 # Dev/test dependency tier (opt-in via `ait setup --with-dev`): pytest and
 # pytest-xdist, which give `tests/run_all_python_tests.sh` its parallel lane.
 # Installed into the CPython venv only when the user opts in; the default
@@ -832,6 +841,49 @@ setup_chat_deps() {
     fi
 
     success "Chat SDK deps ready in $VENV_DIR."
+}
+
+# --- Questions tier (installed with Codex CLI setup) ---
+
+# True when this project's Codex config registers the aitask_questions server
+# (setup_codex_cli merged the seed table, or the user wrote it by hand). The
+# tier follows the registration: no Codex setup, no MCP SDK.
+questions_server_registered() {
+    local config="$SCRIPT_DIR/../.codex/config.toml"
+    [[ -f "$config" ]] && grep -q '^\[mcp_servers\.aitask_questions\]' "$config"
+}
+
+# Called from main() — NOT from setup_codex_cli — so that driving the Codex
+# setup function directly (tests do) can never run pip against a real venv.
+# Install/repair the MCP SDK into the CPython venv ($VENV_DIR). Never fails the
+# overall setup: on persistent failure it warns and returns 0. Without the SDK
+# the aitask_questions server cannot start, Codex reports it unavailable, and
+# attended questions stay pending in plain prose — nothing is defaulted.
+setup_questions_deps() {
+    if [[ ! -x "$VENV_DIR/bin/pip" ]]; then
+        warn "CPython venv missing at $VENV_DIR — cannot install the Codex questions server dependency. Re-run 'ait setup' after the venv exists."
+        return 0
+    fi
+
+    info "Installing/upgrading the Codex questions server dependency (mcp) into CPython venv..."
+    pip_install_guarded "Questions deps" "$VENV_DIR/bin/pip" \
+        --quiet "${AIT_PIP_SPECS_QUESTIONS[@]}"
+
+    verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_QUESTIONS[@]}"
+    verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_QUESTIONS[@]}"
+    if venv_deps_bad; then
+        warn "Questions deps need repair ($(venv_deps_detail)). Retrying..."
+        pip_install_guarded "Questions deps repair" "$VENV_DIR/bin/pip" \
+            --quiet "${AIT_PIP_SPECS_QUESTIONS[@]}"
+        verify_venv_imports "$VENV_DIR/bin/python" "${AIT_IMPORTS_QUESTIONS[@]}"
+        verify_venv_specs   "$VENV_DIR/bin/python" "${AIT_PIP_SPECS_QUESTIONS[@]}"
+    fi
+    if venv_deps_bad; then
+        warn "Questions deps could not be installed ($(venv_deps_detail)). Codex will report the aitask_questions server unavailable; re-run 'ait setup' to retry."
+        return 0
+    fi
+
+    success "Codex questions server dependency ready in $VENV_DIR."
 }
 
 # --- Dev/test dependency tier (opt-in via `ait setup --with-dev`) ---
@@ -4251,6 +4303,9 @@ setup_codex_cli() {
     info "into .codex/config.toml, which records the session id so a frozen agent can"
     info "be restored. Note: the codex TUI fires it at a session's first turn (codex"
     info "0.163.0 measured); older codex fires it under \`codex exec\` only."
+    info "It also registers the aitask_questions MCP server (.aitask-scripts/aitask_questions_mcp.sh)"
+    info "in .codex/config.toml and installs its Python dependency (mcp) into the framework venv."
+    info "The server shows workflow questions as forms; restart codex after setup to load it."
     echo ""
 
     if [[ -t 0 ]]; then
@@ -6298,6 +6353,13 @@ main() {
 
     setup_code_agents
     echo ""
+
+    # The aitask_questions MCP server registered by Codex setup needs the MCP
+    # SDK in the venv. Keyed on the registration, so it also repairs on re-runs.
+    if questions_server_registered; then
+        setup_questions_deps
+        echo ""
+    fi
 
     setup_review_guides
     echo ""

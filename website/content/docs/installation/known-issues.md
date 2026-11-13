@@ -20,7 +20,23 @@ Use stronger reasoning/model settings when you need reliable workflow compliance
 
 #### Interactive checkpoints
 
-`ait setup` enables the `default_mode_request_user_input` feature in the generated Codex config (`.codex/config.toml`), so `request_user_input` is available in Codex's default mode. This makes the interactive workflow checkpoints — task confirmation, plan approval, and commit review — *available* during the `aitask-*` workflow. Availability is necessary but not sufficient for reliable compliance: see [Reasoning effort and workflow compliance](#reasoning-effort-and-workflow-compliance) below.
+`ait setup` registers a small question server, `aitask_questions`, in the generated Codex config (`.codex/config.toml`) and installs the Python package it needs. The interactive workflow checkpoints — task confirmation, plan approval, commit review — are asked through it and appear as a form in the Codex pane. Restart Codex after running `ait setup`: Codex loads the server only when it starts.
+
+- **A form you do not answer is never an answer.** After five minutes the form closes, the agent says which question is waiting and ends its turn. Type your answer at the ordinary prompt and the workflow continues with the next question. Nothing is defaulted and no work that depends on the answer starts in the meantime.
+- **Esc postpones a form.** The question stays open and can be answered at the prompt in the same way.
+- **Questions survive a restart.** Answers already given are kept; a new Codex session picks the open question up again.
+- **Multi-select questions are paged.** Each page takes a line such as `{"selected":["t12","t15"],"action":"next"}`; the form lists the ids on the page and the actions it accepts.
+- **Approvals are checked, not assumed.** In a Codex session the plan approval, the commit review and the merge approval are recorded only together with the answered question they came from. If the plan file is rewritten after you approved it, or the task's plan was approved in another agent, Codex asks you to approve it again when the task is resumed.
+- **The reviewed change is committed for you.** After you approve the review, the commit is built from the files as they were when the question was asked. An edit made after that stays in your working tree, uncommitted.
+- **A commit hook that rewrites files stops the reviewed commit.** A `pre-commit` hook may check the change and reject it. If the hook reformats or re-stages files, nothing is committed: apply the hook's changes yourself and approve the review again.
+- **A merge approval is for one revision.** The merge lands exactly the commits you approved. If the task branch gains a commit after you approve, the merge is refused and Codex asks again.
+- **A task with an open approval is not archived.** While a plan, review or merge question of the task is unanswered, declined or no longer current, archiving is refused until the question is settled.
+- **Notes added to an approved plan ask again.** Ticking a plan's checkboxes keeps its approval. Any text added to the plan after approval means Codex asks you to approve the plan again if the task is resumed before its review. Archiving a finished task accepts only the closing notes the workflow adds at the end of the plan.
+- **A question waiting at the prompt is flagged.** `ait monitor` and `ait minimonitor` show the pane as awaiting input both while a form is open and after it has fallen back to the prompt, until you answer or cancel it or the session ends. For a Codex you started by hand rather than through `ait`, the monitor cannot tell which of your hand-started Codex panes in the project holds the question, so it marks each of them `ASKED?` instead of `PROMPT`, and counts them as `asked?` rather than `awaiting`, until the question is answered.
+
+If the server cannot start, Codex lists it as failed under `/mcp` and the agent asks its questions in plain text instead. Run `ait setup` again to repair it.
+
+Asking is necessary but not sufficient for reliable compliance: see [Reasoning effort and workflow compliance](#reasoning-effort-and-workflow-compliance) below.
 
 > `ait codeagent invoke` launches every Codex skill in Codex's default mode.
 

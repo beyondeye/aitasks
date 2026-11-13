@@ -696,6 +696,17 @@ archive_child() {
     local parent_task_basename
     parent_task_basename=$(basename "$parent_task_file")
 
+    # This run also archives the parent when no other child is left to
+    # implement (the `remaining_children` test below, decided here before
+    # anything is written): the parent's approvals are then checked as well,
+    # while refusing still leaves the child and the parent untouched (t2281).
+    local sibling other_children=""
+    while IFS= read -r sibling; do
+        sibling="${sibling#t}"
+        [[ -z "$sibling" || "$sibling" == "$task_id" ]] || other_children+="$sibling "
+    done < <(read_yaml_list "$parent_task_file" "children_to_implement" | tr ',' '\n')
+    [[ -n "$other_children" ]] || approval_guard "$parent_num"
+
     # Function-scoped parent plan paths, populated later if the parent gets auto-archived.
     # Declared here so the commit section can see the original (pre-move) path for staging.
     local parent_plan_file=""
@@ -1120,6 +1131,31 @@ gate_guard() {
     esac
 }
 
+# --- Helper: approval guard for attended Codex (t2281) ---
+# In a Codex tool shell, a task is not archived while one of its approval
+# questions (plan, review, merge) is unanswered, declined, voided, answered
+# without approving, approved but never recorded, or no longer standing.
+# Outside a Codex tool shell nothing here runs. --ignore-gates does NOT cover
+# it: that flag overrides declared gates, not a pending answer from the user.
+# Called for every task a run archives: the named one (main) and a parent the
+# child flow archives with its last child (archive_child), each before the
+# run writes anything.
+approval_guard() {
+    local task_num="$1"
+    [[ -n "${CODEX_THREAD_ID:-}" ]] || return 0
+    local decision
+    decision=$("$SCRIPT_DIR/aitask_gate.sh" approvals-settled "$task_num" 2>/dev/null) \
+        || decision="${decision:-APPROVALS:blocked|approval state could not be read}"
+    case "$decision" in
+        APPROVALS:unguarded|APPROVALS:settled*) return 0 ;;
+        *)
+            echo "APPROVAL_PENDING:${decision#APPROVALS:blocked|}"
+            echo "APPROVAL_BLOCKED: cannot archive while an approval question of t${task_num} is open or no longer stands - ask it again and act on the answer first"
+            exit 2
+            ;;
+    esac
+}
+
 # --- The `landed` trigger (task relations D4/D9) ---
 # Fires only for COMPLETED work whose archive commit succeeded: never for
 # --dry-run or --no-commit, and per archived id, only for a file that
@@ -1165,6 +1201,7 @@ main() {
 
     verification_gate_and_carryover "$TASK_NUM"
     gate_guard "$TASK_NUM"
+    approval_guard "$TASK_NUM"
 
     if [[ "$TASK_NUM" =~ ^([0-9]+)_([0-9]+)$ ]]; then
         local parent_num="${BASH_REMATCH[1]}"

@@ -70,6 +70,9 @@ unset PYTHONPATH
 export PYTHONDONTWRITEBYTECODE=1
 # Unbuffered stdout (t1179): a module's own print() output is block-buffered
 # when redirected and would otherwise flush at exit — i.e. BELOW the framework's
+# Monitor tests must not read the user's question state (t2281): the monitor's
+# waiting-question reader resolves its directory from this, and never creates it.
+export AIT_QUESTIONS_STATE_DIR="${AIT_QUESTIONS_STATE_DIR:-${TMPDIR:-/tmp}/aitask-tests-no-question-state}"
 # stderr verdict, making a failed run read as green from the tail.
 export PYTHONUNBUFFERED=1
 

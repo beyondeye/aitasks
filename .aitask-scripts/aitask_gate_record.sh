@@ -9,8 +9,11 @@
 #      pushes via `task_push` (task_utils.sh) so other machines/sessions see it.
 #
 # DESIGN: this is purely additive bookkeeping for the attended-mode D2 seed.
-# It is best-effort end-to-end and ALWAYS exits 0 — a recording or git failure
-# must never block the workflow the user is driving. Concurrency is bounded by
+# It is best-effort and exits 0 on every recording or git failure — those must
+# never block the workflow the user is driving. The single exception is exit 3
+# (`GATE_RECORD_REFUSED:<gate>` on stdout): an attended Codex session tried to
+# record a human approval without a receipt it may claim. See `append` in
+# aitask_gate.sh. Concurrency is bounded by
 # the per-task lock the workflow already holds (only the lock-holder records a
 # task's gates) plus aitask_gate.sh's own append lock; the commit stages only
 # the one task file ("stage specific paths only", per the shared aitask-data
@@ -64,7 +67,16 @@ main() {
     fi
 
     # 1. Append the gate-run block (best-effort — never block the workflow).
-    if ! "$SCRIPT_DIR/aitask_gate.sh" append "$@"; then
+    local rc=0
+    "$SCRIPT_DIR/aitask_gate.sh" append "$@" || rc=$?
+    # The one outcome that is NOT best-effort: an attended Codex approval that
+    # has no usable receipt. Nothing was recorded, and the caller must not act
+    # as if the approval existed (t2281).
+    if [[ "$rc" -eq 3 ]]; then
+        echo "GATE_RECORD_REFUSED:${gate}"
+        return 3
+    fi
+    if [[ "$rc" -ne 0 ]]; then
         warn "gate-record: append failed for t${task_id} gate '${gate}' — skipping persist"
         return 0
     fi

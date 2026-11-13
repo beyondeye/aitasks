@@ -123,7 +123,14 @@ _QUESTION_HEADER_RE = re.compile(r"^\s*[\u2610\u2611]\s+\S")
 # Codex's request-user-input widget renders a "Question N/M (K unanswered)"
 # header directly above its question text \u2014 the same role Claude's chip plays,
 # and measured (t1467, Codex 0.146.0) to appear once and only while live.
-_CODEX_QUESTION_HEADER_RE = re.compile(r"^\s*Question\s+\d+\s*/\s*\d+\b")
+#
+# An MCP elicitation form \u2014 how the framework's `aitask_questions` server asks
+# an attended workflow question under Codex (t2281) \u2014 has the same shape with
+# a different header, "Field N/M (K required unanswered)", measured live on
+# 0.167.2 for choice, free-text and paginated multi-select forms. One regex,
+# two alternatives: both are the top line of the one question block on screen.
+_CODEX_QUESTION_HEADER_RE = re.compile(
+    r"^\s*(?:Question\s+\d+\s*/\s*\d+\b|Field\s+\d+\s*/\s*\d+\s+\(\d+\s+required\b)")
 
 # OpenCode has NO header line: its widget renders as a contiguous run of
 # `\u2503`-gutter lines. Its block start is therefore found by a scan (see
@@ -187,7 +194,11 @@ QUESTION_BLOCK_STRATEGIES = {
 
 QUESTION_WIDGET_KINDS: dict[str, tuple[str, ...]] = {
     "claude": ("claude_askuserquestion",),
-    "codex": ("codex_question",),        # request-user-input widget (t1467)
+    # request-user-input widget (t1467) and the MCP elicitation form that
+    # carries attended workflow questions (t2281). The form kind is reported for
+    # ANY MCP server's form; that is safe here because Tier A still needs a
+    # workflow anchor phrase inside the block before it assigns a phase.
+    "codex": ("codex_question", "codex_mcp_form"),
     "opencode": ("opencode_question",),  # interactive question widget (t1467)
 }
 

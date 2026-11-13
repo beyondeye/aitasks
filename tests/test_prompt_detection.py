@@ -1036,6 +1036,212 @@ def _check_codex_update_prompt_negative_controls() -> None:
         f"{snap.awaiting_input_kind!r}")
 
 
+# The three shapes of an MCP elicitation form, as captured live from Codex
+# 0.167.2 on 2026-11-12 (t2281) through `capture-pane -p`; rows are verbatim
+# from the form header down to the footer.
+_MCP_FORM_CHOICE = (
+    "  Field 1/1 (1 required unanswered)\n"
+    "  Pick a color\n"
+    "  Blue:\n"
+    "  Green:\n"
+    "\n"
+    "  color\n"
+    "  Pick a color\n"
+    "  › 1. Blue\n"
+    "    2. Green\n"
+    "\n"
+    "  enter to submit | esc to cancel\n")
+_MCP_FORM_TEXT = (
+    "  Field 1/1 (1 required unanswered)\n"
+    "  Name the sample\n"
+    "\n"
+    "  sample\n"
+    "  Name the sample\n"
+    "\n"
+    "  › Type your answer\n"
+    "\n"
+    "  enter to submit | esc to cancel\n")
+_MCP_FORM_MULTI = (
+    "  Enter JSON with exact IDs, for example {\"selected\":[\"id\"],\"action\":\"next\"}.\n"
+    "  Allowed actions: ['next', 'finish', 'all', 'none']. An empty list must be\n"
+    "  explicit.\n"
+    "\n"
+    "  Selection JSON\n"
+    "\n"
+    "  › Type your answer\n"
+    "\n"
+    "  enter to submit | esc to cancel\n")
+
+
+def _check_codex_mcp_form_detected() -> None:
+    """An open MCP form reports `codex_mcp_form` in both measured geometries.
+
+    Early in a session the inline form is top-aligned above blank rows (7 were
+    measured below the choice form in a 61-row pane), which the shared 6-line
+    window cannot see; later the footer sits 1-2 rows from the bottom.
+    """
+    for name, form in (("choice", _MCP_FORM_CHOICE), ("text", _MCP_FORM_TEXT),
+                       ("multi", _MCP_FORM_MULTI)):
+        for label, content in (
+                ("footer on the last row", form),
+                ("one blank row below", form + _blank_rows(1)),
+                ("two blank rows below", form + _blank_rows(2)),
+                ("top-aligned, 7 blank rows below", form + _blank_rows(7)),
+                ("top-aligned, 40 blank rows below", form + _blank_rows(40))):
+            for command in ("codex", "node"):
+                snap = _codex_snap(content, command)
+                assert snap.awaiting_input, f"{name}, {label}, {command}: must mark awaiting_input"
+                assert snap.awaiting_input_kind == "codex_mcp_form", (
+                    f"{name}, {label}, {command}: expected codex_mcp_form, "
+                    f"got {snap.awaiting_input_kind!r}")
+
+
+def _check_codex_mcp_form_negative_controls() -> None:
+    """The footer must hold its whole line, and a closed form must not match."""
+    prompt_row = "› Ask Codex to do anything\n  GPT-6-Astra high · ~/Work/aitasks · Context 8% used\n"
+    cases = {
+        # The agent quoting the footer in prose, mid-line.
+        "footer quoted inside a sentence":
+            "• The form ends with `enter to submit | esc to cancel` at the bottom.\n" + prompt_row,
+        # What the user could type into a text form: the composer glyph leads
+        # the row, so it is not the footer's own line.
+        "footer text typed into the answer row":
+            "  Name the sample\n\n  › enter to submit | esc to cancel\n",
+        # A timed-out question: the form is gone, the agent described the
+        # pending question and the composer is back. Nothing here is a form.
+        "question timed out, waiting at the prompt":
+            "• \"Name the sample\" timed out and is still waiting for free text; you\n"
+            "  can answer here at the prompt.\n\n  Session: 5540f7a38d8c4e1fbb271c40bbcdeb47.\n\n" + prompt_row,
+        # The footer quoted on a line of its own, composer back underneath: the
+        # phrase is there, the form is not.
+        "footer quoted on its own line above the composer":
+            "• The form's last row reads:\n\n  enter to submit | esc to cancel\n\n" + prompt_row,
+        "whole form quoted above the composer":
+            _MCP_FORM_TEXT + "\n" + prompt_row,
+        # Last row of the screen, but no answer row or option row above it.
+        "footer as the last row under prose":
+            "• The form's last row reads:\n\n  enter to submit | esc to cancel\n",
+        "footer two blank rows under an answer row":
+            "  › Type your answer\n\n\n  enter to submit | esc to cancel\n",
+        # An answered form scrolled up by more output below it.
+        "answered form above later output":
+            _MCP_FORM_CHOICE + "".join(f"• later output line {i}\n" for i in range(8)) + prompt_row,
+    }
+    for label, content in cases.items():
+        snap = _codex_snap(content, "codex")
+        assert snap.awaiting_input_kind != "codex_mcp_form", (
+            f"{label}: must not read as an open form, got {snap.awaiting_input_kind!r}")
+    # Scoped to Codex: the same rows on another agent's pane are not this kind.
+    for command in ("claude", "opencode"):
+        snap = _codex_snap(_MCP_FORM_CHOICE, command)
+        assert snap.awaiting_input_kind != "codex_mcp_form", (
+            f"{command} pane must not report codex_mcp_form")
+
+
+def _check_question_waiting_at_prompt_from_durable_state() -> None:
+    """A timed-out question has no on-screen marker; durable state supplies it.
+
+    The pane shows prose and a normal composer. The signal comes from the
+    question server's state through the watcher, for the pane that serves the
+    question only, once the pane is idle, and goes away with the record.
+    """
+    import dataclasses
+    import time
+
+    from monitor.monitor_core import QUESTION_AT_PROMPT_KIND
+
+    from monitor.monitor_core import QUESTION_UNASSOCIATED_KIND
+
+    class Watcher:
+        def __init__(self):
+            self.waiting = {4242}
+            self.candidates = {4545}  # panes that could hold a daemon-hosted question
+            self.broken = False
+
+        def for_pane(self, pane_pid):
+            if self.broken:
+                raise RuntimeError("state unreadable")
+            if pane_pid in self.waiting:
+                return {"session_id": "s1", "association": "process"}
+            if pane_pid in self.candidates:
+                return {"session_id": "s2", "association": "candidate"}
+            return None
+
+    waiting_screen = ("• \"Name the sample\" timed out and is still waiting for free text; you\n"
+                      "  can answer here at the prompt.\n\n"
+                      "› Ask Codex to do anything\n  GPT-6-Astra high · ~/Work/aitasks · Context 8% used\n")
+    watcher = Watcher()
+    mon = TmuxMonitor(session="aitasks", idle_threshold=0.05, question_watcher=watcher)
+    serving = dataclasses.replace(make_pane("%q1", current_command="codex"), pane_pid=4242)
+    other = dataclasses.replace(make_pane("%q2", current_command="codex"), pane_pid=4343)
+    shell = dataclasses.replace(make_pane("%q3", category=PaneCategory.OTHER), pane_pid=4242)
+
+    snap = mon._finalize_capture(serving, waiting_screen)
+    assert not snap.awaiting_input, "a pane that just changed is not reported as waiting"
+    mon._finalize_capture(other, waiting_screen)
+    mon._finalize_capture(shell, waiting_screen)
+    time.sleep(0.08)
+    snap = mon._finalize_capture(serving, waiting_screen)
+    assert snap.is_idle and snap.awaiting_input, "idle pane serving a waiting question must be awaiting input"
+    assert snap.awaiting_input_kind == QUESTION_AT_PROMPT_KIND, snap.awaiting_input_kind
+    assert not mon._finalize_capture(other, waiting_screen).awaiting_input, (
+        "the same screen in a pane that serves no waiting question is idle, not waiting")
+    assert not mon._finalize_capture(shell, waiting_screen).awaiting_input, "non-agent panes never wait"
+
+    # An on-screen dialog keeps its own kind.
+    mon._finalize_capture(serving, _MCP_FORM_TEXT)
+    time.sleep(0.08)
+    assert mon._finalize_capture(serving, _MCP_FORM_TEXT).awaiting_input_kind == "codex_mcp_form"
+
+    # Unreadable state is no signal, never an error.
+    mon._finalize_capture(serving, waiting_screen)
+    time.sleep(0.08)
+    watcher.broken = True
+    assert not mon._finalize_capture(serving, waiting_screen).awaiting_input
+    watcher.broken = False
+    assert mon._finalize_capture(serving, waiting_screen).awaiting_input
+    # Answered, cancelled or the session closed: the record is gone, so is the flag.
+    watcher.waiting.clear()
+    assert not mon._finalize_capture(serving, waiting_screen).awaiting_input
+
+    # A question whose server the client's daemon runs cannot be tied to one
+    # pane: each pane that could hold it gets the "unassociated" kind, and the
+    # question's id on a screen (here in a pane the watcher does not name)
+    # counts for nothing.
+    daemon_screen = ('    {"session_id": "deadbeefdeadbeefdeadbeefdeadbeef", "occurrence_id":\n'
+                     + waiting_screen)
+    hosted = dataclasses.replace(make_pane("%q4", current_command="codex"), pane_pid=4545)
+    quoting = dataclasses.replace(make_pane("%q5", current_command="codex"), pane_pid=4646)
+    mon._finalize_capture(hosted, waiting_screen)
+    mon._finalize_capture(quoting, daemon_screen)
+    time.sleep(0.08)
+    snap = mon._finalize_capture(hosted, waiting_screen)
+    assert snap.awaiting_input and snap.awaiting_input_kind == QUESTION_UNASSOCIATED_KIND, (
+        snap.awaiting_input_kind)
+    assert not mon._finalize_capture(quoting, daemon_screen).awaiting_input, (
+        "a pane showing the id is not a candidate because of it")
+    watcher.candidates.clear()
+    assert not mon._finalize_capture(hosted, waiting_screen).awaiting_input
+
+    # No watcher at all (package unavailable) behaves like no waiting question.
+    bare = TmuxMonitor(session="aitasks", idle_threshold=0.05)
+    bare._question_watcher, bare._question_watcher_resolved = None, True
+    bare._finalize_capture(serving, waiting_screen)
+    time.sleep(0.08)
+    assert not bare._finalize_capture(serving, waiting_screen).awaiting_input
+
+
+def _check_codex_mcp_form_does_not_shadow_other_codex_kinds() -> None:
+    """First-wins ordering: the older Codex widgets keep their own kind."""
+    question = ("  › 1. Blue (Recommended)  A calm, versatile choice.\n"
+                "    2. Green               A fresh, natural choice.\n\n"
+                "  tab to add notes | enter to submit answer | esc to interrupt\n")
+    permission = ("› 1. Yes, proceed (y)\n  2. Yes, and don't ask again (p)\n\n"
+                  "  Press enter to confirm or esc to cancel\n")
+    assert _codex_snap(question).awaiting_input_kind == "codex_question"
+    assert _codex_snap(permission).awaiting_input_kind == "codex_permission"
+
+
 def _check_codex_update_prompt_known_false_positive() -> None:
     """The one irreducible limit, asserted so it stays a decision (rule 3).
 
@@ -1110,6 +1316,12 @@ def main() -> int:
          _check_codex_update_prompt_negative_controls),
         ("_check_codex_update_prompt_known_false_positive",
          _check_codex_update_prompt_known_false_positive),
+        ("_check_codex_mcp_form_detected", _check_codex_mcp_form_detected),
+        ("_check_codex_mcp_form_negative_controls", _check_codex_mcp_form_negative_controls),
+        ("_check_question_waiting_at_prompt_from_durable_state",
+         _check_question_waiting_at_prompt_from_durable_state),
+        ("_check_codex_mcp_form_does_not_shadow_other_codex_kinds",
+         _check_codex_mcp_form_does_not_shadow_other_codex_kinds),
     ]
     failures = 0
     for name, fn in tests:

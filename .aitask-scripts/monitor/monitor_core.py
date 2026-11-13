@@ -260,6 +260,34 @@ DEFAULT_COMPARE_MODE = COMPARE_MODE_STRIPPED
 # without importing this module's asyncio / subprocess / gateway graph (t1216_1).
 _PROMPT_DETECTION_TAIL_LINES = 6
 
+# A question asked through the `aitask_questions` MCP server that fell back to
+# the ordinary prompt (form timed out, failed or was deferred) has NO on-screen
+# marker: the agent said what is pending and ended its turn. It is recognised
+# from the server's durable state (t2281; `aitask_questions/waiting.py`):
+#   * QUESTION_AT_PROMPT_KIND - the pane serves the question (process ancestry);
+#   * QUESTION_UNASSOCIATED_KIND - the client's shared daemon serves it, so no
+#     pane can be named: every pane running a client that could hold it gets
+#     this kind. It says "a question of this project waits in one of these
+#     panes", never "in this one".
+# Reported only for an idle pane and only when no on-screen prompt matched, so
+# a visible dialog keeps its own kind and an agent busy with other work is not
+# called waiting.
+QUESTION_AT_PROMPT_KIND = "codex_question_at_prompt"
+QUESTION_UNASSOCIATED_KIND = "codex_question_unassociated"
+
+
+def _default_question_watcher():
+    """The durable-state reader, or None when the package is unavailable."""
+    try:
+        # Appended, not inserted: `.aitask-scripts/` holds many modules and
+        # must never shadow a `lib/` name already resolved from sys.path.
+        if str(_SCRIPTS_DIR) not in sys.path:
+            sys.path.append(str(_SCRIPTS_DIR))
+        from aitask_questions.waiting import Watcher
+        return Watcher()
+    except Exception:  # noqa: BLE001 - advisory signal; absence is "no signal"
+        return None
+
 
 def _prompt_detection_text(s: str, *, skip_trailing_blank_rows: bool = False) -> str:
     """Return the live bottom slice used for awaiting-input prompt matching.
@@ -2264,7 +2292,12 @@ class TmuxMonitor:
         all_sessions: bool = True,
         compare_mode_default: str = DEFAULT_COMPARE_MODE,
         prompt_patterns: list[PromptPattern] | None = None,
+        question_watcher=None,
     ):
+        # Anything with `for_pane(pane_pid)`; resolved lazily to the real
+        # reader so constructing a monitor never touches question state.
+        self._question_watcher = question_watcher
+        self._question_watcher_resolved = question_watcher is not None
         self.session = session
         self.capture_lines = capture_lines
         self.idle_threshold = idle_threshold
@@ -3392,17 +3425,46 @@ class TmuxMonitor:
             if pane.category == PaneCategory.AGENT
             else False
         )
+        awaiting_input = result.awaiting_input
+        awaiting_input_kind = result.awaiting_input_kind
+        if is_idle and not awaiting_input:
+            question_kind = self._question_at_prompt(pane)
+            if question_kind:
+                awaiting_input = True
+                awaiting_input_kind = question_kind
         return PaneSnapshot(
             pane=pane,
             content=content,
             timestamp=now,
             idle_seconds=idle_seconds,
             is_idle=is_idle,
-            awaiting_input=result.awaiting_input,
-            awaiting_input_kind=result.awaiting_input_kind,
+            awaiting_input=awaiting_input,
+            awaiting_input_kind=awaiting_input_kind,
             agent_key=result.agent_key,
             scoped=result.scoped,
         )
+
+    def _question_at_prompt(self, pane: TmuxPaneInfo) -> str:
+        """The awaiting-input kind of a workflow question waiting at the
+        prompt for this pane, or "": QUESTION_AT_PROMPT_KIND when its server
+        runs inside the pane, QUESTION_UNASSOCIATED_KIND when the client's
+        shared daemon serves it and this pane runs a client that could hold
+        it (aitask_questions/waiting.py). Screen text is not consulted.
+        Never raises: no reader, no state or an unreadable store all mean
+        "no signal"."""
+        if not self._question_watcher_resolved:
+            self._question_watcher = _default_question_watcher()
+            self._question_watcher_resolved = True
+        if self._question_watcher is None:
+            return ""
+        try:
+            found = self._question_watcher.for_pane(pane.pane_pid)
+            if found is None:
+                return ""
+            return (QUESTION_AT_PROMPT_KIND if found.get("association") == "process"
+                    else QUESTION_UNASSOCIATED_KIND)
+        except Exception:  # noqa: BLE001
+            return ""
 
     def _finalize_capture(
         self, pane: TmuxPaneInfo, content: str

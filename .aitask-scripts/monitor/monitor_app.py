@@ -52,7 +52,7 @@ from monitor.monitor_shared import (  # noqa: E402
     AgentMarksMixin, ConcernBlockInspectModal, ConcernPickerModal,
     ShadowRejectionsMixin, STATE_STYLE_DONE,
     format_compare_mode_glyph, format_mark_glyph, format_frozen_prefix,
-    format_pane_status,
+    format_pane_status, format_awaiting_terms, is_maybe_awaiting,
     format_session_divider, format_shadow_glyph, format_state_dot,
     is_task_completed, uncertified_round_block_msg, unparsed_concerns_msg,
     format_staleness_detail, markup_literal,
@@ -1664,7 +1664,9 @@ class MonitorApp(
             and getattr(snap, "awaiting_input", False)
         ]
         if awaiting:
-            awaiting.sort(key=lambda s: s.idle_seconds, reverse=True)
+            # A pane that IS waiting outranks one that only might be (t2281).
+            awaiting.sort(key=lambda s: (not is_maybe_awaiting(s), s.idle_seconds),
+                          reverse=True)
             self._focused_pane_id = awaiting[0].pane.pane_id
             return True
         # Find idle agents, sorted by most idle first
@@ -1813,14 +1815,14 @@ class MonitorApp(
         live = [a for a in agents if not a.parked and not a.frozen]
         frozen_count = sum(1 for a in agents if a.frozen)
         parked_count = sum(1 for a in agents if a.parked and not a.frozen)
-        awaiting_count = sum(1 for a in live if getattr(a, "awaiting_input", False))
         done_count = sum(1 for a in live
                          if a.pane.pane_id in self._completed_pane_ids
                          and not getattr(a, "awaiting_input", False))
         idle_count = sum(1 for a in live
                          if a.is_idle and not getattr(a, "awaiting_input", False)
                          and a.pane.pane_id not in self._completed_pane_ids)
-        awaiting_str = f"  [bold magenta]{awaiting_count} awaiting[/]" if awaiting_count > 0 else ""
+        # PROMPT verdicts and candidate panes are separate terms (t2281).
+        awaiting_str = format_awaiting_terms(live, pad="  ")
         done_str = f"  [{STATE_STYLE_DONE}]{done_count} done[/]" if done_count > 0 else ""
         idle_str = f"  [yellow]{idle_count} idle[/]" if idle_count > 0 else ""
         parked_str = f"  [dim]{parked_count} parked[/]" if parked_count > 0 else ""

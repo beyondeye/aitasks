@@ -45,6 +45,7 @@ Each card shows:
   |-------|-------|-------|
   | `Active` | green | The pane is producing output |
   | `PROMPT <t>` | magenta | The agent is waiting for your input |
+  | `ASKED? <t>` | magenta, with a hollow dot `○` | A workflow question is waiting in this pane or in another Codex you started by hand in the same project — the monitor cannot tell which |
   | `DONE <t>` | blue | The pane's task is finished |
   | `IDLE <t>` | yellow | Quiet for longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds) |
 

@@ -149,10 +149,11 @@ _begin_attempt() {
 cmd_begin() {
     local task_id="${1:-}" out_branch="${2:-}" task_branch="${3:-}"
     shift 3 || usage_err "begin needs <task_id> <output_branch> <task_branch>"
-    local wait_secs=0
+    local wait_secs=0 approval=""
     while [[ $# -gt 0 ]]; do
         case "$1" in
             --wait-secs) wait_secs="${2:-0}"; shift 2 ;;
+            --approval) approval="${2:-}"; shift 2 ;;
             *) usage_err "unknown begin flag: $1" ;;
         esac
     done
@@ -167,6 +168,28 @@ cmd_begin() {
             verdict "UNSAFE_OUTPUT_BRANCH:$b"; exit 0
         fi
     done
+
+    # Attended Codex only (t2281): merge exactly the revision the user's merge
+    # approval bound, into the branch it bound - never whatever the branch name
+    # resolves to by the time the merge runs. Asked before the mutex, so a
+    # refusal takes no reservation. Outside a Codex tool shell nothing here
+    # runs; a refusal is not a verdict (the vocabulary is unchanged for every
+    # other agent): it is exit 2 with APPROVAL_REFUSED:<reason> on stderr.
+    local approved_rev=""
+    if [[ -n "${CODEX_THREAD_ID:-}" ]]; then
+        local guard guard_rc=0
+        guard="$("$SCRIPT_DIR/aitask_gate.sh" merge-guard "$task_id" "$out_branch" \
+            "$task_branch" ${approval:+"$approval"} 2>/dev/null)" || guard_rc=$?
+        case "$guard_rc:$guard" in
+            0:MERGE:unguarded) ;;
+            0:MERGE:approved\|*)
+                approved_rev="${guard#MERGE:approved|}"; approved_rev="${approved_rev%%|*}"
+                [[ "$approved_rev" =~ ^[0-9a-f]{40,64}$ ]] ||
+                    usage_err "APPROVAL_REFUSED:unreadable_guard_answer" ;;
+            *)  guard="${guard#MERGE_REFUSED:}"
+                usage_err "APPROVAL_REFUSED:${guard:-merge_guard_failed} - the merge was not approved as asked; ask for the merge approval again (aidocs/codeagents/codex_questions.md)" ;;
+        esac
+    fi
 
     # The release capability must exist at ACQUIRE time, or we hand out a
     # reservation whose owner can never be proven.
@@ -249,7 +272,12 @@ cmd_begin() {
     # From here the lock is RETAINED on every outcome - that retention is what
     # keeps a conflict-parked tree reserved.
     local merge_out merge_rc=0
-    merge_out="$(git merge "$task_branch" 2>&1)" || merge_rc=$?
+    if [[ -n "$approved_rev" ]]; then
+        merge_out="$(git merge -m "Merge branch '$task_branch' into $out_branch" \
+            "$approved_rev" 2>&1)" || merge_rc=$?
+    else
+        merge_out="$(git merge "$task_branch" 2>&1)" || merge_rc=$?
+    fi
     if [[ "$merge_rc" -eq 0 ]]; then
         verdict "MERGE_OK:$(git rev-parse HEAD)"; exit 0
     fi

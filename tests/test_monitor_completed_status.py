@@ -46,7 +46,10 @@ from monitor.monitor_shared import (  # noqa: E402
     SHADOW_GLYPH, STATE_STYLE_ACTIVE, STATE_STYLE_DONE, STATE_STYLE_IDLE,
     STATE_STYLE_PROMPT, format_pane_status, format_shadow_glyph,
     format_state_dot, is_task_completed,
+    PANE_STATUS_MAX_CELLS, STATE_STYLE_MAYBE,
 )
+from monitor.monitor_core import QUESTION_UNASSOCIATED_KIND  # noqa: E402
+from rich.console import Console  # noqa: E402
 from monitor.monitor_app import MonitorApp  # noqa: E402
 from monitor.minimonitor_app import MiniMonitorApp  # noqa: E402
 
@@ -444,6 +447,128 @@ class AutoSwitchTests(unittest.TestCase):
         app = self._app([done, idle], {"%1"}, "%1")
         self.assertTrue(app._maybe_auto_switch())
         self.assertEqual(app._focused_pane_id, "%2")
+
+
+class UnassociatedQuestionRenderTests(unittest.TestCase):
+    """A daemon-hosted question marks every pane that COULD hold it (t2281).
+    That is not a PROMPT verdict and must not look or count like one: asserted
+    on what both monitors render, from snapshots a real TmuxMonitor produced."""
+
+    def _snapshots(self):
+        """One waiting question, two candidate panes, one pane that serves
+        its own waiting question - classified by a real TmuxMonitor."""
+        import dataclasses
+        import time
+        from monitor.monitor_core import TmuxMonitor
+
+        class Watcher:
+            def for_pane(self, pane_pid):
+                if pane_pid in (1001, 1002):
+                    return {"session_id": "s1", "association": "candidate"}
+                if pane_pid == 1003:
+                    return {"session_id": "s2", "association": "process"}
+                return None
+
+        mon = TmuxMonitor(session="demo", idle_threshold=0.05, question_watcher=Watcher())
+        panes = [dataclasses.replace(_pane(f"%{n}", f"agent-pick-{40 + n}"),
+                                     current_command="codex") for n in (1, 2, 3, 4)]
+        screen = "› Ask Codex to do anything\n"
+        for pane in panes:
+            mon._finalize_capture(pane, screen)
+        time.sleep(0.08)
+        return [mon._finalize_capture(pane, screen) for pane in panes]
+
+    def _app(self, app_cls, snapshots):
+        app = app_cls(session="demo", project_root=REPO_ROOT)
+        app._monitor = _FakeMonitor()
+        app._task_cache = _FakeTaskCache(_info(status="Implementing"))
+        app._snapshots = {s.pane.pane_id: s for s in snapshots}
+        app._completed_pane_ids = frozenset()
+        return app
+
+    def _bar(self, app_cls, snapshots):
+        app = self._app(app_cls, snapshots)
+        captured = {}
+
+        class _Bar:
+            def update(self, text):
+                captured["text"] = text
+
+        app.query_one = lambda *a, **k: _Bar()
+        if app_cls is MonitorApp:
+            app._auto_switch = False
+        else:
+            app._session = "demo"
+        app._rebuild_session_bar()
+        return Text.from_markup(captured["text"]).plain
+
+    def test_cards_show_candidates_differently_from_a_prompt(self):
+        first, second, serving, idle = self._snapshots()
+        self.assertTrue(first.awaiting_input and second.awaiting_input and serving.awaiting_input)
+        for app_cls, card in ((MonitorApp, "_format_agent_card_text"),
+                              (MiniMonitorApp, "_agent_card_text")):
+            with self.subTest(app_cls.__name__):
+                app = self._app(app_cls, [first, second, serving, idle])
+                shown = {s.pane.pane_id: Text.from_markup(getattr(app, card)(s))
+                         for s in (first, second, serving, idle)}
+                for pane_id in ("%1", "%2"):
+                    plain = shown[pane_id].plain
+                    self.assertIn("ASKED? ", plain)
+                    self.assertIn("○", plain)
+                    self.assertNotIn("PROMPT", plain)
+                    self.assertNotIn("●", plain)
+                self.assertIn("PROMPT ", shown["%3"].plain)
+                self.assertIn("●", shown["%3"].plain)
+                self.assertNotIn("ASKED?", shown["%3"].plain)
+                self.assertIn("IDLE ", shown["%4"].plain)
+                # Not by wording alone: the badge and the dot are styled apart.
+                style = lambda text, needle: str(text.get_style_at_offset(
+                    Console(), text.plain.index(needle)))
+                self.assertNotEqual(style(shown["%1"], "ASKED?"), style(shown["%3"], "PROMPT"))
+                self.assertNotEqual(style(shown["%1"], "○"), style(shown["%3"], "●"))
+
+    def test_bars_count_candidates_apart_from_awaiting(self):
+        snapshots = self._snapshots()
+        for app_cls in (MonitorApp, MiniMonitorApp):
+            with self.subTest(app_cls.__name__):
+                text = self._bar(app_cls, snapshots)
+                self.assertIn("1 awaiting", text)
+                self.assertIn("2 asked?", text)
+                self.assertIn("1 idle", text)
+                # Candidates alone: no "awaiting" term at all.
+                text = self._bar(app_cls, snapshots[:2])
+                self.assertNotIn("awaiting", text)
+                self.assertIn("2 asked?", text)
+                self.assertNotIn("idle", text)
+
+    def test_badge_and_dot_markup(self):
+        maybe = PaneSnapshot(pane=_pane("%1"), content="x", timestamp=0.0, idle_seconds=412.0,
+                             is_idle=True, awaiting_input=True,
+                             awaiting_input_kind=QUESTION_UNASSOCIATED_KIND)
+        self.assertEqual(format_pane_status(maybe), f"[{STATE_STYLE_MAYBE}]ASKED? 412s[/]")
+        self.assertEqual(format_state_dot(maybe), f"[{STATE_STYLE_MAYBE}]○[/]")
+        # Also on a finished task: still not a PROMPT, and not DONE either.
+        self.assertEqual(format_pane_status(maybe, True), f"[{STATE_STYLE_MAYBE}]ASKED? 412s[/]")
+        self.assertEqual(len({STATE_STYLE_MAYBE, STATE_STYLE_PROMPT, STATE_STYLE_DONE,
+                              STATE_STYLE_IDLE, STATE_STYLE_ACTIVE}), 5)
+        self.assertLessEqual(len("ASKED? 999h"), PANE_STATUS_MAX_CELLS)
+
+    def test_candidate_is_withheld_as_evidence_about_the_pane(self):
+        from monitor.monitor_shared import awaiting_evidence
+        first, _second, serving, idle = self._snapshots()
+        self.assertEqual(awaiting_evidence(first), (None, ""))
+        self.assertEqual(awaiting_evidence(serving), (True, "codex_question_at_prompt"))
+        self.assertEqual(awaiting_evidence(idle), (False, ""))
+        self.assertEqual(awaiting_evidence(None), (None, ""))
+
+    def test_auto_switch_prefers_a_pane_that_is_waiting(self):
+        first, second, serving, idle = self._snapshots()
+        first = PaneSnapshot(**{**first.__dict__, "idle_seconds": 9000.0})
+        app = self._app(MonitorApp, [first, second, serving, idle])
+        app._focused_pane_id = "%9"
+        app._snapshots["%9"] = _snapshot(_pane("%9"))
+        self.assertTrue(app._maybe_auto_switch())
+        self.assertEqual(app._focused_pane_id, "%3")
 
 
 if __name__ == "__main__":

@@ -196,6 +196,164 @@ delegate_python_deps() {
     "$py" "$DEP_RESOLUTION_PY" "$@"
 }
 
+# --- Attended Codex approvals (t2281) ---------------------------------------
+#
+# In an attended Codex session a human approval is a question answered through
+# the aitask_questions MCP server, and the answer is only usable through a
+# completion receipt. Five guards make the scripts honour that instead of
+# trusting the agent to follow its mapping:
+#
+#   commit-approved  the reviewed change set is committed from the bytes stored
+#                 at approval, onto the branch and base blobs bound with them -
+#                 never from the working tree. A review_approved pass is
+#                 recordable only for a commit made this way.
+#   append        a `pass` for a human approval gate needs approval=<evidence>
+#                 and is refused (exit 3, nothing written) without a receipt
+#                 this task may claim for exactly that gate.
+#   resume-point  IMPLEMENT is demoted to PLAN when the recorded plan approval
+#                 no longer stands: the plan or the task's requirements changed
+#                 (beyond the versioned bookkeeping projection), the approval
+#                 was asked again, or it was never bound to a receipt.
+#   merge-guard   the merge broker merges only the revision a merge approval
+#                 bound, into the branch it bound (aitask_merge_task.sh begin).
+#   approvals-settled  archival is refused while an approval question of the
+#                 task is unanswered, declined, voided, unrecorded or stale
+#                 (aitask_archive.sh).
+#
+# Scope is deliberately narrow: BOTH conditions must hold, so every other agent,
+# a human signing at a terminal, and a project without the server see the
+# unguarded behaviour. Spec: aidocs/codeagents/codex_questions.md.
+HUMAN_APPROVAL_GATES="plan_approved review_approved merge_approved"
+EXIT_APPROVAL_REFUSED=3
+
+# The project is the directory holding TASK_DIR, NOT this script's checkout: a
+# test that points TASK_DIR at a scratch directory must never be judged by — or
+# write question state for — the checkout it happens to run from.
+_questions_project_dir() {
+    (cd "$(dirname "$TASK_DIR")" 2>/dev/null && pwd -P)
+}
+
+# 0 iff this process runs inside a Codex tool shell (CODEX_THREAD_ID is set by
+# the client for every command it runs) AND the project registers the server.
+codex_attended_approvals() {
+    [[ -n "${CODEX_THREAD_ID:-}" ]] || return 1
+    local project
+    project="$(_questions_project_dir)" || return 1
+    grep -q '^\[mcp_servers\.aitask_questions\]' "$project/.codex/config.toml" 2>/dev/null
+}
+
+is_human_approval_gate() {
+    local g
+    for g in $HUMAN_APPROVAL_GATES; do [[ "$g" == "$1" ]] && return 0; done
+    return 1
+}
+
+# Fourth delegator: the receipt guard is question-store code, not ledger code.
+# Same state directory and project path as the launcher (aitask_questions_mcp.sh)
+# so both sides address the same occurrences.
+delegate_python_approval() {
+    local py
+    py="$(resolve_python 2>/dev/null || true)"
+    [[ -z "$py" ]] && return 1
+    PYTHONPATH="$SCRIPT_DIR${PYTHONPATH:+:$PYTHONPATH}" "$py" -m aitask_questions.approval \
+        --project "$(_questions_project_dir)" \
+        --state-dir "${AIT_QUESTIONS_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/aitasks/questions}" \
+        "$@"
+}
+
+# A profile that pre-answers the step is the one approval that is not a
+# question. The claim is checked against the profile file, not taken on trust.
+# No profile key covers the merge approval.
+_profile_preanswers_gate() {
+    local name="$1" gate="$2" file key value
+    [[ "$name" =~ ^[A-Za-z0-9_-]+$ ]] || return 1
+    file="${TASK_DIR}/metadata/profiles/${name}.yaml"
+    [[ -f "$file" ]] || return 1
+    case "$gate" in
+        plan_approved)   key='post_plan_action(_for_child)?'; value='start_implementation' ;;
+        review_approved) key='review_action';                 value='commit' ;;
+        *) return 1 ;;
+    esac
+    grep -Eq "^${key}:[[:space:]]*${value}[[:space:]]*(#.*)?\$" "$file"
+}
+
+# Decide whether a human-approval pass may be appended. Prints the note to
+# store with the block on success; on refusal prints the reason on stderr and
+# returns EXIT_APPROVAL_REFUSED. $3 is the approval= value ("" when absent).
+_claim_codex_approval() {
+    local task_id="$1" gate="$2" evidence="$3"
+    if [[ -z "$evidence" ]]; then
+        warn "gate append refused: ${gate} is a human approval and this is an attended Codex session — pass approval=<session_id>:<receipt_id> from the answered question (or approval=profile:<name> when the profile pre-answers the step)"
+        return "$EXIT_APPROVAL_REFUSED"
+    fi
+    if [[ "$evidence" == profile:* ]]; then
+        if _profile_preanswers_gate "${evidence#profile:}" "$gate"; then
+            echo "approval:${evidence}"
+            return 0
+        fi
+        warn "gate append refused: profile '${evidence#profile:}' does not pre-answer ${gate}"
+        return "$EXIT_APPROVAL_REFUSED"
+    fi
+    local session="${evidence%%:*}" receipt="${evidence#*:}" plan_file="" out
+    if [[ "$session" == "$evidence" || -z "$session" || -z "$receipt" ]]; then
+        warn "gate append refused: approval= must be <session_id>:<receipt_id>"
+        return "$EXIT_APPROVAL_REFUSED"
+    fi
+    [[ "$gate" == "plan_approved" ]] && plan_file="$(resolve_plan_file "$task_id" 2>/dev/null || true)"
+    if ! out="$(delegate_python_approval claim --task "$task_id" --gate "$gate" \
+            --session "$session" --receipt "$receipt" ${plan_file:+--plan-file "$plan_file"})"; then
+        warn "gate append refused: ${out:-the receipt could not be checked} — ask the question again under a new opening"
+        return "$EXIT_APPROVAL_REFUSED"
+    fi
+    # CLAIM:<outcome>|<occurrence>|<receipt>|<manifest>|<consumption>|<open|acknowledged>
+    local IFS='|' f
+    read -r -a f <<< "$out"
+    echo "approval:${f[1]}:${f[3]}"
+}
+
+# The approval evidence of the task's CURRENT <gate> record: the `approval:...`
+# token of its Note line, empty when the last record is not a pass or carries
+# none. The ledger names which approval was recorded; the store only says
+# whether that one still stands.
+_ledger_approval_evidence() {
+    local file="$1" gate="$2"
+    awk -v marker="gate:${gate}**" '
+        index($0, marker) && /^>/ { inblock = 1; note = ""; pass = ($0 ~ / status=pass( |$)/); next }
+        inblock && !/^>/ && NF { inblock = 0 }
+        inblock && /^>[[:space:]]*\*\*/ { inblock = 0 }
+        inblock && pass && /^> Note: / { note = substr($0, 9) }
+        END {
+            n = split(note, part, /[[:space:];,]+/)
+            for (i = 1; i <= n; i++) if (part[i] ~ /^approval:/) { print part[i]; exit }
+        }' "$file" 2>/dev/null
+}
+
+# One evidence line for a recorded human approval:
+#   APPROVAL:<FRESH|BOOKKEEPING|NOTES|PROFILE|STALE|UNBOUND>|<occurrence or profile>|<detail>
+# A profile-recorded approval never had a question, so it is judged against
+# the profile file as it is now, not against the question store.
+_approval_verdict() {
+    local task_id="$1" gate="$2" file evidence name
+    file="$(resolve_task_file "$task_id" 2>/dev/null || true)"
+    evidence=""
+    [[ -n "$file" ]] && evidence="$(_ledger_approval_evidence "$file" "$gate" || true)"
+    if [[ "$evidence" == approval:profile:* ]]; then
+        name="${evidence#approval:profile:}"
+        if _profile_preanswers_gate "$name" "$gate"; then
+            echo "APPROVAL:PROFILE|${name}|the profile pre-answers ${gate}"
+        else
+            echo "APPROVAL:STALE|${name}|the profile no longer pre-answers ${gate}"
+        fi
+        return 0
+    fi
+    local -a pin=()
+    if [[ "$evidence" =~ ^approval:([0-9a-f]+): ]]; then
+        pin=(--occurrence "${BASH_REMATCH[1]}")
+    fi
+    delegate_python_approval check --task "${task_id#t}" --gate "$gate" "${pin[@]+"${pin[@]}"}" \
+        || echo "APPROVAL:STALE|-|approval state could not be read"
+}
+
 # Return 0 iff the LAST marker carrying run=<run-id> has status=running — i.e. no
 # terminal block has been appended for that run yet. Used by the `--only-if-running`
 # conditional append (t635_11) so the orchestrator's terminal-block append is a
@@ -299,9 +457,28 @@ cmd_append() {
         die "Invalid status '$status' (one of: $VALID_STATUSES)"
     shift 3
 
+    # approval=<evidence> is consumed here and never reaches the ledger writer.
+    local approval="" approval_note="" has_note="" kv
+    local -a fields=()
+    for kv in "$@"; do
+        case "$kv" in
+            approval=*) approval="${kv#approval=}" ;;
+            note=*) has_note=1; fields+=("$kv") ;;
+            *) fields+=("$kv") ;;
+        esac
+    done
+    set -- "${fields[@]+"${fields[@]}"}"
+
     local file
     file="$(resolve_task_file "$task_id")"
     refuse_bundled_gate_target append "$task_id" "$file"
+
+    # Before any lock or write: a refused approval leaves the ledger untouched.
+    if [[ "$status" == "pass" ]] && is_human_approval_gate "$gate" && codex_attended_approvals; then
+        approval_note="$(_claim_codex_approval "${task_id#t}" "$gate" "$approval")" \
+            || exit "$EXIT_APPROVAL_REFUSED"
+        [[ -z "$has_note" ]] && set -- "$@" "note=${approval_note}"
+    fi
 
     # Before the lock, not inside _gate_append_locked: a refusal must not first
     # take a mutex it is about to abandon (t1725_2).
@@ -326,6 +503,12 @@ cmd_append() {
     release_gate_lock_checked
     trap - EXIT
     ait_archive_rearm_exit_trap
+
+    # The claimed action now exists: close the claim (history only, best-effort).
+    if [[ "$rc" -eq 0 && "$approval_note" == approval:* && "$approval_note" != approval:profile:* ]]; then
+        delegate_python_approval ack --task "${task_id#t}" --gate "$gate" \
+            --session "${approval%%:*}" --receipt "${approval#*:}" >/dev/null 2>&1 || true
+    fi
     return "$rc"
 }
 
@@ -716,7 +899,114 @@ cmd_resume_point() {
     [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh resume-point <task-id>"
     local file
     file="$(resolve_task_file "$task_id")"
-    delegate_python resume-point "$file" || echo "PLAN"
+    local point
+    point="$(delegate_python resume-point "$file" || echo "PLAN")"
+    # Attended Codex only: implementation resumes only on an approval that
+    # still stands. BOOKKEEPING (approved text intact; only checkbox state
+    # differs) and PROFILE (the profile that skipped the question still does)
+    # stand. NOTES (the workflow's closing sections follow the approved plan)
+    # does not: it settles an archive, never a resume.
+    if [[ "$point" == "IMPLEMENT" ]] && codex_attended_approvals; then
+        local verdict
+        verdict="$(_approval_verdict "$task_id" plan_approved 2>/dev/null)"
+        case "$verdict" in
+            APPROVAL:FRESH*|APPROVAL:BOOKKEEPING*|APPROVAL:PROFILE*) ;;
+            *)
+                warn "resume-point: plan approval for t${task_id#t} no longer stands (${verdict:-no evidence}) — resuming at PLAN so it is approved again"
+                point="PLAN"
+                ;;
+        esac
+    fi
+    echo "$point"
+}
+
+# commit-approved: the commit boundary of a review approval (t2281). Prints
+# COMMIT:<committed|duplicate|committed_index_not_refreshed>|<commit id>, or
+# COMMIT_REFUSED:<reason> with exit 3 and no commit. Not scoped to a Codex
+# session: it acts only on a receipt, which only the question server issues.
+cmd_commit_approved() {
+    local task_id="${1:-}" approval="${2:-}" message_file="${3:-}"
+    if [[ -z "$task_id" || -z "$message_file" || "$approval" != *:* ]]; then
+        die "Usage: aitask_gate.sh commit-approved <task-id> <session_id>:<receipt_id> <message-file|->"
+    fi
+    delegate_python_approval commit --task "${task_id#t}" --session "${approval%%:*}" \
+        --receipt "${approval#*:}" --message-file "$message_file" && return 0
+    exit "$EXIT_APPROVAL_REFUSED"
+}
+
+# merge-guard: the merge boundary of a merge approval (t2281). Called by
+# aitask_merge_task.sh begin, only from a Codex tool shell. Prints
+#   MERGE:unguarded            not an attended Codex session of this project
+#   MERGE:approved|<commit>|<branch>   merge exactly <commit>
+#   MERGE_REFUSED:<reason>     exit 3; nothing may be merged
+# The approval is the one the task's merge gate record claimed, or the
+# <session_id>:<receipt_id> given here, claimed now.
+cmd_merge_guard() {
+    local task_id="${1:-}" destination="${2:-}" source_ref="${3:-}" approval="${4:-}"
+    [[ -z "$task_id" || -z "$destination" || -z "$source_ref" ]] && \
+        die "Usage: aitask_gate.sh merge-guard <task-id> <destination-branch> <source-ref> [<session_id>:<receipt_id>]"
+    if ! codex_attended_approvals; then
+        echo "MERGE:unguarded"
+        return 0
+    fi
+    local -a claim=()
+    if [[ -n "$approval" ]]; then
+        [[ "$approval" == *:* ]] || { echo "MERGE_REFUSED:approval_must_be_session_and_receipt"; exit "$EXIT_APPROVAL_REFUSED"; }
+        claim=(--session "${approval%%:*}" --receipt "${approval#*:}")
+    fi
+    local out
+    if out="$(delegate_python_approval merge --task "${task_id#t}" --source "$source_ref" \
+            --into "$destination" "${claim[@]+"${claim[@]}"}")"; then
+        echo "$out"
+        return 0
+    fi
+    echo "${out:-MERGE_REFUSED:approval state could not be read}"
+    exit "$EXIT_APPROVAL_REFUSED"
+}
+
+# approvals-settled: the archive boundary (t2281). Called by aitask_archive.sh,
+# only from a Codex tool shell. Prints
+#   APPROVALS:unguarded        not an attended Codex session of this project
+#   APPROVALS:settled|<note>
+#   APPROVALS:blocked|<gate>:<why>[,...]   exit 3
+# A gate whose ledger record is a profile approval that still holds is settled
+# by the profile; the question store is not asked about it.
+cmd_approvals_settled() {
+    local task_id="${1:-}"
+    [[ -z "$task_id" ]] && die "Usage: aitask_gate.sh approvals-settled <task-id>"
+    if ! codex_attended_approvals; then
+        echo "APPROVALS:unguarded"
+        return 0
+    fi
+    local file gate evidence skip=""
+    file="$(resolve_task_file "$task_id" 2>/dev/null || true)"
+    for gate in $HUMAN_APPROVAL_GATES; do
+        evidence=""
+        [[ -n "$file" ]] && evidence="$(_ledger_approval_evidence "$file" "$gate" || true)"
+        if [[ "$evidence" == approval:profile:* ]] \
+                && _profile_preanswers_gate "${evidence#approval:profile:}" "$gate"; then
+            skip="${skip:+$skip,}$gate"
+        fi
+    done
+    local out
+    if out="$(delegate_python_approval settled --task "${task_id#t}" ${skip:+--skip "$skip"})"; then
+        echo "$out"
+        return 0
+    fi
+    echo "${out:-APPROVALS:blocked|approval state could not be read}"
+    exit "$EXIT_APPROVAL_REFUSED"
+}
+
+# approval-check: evidence verb (t2281). Prints one line,
+# APPROVAL:<FRESH|BOOKKEEPING|NOTES|PREPARED|PROFILE|STALE|UNBOUND>|<occurrence>|<detail>,
+# comparing the approval the ledger records for <gate> with the bound files as
+# they are now. A STALE finding is persisted in the question state. Always
+# exits 0; meaningful only where the question server is in use.
+cmd_approval_check() {
+    local task_id="${1:-}" gate="${2:-}"
+    [[ -z "$task_id" || -z "$gate" ]] && die "Usage: aitask_gate.sh approval-check <task-id> <gate>"
+    is_human_approval_gate "$gate" || die "approval-check: '$gate' is not a human approval gate ($HUMAN_APPROVAL_GATES)"
+    _approval_verdict "$task_id" "$gate"
 }
 
 # workflow-phase: the ADVISORY workflow-phase signal for the shadow companion
@@ -1306,6 +1596,11 @@ Commands:
         run defaults to now (ISO-8601-Z); attempt defaults to (terminal runs
         for this gate) + 1 for any terminal status, so a `running` block and
         the terminal block closing it share one number.
+        approval=<session_id>:<receipt_id> | approval=profile:<name>: required
+        for a `pass` of plan_approved / review_approved / merge_approved in an
+        attended Codex session of a project that registers the aitask_questions
+        server; refused with exit 3 and nothing written otherwise. Ignored
+        everywhere else. See aidocs/codeagents/codex_questions.md.
         --only-if-running <run-id>: append only if no terminal block exists yet
         for <run-id> (the run is still "running"); else no-op. Used by the
         orchestrator to write a terminal block exactly once per run (t635_11).
@@ -1421,6 +1716,28 @@ Commands:
         Used by the Approved-Plan Stop Sequence (record the approval once) and
         the Task Abort Procedure (re-open a stale plan_approved).
 
+  commit-approved <task-id> <session_id>:<receipt_id> <message-file|->
+        Action verb (t2281): commit the change set a review_approved question
+        approved, from the bytes stored when it was asked - not from the
+        working tree - onto the branch and base it bound. Prints
+        COMMIT:<outcome>|<commit id>; refusals print COMMIT_REFUSED:<reason>
+        and exit 3 with nothing committed. Repeating it is safe.
+        See aidocs/codeagents/codex_questions.md.
+
+  merge-guard <task-id> <destination-branch> <source-ref> [<session_id>:<receipt_id>]
+        Decision verb (t2281), called by aitask_merge_task.sh begin from a
+        Codex tool shell. MERGE:unguarded outside an attended Codex session;
+        MERGE:approved|<commit>|<branch> when a standing merge approval bound
+        exactly that revision and branch; MERGE_REFUSED:<reason>, exit 3,
+        otherwise.
+
+  approvals-settled <task-id>
+        Decision verb (t2281), called by aitask_archive.sh from a Codex tool
+        shell. APPROVALS:unguarded outside an attended Codex session;
+        APPROVALS:settled|..., or APPROVALS:blocked|<gate>:<why>,... with exit
+        3 while an approval question of the task is unanswered, declined,
+        voided, not_approved, not_recorded, not_committed or stale.
+
   active <task-id> <gate>
         Decision verb (t635_33): exit 0 iff <gate> is in the task's ENFORCED
         active set — the validated active_gates tuple when present/intact, else
@@ -1526,6 +1843,10 @@ main() {
         has-gates-field) shift; cmd_has_gates_field "$@" ;;
         should-self-record) shift; cmd_should_self_record "$@" ;;
         recorded-pass) shift; cmd_recorded_pass "$@" ;;
+        approval-check) shift; cmd_approval_check "$@" ;;
+        merge-guard) shift; cmd_merge_guard "$@" ;;
+        approvals-settled) shift; cmd_approvals_settled "$@" ;;
+        commit-approved) shift; cmd_commit_approved "$@" ;;
         active) shift; cmd_active "$@" ;;
         materialize-active) shift; cmd_materialize_active "$@" ;;
         active-gates-status) shift; cmd_active_gates_status "$@" ;;

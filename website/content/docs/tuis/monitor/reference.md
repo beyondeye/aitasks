@@ -138,6 +138,10 @@ precedence the card badges use — waiting for input, then done, then idle — s
 every agent is counted exactly once. An agent whose task is finished but which is
 sitting on a prompt counts as `awaiting`, matching its `PROMPT` badge.
 
+Panes with an `ASKED?` badge are not counted as `awaiting`. They get their own
+term, `N asked?`: the number of panes that might hold a waiting question, not
+the number of questions.
+
 Agents that are no longer being watched sit outside that partition, in two
 further terms: `N parked` and `N frozen` (`Np` and `Nf` in minimonitor's narrow
 bar). They are disjoint from the three above and from each other — an agent that

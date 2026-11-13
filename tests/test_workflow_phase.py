@@ -76,6 +76,27 @@ def codex_question_screen(question: str, *, gap: int = 8,
             "  tab to add notes | enter to submit answer | esc to interrupt")
 
 
+def codex_mcp_form_screen(question: str, *, gap: int = 8,
+                          preamble: str = "") -> str:
+    """A Codex MCP elicitation form, measured live (t2281, 0.167.2).
+
+    This is how the `aitask_questions` server shows an attended workflow
+    question. Header is `Field N/M (K required unanswered)`; the question text
+    is rendered twice (form message, then the field's own title); the footer
+    is the last row.
+    """
+    filler = "\n".join(f"    {i}. option line" for i in range(gap - 1))
+    return (f"{preamble}"
+            "  Field 1/1 (1 required unanswered)\n"
+            f"  {question}\n"
+            "\n"
+            "  decision\n"
+            f"  {question}\n"
+            f"{filler}\n"
+            "\n"
+            "  enter to submit | esc to cancel")
+
+
 def opencode_question_screen(question: str, *, gap: int = 6,
                              preamble: str = "") -> str:
     """OpenCode's question widget, measured live (t1467, 1.18.18).
@@ -300,6 +321,7 @@ class CrossAgentTierATest(unittest.TestCase):
 
     CASES = (
         ("codex", "codex_question", codex_question_screen),
+        ("codex", "codex_mcp_form", codex_mcp_form_screen),
         ("opencode", "opencode_question", opencode_question_screen),
     )
 
@@ -349,6 +371,7 @@ class CrossAgentTierATest(unittest.TestCase):
         """A permission dialog is live, but it is not a question widget, so the
         anchor above it must not be read as current."""
         for agent, screen in (("codex", codex_question_screen),
+                              ("codex", codex_mcp_form_screen),
                               ("opencode", opencode_question_screen)):
             kind = f"{agent}_permission"
             sig = wp.phase_signal(task_text=task_text(PLAN_RUN),

@@ -1402,6 +1402,43 @@ class FollowedPaneClassificationSmokeTests(unittest.TestCase):
         self.assertTrue(submitted[0].startswith("refetch and recheck"),
                         submitted)
 
+    def test_candidate_for_an_unassociated_question_never_fires(self):
+        """t2281: a followed pane marked only as a CANDIDATE holder of a
+        waiting question (`codex_question_unassociated` - the question may
+        belong to another conversation, e.g. a hand-started Codex elsewhere in
+        the project) is not positive evidence that it waits. Same real path
+        and same pending work as `test_codex_shadow_fires_through_the_real_path`
+        (the positive control: with the pane's own prompt it fires), but the
+        ticks carry the candidate verdict: no round is delivered."""
+        import dataclasses
+        from monitor import review_loop as rl
+        from monitor.monitor_core import QUESTION_UNASSOCIATED_KIND
+
+        self._paint_codex_shadow(self.rlfx.CODEX_0160_ANIM_AT_REST_RAW)
+        open(self.codex_shadow_log, "w").close()
+        app, later_snap, (pane, cmd, pid) = self._arm_codex_shadow_case()
+        candidate = dataclasses.replace(
+            later_snap, awaiting_input=True,
+            awaiting_input_kind=QUESTION_UNASSOCIATED_KIND)
+        fired = self._spy_fire(app)
+        tick_text = (f"{OPEN}\nRound: 1 @ 2026-11-13T10:00:00Z\n"
+                     f"- [low | smoke] x.\n{CLOSE}\n")
+        for _ in range(rl.DEBOUNCE_TICKS + 3):
+            app._loop_last_service_at = None
+            asyncio.run(app._service_review_loop(
+                candidate, True, pane, cmd, tick_text, pid))
+        self.assertEqual(fired, [], f"banners={app._banners}")
+        self.assertNotEqual(app._review_loop.state, rl.FIRED)
+        self.assertTrue(app._review_loop.armed, "withheld evidence must not disarm")
+        with open(self.codex_shadow_log, encoding="utf-8") as fh:
+            self.assertEqual(fh.read(), "")
+        # The same loop still fires once the pane itself is seen waiting.
+        for _ in range(rl.DEBOUNCE_TICKS + 3):
+            app._loop_last_service_at = None
+            asyncio.run(app._service_review_loop(
+                later_snap, True, pane, cmd, tick_text, pid))
+        self.assertEqual([outcome for outcome, _ in fired][:1], ["sent"], fired)
+
     def test_codex_starfield_shadow_never_fires(self):
         """Characterization of the t1797 symptom through the same real path:
         a shadow alternating between two STARFIELD ticks never repeats its

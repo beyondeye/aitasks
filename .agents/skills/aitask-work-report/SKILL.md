@@ -11,7 +11,7 @@ This is a Codex CLI skill wrapper. The authoritative skill definition is:
 
 Read that file and follow its complete workflow.
 
-**If you are Codex CLI:** For tool mapping and adaptations, read **`.agents/skills/codex_tool_mapping.md`**. `request_user_input` has no multi-select mode — for the interactive column/task selection, use the source skill's "Agents without native multi-select" fallback (one free-text comma-separated id list, gatherer-validated).
+**If you are Codex CLI:** For tool mapping and adaptations, read **`.agents/skills/codex_tool_mapping.md`**. For the interactive column/task selection, use the source skill's "Agents without native multi-select" fallback (one free-text comma-separated id list, gatherer-validated), asked as a single `text` question through the question server.
 
 ## Arguments
 

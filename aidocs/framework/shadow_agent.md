@@ -725,7 +725,11 @@ latch, the bounded-capture residual), not the full list:
    fires (survives disarm/re-arm cycling).
 4. **Positive-evidence debounce.** Three consecutive ticks of
    (`awaiting_input is True` AND `stale is True`); any negative or
-   indeterminate tick resets the streak.
+   indeterminate tick resets the streak. A followed pane flagged only as a
+   candidate holder of a waiting question (`codex_question_unassociated`)
+   is indeterminate: the bridge passes `awaiting_input=None` for it
+   (`monitor_shared.awaiting_evidence`), since the question may belong to
+   another conversation.
 5. **Never inject into a busy shadow.** Fire requires the three-part positive
    readiness: the agent's **empty** input composer positively detected on a
    RAW capture tail (the dim placeholder hint strips identically to typed

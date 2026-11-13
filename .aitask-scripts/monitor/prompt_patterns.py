@@ -229,6 +229,50 @@ PROMPT_PATTERNS_BY_AGENT: dict[str, list[PromptPattern]] = {
         # widget, `codex_permission` below is the tool-approval one.
         PromptPattern("codex_question",
                       re.compile(r"tab to add notes\s*\|\s*enter to submit answer")),
+        # An MCP elicitation form — what the framework's own `aitask_questions`
+        # server shows for an attended workflow question (t2281), and what any
+        # other MCP server's form looks like too. Measured live against 0.167.2
+        # (three captures, choice / free text / paginated multi-select): the
+        # footer is the dialog's last row in all three.
+        #
+        # Anchored on the form's STRUCTURE, not on the footer phrase (rule 3 of
+        # monitor_idle_and_prompt_detection.md). Three things must hold together:
+        #  * the footer holds its whole line. The rows above it are the asking
+        #    agent's prose and, for text questions, the user's own typing, so a
+        #    substring match could be forged from inside the dialog;
+        #  * the footer is the LAST row on screen (`\Z`, trailing blank rows
+        #    aside). An open form replaces the composer, so nothing is drawn
+        #    below it; once the form closes the composer and its status row
+        #    are back underneath. A footer quoted in output above a normal
+        #    composer - the agent explaining the form, or this file shown in a
+        #    pane - is therefore not a form;
+        #  * the form's input widget sits directly above it: either the last
+        #    numbered option row (choice; footer on the next row, measured) or
+        #    the `›` answer row followed by exactly one blank row (text and
+        #    multi-select; any wrapped continuation rows of the typed answer
+        #    are indented under it).
+        #
+        # KNOWN LIMIT: a geometry-faithful reproduction of an option row or
+        # answer row plus footer as the very last rows of a pane is the form as
+        # far as captured text goes.
+        #
+        # `skip_trailing_blank_rows`: the form is drawn inline, so early in a
+        # session it sits top-aligned above a run of blank rows (7+ measured in
+        # a 61-row pane) and the shared 6-line window is all blank; later in a
+        # session the footer is at distance 1-2. Both geometries are pinned in
+        # tests/test_prompt_detection.py.
+        #
+        # A QUESTION_WIDGET_KINDS entry in lib/workflow_phase.py, whose block
+        # boundary accepts the form's "Field N/M (K required unanswered)"
+        # header. A question that TIMED OUT and now waits for an answer at the
+        # ordinary prompt has no on-screen marker at all; it is recognised
+        # from the server's durable state instead (monitor_core,
+        # `aitask_questions/waiting.py`).
+        PromptPattern("codex_mcp_form",
+                      re.compile(r"(?m)^[ \t]*(?:(?:›[ \t]+)?\d+\.[ \t]+\S[^\n]*\n"
+                                 r"|›[ \t]+\S[^\n]*\n(?:[ \t]+\S[^\n]*\n)*[ \t]*\n)"
+                                 r"[ \t]*enter to submit \| esc to cancel[ \t]*\s*\Z"),
+                      skip_trailing_blank_rows=True),
         # The exec-approval dialog's footer, measured at distance 1. Deliberately
         # NOT a NATIVE_KIND_PHASE key — a tool confirmation carries no workflow
         # phase (see lib/workflow_phase.py).
@@ -251,7 +295,8 @@ PROMPT_PATTERNS_BY_AGENT: dict[str, list[PromptPattern]] = {
         # The option rows, their labels and the one blank row above the hint
         # are the same in both, so every other anchor below holds for both.
         #
-        # The only pattern with `skip_trailing_blank_rows`, and it cannot work
+        # One of two patterns with `skip_trailing_blank_rows` (the other is
+        # `codex_mcp_form`), and it cannot work
         # without it. Measured live against 0.154.0 (npm-managed): the dialog is
         # an inline pre-TUI screen (alternate_on=0) rendered TOP-aligned — the
         # hint sits at row -15 / -21 / -41 at 80x24 / 120x30 / 120x50 with only

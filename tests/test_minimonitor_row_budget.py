@@ -144,6 +144,10 @@ class StatusBoundTests(unittest.TestCase):
                 snap = _snap(status=status, seconds=float(seconds))
                 widths.append(cell_len(_plain(
                     ms.format_pane_status(snap, completed))))
+            # The candidate badge of an unassociated question (t2281).
+            maybe = _snap(status="prompt", seconds=float(seconds))
+            maybe.awaiting_input_kind = ms.QUESTION_UNASSOCIATED_KIND
+            widths.append(cell_len(_plain(ms.format_pane_status(maybe))))
         self.assertEqual(max(widths), ms.PANE_STATUS_MAX_CELLS)
 
 

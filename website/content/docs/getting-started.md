@@ -82,7 +82,7 @@ Use the same command in Claude Code, OpenCode, and other slash-style supported a
 $aitask-pick
 ```
 
-> Codex CLI interactive skill flows work in default mode: `ait setup` enables the `default_mode_request_user_input` feature, so `request_user_input` is available outside plan mode.
+> Codex CLI interactive skill flows work in default mode: `ait setup` registers a question server that shows each workflow question as a form. Restart Codex after `ait setup` so it loads the server; see [Known Issues]({{< relref "/docs/installation/known-issues" >}}) for how unanswered questions behave.
 
 This launches the full development workflow:
 

@@ -39,9 +39,22 @@ under the matching code-agent group (`claude`, `codex`, `opencode`,
 `PaneSnapshot.awaiting_input_kind`, so make it human-readable (e.g.
 `claude_proceed`, `codex_yes_proceed`). The claude group ships
 `claude_askuserquestion`, `claude_plan_approval`, `claude_trust_folder`,
-`claude_proceed` and `claude_help_bar`; codex ships `codex_question`,
+`claude_proceed` and `claude_help_bar`; codex ships `codex_question`, `codex_mcp_form`,
 `codex_permission`, `codex_yes_proceed` and `codex_update_prompt`; opencode
 ships `opencode_question`, `opencode_permission` and `opencode_palette`.
+
+Two kinds are not patterns: `codex_question_at_prompt` and
+`codex_question_unassociated`. A workflow question that fell back to the
+ordinary prompt has no on-screen marker, so it is read from the question
+server's durable state. `codex_question_at_prompt` names the pane that serves
+the question (the serving process's ancestry). For a Codex started by hand,
+whose server the shared app-server daemon runs outside every pane, no pane can
+be named: every pane running a client that could hold the question gets
+`codex_question_unassociated` — "one of these panes", never "this one". Screen
+text is not consulted for either
+(`monitor_core._question_at_prompt`, `aitask_questions/waiting.py`). Both are
+reported only for an idle pane on which no pattern matched. See `aidocs/codeagents/codex_questions.md`, "Monitor
+recognition".
 
 > **Measured drift, 2.1.233 (t1540).** `claude_trust_folder` **no longer fires on
 > the live dialog**, for two independent reasons: its confirm/cancel options now
@@ -364,7 +377,12 @@ agent's own `●`), `format_shadow_glyph` (a bound shadow's `◆`) and
 
 `format_pane_status` returns:
 
-- `[bold magenta]PROMPT <s>s[/]` when `awaiting_input` is set.
+- `[magenta]ASKED? <s>s[/]` when `awaiting_input` is set with kind
+  `codex_question_unassociated` (`is_maybe_awaiting`): a candidate pane, not a
+  verdict. Its dot is hollow (`○`), the session bars count it under
+  `N asked?` and never under `awaiting`, and auto-switch prefers a `PROMPT`
+  pane over it.
+- `[bold magenta]PROMPT <s>s[/]` when `awaiting_input` is set otherwise.
 - `[bold #1e90ff]DONE <s>s[/]` when the pane's task is completed and not
   awaiting. A **hex literal, not a colour name**: Textual's markup parser knows
   CSS colour names only, and an unknown name fails silently — the span keeps the

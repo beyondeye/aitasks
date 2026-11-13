@@ -21,7 +21,7 @@ A task ID argument is **required** — there is no interactive task browsing.
 
 > **Note:** Must be run from the project root directory. See [Skills overview](..) for details.
 >
-> **Codex CLI note:** With `ait setup`'s `default_mode_request_user_input` feature enabled, Codex carries the workflow through implementation and finalization (commit, archive) on its own. If it ever stops short, prompt it to continue — e.g., `Good, now finish the workflow` or `Good, now continue`.
+> **Codex CLI note:** With the question server that `ait setup` registers, Codex asks every workflow question as a form and carries the workflow through implementation and finalization (commit, archive) on its own. If it ever stops short, prompt it to continue — e.g., `Good, now finish the workflow` or `Good, now continue`.
 
 ## Key Differences from /aitask-pick
 
