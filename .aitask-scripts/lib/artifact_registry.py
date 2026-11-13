@@ -55,7 +55,8 @@ KNOWN_ADAPTERS = {
 # Branches the gitbranch store may never be pointed at: the code branches and
 # the framework's own orphan branches (the aitask_web_merge.sh skip set).
 # Pointing the blob store at `main` must be impossible, not discouraged.
-RESERVED_REFS = ("main", "master", "aitask-data", "aitask-locks", "aitask-ids")
+RESERVED_REFS = ("main", "master", "aitask-data", "aitask-locks", "aitask-ids",
+                 "aitask-stats")
 REF_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9._/-]*")
 
 

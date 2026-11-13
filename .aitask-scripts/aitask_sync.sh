@@ -2525,6 +2525,10 @@ main() {
 
     # Step 5: Fetch with timeout
     do_fetch
+    # Code-agent stats ride on their own branch; fast-forward it now that the
+    # remote is known reachable. stderr-only, never changes the status line
+    # or exit code (t1912_1).
+    ait_model_stats_refresh
 
     # Step 6: Count remote-ahead commits
     local remote_ahead

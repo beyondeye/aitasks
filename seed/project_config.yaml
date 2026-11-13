@@ -354,7 +354,7 @@ gate_command_exit_contract:
 #   ait artifact init-store gitbranch
 # It must be a branch that does not exist yet (or is already this store) —
 # an existing ordinary branch is refused, and main, master, aitask-data,
-# aitask-locks, aitask-ids and HEAD are reserved. To rename it once the store
+# aitask-locks, aitask-ids, aitask-stats and HEAD are reserved. To rename it once the store
 # exists, run `ait artifact gitbranch-migrate --from <old> --to <new>`, then
 # change `branch:` here. `ait settings` (Artifacts tab, `k`) edits this block.
 #

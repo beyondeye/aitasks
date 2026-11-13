@@ -450,8 +450,9 @@ ARTIFACTS_CONFIG_SCHEMA: dict[str, dict[str, str]] = {
         "detail": (
             "artifacts.backends.gitbranch.branch. Must be a plain branch name "
             "and never a code or framework branch (main, master, aitask-data, "
-            "aitask-locks, aitask-ids). The branch is created by the first "
-            "artifact write, or by 'ait artifact init-store gitbranch'. "
+            "aitask-locks, aitask-ids, aitask-stats). The branch is created "
+            "by the first artifact write, or by 'ait artifact init-store "
+            "gitbranch'. "
             "Changing it once a store exists needs 'ait artifact "
             "gitbranch-migrate --from <old> --to <new>'."
         ),

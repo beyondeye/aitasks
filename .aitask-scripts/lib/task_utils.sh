@@ -1389,6 +1389,27 @@ task_sync() {
     return 0
 }
 
+# Best-effort fast-forward of refs/heads/aitask-stats from origin (t1912_1).
+# This is how other clones' code-agent stats reach this one: readers only read
+# the local ref and never fetch. It runs after a successful sync fetch.
+# Contract: it never writes stdout (callers' stdout is a machine protocol),
+# never fails the caller, and is a silent no-op when the CLI or a usable Python
+# is missing (scaffolded test repos) or when there is nothing to fetch.
+# AIT_STATS_REFRESH_TIMEOUT bounds each network step (default 5 s).
+ait_model_stats_refresh() {
+    local cli="$SCRIPT_DIR/aitask_model_stats.py" py out
+    [[ -f "$cli" ]] || return 0
+    py="$(resolve_python 2>/dev/null || true)"
+    [[ -n "$py" ]] || return 0
+    out="$("$py" "$cli" refresh --root "$SCRIPT_DIR/.." \
+        --timeout "${AIT_STATS_REFRESH_TIMEOUT:-5}" 2>&1)" || true
+    case "$out" in
+        REFRESHED:*|REFRESH_SKIPPED:no_remote|REFRESH_SKIPPED:absent|"") ;;
+        *) printf 'model-stats refresh: %s\n' "${out//$'\n'/ }" >&2 ;;
+    esac
+    return 0
+}
+
 # Internal: current HEAD commit; empty when undeterminable. Returns 0 (see the
 # task_push probe note below).
 _task_sync_head() {

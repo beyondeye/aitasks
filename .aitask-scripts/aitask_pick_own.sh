@@ -240,6 +240,7 @@ LOCK_CLEANUP_REASON=""   # branch_unreadable | push_failed | invoke_failed
 # --- Sync with remote (best-effort) ---
 sync_remote() {
     task_sync
+    ait_model_stats_refresh   # stderr-only, best-effort (t1912_1)
     lock_cleanup
 }
 

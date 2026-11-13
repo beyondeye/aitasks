@@ -142,7 +142,7 @@ unhook() { rm -f "$W/$1/.git/hooks/$2"; }
 # ── 1. Registry: ref_name validator, validate-ref, adapters, activation ──────
 echo "=== 1. registry ==="
 new_world reg
-for bad in main master aitask-data aitask-locks aitask-ids; do
+for bad in main master aitask-data aitask-locks aitask-ids aitask-stats; do
     out="$("$PY" "$REG_PY" --config "$W/A/aitasks/metadata/project_config.yaml" validate-ref "$bad" 2>&1)"; rc=$?
     assert_exit_nonzero_rc "validate-ref rejects reserved '$bad'" "$rc"
     assert_contains "validate-ref '$bad' names the key" "artifacts.backends.gitbranch.branch" "$out"

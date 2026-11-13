@@ -219,7 +219,7 @@ PYEOF
 is_skip_branch() {
     local branch="$1"
     case "$branch" in
-        main|master|aitask-data|aitask-locks|aitask-ids)
+        main|master|aitask-data|aitask-locks|aitask-ids|aitask-stats)
             return 0
             ;;
         *)

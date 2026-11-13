@@ -139,14 +139,17 @@ def probe_remote_branch(repo, ref, timeout, remote="origin") -> str:
     return "ABSENT"
 
 
-def fetch_pinned(repo, ref, timeout, remote="origin"):
+def fetch_pinned(repo, ref, timeout, remote="origin", *,
+                 tmp_prefix=TMP_REF_PREFIX):
     """Fetch ``refs/heads/<ref>`` into a private temp ref; return (sha, error).
 
     The shared refs are never written by a fetch (a forced ``+src:dst`` into a
     shared ref could rewind a newer local publish). The temp ref is deleted
     before returning, and the caller works only with the returned sha.
+    ``tmp_prefix`` names the temp-ref namespace; each store passes its own
+    (the default is the relations store's).
     """
-    tmp = f"{TMP_REF_PREFIX}{os.getpid()}-{uuid.uuid4().hex[:12]}"
+    tmp = f"{tmp_prefix}{os.getpid()}-{uuid.uuid4().hex[:12]}"
     try:
         rc, _out_, err = _bounded(
             repo, ["fetch", "--no-tags", "--no-write-fetch-head", remote,
@@ -258,28 +261,34 @@ def read_files(repo, commit) -> dict:
     return {path: blobs[sha] for path, sha in tree.items()}
 
 
-def _commit_env(repo, extra=None):
+def _commit_env(repo, extra=None, ident=None):
+    """Commit environment; ``ident`` replaces the fallback identity used when
+    the repository has no ``user.name`` / ``user.email`` (default: relations').
+    """
+    fallback = ident or _FALLBACK_IDENT
     env = dict(os.environ)
     if extra:
         env.update(extra)
     for key in ("user.name", "user.email"):
         if git(repo, "config", "--get", key, check=False).returncode != 0:
-            env.update({k: v for k, v in _FALLBACK_IDENT.items()
+            env.update({k: v for k, v in fallback.items()
                         if k not in os.environ})
             break
     return env
 
 
 def build_commit(repo, base, changes: dict, message: str,
-                 extra_parents=()) -> str:
+                 extra_parents=(), *, ident=None) -> str:
     """Commit ``base``'s tree with ``changes`` applied ({path: bytes|None}).
 
     ``base`` None starts from the empty tree. ``extra_parents`` add merge
     parents (the relations store's replay and absorb merges). Uses a private
     temporary index, so the repository's own index is never touched.
+    ``ident`` is the fallback commit identity (see ``_commit_env``).
     """
     with tempfile.TemporaryDirectory(prefix="ait-orphan-idx-") as tmpdir:
-        env = _commit_env(repo, {"GIT_INDEX_FILE": os.path.join(tmpdir, "index")})
+        env = _commit_env(repo, {"GIT_INDEX_FILE": os.path.join(tmpdir, "index")},
+                          ident=ident)
         if base is not None:
             git(repo, "read-tree", base, env=env)
         else:
@@ -300,7 +309,8 @@ def build_commit(repo, base, changes: dict, message: str,
         return git(repo, *args, input=message.encode(), env=env).stdout.decode().strip()
 
 
-def commit_tree_from_files(repo, files: dict, message: str, parents=()) -> str:
+def commit_tree_from_files(repo, files: dict, message: str, parents=(), *,
+                           ident=None) -> str:
     """Commit exactly ``files`` ({path: bytes}) with the given parents.
 
     ``build_commit`` from the empty tree: with ``base=None`` its only parents
@@ -308,7 +318,8 @@ def commit_tree_from_files(repo, files: dict, message: str, parents=()) -> str:
     """
     if any(data is None for data in files.values()):
         raise ValueError("commit_tree_from_files takes contents only (no deletions)")
-    return build_commit(repo, None, files, message, extra_parents=tuple(parents))
+    return build_commit(repo, None, files, message, extra_parents=tuple(parents),
+                        ident=ident)
 
 
 def cas_push(repo, commit, ref, base, timeout, remote="origin") -> str:
