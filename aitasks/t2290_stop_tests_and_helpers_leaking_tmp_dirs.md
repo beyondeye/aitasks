@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-13 00:43
-updated_at: 2026-11-13 00:59
+updated_at: 2026-11-13 11:33
 ---
 
 ## Problem
@@ -61,3 +62,8 @@ as 114 bugs.
   local cleanup-skill task.
 - Sibling repos (animeless smoke.js Chrome profiles; aitasks_go scratch repo
   exports): each has its own task in its own repo.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-13T09:33:06Z status=pass attempt=1 type=human
