@@ -234,8 +234,8 @@ case "$PARSED_AGENT" in
         # Codex doesn't accept slash commands directly; the prompt uses the '$'
         # skill-invocation prefix (mirroring aitask_codeagent.sh).
         codex_prompt="\$${full_skill} ${forwarded}"
-        # Codex launches in its default mode; interactive prompts work there via
-        # the default_mode_request_user_input feature flag `ait setup` enables.
+        # Codex launches in its default mode; workflow questions are asked there
+        # through the aitask_questions MCP server `ait setup` registers (t2281).
         # CODEX_TUI_OVERRIDES (lib/agent_string.sh) is the same `-c` set every
         # aitask_codeagent.sh Codex launch carries.
         CMD=("$binary" "${CODEX_TUI_OVERRIDES[@]}" "$model_flag" "$cli_id" "$codex_prompt")

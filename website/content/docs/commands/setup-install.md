@@ -34,6 +34,8 @@ Run `ait setup --help` for the full option list, including the opt-in dependency
 
    - `ait setup --with-chat` — the chat adapter SDKs (`discord.py`, `slack-bolt`, `slack-sdk`)
    - `ait setup --with-dev` — `pytest` and `pytest-xdist`, which give the Python test suite a parallel lane. Contributors only; the suite runs on the standard library's `unittest` without them — see [Testing Changes]({{< relref "/docs/development" >}}#testing-changes) for the lane's environment knobs and how to opt out
+
+   One more package follows a different rule. Answering yes to the "Install Codex CLI skills and config?" prompt, which appears only when Codex CLI is installed, also installs `mcp` into this venv. The `aitask_questions` question server registered in `.codex/config.toml` runs on it, and later `ait setup` runs revalidate and repair it for as long as that registration is present. There is no separate flag for it.
 8. **Global shim** — Installs `ait` shim at `~/.local/bin/ait` that finds the nearest project-local `ait` dispatcher by walking up the directory tree. Warns if `~/.local/bin` is not in PATH
 9. **Claude Code permissions** — Shows the recommended permission entries, then prompts Y/n to install them into `.claude/settings.local.json`. If settings already exist, merges permissions (union of allow-lists)
 10. **Session hook** — Its own Y/n prompt, separate from the permissions one: installs a SessionStart hook that records each agent's session id so a frozen agent can be restored. `ait setup --hooks-only` runs this step alone. See [Session Hooks](#session-hooks)

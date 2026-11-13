@@ -675,9 +675,9 @@ build_invoke_command() {
                     ;;
                 *)
                     # Skill launches: build the $aitask-* composer prompt and
-                    # launch Codex directly in its default mode. Interactive
-                    # prompts work there via the default_mode_request_user_input
-                    # feature flag that `ait setup` enables.
+                    # launch Codex directly in its default mode. Workflow
+                    # questions are asked there through the aitask_questions
+                    # MCP server that `ait setup` registers (t2281).
                     local prompt
                     case "$operation" in
                         pick)    prompt=$(build_skill_prompt "\$aitask-pick" "${args[@]}") ;;
