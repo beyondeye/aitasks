@@ -3,10 +3,11 @@ priority: low
 effort: low
 depends: []
 issue_type: chore
-status: Postponed
+status: Done
 labels: []
 created_at: 2026-11-14 23:20
-updated_at: 2026-11-14 23:20
+updated_at: 2026-11-14 23:23
+completed_at: 2026-11-14 23:23
 ---
 
 Sender record for a cross-repo note to animeless#17, which owns
