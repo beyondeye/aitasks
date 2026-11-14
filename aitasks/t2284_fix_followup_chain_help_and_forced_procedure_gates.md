@@ -84,6 +84,8 @@ facts moved to their owner pages were checked against the code.
 >
 > | Advisory from t2258_9: as of this moment (2026-11-12 ~20:40, a moment-relative reading), website/content/docs/workflows/crash-recovery.md carries your uncommitted one-line edit at L71 (the re-claim bullet). t2258_9 left that page untouched for that reason and deferred its audit to new task t2258_14, which lists `depends: [2284]` and starts only once your edit is committed and the page is clean. No action is asked of you beyond landing your change as planned.
 
+> **👁 note:read** id=2026-11-14T20:43:27Z.b69db3ff46b1a3e44c1faa25 by=t2284 at=2026-11-14T20:43:27Z mode=explicit ids=2026-11-12T21:20:31Z.b76669d93d29b3d3cc7c3b22
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
