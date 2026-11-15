@@ -24,7 +24,7 @@ Only **source** files are considered (rendered `*-default-/`, `*-fast-/`, `*-rem
 | `.claude/skills/task-workflow/SKILL.md` | 332 | "**Verify the plan file exists externally (Claude Code only):** If running in Claude Code, execute the **Plan Externalization Procedure** ... Other code agents write plans directly to `aiplans/` and skip this check." — gates the Step 8 safety-fallback callsite |
 | `.claude/skills/task-workflow/planning.md` | 289 | "**If running in Claude Code,** execute the **Plan Externalization Procedure** (see `plan-externalization.md`) immediately after `ExitPlanMode` ... Other code agents write plans directly to `aiplans/` and skip this step." — gates the proactive Step 6 externalize callsite |
 
-Both files are part of the `task-workflow` skill closure. They are pulled into the render closure of every skill that hands off to `task-workflow/SKILL.md` from Step 3 (Task Status Checks) onward — i.e. `aitask-pick`, `aitask-explore`, `aitask-fold`, `aitask-review`, `aitask-qa`, `aitask-pr-import`, `aitask-revert`, `aitask-pickrem`, `aitask-pickweb`. Each of those skills carries a `test_skill_render_<skill>.sh` regression test, and most contain a **Test 1b agent-invariance assertion** (codex/gemini/opencode renders byte-identical to claude) that would fail the moment a Jinja `{% if agent %}` gate is introduced into a procedure file shared across these closures.
+Both files are part of the `task-workflow` skill closure. They are pulled into the render closure of every skill that hands off to `task-workflow/SKILL.md` from Step 3 (Task Status Checks) onward — i.e. `aitask-pick`, `aitask-explore`, `aitask-fold`, `aitask-review`, `aitask-qa`, `aitask-pr-import`, `aitask-revert`, `aitask-pickrem`, `aitask-pickweb`. Each of those skills carries a `test_skill_render_<skill>.sh` regression test, and most contain a **Test 1b agent-invariance assertion** (codex/opencode renders byte-identical to claude) that would fail the moment a Jinja `{% if agent %}` gate is introduced into a procedure file shared across these closures.
 
 ### B. Claude-only procedure files (body, not gating)
 
@@ -52,7 +52,7 @@ The renderer (`.aitask-scripts/lib/skill_template.py:305`) evaluates Jinja on ev
 - `aitask-pickrem` → same
 - `aitask-pickweb` → same
 
-Each of those skills' `tests/test_skill_render_aitask_<name>.sh` runs **Test 1b** (agent-dimension invariance — see e.g. `tests/test_skill_render_aitask_fold.sh:91-105`). That test asserts the basic stdout render is byte-identical across all four agents. Introducing a real `{% if agent %}` gate inside `task-workflow/{SKILL.md,planning.md}` immediately breaks that assertion for all 9 callers at once.
+Each of those skills' `tests/test_skill_render_aitask_<name>.sh` runs **Test 1b** (agent-dimension invariance — see e.g. `tests/test_skill_render_aitask_fold.sh:91-105`). That test asserts the basic stdout render is byte-identical across every supported agent. Introducing a real `{% if agent %}` gate inside `task-workflow/{SKILL.md,planning.md}` immediately breaks that assertion for all 9 callers at once.
 
 The disciplined cleanup path — explicitly anticipated by `aidocs/framework/stub-skill-pattern.md:248-257` ("the pruned goldens are re-added surgically for that skill") — is to bundle the change into a single follow-up task that:
 

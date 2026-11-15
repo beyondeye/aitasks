@@ -5,7 +5,8 @@
 # Covers:
 #   - read_registry parses `kind: procedure` (and absent => "" for command gates).
 #   - The headless orchestrator DEFERS a procedure gate: reports "needs agent",
-#     appends nothing, exits 0 (never shell-executes a verifier for it).
+#     appends nothing, exits 0 (never shell-executes a verifier for it) — and
+#     so does a forced `--gate <procedure gate>` run (t2284).
 #   - archive-ready is fail-safe: BLOCKED until the gate records pass OR skip;
 #     both pass and skip are terminal-satisfied => ALL_PASS.
 #   - `procedure-gates` lists declared unmet procedure gates; empty once pass/skip.
@@ -73,6 +74,16 @@ assert_eq "orchestrator run exits 0 for a deferred procedure gate" "0" "$rc"
 assert_contains "orchestrator reports needs-agent" "needs agent" "$run_out"
 appends="$(grep -c 'gate:docs_updated' "$fx/aitasks/t10_x.md" || true)"
 assert_eq "orchestrator appended nothing for the procedure gate" "0" "$appends"
+
+# --- 2b. a FORCED run (--gate) defers it too, never runs it (t2284) ----------
+# Forcing used to fall through to the machine-gate runner, which resolved the
+# skill name to a non-existent aitask_gate_docs_updated.sh and recorded error.
+fx2="$(new_fixture)"; write_task "$fx2" 11 docs_updated
+run_out="$( cd "$fx2" && "$PY" "$ORCH" run aitasks/t11_x.md --gate docs_updated --registry aitasks/metadata/gates.yaml 2>&1 )"; rc=$?
+assert_eq "forced run exits 0 for a procedure gate" "0" "$rc"
+assert_contains "forced run reports needs-agent" "docs_updated: needs agent" "$run_out"
+appends="$(grep -c 'gate:docs_updated' "$fx2/aitasks/t11_x.md" || true)"
+assert_eq "forced run appended nothing for the procedure gate" "0" "$appends"
 
 # --- 3. archive-ready fail-safe (BLOCKED until pass/skip) --------------------
 assert_eq "archive-ready BLOCKED before any run" "BLOCKED:docs_updated" "$(g "$fx" archive-ready 10)"

@@ -14,8 +14,15 @@
 #   - --followup-of <root>       -> anchor: <root>
 #   - --followup-of <followup R> -> anchor: R (flattened; never chains)
 #   - --followup-of <legacy anchorless child P_c> -> anchor: P (parent fallback)
+#   - --followup-of <child created under P, then P re-anchored to R> -> R (t2284:
+#     the stored anchor is stale, so it is walked to the root, not copied)
+#   - --followup-of <anchorless child of P, P -> F -> R> -> R (longer chain)
+#   - --followup-of <task whose stale anchor -> F -> R> -> R
+#   - --followup-of <task in an anchor cycle> -> exits 0, the source id, warning
+#   - --followup-of <task with a malformed anchor> -> exits 0, the source id, warning
 #   - child --parent P (no anchor)  -> anchor: P (auto-inherit)
 #   - child --parent P (anchor=R)   -> anchor: R (auto-inherit root)
+#   - child --parent P (stale anchor F -> R) -> anchor: R (walked to the root)
 #   - --parent + --anchor / + --followup-of -> non-zero, no file (child rule)
 #   - --anchor + --followup-of   -> non-zero, no file (mutually exclusive)
 #   - draft created with --anchor then --finalize -> anchor preserved
@@ -219,11 +226,73 @@ test_followup_flatten() {
     teardown
 }
 
+# t2284: a stored anchor can be stale -- a re-anchor (aitask_update.sh --anchor)
+# never cascades to children or follow-ups -- so every derived anchor is walked
+# through to the topic root instead of copied one hop.
+test_followup_walks_stale_anchors() {
+    echo "=== Test: --followup-of walks stale anchors to the root (t2284) ==="
+    setup_project
+    seed_task aitasks/t42_root.md
+    seed_task aitasks/t50_followup.md "anchor: 42"
+    seed_task aitasks/t70_parent.md
+    seed_task aitasks/t80_anchored_to_followup.md "anchor: 50"
+    seed_task aitasks/t80/t80_1_legacy_child.md
+    seed_task aitasks/t85_stale_followup.md "anchor: 80"
+    seed_task aitasks/t90_cycle_a.md "anchor: 91"
+    seed_task aitasks/t91_cycle_b.md "anchor: 90"
+    seed_task aitasks/t95_malformed.md "anchor: bogus"
+    git add -A; git commit -m "seed" --quiet
+
+    local f child errf
+    # A NORMALLY created child: created while t70 is anchorless, so it stores
+    # anchor: 70. Then t70 is re-anchored to 42 in place -- the non-cascading
+    # state `ait update --anchor` leaves (this fixture ships no aitask_update.sh).
+    bash .aitask-scripts/aitask_create.sh --batch --silent --parent 70 \
+        --name kid --desc x --commit >/dev/null 2>&1 || true
+    child=$(ls aitasks/t70/t70_1_*.md 2>/dev/null | head -1)
+    TOTAL=$((TOTAL + 1))
+    if [[ -n "$child" ]]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: child of t70 not created"; fi
+    [[ -n "$child" ]] && assert_eq "child created under anchorless 70 stores anchor: 70" "70" "$(read_frontmatter_field "$child" anchor)"
+    seed_task aitasks/t70_parent.md "anchor: 42"
+    assert_eq "fixture: t70 re-anchored to 42" "42" "$(read_frontmatter_field aitasks/t70_parent.md anchor)"
+    f=$(make_draft --name fu_reanchored --desc x --followup-of 70_1)
+    assert_eq "--followup-of 70_1 (child of re-anchored 70) -> 42, not the stale 70" "42" "$(read_frontmatter_field "$f" anchor)"
+
+    # Anchorless child whose parent is anchored to a follow-up: 80 -> 50 -> 42.
+    f=$(make_draft --name fu_chain --desc x --followup-of 80_1)
+    assert_eq "--followup-of 80_1 (parent 80 -> 50 -> 42) -> 42" "42" "$(read_frontmatter_field "$f" anchor)"
+
+    # A plain follow-up whose stored anchor is stale: 85 -> 80 -> 50 -> 42.
+    f=$(make_draft --name fu_stale --desc x --followup-of 85)
+    assert_eq "--followup-of 85 (85 -> 80 -> 50 -> 42) -> 42" "42" "$(read_frontmatter_field "$f" anchor)"
+
+    # A cycle terminates: the walk starts at the source (90), so 90 is revisited.
+    # Outside the fixture repo, so no git operation can pick it up.
+    errf="$PWD/../create_stderr"
+    local rc=0
+    f=$(bash .aitask-scripts/aitask_create.sh --batch --silent --name fu_cycle --desc x --followup-of 90 2>"$errf") || rc=$?
+    assert_eq "--followup-of 90 (cycle 90 <-> 91) exits 0" "0" "$rc"
+    assert_eq "--followup-of 90 (cycle) -> 90 (the revisited source)" "90" "$(read_frontmatter_field "$f" anchor)"
+    assert_contains "cycle warns on stderr" "anchor cycle" "$(cat "$errf")"
+
+    # A malformed first link is read and validated by the walker, never copied.
+    rc=0
+    f=$(bash .aitask-scripts/aitask_create.sh --batch --silent --name fu_bad --desc x --followup-of 95 2>"$errf") || rc=$?
+    assert_eq "--followup-of 95 (anchor: bogus) exits 0" "0" "$rc"
+    assert_eq "--followup-of 95 (anchor: bogus) -> 95 (stop at the source)" "95" "$(read_frontmatter_field "$f" anchor)"
+    assert_contains "malformed anchor warns on stderr" "malformed anchor" "$(cat "$errf")"
+    rm -f "$errf"
+
+    teardown
+}
+
 test_child_inherit() {
     echo "=== Test: child auto-inherits parent's anchor-or-id (--commit) ==="
     setup_project
     seed_task aitasks/t60_plain_parent.md
     seed_task aitasks/t61_anchored_parent.md "anchor: 42"
+    seed_task aitasks/t50_followup.md "anchor: 42"
+    seed_task aitasks/t62_stale_parent.md "anchor: 50"
     git add -A; git commit -m "seed" --quiet
 
     # child of anchorless parent -> parent id
@@ -240,6 +309,14 @@ test_child_inherit() {
         --name kid_b --desc x --commit >/dev/null 2>&1 || true
     child=$(ls aitasks/t61/t61_1_*.md 2>/dev/null | head -1)
     [[ -n "$child" ]] && assert_eq "child of anchored parent 61 (anchor=42) -> 42" "42" "$(read_frontmatter_field "$child" anchor)"
+
+    # child of a parent whose anchor is stale (62 -> 50 -> 42) -> 42 (t2284)
+    bash .aitask-scripts/aitask_create.sh --batch --silent --parent 62 \
+        --name kid_c --desc x --commit >/dev/null 2>&1 || true
+    child=$(ls aitasks/t62/t62_1_*.md 2>/dev/null | head -1)
+    TOTAL=$((TOTAL + 1))
+    if [[ -n "$child" ]]; then PASS=$((PASS + 1)); else FAIL=$((FAIL + 1)); echo "FAIL: child of t62 not created"; fi
+    [[ -n "$child" ]] && assert_eq "child of stale-anchored parent 62 (62 -> 50 -> 42) -> 42" "42" "$(read_frontmatter_field "$child" anchor)"
 
     teardown
 }
@@ -337,6 +414,7 @@ trap teardown_all EXIT
 
 test_explicit_anchor
 test_followup_flatten
+test_followup_walks_stale_anchors
 test_child_inherit
 test_guards
 test_finalize_preserves_anchor

@@ -93,11 +93,11 @@ The OpenCode stub hardcodes `--agent opencode` in Step 2.
 
 The stub's Step 3 instructs the agent to **Read** the rendered file and follow it — not to invoke `/<skill>-<profile>-` as a nested slash command.
 
-- Read-and-follow works in **all four agents** (every agent supports file reads). No per-agent validation matrix is required, and no fallback case is needed for agents that cannot programmatically slash-dispatch.
+- Read-and-follow works in **every supported agent** (every agent supports file reads). No per-agent validation matrix is required, and no fallback case is needed for agents that cannot programmatically slash-dispatch.
 - Read-and-follow mirrors an idiom already used pervasively in the framework, e.g., `task-workflow/SKILL.md` instructing the agent to read `planning.md`, `execution-profile-selection.md`, etc.
-- Slash-dispatch from within a SKILL.md is unverified for Codex / Gemini / OpenCode and would require a per-agent fallback that prints a shell-command hint and aborts.
+- Slash-dispatch from within a SKILL.md is unverified for Codex / OpenCode and would require a per-agent fallback that prints a shell-command hint and aborts.
 
-Slash-dispatch may be added as a follow-up optimization in a separate task once empirically validated across all four agents.
+Slash-dispatch may be added as a follow-up optimization in a separate task once empirically validated across every supported agent.
 
 ## 3f. Stub authoring conventions (checklist for converters)
 

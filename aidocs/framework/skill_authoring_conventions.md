@@ -1,8 +1,7 @@
 # Skill / Workflow Authoring Conventions
 
 Specialist guidance for authoring or modifying skills under `.claude/skills/`,
-`.agents/skills/`, `.gemini/skills/`, `.gemini/commands/`, `.opencode/skills/`,
-or `.opencode/commands/`. CLAUDE.md carries only the source-of-truth pointer
+`.agents/skills/`, `.opencode/skills/`, or `.opencode/commands/`. CLAUDE.md carries only the source-of-truth pointer
 and the `aitask_skill_verify.sh` reminder; the rules below apply when actually
 editing skill files.
 
@@ -10,15 +9,18 @@ editing skill files.
 
 When you add or modify a `.j2` authoring template (`.claude/skills/<skill>/SKILL.md.j2`)
 or any per-agent stub surface (`.claude/skills/<skill>/SKILL.md`,
-`.agents/skills/<skill>/SKILL.md`, `.gemini/commands/<skill>.toml`,
-`.opencode/commands/<skill>.md`), run before committing:
+`.agents/skills/<skill>/SKILL.md`, `.opencode/commands/<skill>.md`,
+`.opencode/skills/<skill>/SKILL.md`), run before committing:
 
 ```bash
 ./.aitask-scripts/aitask_skill_verify.sh
 ```
 
-This renders every `.j2` against `default.yaml` for all 4 supported agents
-(claude, codex, gemini, opencode), walks each authoring template's dep closure
+This renders every `.j2` against `default.yaml` for the 3 supported agents
+(claude, codex, opencode) — the default profile only; other profiles are not
+rendered, except that a skill marked `prerender_for_headless` also has its
+committed headless-profile prerenders walk-verified against the source. It
+walks each authoring template's dep closure
 to verify every transitive `.md` reference resolves and renders cleanly, and
 asserts each stub surface contains the canonical markers from
 `aidocs/framework/stub-skill-pattern.md` (resolver call, render call, trailing-hyphen
@@ -42,8 +44,7 @@ the reference in a conditional like "If running in Claude Code, execute …. Oth
 agents skip this step because \<reason\>."
 
 Inlined bodies in shared files duplicate when the procedure fires from multiple
-call-sites, drift silently when the tree is ported to `.opencode/` / `.gemini/`
-/ `.agents/`, and create conflict surface when multiple aitasks touch the same
+call-sites, drift silently when the tree is ported to `.opencode/` / `.agents/`, and create conflict surface when multiple aitasks touch the same
 SKILL.md region.
 
 ## Authoring-reference docs live in `aidocs/`, not under `.claude/skills/`
@@ -103,8 +104,7 @@ When a template needs per-instance values:
 ## SKILL.md files are re-read during execution — never overwrite an in-use one
 
 Skill definitions on disk (`.claude/skills/<name>/SKILL.md`,
-`.agents/skills/<name>/SKILL.md`, `.gemini/skills/<name>/SKILL.md`,
-`.opencode/skills/<name>/SKILL.md`) are read MULTIPLE times by the agent during
+`.agents/skills/<name>/SKILL.md`, `.opencode/skills/<name>/SKILL.md`) are read MULTIPLE times by the agent during
 a skill's execution, not just once at slash-command expansion. Any design that
 mutates an in-use `SKILL.md` mid-session produces torn reads and inconsistent
 behavior.
@@ -169,7 +169,7 @@ directory NAME with a single recognizable suffix/prefix marker so the
 
 Convention for aitasks framework rendered SKILL.md dirs: **trailing hyphen**
 (e.g., `aitask-pick-fast-/`); gitignore is `.claude/skills/*-/` (and same for
-`.agents/skills/`, `.gemini/skills/`, `.opencode/skills/`).
+`.agents/skills/`, `.opencode/skills/`).
 
 Per-variant globs (`*-fast/`, `*-default/`, …) require maintenance every time
 a new variant lands; the suffix convention does not. Authoring dir names must
@@ -229,8 +229,8 @@ once per invocation, then the agent reads that frozen file.
 
 When converting a skill to be profile-aware, author the `.md.j2` template
 first, then drop the canonical stub from `aidocs/framework/stub-skill-pattern.md` §3b at
-the existing `SKILL.md` path. The 3 sibling stubs (Codex `SKILL.md`, Gemini
-command TOML, OpenCode command MD) follow §3c-§3d. Run
+the existing `SKILL.md` path. The sibling stubs (Codex `SKILL.md` per §3b; the
+OpenCode command MD and OpenCode skill-dir stub per §3d) follow the same pattern. Run
 `./.aitask-scripts/aitask_skill_verify.sh` to confirm all 4 stub surfaces
 render cleanly and the closure walk-check passes.
 
@@ -503,11 +503,11 @@ done
 
 **Golden dimensionality.** Entry-point goldens are `claude`-only: the basic
 stdout render applies no per-agent reference rewrites (those are a
-walk-write property, covered by Test 4), so a `codex`/`gemini`/`opencode`
+walk-write property, covered by Test 4), so a `codex`/`opencode`
 golden would be a byte-for-byte copy of the `claude` one. Per-agent goldens
 are kept *only* for a skill whose template references `{% if agent %}` (a
 gate that makes the render actually diverge per agent). When introducing
-such a gate, regenerate goldens for all 4 agents in the same commit; the
+such a gate, regenerate goldens for all 3 agents in the same commit; the
 per-skill **Test 1b** (agent-invariance check) will fail and remind you.
 
 For procedure goldens under `tests/golden/procs/<scope>/` (e.g.
@@ -641,7 +641,7 @@ exec the agent with the natural slash command (`claude '/skill-name <args>'` or
 invocation inside an existing session). Never pipe rendered SKILL.md content
 via `-p`.
 
-The constraint applies to all four agents (Claude, Codex, Gemini, OpenCode);
+The constraint applies to all three agents (Claude, Codex, OpenCode);
 the rate-difference rationale is documented specifically for Claude.
 
 ## Post-implementation follow-up offers: cross-step state lives in the plan file

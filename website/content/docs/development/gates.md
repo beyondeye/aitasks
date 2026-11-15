@@ -176,8 +176,8 @@ To run an exhausted gate again after fixing its cause, force it with
 the gate's predecessors must still be satisfied (see
 [`/aitask-run-gates`]({{< relref "/docs/skills/aitask-run-gates" >}}#arguments)).
 This applies only to gates whose verifier is a command: forcing a
-procedure-backed gate such as `docs_updated` does not run its skill and records
-an `error`.
+procedure-backed gate such as `docs_updated` records nothing: it reports that
+the gate needs an agent, and the attended workflow runs it at review time.
 
 ## The unlock order
 

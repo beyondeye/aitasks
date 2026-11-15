@@ -55,7 +55,7 @@ ait gates run 42 --dry-run          # Show what would be dispatched
 
 | Option | Description |
 |--------|-------------|
-| `--gate <name>` | Run only this gate, even if it already passed and even if its retry budget is spent. Reports rather than runs if the gate is not in the task's active set or its predecessors are unsatisfied |
+| `--gate <name>` | Run only this gate, even if it already passed and even if its retry budget is spent. Reports rather than runs if the gate is not in the task's active set, its predecessors are unsatisfied, or it is procedure-backed (it reports `needs agent`) |
 | `--dry-run` | Print what would be dispatched (unlocked / machine / human) and change nothing |
 
 Output is one line per gate, plus a summary:

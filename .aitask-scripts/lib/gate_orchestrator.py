@@ -193,6 +193,13 @@ def compute_unlocked(declared: list[str], registry: dict, state: dict,
     return unlocked
 
 
+# Reported for a procedure-backed gate (`kind: procedure`) on BOTH the normal and
+# the forced (`--gate`) path: its verifier names a skill the attended agent runs,
+# so the headless engine defers it and appends nothing.
+PROCEDURE_NEEDS_AGENT = ("needs agent (procedure-backed gate — run via task-workflow / "
+                         "aitask-resume)")
+
+
 def blocked_reason(g: str, declared: list[str], registry: dict, state: dict,
                    runs_by_gate: dict, digest: str | None = None) -> str:
     preds = predecessors_map(declared, registry)
@@ -207,8 +214,7 @@ def blocked_reason(g: str, declared: list[str], registry: dict, state: dict,
     if registry.get(g, {}).get("type") == "human":
         return "blocked: pending human signal"
     if registry.get(g, {}).get("kind") == "procedure":
-        return ("needs agent (procedure-backed gate — run via task-workflow / "
-                "aitask-resume)")
+        return PROCEDURE_NEEDS_AGENT
     # Shared with the pick-time warning in `aitask_gate.sh materialize-active`
     # (t635_34) so the two can never drift. Behaviour-identical to the former
     # inline `not registry.get(g, {}).get("verifier")`: the human and procedure
@@ -466,7 +472,9 @@ class Engine:
 
     def _force_one(self, gate: str) -> int:
         """`--gate`: force-run one gate, overriding skip-already-passed + budget,
-        but only when its predecessors are satisfied (concern 7)."""
+        but only when its predecessors are satisfied (concern 7). A
+        procedure-backed gate is reported, never run — forcing does not change
+        who can satisfy it (t2284)."""
         active, state, runs_by_gate = self._read_state()
         if gate not in active:
             self.reports.append(f"{gate}: not in this task's active gate set")
@@ -479,6 +487,10 @@ class Engine:
         meta = self.registry.get(gate, {})
         if meta.get("type") == "human":
             self._handle_human(gate, state)
+        elif meta.get("kind") == "procedure":
+            # Never shell-execute a procedure gate, forced or not: resolve_verifier
+            # would map its skill name to a non-existent script and record `error`.
+            self.reports.append(f"{gate}: {PROCEDURE_NEEDS_AGENT}")
         elif meta.get("verifier"):
             self._run_machine_gate(gate, runs_by_gate)
         else:

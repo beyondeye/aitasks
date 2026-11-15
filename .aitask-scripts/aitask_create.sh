@@ -104,8 +104,9 @@ Batch mode (for automation):
                          Mutually exclusive with --followup-of; rejected with
                          --parent (a child inherits its parent's anchor).
   --followup-of ID       Anchor this task to the topic root of source task ID:
-                         reads ID's anchor (or, for an anchorless child source,
-                         its parent; else ID itself). Flattened — never chains.
+                         follows ID's anchor (for an anchorless child source,
+                         its parent) through to the root, so a stale anchor
+                         left by a re-anchor is not copied. Never chains.
                          Mutually exclusive with --anchor; rejected with --parent.
   --followup-kind KIND   Mark this task as an auto-spawned follow-up of KIND
                          (provenance, orthogonal to --type). One of:
@@ -237,12 +238,47 @@ parse_args() {
     done
 }
 
+# Follow stored `anchor:` links from task <id> to its topic root and print it:
+# the first task on the path with no anchor (or a self-anchor). A hop whose task
+# file cannot be resolved is printed as-is -- it is the furthest known root, and
+# what the former one-hop copy produced. A malformed stored anchor stops the walk
+# at the current id with a warning; so does a revisit (a hand-written cycle, or
+# re-anchors that loop). Ids are finite, so the visited set alone guarantees
+# termination. Never dies: a malformed anchor graph must not fail a create.
+resolve_topic_root() {
+    local cur="$1" next file seen=" "
+    while :; do
+        case "$seen" in
+            *" $cur "*)
+                warn "anchor cycle through t$cur -- using t$cur as the topic root"
+                break
+                ;;
+        esac
+        seen+="$cur "
+        file=$(resolve_task_file "$cur" 2>/dev/null || true)
+        [[ -n "$file" && -f "$file" ]] || break
+        next=$(read_yaml_field "$file" "anchor")
+        next="${next#t}"
+        [[ -n "$next" && "$next" != "$cur" ]] || break
+        if [[ ! "$next" =~ ^[0-9]+(_[0-9]+)?$ ]]; then
+            warn "t$cur has a malformed anchor '$next' -- using t$cur as the topic root"
+            break
+        fi
+        cur="$next"
+    done
+    printf '%s\n' "$cur"
+}
+
 # Resolve the topic-anchor (group key) for the task being created from the
 # --anchor / --followup-of / --parent flags, setting the global RESOLVED_ANCHOR
 # to a bare task id ("" for a topic root). The unifying rule: an anchor always
-# points at the topic ROOT. Enforces mutual exclusion and the child-inherits
-# rule. Call after parse_args, before any create_*_file. See the t1016 design
-# and normalize_anchor_id() in lib/task_utils.sh.
+# points at the topic ROOT. The derived paths (--followup-of, --parent) walk the
+# stored anchor links to the root via resolve_topic_root(), because a re-anchor
+# (aitask_update.sh --anchor) never cascades and can leave a child or follow-up
+# pointing at a non-root; copying one hop would chain. An explicit --anchor is
+# the caller's choice and is stored as given. Enforces mutual exclusion and the
+# child-inherits rule. Call after parse_args, before any create_*_file. See the
+# t1016 design and normalize_anchor_id() in lib/task_utils.sh.
 resolve_anchor() {
     RESOLVED_ANCHOR=""
 
@@ -258,31 +294,24 @@ resolve_anchor() {
     if [[ -n "$BATCH_ANCHOR" ]]; then
         RESOLVED_ANCHOR=$(normalize_anchor_id "$BATCH_ANCHOR")
     elif [[ -n "$BATCH_FOLLOWUP_OF" ]]; then
-        local src_bare src_file src_anchor=""
+        local src_bare src_parent src_file src_anchor="" start
         src_bare=$(normalize_anchor_id "$BATCH_FOLLOWUP_OF")
-        src_file=$(resolve_task_file "$src_bare" 2>/dev/null || true)
-        if [[ -n "$src_file" && -f "$src_file" ]]; then
-            src_anchor=$(read_yaml_field "$src_file" "anchor")
+        # Walk from the SOURCE itself, so resolve_topic_root reads and validates
+        # its first stored link like every later one. The one exception is an
+        # anchorless child: its topic is its parent's, so start there.
+        start="$src_bare"
+        if [[ "$src_bare" =~ ^([0-9]+)_[0-9]+$ ]]; then
+            src_parent="${BASH_REMATCH[1]}"
+            src_file=$(resolve_task_file "$src_bare" 2>/dev/null || true)
+            if [[ -n "$src_file" && -f "$src_file" ]]; then
+                src_anchor=$(read_yaml_field "$src_file" "anchor")
+            fi
+            [[ -n "$src_anchor" ]] || start="$src_parent"
         fi
-        if [[ -n "$src_anchor" ]]; then
-            RESOLVED_ANCHOR="$src_anchor"
-        elif [[ "$src_bare" =~ ^([0-9]+)_[0-9]+$ ]]; then
-            # Anchorless child source → fall back to its parent (the topic root).
-            RESOLVED_ANCHOR="${BASH_REMATCH[1]}"
-        else
-            RESOLVED_ANCHOR="$src_bare"
-        fi
+        RESOLVED_ANCHOR=$(resolve_topic_root "$start")
     elif [[ -n "$BATCH_PARENT" ]]; then
-        local parent_bare="${BATCH_PARENT#t}" parent_file parent_anchor=""
-        parent_file=$(resolve_task_file "$parent_bare" 2>/dev/null || true)
-        if [[ -n "$parent_file" && -f "$parent_file" ]]; then
-            parent_anchor=$(read_yaml_field "$parent_file" "anchor")
-        fi
-        if [[ -n "$parent_anchor" ]]; then
-            RESOLVED_ANCHOR="$parent_anchor"
-        else
-            RESOLVED_ANCHOR="$parent_bare"
-        fi
+        # Parent's anchor walked to the root, or the parent itself when it has none.
+        RESOLVED_ANCHOR=$(resolve_topic_root "${BATCH_PARENT#t}")
     fi
 }
 

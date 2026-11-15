@@ -68,7 +68,7 @@ Both refusals happen **before** the lock is written, before `status` becomes `Im
 
 Three cases deliberately do **not** trigger a refusal:
 
-- **Your own session re-claiming.** The lock records the process, not just the email, so a session recognises its own lock and refreshes it silently. Without that, the ownership guard, an in-pane re-pick, and every resume of an in-flight task would lock you out of your own work.
+- **Your own session re-claiming.** The lock records the process, not just the email, so a session recognises its own lock and refreshes it instead of refusing. When the task is already `Implementing`, the pick still asks the reclaim question (the anomaly prompt), so a re-pick is confirmed rather than silent. Without the refresh, the ownership guard, an in-pane re-pick, and every resume of an in-flight task would lock you out of your own work.
 - **A lock from another host.** A PID from another machine means nothing here; that is the multi-PC reclaim case above.
 - **A lock that never recorded a session process.** There is nothing to verify, so refusing would strand it forever. It stays reclaimable through the anomaly prompt.
 

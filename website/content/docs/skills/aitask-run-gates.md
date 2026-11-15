@@ -28,7 +28,7 @@ A task ID is **required** — a parent (`42`) or a child (`42_2`).
 
 | Argument | Effect |
 |----------|--------|
-| `--gate <name>` | Run one named gate, even if it already passed and even if its retry budget is spent. Its predecessors must still be satisfied. Parallel fan-out is skipped. |
+| `--gate <name>` | Run one named gate, even if it already passed and even if its retry budget is spent. Its predecessors must still be satisfied. Parallel fan-out is skipped. A procedure-backed gate such as `docs_updated` is reported as needing an agent, not run. |
 | `--dry-run` | Report the decision tree — what would run, what is locked, what is exhausted — without invoking a verifier or writing to the ledger. |
 
 ## What it reports
