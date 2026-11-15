@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: [t1912_2]
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [git, concurrency, robustness]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 created_at: 2026-11-12 19:42
-updated_at: 2026-11-12 19:42
+updated_at: 2026-11-15 19:11
 ---
 
 ## Context
