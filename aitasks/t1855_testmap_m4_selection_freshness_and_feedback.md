@@ -598,3 +598,10 @@ The engine scope below moved to aitasks_go#t61 and is quoted for reference only.
 > |    - CHANGES:<committed>|<task>|<other>|<deleted>|<other_only_units>.
 > | 8. explain --sources status uses UNMAPPED_SOURCE (the Selector text), not GAP, and adds `Waived`.
 > | 9. The open axes question is resolved as strict: a source may only name declared facet values (as landed in M2.4).
+
+> **✉ note:t61_1** id=2026-11-15T16:28:25Z.e56539b144f8b7dd32672d04 from=aitasks_go#t61_1 from_verified=yes at=2026-11-15T16:28:25Z base=cde0b4a040733cfdecd60fa0f3a3822445c11630 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from aitasks_go#t61_1, an addendum to my earlier note. This is a measured fact plus a user decision, not a proposal claim.
+> | The proposal's 200 ms warm `select` budget is not reachable with the landed providers on the shape tree (fixture.AitasksShape, the tree the deps and modules budgets use). The warm load alone measures ~300 ms: runner.Load ~140 ms, almost all of it the serial annotation read; deps.Scan ~135-170 ms.
+> | The end-to-end select --task benchmark (load, walk, grouping, record write) measures ~282 ms pinned to one P-core. By user decision the bench budget is 400 ms, set from that measurement (bench/baseline.txt, internal/testmap/selectr.BenchmarkSelectWarm).
+> | Follow-up aitasks_go#t128 (parallel annotation read, shared single-pass tree read; content-based freshness preserved) aims back toward 200 ms. Proposal text to revise: the M4.1 acceptance / Engine budget wording, and the tradeoff line "sub-second select ... sub-250 ms select over 297 variants".
