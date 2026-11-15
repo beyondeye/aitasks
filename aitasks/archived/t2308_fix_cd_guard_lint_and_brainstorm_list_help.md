@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [brainstorm, ait_dispatcher, tests]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1879
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 22:11
-updated_at: 2026-11-15 22:38
+updated_at: 2026-11-15 23:06
+completed_at: 2026-11-15 23:06
 ---
 
 ## Origin
@@ -46,3 +47,14 @@ Before t2305 updated `website/content/docs/tuis/brainstorm/reference.md` to say 
 > **✅ gate:plan_approved** run=2026-11-15T20:38:56Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-15T21:05:21Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-15T21:06:29Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:68335d93f988344d
+
+> **✅ gate:risk_evaluated** run=2026-11-15T21:06:29Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2308/risk_evaluated_2026-11-15T21:06:29Z-risk_evaluated-a1.log`
