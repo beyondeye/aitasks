@@ -397,7 +397,7 @@ Press **j** to open the TUI switcher overlay. It lists the TUIs integrated with 
 
 Select a target and the switcher focuses the existing tmux window running that TUI or creates a new window and launches it.
 
-<!-- SCREENSHOT: aitasks_tui_switcher_dialog.svg — the TUI switcher overlay as shown from minimonitor -->
+<!-- screenshot: scene=tui_switcher_from_minimonitor file=aitasks_tui_switcher_from_minimonitor.svg alt="TUI switcher dialog in the narrow minimonitor layout" caption="The TUI switcher opened from minimonitor, in its narrow layout." -->
 
 ### How the Agent List Refreshes
 

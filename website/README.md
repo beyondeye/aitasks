@@ -284,6 +284,62 @@ Use it before changing the relevance heuristic, and to re-open either boundary
 above. It is not wired to CI. Why it replays through `scan()` rather than the
 command line, and which self-controls it runs, is recorded in its docstring.
 
+## Screenshot Markers
+
+Where a page needs a screenshot that does not exist yet, leave a **marker**: one
+HTML comment on a line of its own. The comment does not render, so the page
+reads normally, and `check_screenshots.py` (below) lists every marker that is
+still waiting for its screenshot.
+
+```markdown
+<!-- screenshot: scene=board_child_tasks file=aitasks_board_child_tasks.svg alt="Board with a parent task expanded to show its child tasks" caption="An expanded parent task with its child tasks joined by connector lines." -->
+```
+
+| Key | Required | Value |
+|---|---|---|
+| `scene` | yes | Scene id, `[a-z0-9_]+`. Names `screenshots/scenes/<scene>.yaml`. Several markers can share one scene. |
+| `file` | yes | Output image, relative to `static/imgs/` (`home/board.svg` is allowed). Written in its one canonical form: no leading `/` or `./`, no empty, `.` or `..` segment. Each segment uses only letters, digits, `.`, `_` and `-`, because the path becomes the image URL as written: a `#` or `?` would make the browser request a different file. |
+| `alt` | yes | Alt text: a noun phrase without a full stop. |
+| `caption` | no | One sentence, with a full stop. |
+| `class` | no | Extra CSS class for the figure. |
+
+Write values with spaces in double quotes. A value may not contain:
+
+- `"` — it would end the shortcode parameter the value is copied into;
+- `--` — it would end the HTML comment;
+- `\` — Hugo reads it as an escape inside a quoted shortcode parameter, so a
+  value ending in `\` breaks the page.
+
+Apostrophes, `&`, `<`, `>` and non-ASCII text are fine.
+
+Once the marker has a scene, the scene spec owns the image. Its required
+`output:` line names the file in the same canonical form as `file=`, and a
+marker's `file=` must match it. No two specs may share an `output:`. The checker reads the spec's `id:` and `output:`
+lines without a YAML parser. Each must be a single-line value after a space,
+optionally followed by a space and a `# comment`. Quote a value that YAML would
+load as something other than text, such as `on`, `null`, `123` or a date:
+`id: "123"`.
+
+`check_screenshots.py` checks the markers and every image shortcode, and CI runs
+it on each deploy:
+
+```bash
+cd website
+python3 check_screenshots.py              # exit 1 on any failure below
+python3 check_screenshots.py --strict     # markers still waiting for a screenshot fail too
+python3 check_screenshots.py --report     # records only, exit 0
+python3 check_screenshots.py --owners     # each image under static/imgs/ and the scene that owns it
+```
+
+It fails on a comment that mentions `screenshot` but is not a valid marker
+(including a free-form `TODO` comment), on an ownership disagreement between a
+marker and its scene spec, and on a `static-img`, `split-hero` or `tour-tile`
+image that has no file under `static/`. An image is checked at the path a
+browser requests, with any `?query` or `#fragment` removed and
+percent-encoding decoded. A marker whose scene spec does not
+exist yet is listed as a warning, and every valid marker is listed as
+unresolved. Markers inside fenced code blocks are ignored.
+
 ## Deployment
 
 Automatic on push of version tags (`v*`) via GitHub Actions. See `.github/workflows/hugo.yml`.

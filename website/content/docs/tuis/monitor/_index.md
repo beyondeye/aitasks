@@ -45,7 +45,7 @@ The monitor window has five stacked areas from top to bottom:
 4. **Preview area** — live rendering of the focused pane plus a content-header label; forwards keystrokes directly to tmux when focused. When the selected agent has a shadow companion, this area splits into two side-by-side columns: the **preview zone** on the left and the **shadow zone** on the right
 5. **Footer** — dynamic keybinding help
 
-<!-- SCREENSHOT: Annotated monitor layout showing header, session bar, pane list, the split preview/shadow columns, and footer -->
+<!-- screenshot: scene=monitor_layout_annotated file=aitasks_monitor_layout_annotated.svg alt="Monitor with numbered callouts on the header, session bar, pane list, preview and shadow columns, and footer" caption="The parts of the monitor layout, numbered as in the list above." -->
 
 The **pane list** classifies each tmux window in the session:
 
@@ -83,7 +83,7 @@ Opened from any other TUI, the switcher also offers **Shift+M** (`M`), which add
 
 When `aitask-data` or `main` falls behind origin, the monitor's session bar appends a compact desync summary (e.g., `· desync: aitask-data 3↓`). For an interactive surface that pulls/pushes/syncs the same refs, see the [Syncer]({{< relref "/docs/tuis/syncer" >}}).
 
-<!-- SCREENSHOT: aitasks_tui_switcher_dialog.svg — the TUI switcher overlay as shown from monitor -->
+<!-- screenshot: scene=tui_switcher_from_monitor file=aitasks_tui_switcher_from_monitor.svg alt="TUI switcher dialog opened from monitor" caption="The TUI switcher opened from monitor, where Shift+M is not offered." -->
 
 For the complete list of keybindings and configuration options, see the [Reference](reference/).
 

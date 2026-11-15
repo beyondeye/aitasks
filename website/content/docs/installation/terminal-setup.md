@@ -38,7 +38,7 @@ Here's what happens under the hood:
 2. A `monitor` window is created (or focused) inside the session, running [`ait monitor`](../../tuis/monitor/). From the monitor you get a live dashboard of running code agents, open TUIs, and other panes in the session.
 3. Press **`j`** inside any main aitasks TUI (`ait board`, `ait monitor`, `ait minimonitor`, `ait codebrowser`, `ait settings`, `ait brainstorm`, `ait syncer`, `ait chatlink`) to open the **TUI switcher** dialog and jump to another TUI without leaving tmux.
 
-<!-- TODO screenshot: aitasks_ait_ide_startup.svg — the monitor dashboard immediately after running `ait ide` -->
+<!-- screenshot: scene=ait_ide_startup file=aitasks_ait_ide_startup.svg alt="Monitor dashboard in the tmux session started by ait ide" caption="The monitor window right after running ait ide." -->
 
 ### Flags
 

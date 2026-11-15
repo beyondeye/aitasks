@@ -93,6 +93,15 @@ jobs:
         run: python3 check_links.py --base-url "${{ steps.pages.outputs.base_url }}/"
         working-directory: website
 
+      # Checks the screenshot placeholder markers in content/ against the one
+      # marker grammar (screenshots/markers.py), and fails on an image shortcode
+      # whose file is missing under static/ -- a class neither `hugo build` nor
+      # the link check catches. Reads the source tree, not the build. Stdlib
+      # only; no extra setup needed.
+      - name: Check screenshot markers
+        run: python3 check_screenshots.py
+        working-directory: website
+
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:

@@ -36,7 +36,7 @@ The board has four main areas from top to bottom:
 3. **Board area** — Horizontally scrollable columns, each containing vertically stacked task cards
 4. **Footer** — Dynamic keybinding help that changes based on context. It wraps onto up to three rows on narrower terminals so shortcuts stay visible instead of running off the edge; see [How many footer rows]({{< relref "/docs/tuis#how-many-footer-rows" >}}) to change the limit.
 
-<!-- SCREENSHOT: Annotated board layout showing header, search box, columns, and footer -->
+<!-- screenshot: scene=board_layout_annotated file=aitasks_board_layout_annotated.svg alt="Board with numbered callouts on the header, filter area, board area and footer" caption="The parts of the board layout, numbered as in the list above." -->
 
 **Columns** are displayed left to right. Each column has:
 - A colored header showing the column title and task count (e.g., "Now (5)")
@@ -62,7 +62,7 @@ When you focus a card, it receives a double cyan border to indicate selection. T
 
 Each task card displays a summary of the task information:
 
-<!-- SCREENSHOT: Close-up of a single task card with annotations -->
+<!-- screenshot: scene=board_card_annotated file=aitasks_board_card_annotated.svg alt="A single task card with callouts on each of its fields" caption="The parts of a task card." -->
 
 From top to bottom, a card shows:
 
