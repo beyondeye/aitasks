@@ -372,3 +372,56 @@ sources with goldens and ported copies. Offer an `upstream_defect` follow-up
 
 Current-branch mode: commit code and docs as `bug: … (t2284)` with explicit
 paths, then archive via the workflow's Step 9.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-12 16:10)
+- **Requested by user:** the new `--followup-of` doc clause "a source with no anchor is its own root" contradicts the anchorless-child exception in the same sentence (an anchorless child `60_1` resolves to its parent `60`, as `test_anchor_create.sh` confirms).
+- **Changes made:** qualified the clause to "a source that is not a child and has no anchor is its own root".
+- **Files affected:** `website/content/docs/commands/task-management.md`
+
+## Final Implementation Notes
+- **Actual work done:** All nine plan steps as written. `aitask_create.sh` gains
+  `resolve_topic_root()` (visited-set walk, warn-and-stop on a malformed anchor or
+  a cycle, never dies); `--followup-of` starts the walk at the source (or, for an
+  anchorless child, at its parent) and `--parent` starts at the parent. A forced
+  `--gate` on a `kind: procedure` gate now reports `PROCEDURE_NEEDS_AGENT` (the
+  constant `blocked_reason` also returns) and appends nothing. Aidocs moved to the
+  claude/codex/opencode set and the verify script's real scope (the default
+  profile only, plus walk-verify of headless prerenders). Six website pages
+  corrected.
+- **Deviations from plan:** None in substance. The work was resumed after a
+  same-host crash (RECLAIM_CRASH, 2026-11-15); the edits from the earlier session
+  were verified against the plan rather than redone.
+- **Issues encountered:** The first orchestrator pre-fix control crashed with
+  FileNotFoundError because the orchestrator resolves `../aitask_gate.sh` next to
+  itself. That was a scratch-layout artifact: rerun with a full copy of
+  `.aitask-scripts`, it showed the real defect.
+- **Pre-fix controls (closure evidence):**
+  - `tests/test_anchor_create.sh` against HEAD's `aitask_create.sh` (the test's
+    `cp` line pointed at a scratch `git show HEAD:` copy): 30/38. The eight new
+    assertions are discriminators and fail on HEAD exactly as predicted:
+    re-anchored child `70`, longer chain `80`, stale follow-up `80`, cycle `91`
+    with no warning, malformed `bogus` with no warning, stale-parent child `50`.
+    The `42`/`50`/`60_1`/`60`/`61` cases pass on both: unchanged-behaviour checks.
+  - `tests/test_gate_procedure_docs.sh` against HEAD's `gate_orchestrator.py`
+    (a full scratch copy of `.aitask-scripts`, with only the orchestrator taken
+    from HEAD): 36/38. Old output `docs_updated: error (attempt 1)`, 2 ledger
+    appends. The two discriminators are the needs-agent and appended-nothing
+    assertions. "Exits 0" passes on both, so it is not a discriminator.
+  - With the fix: anchor 38/38, procedure docs 38/38, `test_gate_orchestrator.sh`
+    52/52. Shellcheck reports no findings in the new lines (only pre-existing
+    info/style findings elsewhere in the file). `check_links.py --build` SWEEP
+    PASSED. The gemini grep over the three aidocs finds nothing.
+- **Post-phase scan_existing_chained_anchors:** a read-only scan of 1038 loose
+  task files (active plus archived, bundles skipped) found no chained anchors.
+  No re-anchor is needed.
+- **Key decisions:** The commit stages only t2284's hunks. The
+  `run_auto_merge_if_needed` comment hunk in `aitask_create.sh` (~l.2058,
+  "runs only after a successful task commit … finalize_draft") belongs to t2286,
+  which names that comment, so it is left unstaged for t2286.
+  `website/content/docs/commands/codeagent.md` and `workflows/bug-report-intake.md`
+  are also other sessions' edits and are excluded.
+- **Upstream defects identified:**
+  - `.claude/skills/aitask-wrap/SKILL.md.j2:349 — names a non-existent `ait archive <N>` dispatcher verb (the flags belong to ./.aitask-scripts/aitask_archive.sh)`
+  - `.claude/skills/aitask-web-merge/materialize-gates.md:33 — same non-existent `ait archive <N>` verb`
