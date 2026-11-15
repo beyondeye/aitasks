@@ -258,3 +258,48 @@ The task file holds the full fact sheet (line numbers at af0dca45c).
 Post-implementation: commit only this task's paths (`feature: … (t2299_1)`),
 then archive through Step 9. Never `git restore` / `stash` / checkout: the tree
 holds other crashed tasks' hunks.
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned. In `lib/sitrep_todo.py`:
+  - `RECOVER_REF_RE`, `INCARNATION_RE`, `parse_recover_ref` and `context_incarnation`;
+  - the kind binding in `_check_item_values`;
+  - format 3 (`RECOVER_FORMAT`), with item-line and origin-line gates in `parse_todo`;
+  - `_parse_expect_rev` and `op_recovery_apply`;
+  - the 4b side-path guards in `op_add`, `op_update` and `op_upsert_context`.
+
+  The wrapper gained `cmd_recovery_apply`, its dispatch, its usage line, and header contract lines covering the two-key rule. `select_targets` skips recover items. The fixtures and tests are as in steps 8 and 9 plus the post-phase. The note to t2299_2 was sent as `2026-11-15T14:35:19Z.8064b4670be300333b50718d` (`LIVE_NONE:unlocked`).
+- **Deviations from plan:**
+  - The user's plan review added the caller contract with two keys (a state-only apply passes the RECORDED incarnation), Test 17b and the step 10 note to t2299_2.
+  - Test numbering is 16d / 17 / 17b / 17c (guard matrix) / 17d (atomic kill), because 16c already existed.
+  - `--state dismissed` is refused by recovery-apply (only open/unknown/done), so dismissal stays the user's.
+- **Issues encountered:** None. `shellcheck` reports SC1091 "not following" info notices unless it runs from `.aitask-scripts/` with `-x`, where it is clean.
+- **Key decisions:**
+  - `ABSENT:<ref>` (exit 0, nothing written) is the reply when a numeric rev is given but no item holds the ref.
+  - A context-only change on recovery-apply takes exactly one fresh rev.
+  - `recovery-apply` never touches `derived`, `kind` or `ref`.
+  - The dismissed checks (`KEPT`) run before the no-context incarnation guard, so a dismissed item is never an exit 2.
+- **Ref-consumer inventory (step 7, re-grepped at implementation time):**
+  - `lib/sitrep_corpus.py` `ref_owner`/`normalize_ref`: only its own `t<N>` refs; no change.
+  - `lib/sitrep_harvest.py` `ref_owner`/`_known`: only `t<N>` refs; a recover item never blocks a harvest `t<N>` item (different ref); no change.
+  - `lib/sitrep_refresh.py`: `select_targets` now skips recover items, so `check_task` is never reached for them.
+  - `sitrep_tui/sitrep_tui_model.py`: `classify` gives `pick_noref`, `_fields` gives no pick id, and `task_ref_id` gives None (its `_LOCAL_REF_RE` anchors `^t`). t2299_3 owns the real routing.
+  - `sitrep_tui/sitrep_tui_actions.py` and `sitrep_tui_app.py`: these call `task_ref_id`, so they get None and recover items are not pickable yet.
+  - `lib/sitrep_cli.py`: no ref handling.
+- **Fixture diff audit (post-phase 2):**
+  - `store_v2/todo.md` → `store/todo.md`: line 2 changes `format=2` → `format=3`; adds the `- c7 | rev=9 | … ref=recover:t42 …` and `- c8 | rev=11 | … state=dismissed … ref=recover:t43 …` lines and their `### c7` / `### c8` context blocks (incarnations `0123456789ab` and `89abcdef0123`).
+  - `expected_list_v2.txt` → `expected_list.txt`: adds the `ITEM:c7|9|…` and `ITEM:c8|11|…` lines.
+  - `expected_context_c1.txt` and `expected_check_sources.txt` are unchanged.
+- **Mutant checks (isolated scratch copy):**
+  - Removing the no-context incarnation guard fails 3 assertions (Test 17b).
+  - Removing the upsert-context incarnation guard fails 4 assertions (Test 17c).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - t2299_2: see the note above.
+    - State-only verdicts pass the recorded incarnation, read with `context c<N>` / `context_incarnation`.
+    - The observed key goes only with its context.
+    - Replies include `ABSENT:`.
+    - Creates need `--title` and a context.
+    - The group defaults to `next`.
+  - t2299_3: add `check="recovery"` where `select_targets` now `continue`s, and route the TUI pick using `st.parse_recover_ref` (task_ref_id is None for recover items today).
+  - t2299_4: `aidocs/framework/sitrep.md` should describe format 3, the `recover:` ref, the incarnation key and the one-writer rule for recover items.
