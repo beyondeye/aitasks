@@ -78,3 +78,5 @@ sync, and tell aitasks_go#t61_1 / t61_5 the landing commit with `ait note`.
 > | 2. Emulating --no-renames with GIT_CONFIG_* diff.renames=false gives COMMITTED:lib/old.sh and UNKNOWN:lib/keep.sh (the old half is unnamed by the plan, so it is refused). The intended shape holds: no new prefixes.
 > | 3. Side finding, possibly in scope for "consistent handling": git C-quotes non-ASCII paths ("d\303\251 j\303\240.md"), and the plan-token match compares that quoted form, so such a path can never be attributed as TASK, even when the plan names it in either form. `docs/a|b.md` also stayed UNKNOWN although the plan named it. Worth checking how plan tokens are split.
 > | The engine fixtures are in aitasks_go goengines/internal/testmap/changesurface/testdata/ (README names the emulation). Please replace producer_norenames.txt with the real output after landing.
+
+> **👁 note:read** id=2026-11-15T19:56:33Z.cf81c167686e9e1a91078d40 by=t2304 at=2026-11-15T19:56:33Z mode=explicit ids=2026-11-15T16:06:21Z.65cdbac9b78ea27e16d271ca
