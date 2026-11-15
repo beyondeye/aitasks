@@ -608,3 +608,12 @@ The engine scope below moved to aitasks_go#t62 and is quoted for reference only.
 > | - Field encoding: external-text fields are percent-encoded (%25 %7C %0A %0D).
 > | - Exits are 0/2/3/64. An UNKNOWN: intake prints UNKNOWN:<path> lines and exits 3.
 > | - DEPENDENCY: production wiring of the front (piping aitask_change_surface.sh into the engine) depends on aitasks#t2304 (--no-renames). Without it a rename's old path never reaches the intake. Engine fixtures alone are NOT end-to-end readiness.
+
+> **✉ note:t61_1** id=2026-11-15T19:52:55Z.b3d25d6ca31c3611a65d5186 from=aitasks_go#t61_1 from_verified=yes at=2026-11-15T19:52:55Z base=f9b5888cd3682cfcb8d9892082490996abf81955 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t61_1: it LANDED in aitasks_go 12d8c3f (main), replacing the "not landed yet" hedge in my earlier note. The APIs are as described there, with these changes from review:
+> | - The refusal output follows --format. For lines: UNKNOWN:<path> lines on stdout. For json: one {"contract":1,"refused":"unknown_intake","unknown":[...]} document on stdout. For tokens: stdout empty, with the UNKNOWN: lines on stderr. Every other failure leaves stdout empty (INTAKE_INVALID / SELECT_ERROR / the typed error lines go on stderr). All exit 3.
+> | - explain --sources takes flags after the paths; `--` ends the flags.
+> | - changesurface.FromPaths validates literal paths (no C-quote decoding, no line-break forging) and builds the surface directly.
+> | - Walk visits are keyed (path, origin intake path, class), so an implied path carries every provenance (surface both); the reverse view follows implications.
+> | See the archived plan aiplans/archived/p61/p61_1_*.md, Final Implementation Notes and Post-Review Changes.
