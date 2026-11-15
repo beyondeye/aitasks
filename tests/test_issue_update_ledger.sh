@@ -228,8 +228,13 @@ assert_eq "(d) still one record for the pair" "1" \
 
 run_bg() {  # <tag> <args…>
     local tag="$1"; shift
-    ( cd "$REPO" && PATH="$IFX_BIN:$PATH" STUB_LOG="$TMP/par.log" "$IFX_UPDATE" "$@" \
-        > "$TMP/par_$tag.out" 2> "$TMP/par_$tag.err"; echo "$?" > "$TMP/par_$tag.rc" ) &
+    # A failed cd writes no .rc file, so the per-writer rc check below fails.
+    (
+        cd "$REPO" || exit 1
+        PATH="$IFX_BIN:$PATH" STUB_LOG="$TMP/par.log" "$IFX_UPDATE" "$@" \
+            > "$TMP/par_$tag.out" 2> "$TMP/par_$tag.err"
+        echo "$?" > "$TMP/par_$tag.rc"
+    ) &
 }
 for n in 30 31 32 33 34 35; do run_bg "$n" --close "$n"; done
 wait

@@ -42,16 +42,37 @@ Example:
 HELP
 }
 
+# `ait brainstorm list` is `status --list`, so its --help lands here too.
+show_list_help() {
+    cat <<'HELP'
+Usage: ait brainstorm list
+
+List all brainstorm sessions.
+
+Equivalent to: ait brainstorm status --list
+
+Example:
+  ait brainstorm list
+HELP
+}
+
 # --- Argument parsing ---
 LIST_MODE=false
 TASK_NUM=""
+
+# Pre-scan so --help answers for list mode whatever the flag order.
+WANTS_LIST=false
+for _arg in "$@"; do
+    if [[ "$_arg" == "--list" ]]; then WANTS_LIST=true; fi
+done
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --list)
             LIST_MODE=true; shift ;;
         --help|-h)
-            show_help; exit 0 ;;
+            if $WANTS_LIST; then show_list_help; else show_help; fi
+            exit 0 ;;
         -*)
             die "Unknown option: $1. Run 'ait brainstorm status --help' for usage." ;;
         *)
