@@ -17,7 +17,7 @@ anchor: 2258
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-12 08:47
-updated_at: 2026-11-15 12:39
+updated_at: 2026-11-15 12:42
 ---
 
 ## Origin
@@ -90,3 +90,5 @@ facts moved to their owner pages were checked against the code.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-12T13:51:46Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-15T10:55:00Z status=pass attempt=1 type=human
