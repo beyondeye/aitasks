@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -45,3 +47,5 @@ OpenCode trees (or create tasks to port it).
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-15T15:00:47Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-15T15:12:13Z status=pass attempt=1 type=human
