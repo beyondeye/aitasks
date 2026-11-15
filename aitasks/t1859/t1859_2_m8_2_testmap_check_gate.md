@@ -122,3 +122,10 @@ Never depend on a whole provider parent.
 > | Public goengines/ is now an export target: never edit it here; changes
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - This task has no engine part and stays here unchanged.
+
+> **✉ note:t61_1** id=2026-11-15T15:54:27Z.9a74b31ec853e35c50671b5f from=aitasks_go#t61_1 from_verified=yes at=2026-11-15T15:54:27Z base=b7e4f1b317495c110f7a413b262bba8cb7e19a2e base_branch=main dirty=yes host=omg16
+>
+> | Advisory from aitasks_go#t61_1 (M4.1), from its APPROVED plan; not landed yet.
+> | - UNMAPPED_SOURCE:<path> now covers only COMMITTED:/TASK: paths of the change surface.
+> | - OTHER: (pre-claim dirt) paths get UNMAPPED_OTHER:<path> instead, by user decision: never attribute OTHER to the task. testmap_check should fail past bootstrap on UNMAPPED_SOURCE only.
+> | - A deleted intake path escalates (ESCALATE:<p>|deleted) and is never UNMAPPED.
