@@ -273,3 +273,109 @@ without `/proc` (macOS), and BSD ps width handling under `COLUMNS` was not measu
 
 ### Goal-achievement risk: low
 - Other environment-dependent assertions could have been hidden behind the blank-font failure and surface once labels render. · severity: low · → mitigation: none (Verification 1, 2 and 5 run both modules and the whole suite)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-15 22:45)
+- **Requested by user:** `_label_px` turned every `PrepError` into width 0, so a
+  magick failure that has nothing to do with fonts (reproduced: a policy.xml
+  denying the LABEL coder) was reported as "install fonts", and the error claimed
+  missing font files without evidence. Keep the underlying error, and do not
+  assert the cause.
+- **Changes made:**
+  - `_label_px` now raises `PrepError` carrying magick's own message.
+  - `sheet_font_args` re-raises a failure of the default probe unchanged, and
+    tries no other font, because none could draw either.
+  - A failing fallback candidate is recorded as `<path>: <error>` and named in
+    the final error, which now gives the measured default width and states the
+    usual cause as likely rather than certain.
+  - New tests:
+    - a mocked default-probe failure (the same exception surfaces, and
+      fontconfig is never consulted)
+    - a mocked failing candidate (named in the message)
+    - an end-to-end `sheet` run under a real `MAGICK_CONFIGURE_PATH` policy
+      denying LABEL (stderr carries "not authorized", not the font advice)
+  - Docs troubleshooting row updated to match.
+- **Files affected:** `.aitask-scripts/screen_recording/video_prep.py`,
+  `tests/test_screen_recording_cli.py`,
+  `website/content/docs/skills/aitask-screen-recording.md`
+
+### Change Request 2 (2026-11-15 23:20)
+- **Requested by user:** after CR1, a `PrepError` from the default probe escaped
+  before fontconfig was consulted. Not every default-probe error means no font
+  can draw. Reproduced: a `type.xml` mapping the default font to an unreadable
+  file made `sheet` fail with "unable to read font", while LiberationSans
+  measured 79 px under the same configuration. That removed recovery the first
+  version had. Keep the default error, try the fallback, and surface the kept
+  diagnostics if nothing works; add a regression.
+- **Changes made:**
+  - `sheet_font_args` now keeps the default probe's error and still tries
+    fontconfig. With no candidate to try, the default error is raised unchanged.
+    When candidates were tried and all failed, the message names the default's
+    error and each candidate's (`ImageMagick could not draw a sample label with
+    its default font (…), and fontconfig's sans-serif font did not help either: …`),
+    with no font-install advice.
+  - The "draws no text … install a sans-serif font" message is used only when
+    the default probe measured a blank width.
+  - Tests:
+    - mocked: an unreadable default font falls back
+    - mocked: a lone default failure is re-raised as it is
+    - mocked: default and fallback both failing report both messages and no
+      font advice
+    - end-to-end: `sheet` under a `MAGICK_CONFIGURE_PATH` `type.xml` that maps
+      Helvetica/Arial to a non-font file succeeds, with label-sized cells
+      (cell_w > 64)
+
+    The policy e2e test now shares a `sheet_under_config` helper. Docs row
+    covers both message forms.
+- **Files affected:** `.aitask-scripts/screen_recording/video_prep.py`,
+  `tests/test_screen_recording_cli.py`,
+  `website/content/docs/skills/aitask-screen-recording.md`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `video_prep.py` resolves one label font (`sheet_font_args`): ImageMagick's
+    default font while it draws text, else fontconfig's sans-serif file, else an
+    error that carries the kept diagnostics.
+  - It measures the two-line label band in that font (`sheet_label_h`, floored
+    at `SHEET_LABEL_H`) and uses both at every measure, draw and layout site:
+    `measure_labels`, the two montages, and the two `chunk_sheets` calls.
+  - The test helpers and premises in `test_screen_recording_cli.py` use the same
+    font and band. A new `SheetFont` class adds 13 tests: 4 end-to-end or real
+    environment, the rest mocked.
+  - `test_aitask_questions.py` `_runs_below` uses `ps -ww`.
+  - The docs layout paragraph and the troubleshooting row are updated.
+- **Deviations from plan:**
+  - The label-band measurement was added during plan review: the font alone
+    overflowed the dense sheet to 1590×1652.
+  - The error handling was reworked twice in Step 8 review (Change Requests 1
+    and 2): magick failures are kept rather than turned into width 0, and a
+    default-probe failure still tries the fallback.
+- **Issues encountered:**
+  - Root cause 1: on this machine ImageMagick's default font, Helvetica, maps
+    through `type-ghostscript.xml` to gsfonts files that are not installed.
+    Every label then renders 1 px wide.
+  - Root cause 2: pytest imports readline, and GNU readline exports `COLUMNS=80`
+    into the C environment (`os.environ` does not show it). procps `ps` honours
+    it and truncates `args`. Under the unittest backend the tests passed.
+  - The full suite had 1 unrelated failure:
+    `test_metadata_writer_inventory::NewWriterTripwire` flags
+    `.aitask-scripts/lib/sitrep_crash.py`, an untracked file from another
+    session. It was already present when this task started.
+- **Key decisions:**
+  - Keep the default font when it draws, and keep the 40 px band floor, so
+    machines where the default works are byte-identical.
+  - Font-install advice appears only when the default measured blank; magick's
+    own errors are passed through.
+  - Labels are at most 2 lines (`_CONTROL` maps newlines to `?`), so a two-line
+    probe bounds the band.
+- **Verification:**
+  - Both modules pass under pytest and unittest (133 and 41).
+  - Control with the band left at 40: the dense ContactSheets test and the
+    band test fail at 1590×1652.
+  - Noto Sans forced as the fallback (52 px band): 43/43 sheet tests pass.
+  - A manual `sheet` run shows readable labels.
+  - `check_links.py --build` passes.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_questions/owner.py:38 — non-procfs fallback reads `ps -o args=` without `-ww`; in a process that imported readline (COLUMNS=80 exported) argv is cut at 80 columns (macOS-only path; BSD ps COLUMNS handling not measured)`
+  - `.aitask-scripts/monitor/monitor_core.py:502 — same `ps -p <pid> -o args=` without `-ww` in the non-procfs companion-keyword check; keywords past column 80 can be missed`
