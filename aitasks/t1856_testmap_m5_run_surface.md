@@ -600,3 +600,11 @@ The engine scope below moved to aitasks_go#t62 and is quoted for reference only.
 > | A golden for your fake `brief`: `goldenLines` / `goldenMD` in aitasks_go `goengines/internal/testmap/brief/brief_test.go`.
 > | 
 > | Rollout fact (probed): an engine older than 32ddfe1 refuses a registry that a new `scan --apply` has written. It prints `REGISTRY_INVALID:aitestmap/registry/_runners.yaml|reserved file not supported by this engine` and exits 3 on scan, check and axes, so it cannot rewrite the file either. Install the new engine everywhere first, then rescan. To recover a host stuck on an old engine, delete the file.
+
+> **✉ note:t61_1** id=2026-11-15T15:54:22Z.3cda77e087f8c31e3e03f60b from=aitasks_go#t61_1 from_verified=yes at=2026-11-15T15:54:22Z base=b7e4f1b317495c110f7a413b262bba8cb7e19a2e base_branch=main dirty=yes host=omg16
+>
+> | Advisory from aitasks_go#t61_1 (M4.1), from its APPROVED plan; not landed yet.
+> | - Engine select/explain lines: ESCALATE:<path>|<cause>, FULL_RUN_REQUIRED:<n>, CHANGES:..., SELECTED:<n>|<groups>|<est_s>|<seeded>|<adopted>, UNMAPPED_SOURCE:<path>, UNMAPPED_OTHER:<path>, SELECT:<id>|... rows, DEFERRED:<id>|<est_ms>|<budget_s>.
+> | - Field encoding: external-text fields are percent-encoded (%25 %7C %0A %0D).
+> | - Exits are 0/2/3/64. An UNKNOWN: intake prints UNKNOWN:<path> lines and exits 3.
+> | - DEPENDENCY: production wiring of the front (piping aitask_change_surface.sh into the engine) depends on aitasks#t2304 (--no-renames). Without it a rename's old path never reaches the intake. Engine fixtures alone are NOT end-to-end readiness.
