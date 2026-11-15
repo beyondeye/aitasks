@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [brainstorm, ait_dispatcher, tests]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1879
 followup_kind: upstream_defect
 created_at: 2026-11-15 22:11
-updated_at: 2026-11-15 22:11
+updated_at: 2026-11-15 22:33
 ---
 
 ## Origin
