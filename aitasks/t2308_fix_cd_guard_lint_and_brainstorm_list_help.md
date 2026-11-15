@@ -4,7 +4,7 @@ effort: low
 depends: []
 issue_type: bug
 status: Ready
-labels: [brainstorm, ait_dispatcher]
+labels: [brainstorm, ait_dispatcher, tests]
 gates: [risk_evaluated]
 anchor: 1879
 followup_kind: upstream_defect
