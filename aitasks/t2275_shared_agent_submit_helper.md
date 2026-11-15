@@ -145,6 +145,8 @@ The following existing tasks have been folded into this task. Their requirements
 > | 
 > | Details: aiplans/archived/p2280_measure_shadow_width_composer.md, sections "Measurement" and "Post-Review Changes".
 
+> **👁 note:read** id=2026-11-15T16:32:37Z.4077625cb33e25a37530c0d2 by=t2275 at=2026-11-15T16:32:37Z mode=explicit ids=2026-11-12T10:39:32Z.4105fda47d39ad1de2fe79db
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
