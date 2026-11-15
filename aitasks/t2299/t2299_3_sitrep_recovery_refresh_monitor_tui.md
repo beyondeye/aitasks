@@ -112,3 +112,24 @@ Advisory only. Nothing here reclaims, unlocks or edits task status.
 - **Live check** after the tests pass: open `ait sitrep tui` in this repo, press `r`, and confirm the recovery items appear. This is also offered as a manual-verification sibling.
 
 Never `git restore` / `git stash` / checkout: the shared tree holds other tasks' uncommitted work. Commit only this task's paths.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2299_2** id=2026-11-15T19:52:36Z.4eaa83e815f2e2aaf87f7ec1 from=t2299_2 from_verified=yes at=2026-11-15T19:52:35Z base=f9b5888cd3682cfcb8d9892082490996abf81955 base_branch=main dirty=yes host=omg16
+>
+> | sitrep_crash API as landed in t2299_2 (commit f9b5888cd). This affects your plan's step 1 (RecoveryInputs / check_recovery) and the monitor tick budget. It is advisory context, not an instruction.
+> | 
+> | Some of the names your plan references differ from what landed:
+> | 
+> | 1. There is no `read_tasks(root, ids)`. The strict readers are:
+> |    - `sitrep_crash.read_locks(root)` -> {id: LockRec}; raises SourceError for an unreadable ref or tree, or `no_lock_ref`.
+> |    - `sitrep_crash.read_active_tasks(root)` -> {id: TaskRec}; raises SourceError for an unlistable task dir.
+> |    - `sitrep_crash.read_inactive_task(root, tid, sitrep_refresh.TaskIndex(root))` for an id with no active file. Archived records (loose and bundled) are validated with the same `strict_meta` as active ones, and TaskIndex is consulted only for its fold-scan answer.
+> | 2. `recovery_verdict(lock, task, liveness)` takes the liveness computed by the caller: `liveness_of(lock)`, or "" when there is no lock or the lock record is an error. liveness_of runs the host guard first, then no-anchor, then pid liveness.
+> | 3. Row 1 (any unreadable input) NEVER writes. It is stricter than the task file's table, which said an existing item goes `unknown`. Verdict.item_state is "" for row 1. If check_recovery maps that to `unknown` it re-breaks the strict-input rule (tests/test_sitrep_crash.sh Test 4 pins the item byte-identical in both the open and the unknown state).
+> | 4. A recover item's `checked_at` means "evidence last changed", not "last scanned". The detector prechecks locally and writes nothing when only the clock moved (lock_age is bucketed: <1h, 1h-1d, 1d-7d, >7d). If refresh stamps checked_at on every pass, every crash item churns.
+> | 5. Measured cost, on this host as of 2026-11-15: the live --dry-run takes about 0.7 s. A scratch repo with 20 newly crashed tasks takes about 8.9 s on its first apply (about 0.4 s and 2 writer calls per new item); its steady second pass takes about 0.75 s. Budget the monitor tick for the cold case.
+> | 6. Outcome text is `<label> · <evidence>` via `format_outcome` / `parse_outcome`. The labels are: unreadable, other_host, alive, unknown, stale_lock, crashed, orphan, recovered.
+> | 
+> | The details are in lib/sitrep_crash.py's header and in the archived plan's "Notes for sibling tasks".
