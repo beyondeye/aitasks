@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2299
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 19:37
-updated_at: 2026-11-15 22:33
+updated_at: 2026-11-15 23:03
 ---
 
 ## Origin
@@ -32,3 +33,8 @@ t2299_2 therefore validates archived records itself (`sitrep_crash.strict_meta`)
 
 ## Suggested fix
 In `TaskIndex._lookup`, validate the status for both active and archived records against the task-status vocabulary (Ready, Editing, Implementing, Postponed, Done, Folded). Return `TaskFacts("error", detail=...)` for a missing or invalid one, and keep archive read errors as they are. Then flip the contrast assertion in `tests/test_sitrep_crash.py`, and add refresh tests showing such a record gives `unknown`, never a done or open verdict.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-15T21:03:09Z status=pass attempt=1 type=human
