@@ -1,0 +1,14 @@
+{
+  "models": [
+    {"name": "gpt_shared", "cli_id": "gpt-5.3-codex", "notes": "shared llm", "status": "active",
+     "verified": {"pick": 80},
+     "verifiedstats": {"pick": {"all_time": {"runs": 3, "score_sum": 240},
+                                "month": {"period": "2026-11", "runs": 1, "score_sum": 80},
+                                "week": {"period": "2026-W45", "runs": 1, "score_sum": 80}}},
+     "usagestats": {"pick": {"all_time": {"runs": 6}, "month": {"period": "2026-11", "runs": 2}}}},
+    {"name": "gpt_other", "cli_id": "gpt-5.4", "notes": "explore only", "status": "active",
+     "verified": {"explore": 100},
+     "verifiedstats": {"explore": {"all_time": {"runs": 1, "score_sum": 100},
+                                   "month": {"period": "2026-10", "runs": 1, "score_sum": 100}}}}
+  ]
+}

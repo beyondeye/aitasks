@@ -1,0 +1,253 @@
+== stats_data.load_verified_rankings
+operations=['explore', 'pick', 'review', 'wrap']
+explore|all_providers|all_time|gpt-5.4|GPT5.4|score=100|runs=1
+explore|all_providers|all_time|claude-bucketed-1|Claude Bucketed 1|score=90|runs=2
+explore|all_providers|all_time|claude-unsorted-1|Claude Unsorted 1|score=70|runs=1
+explore|all_providers|recent|gpt-5.4|GPT5.4|score=100|runs=1
+explore|all_providers|prev_month|gpt-5.4|GPT5.4|score=100|runs=1
+explore|claudecode|all_time|claude-bucketed-1|Claude Bucketed 1|score=90|runs=2
+explore|claudecode|all_time|claude-unsorted-1|Claude Unsorted 1|score=70|runs=1
+explore|codex|all_time|gpt-5.4|GPT5.4|score=100|runs=1
+explore|codex|recent|gpt-5.4|GPT5.4|score=100|runs=1
+explore|codex|prev_month|gpt-5.4|GPT5.4|score=100|runs=1
+pick|all_providers|all_time|claude-gone-1|Claude Gone 1|score=100|runs=1
+pick|all_providers|all_time|claude-bucketed-1|Claude Bucketed 1|score=95|runs=4
+pick|all_providers|all_time|gpt-5.3-codex|GPT5.3-Codex|score=88|runs=5
+pick|all_providers|all_time|claude-unsorted-1|Claude Unsorted 1|score=85|runs=2
+pick|all_providers|all_time|claude-flat-1|Claude Flat 1|score=75|runs=2
+pick|all_providers|recent|claude-gone-1|Claude Gone 1|score=100|runs=1
+pick|all_providers|recent|claude-bucketed-1|Claude Bucketed 1|score=93|runs=3
+pick|all_providers|recent|gpt-5.3-codex|GPT5.3-Codex|score=93|runs=3
+pick|all_providers|recent|claude-unsorted-1|Claude Unsorted 1|score=85|runs=2
+pick|all_providers|month|claude-bucketed-1|Claude Bucketed 1|score=100|runs=1
+pick|all_providers|month|claude-gone-1|Claude Gone 1|score=100|runs=1
+pick|all_providers|month|gpt-5.3-codex|GPT5.3-Codex|score=90|runs=2
+pick|all_providers|prev_month|gpt-5.3-codex|GPT5.3-Codex|score=100|runs=1
+pick|all_providers|prev_month|claude-bucketed-1|Claude Bucketed 1|score=90|runs=2
+pick|all_providers|prev_month|claude-unsorted-1|Claude Unsorted 1|score=85|runs=2
+pick|all_providers|week|claude-bucketed-1|Claude Bucketed 1|score=100|runs=1
+pick|all_providers|week|gpt-5.3-codex|GPT5.3-Codex|score=80|runs=1
+pick|claudecode|all_time|claude-gone-1|Claude Gone 1|score=100|runs=1
+pick|claudecode|all_time|claude-bucketed-1|Claude Bucketed 1|score=95|runs=4
+pick|claudecode|all_time|claude-unsorted-1|Claude Unsorted 1|score=85|runs=2
+pick|claudecode|all_time|claude-flat-1|Claude Flat 1|score=75|runs=2
+pick|claudecode|recent|claude-gone-1|Claude Gone 1|score=100|runs=1
+pick|claudecode|recent|claude-bucketed-1|Claude Bucketed 1|score=93|runs=3
+pick|claudecode|recent|claude-unsorted-1|Claude Unsorted 1|score=85|runs=2
+pick|claudecode|month|claude-bucketed-1|Claude Bucketed 1|score=100|runs=1
+pick|claudecode|month|claude-gone-1|Claude Gone 1|score=100|runs=1
+pick|claudecode|prev_month|claude-bucketed-1|Claude Bucketed 1|score=90|runs=2
+pick|claudecode|prev_month|claude-unsorted-1|Claude Unsorted 1|score=85|runs=2
+pick|claudecode|week|claude-bucketed-1|Claude Bucketed 1|score=100|runs=1
+pick|codex|all_time|gpt-5.3-codex|GPT5.3-Codex|score=80|runs=3
+pick|codex|recent|gpt-5.3-codex|GPT5.3-Codex|score=80|runs=1
+pick|codex|month|gpt-5.3-codex|GPT5.3-Codex|score=80|runs=1
+pick|codex|week|gpt-5.3-codex|GPT5.3-Codex|score=80|runs=1
+pick|opencode|all_time|openai/gpt-5.3-codex|GPT5.3-Codex|score=100|runs=2
+pick|opencode|recent|openai/gpt-5.3-codex|GPT5.3-Codex|score=100|runs=2
+pick|opencode|month|openai/gpt-5.3-codex|GPT5.3-Codex|score=100|runs=1
+pick|opencode|prev_month|openai/gpt-5.3-codex|GPT5.3-Codex|score=100|runs=1
+review|all_providers|all_time|claude-unsorted-1|Claude Unsorted 1|score=83|runs=3
+review|all_providers|recent|claude-unsorted-1|Claude Unsorted 1|score=90|runs=2
+review|all_providers|month|claude-unsorted-1|Claude Unsorted 1|score=90|runs=2
+review|all_providers|week|claude-unsorted-1|Claude Unsorted 1|score=90|runs=1
+review|claudecode|all_time|claude-unsorted-1|Claude Unsorted 1|score=90|runs=2
+review|claudecode|recent|claude-unsorted-1|Claude Unsorted 1|score=90|runs=2
+review|claudecode|month|claude-unsorted-1|Claude Unsorted 1|score=90|runs=2
+review|claudecode|week|claude-unsorted-1|Claude Unsorted 1|score=90|runs=1
+review|opencode|all_time|anthropic/claude-unsorted-1|Claude Unsorted 1|score=70|runs=1
+wrap|all_providers|all_time|claude-unsorted-1|Claude Unsorted 1|score=80|runs=1
+wrap|all_providers|recent|claude-unsorted-1|Claude Unsorted 1|score=80|runs=1
+wrap|all_providers|month|claude-unsorted-1|Claude Unsorted 1|score=80|runs=1
+wrap|claudecode|all_time|claude-unsorted-1|Claude Unsorted 1|score=80|runs=1
+wrap|claudecode|recent|claude-unsorted-1|Claude Unsorted 1|score=80|runs=1
+wrap|claudecode|month|claude-unsorted-1|Claude Unsorted 1|score=80|runs=1
+== stats_data.load_usage_rankings
+operations=['explore', 'pick', 'review', 'wrap']
+explore|all_providers|all_time|claude-bucketed-1|Claude Bucketed 1|runs=3
+explore|all_providers|recent|claude-bucketed-1|Claude Bucketed 1|runs=3
+explore|all_providers|prev_month|claude-bucketed-1|Claude Bucketed 1|runs=3
+explore|claudecode|all_time|claude-bucketed-1|Claude Bucketed 1|runs=3
+explore|claudecode|recent|claude-bucketed-1|Claude Bucketed 1|runs=3
+explore|claudecode|prev_month|claude-bucketed-1|Claude Bucketed 1|runs=3
+pick|all_providers|all_time|claude-bucketed-1|Claude Bucketed 1|runs=10
+pick|all_providers|all_time|gpt-5.3-codex|GPT5.3-Codex|runs=8
+pick|all_providers|all_time|claude-unsorted-1|Claude Unsorted 1|runs=7
+pick|all_providers|all_time|claude-gone-1|Claude Gone 1|runs=5
+pick|all_providers|all_time|claude-flat-1|Claude Flat 1|runs=2
+pick|all_providers|recent|claude-bucketed-1|Claude Bucketed 1|runs=7
+pick|all_providers|recent|claude-gone-1|Claude Gone 1|runs=5
+pick|all_providers|recent|gpt-5.3-codex|GPT5.3-Codex|runs=4
+pick|all_providers|month|claude-gone-1|Claude Gone 1|runs=5
+pick|all_providers|month|gpt-5.3-codex|GPT5.3-Codex|runs=4
+pick|all_providers|month|claude-bucketed-1|Claude Bucketed 1|runs=3
+pick|all_providers|prev_month|claude-bucketed-1|Claude Bucketed 1|runs=4
+pick|all_providers|week|claude-bucketed-1|Claude Bucketed 1|runs=2
+pick|claudecode|all_time|claude-bucketed-1|Claude Bucketed 1|runs=10
+pick|claudecode|all_time|claude-unsorted-1|Claude Unsorted 1|runs=7
+pick|claudecode|all_time|claude-gone-1|Claude Gone 1|runs=5
+pick|claudecode|all_time|claude-flat-1|Claude Flat 1|runs=2
+pick|claudecode|recent|claude-bucketed-1|Claude Bucketed 1|runs=7
+pick|claudecode|recent|claude-gone-1|Claude Gone 1|runs=5
+pick|claudecode|month|claude-gone-1|Claude Gone 1|runs=5
+pick|claudecode|month|claude-bucketed-1|Claude Bucketed 1|runs=3
+pick|claudecode|prev_month|claude-bucketed-1|Claude Bucketed 1|runs=4
+pick|claudecode|week|claude-bucketed-1|Claude Bucketed 1|runs=2
+pick|codex|all_time|gpt-5.3-codex|GPT5.3-Codex|runs=6
+pick|codex|recent|gpt-5.3-codex|GPT5.3-Codex|runs=2
+pick|codex|month|gpt-5.3-codex|GPT5.3-Codex|runs=2
+pick|opencode|all_time|openai/gpt-5.3-codex|GPT5.3-Codex|runs=2
+pick|opencode|recent|openai/gpt-5.3-codex|GPT5.3-Codex|runs=2
+pick|opencode|month|openai/gpt-5.3-codex|GPT5.3-Codex|runs=2
+review|all_providers|all_time|claude-unsorted-1|Claude Unsorted 1|runs=4
+review|all_providers|recent|claude-unsorted-1|Claude Unsorted 1|runs=4
+review|all_providers|month|claude-unsorted-1|Claude Unsorted 1|runs=2
+review|all_providers|prev_month|claude-unsorted-1|Claude Unsorted 1|runs=2
+review|claudecode|all_time|claude-unsorted-1|Claude Unsorted 1|runs=4
+review|claudecode|recent|claude-unsorted-1|Claude Unsorted 1|runs=4
+review|claudecode|month|claude-unsorted-1|Claude Unsorted 1|runs=2
+review|claudecode|prev_month|claude-unsorted-1|Claude Unsorted 1|runs=2
+wrap|all_providers|all_time|claude-unsorted-1|Claude Unsorted 1|runs=1
+wrap|all_providers|recent|claude-unsorted-1|Claude Unsorted 1|runs=1
+wrap|all_providers|month|claude-unsorted-1|Claude Unsorted 1|runs=1
+wrap|claudecode|all_time|claude-unsorted-1|Claude Unsorted 1|runs=1
+wrap|claudecode|recent|claude-unsorted-1|Claude Unsorted 1|runs=1
+wrap|claudecode|month|claude-unsorted-1|Claude Unsorted 1|runs=1
+== picker[pick]._build_top_all_ops
+{"agent": "claudecode", "detail": "10 runs recent, all ops \u00b7 7 this op", "name": "bucketed", "runs": 10}
+{"agent": "claudecode", "detail": "5 runs recent, all ops", "name": "unsorted", "runs": 5}
+{"agent": "codex", "detail": "2 runs recent, all ops \u00b7 2 this op", "name": "gpt_shared", "runs": 2}
+{"agent": "opencode", "detail": "2 runs recent, all ops \u00b7 2 this op", "name": "openai_gpt_shared", "runs": 2}
+== picker[pick]._build_top_usage
+{"agent": "claudecode", "detail": "7 runs recent \u00b7 10 all-time", "name": "bucketed", "runs": 7}
+{"agent": "codex", "detail": "2 runs recent \u00b7 6 all-time", "name": "gpt_shared", "runs": 2}
+{"agent": "opencode", "detail": "2 runs recent", "name": "openai_gpt_shared", "runs": 2}
+== picker[pick]._build_options_for_agent(claudecode)
+{"description": "bucketed stats  [95 (4 runs, 1 this mo, 2 prev mo)]", "display": "bucketed", "value": "bucketed"}
+{"description": "skills out of order  [85 (2 runs, 2 prev mo)]", "display": "unsorted", "value": "unsorted"}
+{"description": "pre-bucket format  [score: 75]", "display": "flat", "value": "flat"}
+{"description": "prior only  [score: 60]", "display": "nostats", "value": "nostats"}
+{"description": "nothing recorded", "display": "plain", "value": "plain"}
+== picker[pick]._build_options_for_agent(codex)
+{"description": "shared llm  [80 (3 runs, 1 this mo)]", "display": "gpt_shared", "value": "gpt_shared"}
+{"description": "explore only", "display": "gpt_other", "value": "gpt_other"}
+== picker[pick]._build_options_for_agent(opencode)
+{"description": "shared llm  [100 (2 runs, 1 this mo, 1 prev mo)]", "display": "openai_gpt_shared", "value": "openai_gpt_shared"}
+{"description": "review via opencode", "display": "oc_reviewer", "value": "oc_reviewer"}
+== picker[explore]._build_top_all_ops
+{"agent": "claudecode", "detail": "10 runs recent, all ops \u00b7 3 this op", "name": "bucketed", "runs": 10}
+{"agent": "claudecode", "detail": "5 runs recent, all ops", "name": "unsorted", "runs": 5}
+{"agent": "codex", "detail": "2 runs recent, all ops", "name": "gpt_shared", "runs": 2}
+{"agent": "opencode", "detail": "2 runs recent, all ops", "name": "openai_gpt_shared", "runs": 2}
+== picker[explore]._build_top_usage
+{"agent": "claudecode", "detail": "3 runs recent", "name": "bucketed", "runs": 3}
+== picker[explore]._build_options_for_agent(claudecode)
+{"description": "bucketed stats  [90 (2 runs)]", "display": "bucketed", "value": "bucketed"}
+{"description": "skills out of order  [score: 70]", "display": "unsorted", "value": "unsorted"}
+{"description": "pre-bucket format", "display": "flat", "value": "flat"}
+{"description": "prior only  (not verified)", "display": "nostats", "value": "nostats"}
+{"description": "nothing recorded", "display": "plain", "value": "plain"}
+== picker[explore]._build_options_for_agent(codex)
+{"description": "explore only  [100 (1 runs, 1 prev mo)]", "display": "gpt_other", "value": "gpt_other"}
+{"description": "shared llm", "display": "gpt_shared", "value": "gpt_shared"}
+== picker[explore]._build_options_for_agent(opencode)
+{"description": "shared llm", "display": "openai_gpt_shared", "value": "openai_gpt_shared"}
+{"description": "review via opencode", "display": "oc_reviewer", "value": "oc_reviewer"}
+== picker[batch-review]._build_top_all_ops
+{"agent": "claudecode", "detail": "10 runs recent, all ops", "name": "bucketed", "runs": 10}
+{"agent": "claudecode", "detail": "5 runs recent, all ops \u00b7 4 this op", "name": "unsorted", "runs": 5}
+{"agent": "codex", "detail": "2 runs recent, all ops", "name": "gpt_shared", "runs": 2}
+{"agent": "opencode", "detail": "2 runs recent, all ops", "name": "openai_gpt_shared", "runs": 2}
+== picker[batch-review]._build_top_usage
+{"agent": "claudecode", "detail": "4 runs recent", "name": "unsorted", "runs": 4}
+== picker[batch-review]._build_options_for_agent(claudecode)
+{"description": "skills out of order  [90 (2 runs, 2 this mo)]", "display": "unsorted", "value": "unsorted"}
+{"description": "bucketed stats", "display": "bucketed", "value": "bucketed"}
+{"description": "pre-bucket format", "display": "flat", "value": "flat"}
+{"description": "prior only", "display": "nostats", "value": "nostats"}
+{"description": "nothing recorded", "display": "plain", "value": "plain"}
+== picker[batch-review]._build_options_for_agent(codex)
+{"description": "shared llm", "display": "gpt_shared", "value": "gpt_shared"}
+{"description": "explore only", "display": "gpt_other", "value": "gpt_other"}
+== picker[batch-review]._build_options_for_agent(opencode)
+{"description": "review via opencode  [70 (1 runs)]", "display": "oc_reviewer", "value": "oc_reviewer"}
+{"description": "shared llm", "display": "openai_gpt_shared", "value": "openai_gpt_shared"}
+== settings._get_verified_label / _get_all_providers_label
+pick|claudecode/bucketed|verified=' [dim][95 (4 runs, 1 this mo, 2 prev mo)][/dim]'|all=''
+explore|claudecode/bucketed|verified=' [dim][90 (2 runs)][/dim]'|all=''
+pick|claudecode/flat|verified=' [dim][score: 75][/dim]'|all=''
+pick|claudecode/unsorted|verified=' [dim][85 (2 runs, 2 prev mo)][/dim]'|all=''
+explore|claudecode/unsorted|verified=' [dim][score: 70][/dim]'|all=''
+batch-review|claudecode/unsorted|verified=' [dim][90 (2 runs, 2 this mo)][/dim]'|all=' [dim]all providers: 83 (3 runs, 2 this mo)[/dim]'
+review|claudecode/unsorted|verified=' [dim][90 (2 runs, 2 this mo)][/dim]'|all=' [dim]all providers: 83 (3 runs, 2 this mo)[/dim]'
+wrap|claudecode/unsorted|verified=' [dim][80 (1 runs, 1 this mo)][/dim]'|all=''
+pick|claudecode/nostats|verified=' [dim][score: 60][/dim]'|all=''
+explore|claudecode/nostats|verified=' [dim](not verified)[/dim]'|all=''
+pick|claudecode/gone|verified=' [dim][100 (1 runs, 1 this mo)][/dim]'|all=''
+pick|codex/gpt_shared|verified=' [dim][80 (3 runs, 1 this mo)][/dim]'|all=' [dim]all providers: 88 (5 runs, 2 this mo, 1 prev mo)[/dim]'
+explore|codex/gpt_other|verified=' [dim][100 (1 runs, 1 prev mo)][/dim]'|all=''
+pick|opencode/openai_gpt_shared|verified=' [dim][100 (2 runs, 1 this mo, 1 prev mo)][/dim]'|all=' [dim]all providers: 88 (5 runs, 2 this mo, 1 prev mo)[/dim]'
+pick|opencode/oc_reviewer|verified=''|all=' [dim]all providers: 85 (2 runs, 2 prev mo)[/dim]'
+batch-review|opencode/oc_reviewer|verified=' [dim][70 (1 runs)][/dim]'|all=' [dim]all providers: 83 (3 runs, 2 this mo)[/dim]'
+review|opencode/oc_reviewer|verified=' [dim][70 (1 runs)][/dim]'|all=' [dim]all providers: 83 (3 runs, 2 this mo)[/dim]'
+wrap|opencode/oc_reviewer|verified=''|all=' [dim]all providers: 80 (1 runs, 1 this mo)[/dim]'
+== settings._collect_non_default_skill_stats
+{"wrap": [{"agent": "claudecode", "detail": "80 (1 runs, 1 this mo)", "model": "unsorted", "score": 80}]}
+== settings._populate_models_tab
+[section-header] Claudecode Models
+[model-header]     Name             CLI ID                         Status       Notes
+[model-row]     bucketed         claude-bucketed-1              active       bucketed stats  [dim]pick: 95 (4 runs, 1 this month, 2 last month) | explore: 90 (2 runs)[/dim]
+[model-row]     flat             claude-flat-1                  active       pre-bucket format  [dim]pick: 75[/dim]
+[model-row]     unsorted         claude-unsorted-1              active       skills out of order  [dim]wrap: 80 (1 runs, 1 this month) | review: 90 (2 runs, 2 this month) | pick: 85 (2 runs, 2 last month)[/dim]
+[model-row]     [dim]  all providers: wrap: 80 (1 runs, 1 this month) | review: 83 (3 runs, 2 this month) | pick: 85 (2 runs, 2 last month)[/dim]
+[model-row]     nostats          claude-nostats-1               active       prior only  [dim]pick: 60[/dim]
+[model-row]     plain            claude-plain-1                 active       nothing recorded
+[model-row]     [dim]gone             claude-gone-1                  [UNAVAIL]    retired  [dim]pick: 100 (1 runs, 1 this month)[/dim][/dim]
+[section-header] Codex Models
+[model-header]     Name             CLI ID                         Status       Notes
+[model-row]     gpt_shared       gpt-5.3-codex                  active       shared llm  [dim]pick: 80 (3 runs, 1 this month)[/dim]
+[model-row]     [dim]  all providers: pick: 88 (5 runs, 2 this month, 1 last month)[/dim]
+[model-row]     gpt_other        gpt-5.4                        active       explore only  [dim]explore: 100 (1 runs, 1 last month)[/dim]
+[section-header] Opencode Models
+[model-header]     Name             CLI ID                         Status       Notes
+[model-row]     openai_gpt_shared openai/gpt-5.3-codex           active       shared llm  [dim]pick: 100 (2 runs, 1 this month, 1 last month)[/dim]
+[model-row]     [dim]  all providers: pick: 88 (5 runs, 2 this month, 1 last month)[/dim]
+[model-row]     oc_reviewer      anthropic/claude-unsorted-1    active       review via opencode  [dim]review: 70 (1 runs)[/dim]
+[model-row]     [dim]  all providers: wrap: 80 (1 runs, 1 this month) | review: 83 (3 runs, 2 this month) | pick: 85 (2 runs, 2 last month)[/dim]
+[None] 
+[section-hint] [dim]Model lists are managed by 'ait codeagent refresh'. Edit model files directly for manual changes.[/dim]
+[section-hint] [dim]↑↓: navigate  |  HINT[/dim]
+== list-models claudecode
+=== claudecode ===
+MODEL:bucketed CLI_ID:claude-bucketed-1 STATUS:active NOTES:bucketed stats VERIFIED:pick=95,explore=90
+STATS:pick(runs 4, avg 95),explore(runs 2, avg 90)
+MODEL:flat CLI_ID:claude-flat-1 STATUS:active NOTES:pre-bucket format VERIFIED:pick=75
+STATS:pick(runs 2, avg 75)
+MODEL:unsorted CLI_ID:claude-unsorted-1 STATUS:active NOTES:skills out of order VERIFIED:wrap=80,review=90,explore=70,pick=85
+STATS:wrap(runs 1, avg 80),review(runs 2, avg 90),explore(runs 1, avg 70),pick(runs 2, avg 85)
+MODEL:nostats CLI_ID:claude-nostats-1 STATUS:active NOTES:prior only VERIFIED:pick=60,explore=0
+MODEL:plain CLI_ID:claude-plain-1 STATUS:active NOTES:nothing recorded VERIFIED:
+MODEL:gone CLI_ID:claude-gone-1 STATUS:unavailable NOTES:retired VERIFIED:pick=100
+STATS:pick(runs 1, avg 100)
+== list-models codex
+=== codex ===
+MODEL:gpt_shared CLI_ID:gpt-5.3-codex STATUS:active NOTES:shared llm VERIFIED:pick=80
+STATS:pick(runs 3, avg 80)
+MODEL:gpt_other CLI_ID:gpt-5.4 STATUS:active NOTES:explore only VERIFIED:explore=100
+STATS:explore(runs 1, avg 100)
+== list-models opencode
+=== opencode ===
+MODEL:openai_gpt_shared CLI_ID:openai/gpt-5.3-codex STATUS:active NOTES:shared llm VERIFIED:pick=100
+STATS:pick(runs 2, avg 100)
+MODEL:oc_reviewer CLI_ID:anthropic/claude-unsorted-1 STATUS:active NOTES:review via opencode VERIFIED:review=70
+STATS:review(runs 1, avg 70)
+== list-models --active-only claudecode
+=== claudecode ===
+MODEL:bucketed CLI_ID:claude-bucketed-1 STATUS:active NOTES:bucketed stats VERIFIED:pick=95,explore=90
+STATS:pick(runs 4, avg 95),explore(runs 2, avg 90)
+MODEL:flat CLI_ID:claude-flat-1 STATUS:active NOTES:pre-bucket format VERIFIED:pick=75
+STATS:pick(runs 2, avg 75)
+MODEL:unsorted CLI_ID:claude-unsorted-1 STATUS:active NOTES:skills out of order VERIFIED:wrap=80,review=90,explore=70,pick=85
+STATS:wrap(runs 1, avg 80),review(runs 2, avg 90),explore(runs 1, avg 70),pick(runs 2, avg 85)
+MODEL:nostats CLI_ID:claude-nostats-1 STATUS:active NOTES:prior only VERIFIED:pick=60,explore=0
+MODEL:plain CLI_ID:claude-plain-1 STATUS:active NOTES:nothing recorded VERIFIED:

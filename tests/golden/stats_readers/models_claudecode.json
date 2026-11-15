@@ -1,0 +1,49 @@
+{
+  "models": [
+    {"name": "bucketed", "cli_id": "claude-bucketed-1", "notes": "bucketed stats", "status": "active",
+     "verified": {"pick": 95, "explore": 90},
+     "verifiedstats": {
+       "pick": {"all_time": {"runs": 4, "score_sum": 380},
+                "month": {"period": "2026-11", "runs": 1, "score_sum": 100},
+                "prev_month": {"period": "2026-10", "runs": 2, "score_sum": 180},
+                "week": {"period": "2026-W45", "runs": 1, "score_sum": 100}},
+       "explore": {"all_time": {"runs": 2, "score_sum": 180},
+                   "month": {"period": "2026-07", "runs": 2, "score_sum": 180}}},
+     "usagestats": {
+       "pick": {"all_time": {"runs": 10},
+                "month": {"period": "2026-11", "runs": 3},
+                "prev_month": {"period": "2026-10", "runs": 4},
+                "week": {"period": "2026-W45", "runs": 2}},
+       "explore": {"all_time": {"runs": 3},
+                   "month": {"period": "2026-10", "runs": 3}}}},
+    {"name": "flat", "cli_id": "claude-flat-1", "notes": "pre-bucket format", "status": "active",
+     "verified": {"pick": 75},
+     "verifiedstats": {"pick": {"runs": 2, "score_sum": 150}},
+     "usagestats": {"pick": {"all_time": {"runs": 2}}}},
+    {"name": "unsorted", "cli_id": "claude-unsorted-1", "notes": "skills out of order", "status": "active",
+     "verified": {"wrap": 80, "review": 90, "explore": 70, "pick": 85},
+     "verifiedstats": {
+       "wrap": {"all_time": {"runs": 1, "score_sum": 80},
+                "month": {"period": "2026-11", "runs": 1, "score_sum": 80}},
+       "review": {"all_time": {"runs": 2, "score_sum": 180},
+                  "month": {"period": "2026-11", "runs": 2, "score_sum": 180},
+                  "week": {"period": "2026-W45", "runs": 1, "score_sum": 90}},
+       "explore": {"runs": 1, "score_sum": 70},
+       "pick": {"all_time": {"runs": 2, "score_sum": 170},
+                "prev_month": {"period": "2026-10", "runs": 2, "score_sum": 170}}},
+     "usagestats": {
+       "wrap": {"all_time": {"runs": 1}, "month": {"period": "2026-11", "runs": 1}},
+       "review": {"all_time": {"runs": 4}, "month": {"period": "2026-11", "runs": 2},
+                  "prev_month": {"period": "2026-10", "runs": 2}},
+       "pick": {"all_time": {"runs": 7}, "month": {"period": "2026-09", "runs": 7}}}},
+    {"name": "nostats", "cli_id": "claude-nostats-1", "notes": "prior only", "status": "active",
+     "verified": {"pick": 60, "explore": 0}},
+    {"name": "plain", "cli_id": "claude-plain-1", "notes": "nothing recorded", "status": "active",
+     "verified": {}},
+    {"name": "gone", "cli_id": "claude-gone-1", "notes": "retired", "status": "unavailable",
+     "verified": {"pick": 100},
+     "verifiedstats": {"pick": {"all_time": {"runs": 1, "score_sum": 100},
+                                "month": {"period": "2026-11", "runs": 1, "score_sum": 100}}},
+     "usagestats": {"pick": {"all_time": {"runs": 5}, "month": {"period": "2026-11", "runs": 5}}}}
+  ]
+}
