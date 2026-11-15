@@ -55,3 +55,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Replaced the uppercase **W** work-report key with **w** in `website/content/docs/tuis/board/how-to.md` (§ How to Generate a Work Report — the step list, the column-scoped paragraph and the rebinding note) and in `website/content/docs/commands/codeagent.md` (the "Board TUI — work reports" bullet). Verified against `Binding("w", "work_report", "Work Report")` in `.aitask-scripts/board/aitask_board.py`; no `Binding("W", …)` exists in the board package.
+- **Deviations from plan:** None. The task's item 2 (`gate pass` in the `ait --help` "Gates:" block) needed no change: it is already listed at `ait:65` (landed via t1270, as the t1647_6 inbox note reported).
+- **Issues encountered:** None. `python3 check_links.py --build` → `SWEEP: PASSED`; `grep -rn '\*\*W\*\*' website/content/docs` → no hits.
+- **Key decisions:** Extended the fix to `codeagent.md:302`, outside the task's named section, because it carried the same defect and the sweep found it.
+- **Upstream defects identified:** None
