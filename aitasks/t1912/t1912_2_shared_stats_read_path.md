@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t1912_1]
 issue_type: refactor
@@ -138,3 +140,5 @@ Step 9 (Post-Implementation) applies.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-15T15:52:22Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-15T16:24:23Z status=pass attempt=1 type=human
