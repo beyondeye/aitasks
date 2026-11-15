@@ -320,3 +320,91 @@ TUIs and a CLI.
 ### Planned mitigations
 - timing: pre-phase | name: characterize_reader_values | type: test | priority: high | effort: medium | inline_risk: low | added_complexity: medium | addresses: overlay reordering/reshaping displayed reader output | desc: byte-exact golden of every reader family on a fixture, committed before any reader edit; reused by t1912_5
 - timing: post-phase | name: readers_never_fetch | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: a reader path fetching/refreshing per render | desc: git argv-logging wrapper across the full reader capture against a newer origin tip; no fetch/ls-remote/push, local values shown
+
+## Final Implementation Notes
+
+- **Actual work done:** All steps and both inline mitigations landed as planned.
+  - Pre-phase `characterize_reader_values` was committed on its own before any
+    reader edit (`test: Capture a characterization golden …`):
+    - fixture `tests/golden/stats_readers/models_*.json`;
+    - capture harness `tests/lib/stats_reader_capture.py`, which covers rankings,
+      picker, the settings labels and Models tab, and `list-models`;
+    - golden `expected.txt` (253 lines) and `tests/test_stats_readers_golden.py`.
+  - `lib/model_stats_store.py` gained `overlay_rows` / `overlay_data` (plus the
+    `_overlay_key` helper), and the CLI gained the verb
+    `aitask_model_stats.py overlay --agent A --file F [--root R]`.
+  - Readers converted:
+    - `stats_data` `load_verified_rankings` / `load_usage_rankings` (via
+      `_effective_rows`);
+    - `config_utils.load_all_models`;
+    - `agent_model_picker._build_options_for_agent`, which now reads
+      `self.all_models`;
+    - `settings_app.ConfigManager.load_all`;
+    - `aitask_codeagent.sh list-models`: the new `_list_models_view`, plus jq that
+      derives the effective `VERIFIED:`.
+  - After every reader edit the golden reproduced byte for byte. The live
+    registry's `list-models` output for all three agents was also byte-identical
+    old vs new (checked by running the HEAD script copy against `aitasks/metadata`).
+- **Deviations from plan:**
+  - The `stats_data` rankings now treat a non-dict `models_*.json` payload as
+    "no rows". Before, `payload.get` raised `AttributeError`, which was not
+    caught. That is a strictly more lenient, display-only path.
+  - The `test_codeagent.sh` branch case is named Test 4c (new block), as planned.
+    The prior-differs, marker and broken-CLI cases all live there.
+- **Issues encountered:**
+  - The new branch-backed / hostile-TASK_DIR / no-fetch tests passed on the first
+    run, so I ran controls in a scratch worktree at the pre-phase commit:
+    - with the old readers, 5/6 fail (only the golden passes, as it must);
+    - a mutant with repo = `Path.cwd()` in `stats_data` and `config_utils` fails
+      both hostile-TASK_DIR tests;
+    - a mutant where `overlay_rows` calls `refresh()` fails `readers_never_fetch`,
+      listing the `ls-remote` / `fetch` argv.
+  - The scratch worktree was removed afterwards.
+- **Key decisions:**
+  - The overlay takes the legacy counters from the rows the reader already holds,
+    not from a second file read (`load_agent_stats` re-reads
+    `root/<TASK_DIR>/metadata`). It takes the git repo from the directory those
+    rows came from: an explicit `project_root`, else the metadata dir, never the
+    cwd.
+  - The overlay preserves file skill order: one-sided skills are deep copies, and
+    branch-only skills are appended in sorted order. `merge_stats` would have
+    reordered `STATS:` and the Models tab.
+  - `VERIFIED:` follows parent decision 4: prior keys stay in prior order, with
+    the value replaced by the all_time average when runs > 0, and skills with
+    runs but no prior are appended. The stored prior is never written.
+  - In `list-models`, the overlay falls back to the raw file: silently when the
+    CLI or a Python is missing (scaffolds), with a `warn` on CLI failure.
+- **No-change readers confirmed:** `cross_repo_settings._catalog_model_names`
+  (names only), `model_supersession.py`, `aitask_resolve_detected_agent.sh`.
+- **Upstream defects identified:**
+  - `tests/test_screen_recording_cli.py` — 6 tests fail deterministically at HEAD `57b660ff0`, without any t1912_2 change:
+    - `AnimMode::test_narrow_roi_sheet_labels_stay_inside_their_cells`;
+    - `BugMode::test_layout_reduced_sheets_list_the_frames_they_hold`;
+    - `ContactSheets::test_too_many_frames_for_readable_labels_reduce_each_sheet`;
+    - `SheetMode::test_hostile_names_are_staged_and_shown_safely`, `test_narrow_tiles_keep_labels_inside_their_cells`, `test_too_many_per_sheet_is_split_with_a_warning`.
+
+    These are contact-sheet label layout assertions, e.g. "1485 not less than or equal to 400 : premise: w_min was measured over these labels" and "64 not less than 64". The cause may be environment-dependent (fonts / ffmpeg build); not diagnosed.
+  - `tests/test_aitask_questions.py` — `StoreTests::test_candidate_is_a_remote_client_inside_the_project` and `test_children_are_read_from_every_thread_and_hosting_stops_at_an_app_server` fail at the same HEAD with "stand-in (thread|main) never started its child" (t2281 area). Both also fail in isolation; not diagnosed.
+- **Notes for sibling tasks:**
+  - **t1912_4 (writers):**
+    - Readers already show file + branch, so a writer that starts writing the
+      branch is visible immediately, with no reader edit.
+    - Writers must stop updating `verified`. `list-models`, the picker and
+      settings all derive it from verifiedstats when runs > 0.
+    - Seed branch counters in tests through the CLI (`record-verified` /
+      `bump-usage --date`), as `test_stats_readers_golden.seed` does.
+  - **t1912_5 (migration):**
+    - Re-run `tests/test_stats_readers_golden.py` after the migration; it is the
+      parity check. Capture before and after with
+      `stats_reader_capture.py <root>` on the real registry, too.
+    - A marker drops every stats key the branch lacks for that model. A model
+      whose counters were not absorbed would therefore show only its prior.
+    - The golden fixture is writer-consistent (prior == average). Inconsistent
+      priors are covered by `test_codeagent.sh` 4b / 4c.
+  - **Any new reader:** call `model_stats_store.overlay_rows(<dir the rows came
+    from or explicit root>, agent, rows)`. Never read `usagestats` /
+    `verifiedstats` from the file directly, and never pass the cwd.
+  - Scaffolds that need the store use
+    `copy_lib_py_closure <repo> model_stats_store` plus
+    `cp aitask_model_stats.py`. The closure includes `model_stats_windows` and
+    `orphan_ref_store`.
