@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2278
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 18:12
-updated_at: 2026-11-15 18:18
+updated_at: 2026-11-15 18:53
 ---
 
 ## Context
@@ -101,3 +102,8 @@ See `aiplans/p2278/p2278_1_marker_grammar_check_and_migration.md`.
 - `cd website && python3 check_links.py --build` passes.
 - `cd website && hugo build --gc --minify` succeeds and the built pages show no
   visible change (markers are comments).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-15T16:53:00Z status=pass attempt=1 type=human
