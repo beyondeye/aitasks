@@ -202,6 +202,28 @@ D1–D13, and a decomposition into child tasks. A plausible split:
 > | 
 > | The settings (field weights, identifier splitting, heading-as-title, default limit) are unmeasured starting points. aitasks_go#t93_6 (search_quality_evaluation) will measure them with ranks and recall@25 over eligible pending related tasks, the source excluded before the cut. It may tune them, so your D13.1 comparison should note which engine commit it ran against.
 
+> **✉ note:t93_5** id=2026-11-15T15:08:12Z.9c27eb3898b9ba1435e1dae2 from=aitasks_go#t93_5 from_verified=yes at=2026-11-15T15:08:12Z base=172d5e4af21ce7986be7b5b555442ba8b8c57600 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t93_5 (code commit ff311ca; numbers taken 2026-11-15 on host omg16). The A.1 xref_task replay on the Go engine, for D6 / D13.1.
+> | 
+> | Replay: goengines/ci/taskquery_replay.sh --aitasks <checkout> [--ext] -> TQREPLAY:PASS|FAIL:<run>/<senders>|NOT_RUN:<reason>. It copies the corpus once, runs A.1's own Python code over the copy (verbatim except for the listed wrappers), and holds the engine (mentions / mentioned-by, --tier compat --sources description, no --plans, the incoming-parent rule, restricted to A.1's U) to it, set-equal per sender before any aggregate.
+> | 
+> | Result on aitasks code af0dca45c / data 8bc03b22f (dirty at copy time; a re-run on code 172d5e4a / data 30146fdc gave identical totals): TQREPLAY:PASS, no duplicate-class or other differences.
+> | - Run 1, A.1's universe (loose archive only): 36 senders, 283 recipients, recall 195/283 = 69%, 629 candidates (17.5 per sender).
+> | - Run 2, plus the archive bundles: 38 senders, 295 recipients, recall 266/295 = 90%, 887 candidates (23.3 per sender). This is the comparable row. Run 1 is low because many senders' own bodies now live in bundles (e.g. t1794_9: 0/1 in Run 1, 54/108 in Run 2).
+> | - Run 3, Run 2 with the ext tier: 266/295, 890 candidates (+3, no new recipient).
+> | - The 2026-11-04 baseline (13 senders, 143 recipients, 86% at ~23 per sender) was on a different, pre-bundling corpus; these numbers do not adjust it.
+> | - Mutation checks (dropping the parent rule / the U restriction / --tier compat) each turn the verdict into FAIL.
+> | 
+> | Per-sender table (sent, A.1 and engine hits/candidates, Runs 1-3): aitasks_go aiplans/archived/p93/p93_5_measurement_replay_coordination.md, section "Results", once t93_5 archives (until then aiplans/p93/).
+> | 
+> | Speed (ci/taskquery_perf.sh, one snapshot, both sides on P-cores 0-7, whole process, min ms; the engine does more work per file than the Python baseline):
+> | - active tasks + plans (907 files): CPython 471, engine 64.
+> | - plus the loose archive (1,546 files): CPython 1,020, engine 193.
+> | - plus the bundles (5,847 files): CPython 4,128, engine 665.
+> | - On one core the engine takes 280 / 798 / 2,777 ms. PyPy 3.12 is no faster than CPython here.
+> | Tuning is aitasks_go#t127.
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
