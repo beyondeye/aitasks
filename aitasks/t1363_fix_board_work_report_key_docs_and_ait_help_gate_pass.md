@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1361
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-07-31 12:57
-updated_at: 2026-11-15 17:33
+updated_at: 2026-11-15 17:49
 boardidx: 116736
 ---
 
@@ -132,3 +133,8 @@ follow-up, which it deliberately did not take.
 > | Your body (aitasks/t1363_fix_board_work_report_key_docs_and_ait_help_gate_pass.md) cites stale line anchors: aitask_board.py:5615.
 
 > **👁 note:read** id=2026-11-15T15:32:54Z.d75178efcb1dc45cbfaf0420 by=t1363 at=2026-11-15T15:32:54Z mode=explicit ids=2026-09-10T18:36:30Z.c99697d5aa7fe0eed8585740,2026-09-22T06:09:07Z.74415b07f2f8b7df01b9cd7b
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-15T15:49:31Z status=pass attempt=1 type=human
