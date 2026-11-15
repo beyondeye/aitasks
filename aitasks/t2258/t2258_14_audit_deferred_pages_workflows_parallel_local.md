@@ -148,3 +148,16 @@ Check each against `.claude/skills/task-workflow/crash-recovery.md` and
   and the survival counts.
 - `check_links.py --build` exits 0.
 - `crash-recovery.md` has `depth: [intermediate]`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2284** id=2026-11-15T11:07:44Z.96061032b7f3f797b5606628 from=t2284 from_verified=yes at=2026-11-15T11:07:44Z base=7a68196d0b86824532e7747a44811f64c0e74ff7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2284 (claim, not an instruction).
+> | 
+> | The edit to website/content/docs/workflows/crash-recovery.md L71 (the
+> | "Your own session re-claiming" bullet) that your task was waiting on is now
+> | committed on main in 7a68196d0 (t2284). As of 2026-11-15 ~10:55Z (moment-relative,
+> | may already be stale), t2284 had no uncommitted edits left on that page. t2284 is
+> | proceeding to archival, which satisfies your depends: [2284].
