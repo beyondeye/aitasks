@@ -43,3 +43,50 @@ After a tmux / host crash, a repo is left with many tasks that are `status: Impl
 ## Read first
 
 `aidocs/framework/sitrep.md`, `website/content/docs/workflows/crash-recovery.md`, `.aitask-scripts/lib/sitrep_harvest.py`, `.aitask-scripts/lib/sitrep_refresh.py`, `.aitask-scripts/aitask_lock.sh` (`--list --batch`), `.aitask-scripts/aitask_gate.sh status`.
+
+## Added findings: phase, plan and staleness classification (2026-11-15 survey)
+
+A manual survey of the 17 crashed tasks showed that "crashed" alone is not enough to decide what to do next. Detection must also classify **which phase the agent died in**, **whether a plan exists**, and **whether that plan is stale**, plus how much uncommitted work survives.
+
+### 1. Phase at crash (planning / implementing / post_impl)
+
+Derive from the gate ledger, reusing `aitask_gate.sh resume-point` / `workflow-phase` and `board/board_workflow_phase.py` `derive_workflow_phase` (do not reimplement the ladder):
+
+- `planning` — `Implementing`, no `plan_approved` recorded (resume point PLAN). NOTE: `status: Implementing` is set at claim time, before planning, so the status alone does not mean implementation had begun. Today 14 of 17 are in this bucket, 2 of them with a plan file (t1912_2, t2285).
+- `implementing` — `plan_approved: pass`, resume point IMPLEMENT (t2284, t2286, t2290). Accepted limitation: the ledger records nothing between `plan_approved` and `review_approved`, so "barely started" and "almost done" look the same. Corroborate with the uncommitted-work survey (item 3).
+- `post_impl` — `review_approved: pass` (resume point POSTIMPL), or a `needs_attended_agent` / `awaiting_review` state. None of the 17 is here today, so the detector needs a fixture that makes it reachable.
+- Provenance (`ledger` / `marker` / `derived` / `unknown` / `error`) is stored with the phase; an unreadable ledger is `error`, never folded into "planning". With no ledger the phase is `unknown`, not a guess.
+
+### 2. Plan presence and plan staleness
+
+- **Plan exists:** the `aiplans/p<N>.md` (or `aiplans/p<parent>/p<N>_<M>_*.md`) probe; reuse `_resolve_plan_path_for_task`. Report separately whether it is **approved** (`plan_approved` pass in the ledger, or the deferred-plan marker `plan_approved_at`). Observed: 5 of 17 have a plan file, 3 of those approved.
+- **Plan stale:** a plan is stale when the premise it was written against has moved. Use the existing premise machinery (`premise_baseline: <sha> @ <ts>` in frontmatter; `ait update --premise-baseline`) and the gate ledger's code-bound signature (`gate_ledger` stale-signature demotion, t1416): compare the baseline commit with HEAD for the plan's referenced files (`file_references:` / paths named in the plan). Also flag a plan whose approval is older than commits that touched those files, and an approved plan on a task whose lock is long dead (age of crash is a signal, e.g. t1555_2 locked 2026-08-18). Staleness is **advisory evidence, never a verdict**: it downgrades the resume suggestion ("re-verify the plan first") and never auto-discards a plan. When there is no baseline or no file list, report `staleness: unknown`, not `fresh`.
+- Output per task: `plan: none | draft | approved` and `plan_fresh: fresh | stale:<why> | unknown`.
+
+### 3. Surviving work
+
+Per-task `aiwork/<task>` worktrees may not exist: in this repo (profile `fast`) every crashed task ran in the shared main checkout and none had a worktree. The survey must therefore:
+
+- handle the worktree case AND the shared-tree case;
+- in the shared tree, attribute uncommitted files to a task only by evidence (files named in the task's plan / task text, the task's own `ait:` commits), reporting source-tagged evidence and an `unattributed` bucket instead of guessing (CLAUDE.md memory: helpers report evidence, the agent judges);
+- flag overlaps where two crashed tasks touch the same file (t2284 and t2286 both touch `aitask_create.sh`) so resuming one does not clobber the other's hunks;
+- count commits referencing the task `(tNN)` (0 for all 17 today: only `ait:` bookkeeping commits exist);
+- carry a loud "do not `git restore` / `git stash` / checkout the tree" warning on any item with uncommitted work.
+
+### 4. Reference data: the 2026-11-15 survey (use as test fixtures / acceptance cases)
+
+| Task | Phase | Plan | Uncommitted work |
+|---|---|---|---|
+| t2284 | implementing (plan_approved 2026-11-12) | approved, has unsaved edit in aitask-data | ~13 files: `aitask_create.sh` anchor walk, `gate_orchestrator.py`, tests, docs, website |
+| t2286 | implementing (plan_approved 2026-11-12) | approved | ~8 files: chatlink daemon / live_check / wizard test / docs |
+| t2290 | implementing (plan_approved 2026-11-13) | approved | ~12 modified + 3 untracked test-infra files (`tmpdir_guard.sh`, `run_shell_test.sh`, `test_tmpdir_guard.sh`) |
+| t1912_2, t2285 | planning (no ledger) | file exists, never approved | none |
+| t1555_2, t1576, t1697, t1699, t1912_2, t2199, t2216, t2264, t2287, t2289, t2291, t2292, t2293 | planning / unknown (no ledger) | none | none attributable |
+| t259 | not a crash | n/a | stale lock on a `Ready` task, no PID anchor |
+| t1699 | orphan | none | `Implementing` with no lock at all |
+
+### 5. Acceptance additions
+
+- The detector emits, per crashed task: `phase`, `phase_provenance`, `plan` (none/draft/approved), `plan_fresh`, `uncommitted_files` (attributed count + unattributed count), `overlaps`, `lock_age`.
+- Suggested resume ranking: implementing-with-approved-fresh-plan and surviving work first; then approved-but-stale (re-verify plan); then plan-exists-unapproved; then planning/no-plan. `post_impl` crashes rank by what remains (review / procedure gates / archive), not by implementation.
+- Tests: a ledger fixture per phase (including a reachable `post_impl`), a stale-plan fixture (baseline behind HEAD on a referenced file), a no-baseline fixture (must read `unknown`, not `fresh`), an unreadable-ledger fixture (must read `error`), a shared-tree fixture with two tasks touching one file, and negative controls for "unknown liveness is not crashed" and "unattributed is not attributed".
