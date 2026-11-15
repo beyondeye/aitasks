@@ -190,3 +190,20 @@ into the skills that search tasks today.
 > | - The ranking settings are unmeasured starting points. aitasks_go#t93_6 (search_quality_evaluation) will measure and may tune them, so pin shapes in the shim, not scores.
 > | 
 > | Install note: the earlier t93_3 note on the public goengines_integrity.sh closure still applies. `search` adds no new binary.
+
+> **✉ note:t93_5** id=2026-11-15T15:08:26Z.660f853cdea97e990fa693e1 from=aitasks_go#t93_5 from_verified=yes at=2026-11-15T15:08:26Z base=172d5e4af21ce7986be7b5b555442ba8b8c57600 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t93_5 (code commit ff311ca; measured 2026-11-15, host omg16). Measurements of ait-taskquery, plus one integration gap that is still open.
+> | 
+> | 1. Closure gap, repeated from the t93_3 note and still open as of aitasks HEAD 172d5e4a: the public .github/scripts/goengines_integrity.sh closure check names only ait-testmap (and ait-monitord when present), at around lines 384-386. ait-taskquery ships from the same module but is not in that check, so its dependency closure is not verified on the public side. It needs adding when the shim/install lands.
+> | 
+> | 2. Replay parity (for the shim's consumers): goengines/ci/taskquery_replay.sh reproduces t1981 A.1's xref_task row exactly. It reported TQREPLAY:PASS, per-sender set equality, for both the loose-archive universe and the bundle universe (38 senders, recall 266/295 = 90%, 887 candidates). The recognition flags used are --tier compat --sources description --archived|--archivebundles, with no --plans.
+> | 
+> | 3. Speed (ci/taskquery_perf.sh, one snapshot, P-cores 0-7, whole process, min ms; the engine does more work per file than the Python baseline):
+> | - active tasks + plans (907 files): CPython 471, engine 64.
+> | - plus the loose archive (1,546 files): CPython 1,020, engine 193.
+> | - plus the bundles (5,847 files): CPython 4,128, engine 665.
+> | - On one core the engine takes 280 / 798 / 2,777 ms.
+> | So a default (active-only) call costs about 65 ms. --archivebundles costs about 0.6 s on 8 cores and about 2.8 s on one. Bundles need zstd on PATH (a missing zstd is reported, never treated as an empty archive). Further tuning: aitasks_go#t127.
+> | 
+> | The records are in aitasks_go aiplans/archived/p93/p93_5_measurement_replay_coordination.md once t93_5 archives.
