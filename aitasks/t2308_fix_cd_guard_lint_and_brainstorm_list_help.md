@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1879
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 22:11
-updated_at: 2026-11-15 22:33
+updated_at: 2026-11-15 22:38
 ---
 
 ## Origin
@@ -36,3 +37,8 @@ Before t2305 updated `website/content/docs/tuis/brainstorm/reference.md` to say 
 
 - cd-guard: confine the `cd` per `tests/lib/cd_guard_scan.py` / `aidocs/framework/testing_conventions.md`, e.g. an exit-guarded `cd "$REPO" || exit 1` inside the subshell, or the confined `&&`-chain form the scanner accepts. Re-run `bash tests/test_cd_guard_lint.sh` and `bash tests/test_issue_update_ledger.sh`.
 - `list --help`: either have `aitask_brainstorm_status.sh` print list-specific usage when `--list` is combined with `--help`, or handle `list --help` / `list -h` in the `ait` dispatcher's brainstorm block.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-15T20:38:56Z status=pass attempt=1 type=human
