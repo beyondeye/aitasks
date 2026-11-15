@@ -448,3 +448,151 @@ other sessions' staged entries. Commit the plan via
 ### Planned mitigations
 - timing: pre-phase | name: shared_runner_hunk_gate | type: chore | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health (another task's uncommitted hunk in the shared runner) | desc: stage only t2290's hunks in run_all_python_tests.sh / CLAUDE.md via git apply --cached
 - timing: post-phase | name: full_guarded_suite_run | type: test | priority: high | effort: medium | inline_risk: low | added_complexity: low | addresses: code-health (TMPDIR assumptions) + goal-achievement (guard coverage) | desc: full Python + shell suite under the guard vs an unguarded baseline; fix guard-only failures, tabulate leftovers
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-15 14:20)
+- **Requested by user:** `tests/lib/tmpdir_guard.sh` `_tg_append_signal_trap`
+  stripped a trailing ` TERM` from `trap -p TERM`, but bash prints `SIGTERM`
+  (and quotes the action), so the composing `eval` failed, `tmpdir_guard_begin`
+  still returned 0, and with an existing HUP/INT/TERM handler a signal ran only
+  the old handler and execution continued (no 129/130/143). Fix with correct
+  signal-name and quoting handling; cover the composition in the test.
+- **Verified:** reproduced for HUP, INT and TERM before the fix.
+- **Changes made:**
+  - New `_tg_trap_word <SIG>`: returns the action as the shell-quoted word
+    `trap -p` emits, dropping the signal name as the last space-separated
+    token (spelling-agnostic: `SIGTERM`, `EXIT`), and nothing for no handler
+    or an ignore (`''`). Callers splice the quoted word next to their own
+    quoted string, so an action containing `'` survives.
+  - `_tg_append_signal_trap` / `_tg_prepend_exit_trap` both use it; an ignored
+    signal is replaced (a guarded run must be interruptible).
+  - New `_tg_traps_armed`: begin checks the RESULT (EXIT has
+    `tmpdir_guard_end`; HUP/INT/TERM have `_tg_on_signal`, or are still `''`,
+    i.e. ignored at shell entry, which bash cannot trap and which cannot
+    interrupt the run — the background-wrapper case (d) relies on this). On
+    failure begin warns, runs `tmpdir_guard_end` (dir removed, TMPDIR
+    restored) and returns 2, so callers run unguarded.
+  - Tests: (j) existing quoted HUP/INT/TERM + quoted EXIT handlers all run
+    intact, exit 128+n, no continuation, dir removed; (k) an ignored TERM still
+    interrupts (143); (l) a failed install makes begin back out (rc 2, TMPDIR
+    restored, no dir). Pre-fix control (original functions in a scratch copy):
+    j/k/l fail (10 assertions); with the fix 60/60 pass.
+  - Re-ran the real interrupt check: exit 143, guard dir gone, no process left
+    with the run's TMPDIR. `test_python_runner_exit_status.sh` passes.
+- **Files affected:** tests/lib/tmpdir_guard.sh, tests/test_tmpdir_guard.sh
+
+### Change Request 2 (2026-11-15 14:45)
+- **Requested by user:** `_tg_append_signal_trap` runs the guard's action
+  after the caller's existing handler, so a handler that calls `exit` makes
+  it unreachable; with `trap 'exit 0' TERM` during `tmpdir_guard_run` the
+  wrapper exited 0 and its EXIT handler removed the guard dir while the phase
+  child stayed alive. The "trap text contains `_tg_on_signal`" check cannot
+  see this. Stop the active child group before cleanup even then; add an
+  exiting-handler regression case.
+- **Verified:** reproduced (wrapper exit 0, phase child alive, dir removed).
+- **Changes made:**
+  - `tmpdir_guard_end` (reached by EVERY exit route: the guard's own signal
+    path, a caller's exiting handler, `set -e` aborts, explicit exits) now
+    stops the active phase group via `_tg_stop_child` (TERM, wait <= 10s,
+    KILL) before it lists and removes the directory, and says so on stderr.
+    The exit status remains the caller's (its handler chose it).
+  - Test (m): prior `trap 'exit 0' TERM`, a phase that touches a file in
+    TMPDIR every 0.1s, TERM to the wrapper: status 0, phase child gone, dir
+    gone (re-checked after 1s), stop message printed. Pre-fix control (lib
+    without the new block): m fails (child alive, no message); with the fix
+    64/64 pass. `test_python_runner_exit_status.sh` passes.
+- **Files affected:** tests/lib/tmpdir_guard.sh, tests/test_tmpdir_guard.sh
+
+## Final Implementation Notes
+- **Actual work done:** Plan steps 1-6 were implemented by the first session,
+  which crashed (tmux/host crash, 2026-11-14 22:43). The resumed session
+  (2026-11-15) verified them and then did step 7 and the post-phase:
+  - 1 `test_roadmap_run.py` addCleanup; 2 `txn_snap_init` re-entrant;
+    3 `aitask_fold_mark.sh` EXIT trap armed before the snapshot loop;
+    4 TMPDIR under the test's own `$TMP` in test_txn_snapshot / test_fold_mark /
+    test_release_notify(_branch_mode); 5 pid-tagged counter files + stale
+    sweep in `tests/lib/asserts.sh` (+ T15 in test_asserts_counters.sh);
+    6 `tests/lib/tmpdir_guard.sh`, `tests/run_shell_test.sh`, runner wiring in
+    `tests/run_all_python_tests.sh`, CLAUDE.md "Hunting /tmp leaks" paragraph,
+    `tests/test_tmpdir_guard.sh` (64 assertions after review).
+  - 7 Producer fixes. Shell: test_claim_id (tar staging under the case dir),
+    test_find_files (run-level base; subshell lost TMPDIR_BASE),
+    test_registry_cas (restore caller's TMPDIR, not /tmp),
+    test_skill_render_task_workflow (one EXIT trap + registry; sections used to
+    overwrite each other's trap), test_monitor_status_recording (addCleanup).
+    Counter files never removed by 12 opted-in tests: `_ait_refuse_exit` in
+    `tests/lib/tmux_isolation.sh` (tmux refusal exit after
+    assert_counters_init) + removal in 5 cleanup functions (shared
+    `tests/lib/frozen_fixtures.sh`, test_frozen_agents_acceptance,
+    test_cleanup_rule_parity, test_frozen_standin_spike,
+    test_frozenagent_standin_stamp). Python: all 25 full-suite leftovers
+    attributed per module (each of 440 modules under its own guard) and fixed:
+    test_brainstorm_guarded_dismiss (module `_mkdtemp(case)` helper),
+    _module_ops_integration (`_StubRepo.__exit__` rmtree, argv kept in
+    memory), _module_sync_apply_contract (`__exit__` rmtree), _session,
+    _wizard_nav_consolidation, test_plan_paths, test_gate_ledger_public_api
+    (addCleanup), test_settings_project_config_value_types (`--log` into the
+    fixture).
+- **Evidence (post-phase full_guarded_suite_run):**
+  - Guarded Python suite (-n 4): 25 leftovers -> all attributed and fixed.
+    8 failures (test_screen_recording_cli x6, test_aitask_questions x2) all
+    reproduce unguarded (`pytest` direct) -> pre-existing, not guard
+    regressions (test_aitask_questions is t2281 in-flight work).
+  - 499 shell tests via run_shell_test.sh -P 4: 22 non-zero. 12 rc=2 are
+    the "cannot run from inside tmux" refusal (environmental). 9 rc=1
+    reproduce unguarded. test_skill_verify passed unguarded and guarded
+    alone: its -P 4 failure was a cross-test race with the _t777_* fixture
+    skills other tests create in the real `.claude/skills` tree. Zero
+    guard-only failures.
+  - Interrupt: TERM ~20s into a real guarded Python run (4 xdist workers
+    up) -> exit 143, guard dir gone, 0 processes with the run's TMPDIR
+    (re-run after each review fix).
+  - Global /tmp marker diff (`find -newer`, mtime-based): only
+    ait_isolated_tmux_<uid>, tmux-<uid>, 3 aitask-locks-<uid>-* (existing
+    per-repo lock bases, mtime touched) and codex-bwrap-synthetic-mount-
+    targets-<uid> (Codex CLI's own). Nothing new attributable to aitasks.
+- **Static bypass audit (literal /tmp / TMPDIR / TMUX_TMPDIR creation
+  sites, 154 lines):**
+  | site(s) | classification |
+  |---|---|
+  | `mktemp -d /tmp/...` in live tmux tests (list_panes_session_scope, monitor_harvest_close, monitor_server_restart_hook, project_resolve, session_hook, setup_python_install, sitrep_request_delivery, tmux_spawn_path, tmux_utf8_client) | cleaned on every exit (EXIT trap) — /tmp on purpose for short AF_UNIX paths |
+  | `mkdtemp(dir="/tmp")` in board/trails focus_mailbox_live, monitor_pane_option_live, monitor_status_recording | cleaned on every exit (addCleanup) |
+  | `/tmp/ait_isolated_tmux_<uid>` (tests/lib/tmux_isolation.sh) | intentionally persistent: fixed per-user dir reused across runs; one mktemp dir per run only when the fixed name is squatted |
+  | crew tests' `/tmp/work2do*.md`, apply_initializer `/tmp/*_err`, `/tmp/ait_test_templates` | cleaned inline (success path); fixed names, so an aborted run leaves at most one file per name, overwritten next run — cannot accumulate |
+  | per-case `TMUX_TMPDIR=$FIXTURE_DIR` exports | fixture dirs removed by each test's trap |
+- **Deviations from plan:**
+  - The plan assumed `assert_counters_load` removes the counter file; it
+    never does (the contract in asserts.sh:37 puts the removal in each
+    caller's EXIT trap). 12 opted-in tests had no removal at all; fixed at
+    their cleanup functions instead (load is called mid-file in several
+    tests, so the library cannot delete on load).
+  - Remaining test-side producers (more than a handful) went to follow-up
+    t2302 rather than being fixed here: `aitask-locks-<uid>-<cksum>` in 38
+    tests (no AITASKS_LOCK_DIR), `aitask_verify_build_*` /
+    `aitask_resource_admission_*` mktemp logs, `ait_commit_scoped_err.*`
+    (wedge-die path), bare `tmp.*` in 7 tests, chatlink / applink / codex
+    fixtures. Some chatlink files were in another session's uncommitted
+    work.
+  - The guard stays warn-only; flipping to fail is left to t2302 once its
+    producers are fixed.
+- **Issues encountered:** The first session's scratchpad (its logs) did not
+  survive the crash, so step 7 was redone from scratch. Review found two
+  signal-composition defects in tmpdir_guard.sh (Change Requests 1-2).
+- **Key decisions:** Guard back-out on failed trap installation (begin
+  returns 2, caller runs unguarded) rather than a guard without a signal
+  path; signals ignored at shell entry are accepted (untrappable and unable
+  to interrupt). Stopping the phase lives in tmpdir_guard_end so every exit
+  route is covered. The t2281 export in run_all_python_tests.sh had been
+  committed in the middle of the t1179 comment; the comment was moved back
+  together around it (no t2281 line changed).
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/task_utils.sh:1017` — `task_git_commit_scoped`
+    creates `ait_commit_scoped_err.*` before `assert_data_worktree_clean`,
+    which `die`s on a wedged data worktree, so every wedge-die leaks one empty
+    temp file (the test-side part is listed in t2302).
+- **Commit method:** the pre-phase pinned-base plumbing commit existed to keep
+  t2281's uncommitted runner hunk out. By commit time t2281 had committed it
+  (HEAD 530a62f96), no t2290 file carried a foreign hunk, and the shared index
+  had nothing staged, so the standard path-scoped `git commit -F - -- <33
+  paths>` was used (70e18f6f1). `git show --stat` lists exactly those 33 files.
