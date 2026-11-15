@@ -150,3 +150,27 @@ no copy of the text. The web-merge hint is checked for complete invocations,
 not only for the absence of the old verb. It routes the user through the
 validated `aitask_web_merge.sh materialize` helper rather than a raw
 `materialize-active`, so the manual path keeps the marker-provenance check.
+
+## Final Implementation Notes
+- **Actual work done:** All six plan steps up to the commit were carried out as written:
+  - The wrap `.md.j2` archive-failure hint now names `./.aitask-scripts/aitask_archive.sh <N>`.
+  - The web-merge `materialize-gates.md` "Abort this branch" hint now gives a full recovery route: fix the marker/profile, then re-run `./.aitask-scripts/aitask_web_merge.sh materialize <task_id> <marker_json_file>` until it returns a continue outcome (`WEBMAT_OK` or `WEBMAT_SKIP:no-profile`), then run `./.aitask-scripts/aitask_archive.sh <task_id>`.
+  - Two test comments that named `ait archive --superseded` were corrected.
+  - All 6 aitask-wrap goldens (claude/codex × default/fast/remote) were regenerated.
+- **Deviations from plan:** None during implementation. Two plan-review rounds before approval revised Step 2:
+  - The bare `aitask_gate.sh materialize-active` reference was replaced with the validated `aitask_web_merge.sh materialize` helper. The bare call dies on its missing `<task-id> --profile <file>` arguments, and a hand-picked profile would bypass the marker-provenance check.
+  - The success condition now names the procedure's full continue set rather than `WEBMAT_OK` alone, because `WEBMAT_SKIP:no-profile` also exits 0 for a legacy marker.
+- **Issues encountered:** None.
+- **Key decisions:**
+  - No port edits were needed. The Codex and OpenCode aitask-wrap variants are gitignored renders of the same `.md.j2`. The `.agents/` and `.opencode/` aitask-web-merge ports are thin "Source of Truth" wrappers that read `.claude/skills/aitask-web-merge/SKILL.md` and follow it, so they pick up the `materialize-gates.md` edit directly. The planning note that called this a port gap was wrong: there is no gap.
+  - `materialize-gates.md` appears in no golden, so it needed no regeneration.
+- **Verification results:**
+  - `git grep "ait archive"` (excluding task data) returns no hits.
+  - `aitask_archive.sh --help` shows `<task_num>` as its only required argument.
+  - `aitask_web_merge.sh materialize` with no arguments prints `WEBMAT_INVALID:usage (expected: materialize <task_id> <marker_json>)`.
+  - `materialize-gates.md` has no bare `materialize-active` reference left.
+  - `tests/test_skill_render_aitask_wrap.sh` passes 96/96.
+  - `tests/test_docs_vocabulary_coverage.sh` passes 32/32.
+  - `aitask_skill_verify.sh` reports OK.
+  - `py_compile` of `docs_vocabulary_scan.py` succeeds.
+- **Upstream defects identified:** None
