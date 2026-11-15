@@ -42,6 +42,7 @@ bash_scripts
 board
 board_columns
 brainstom_modules
+brainstorm
 brainstorm_detailer
 brainstorm_explore
 brainstorm_synthetize
