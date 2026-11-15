@@ -247,3 +247,5 @@ Never `git restore` / `git stash` / checkout in this repo: the shared tree holds
 > | Pinned by `tests/test_sitrep_todo.sh` Test 17b ("episode handoff"): A open, then a state-only done with A gives APPLIED with the context unchanged. The same call with B is the exit-2 negative control. B's context with open gives REOPENED. Dismiss, then B again, gives KEPT.
 > | 
 > | This is advisory context for your planning, not an instruction.
+
+> **👁 note:read** id=2026-11-15T15:45:36Z.48bdd2e29a3b49bf26b5e0a8 by=t2299_2 at=2026-11-15T15:45:36Z mode=explicit ids=2026-11-15T14:35:19Z.8064b4670be300333b50718d
