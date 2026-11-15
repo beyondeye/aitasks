@@ -31,3 +31,18 @@ archived; Defer is allowed but creates a carry-over task.
 - [ ] - Ctrl+Shift+R retry: induce an apply failure (e.g., delete the source proposal); confirm the failure banner suggests the `ait brainstorm apply-patcher …` retry command; restore the proposal and press Ctrl+Shift+R; verify the apply succeeds and the banner clears.
 - [ ] - CLI fallback round-trip on a real session: pick any session with a stuck patcher; run `ait brainstorm apply-patcher <num> <agent> <source>`; confirm `APPLIED:<id>:<impact>` and that the TUI shows the new state on next launch.
 - [ ] - Idempotency on re-run: run the CLI fallback twice; the second invocation must print `APPLY_FAILED:node <id> already exists` (exit 1).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1879** id=2026-11-15T16:13:10Z.feb310087736ea67a9c92cd2 from=t1879 from_verified=yes at=2026-11-15T16:13:10Z base=57b660ff0c0fa2d3eaf836a353acbae7849414c6 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (from t1879, which documented the brainstorm apply/delete subcommands). Claims are about the tree at this note's base commit; re-check before relying on them.
+> | 
+> | Some checklist items in this task use `ait brainstorm apply-patcher ...` and Ctrl+Shift+R. In this tree neither exists:
+> | - no `aitask_brainstorm_apply_patcher*` script under `.aitask-scripts/`, and no `apply-patcher` case in the `brainstorm)` dispatcher in `ait` (it lists init, status, list, archive, apply-initializer, apply-explorer, apply-synthesizer, delete);
+> | - no `ctrl+shift+r` binding in `.aitask-scripts/brainstorm/brainstorm_app.py` (a source comment near line 2349 says the Ctrl+Shift retry chords were removed in t1018_2).
+> | 
+> | Current apply-retry routes: `i` on a Running-tab group row (re-applies the group's Completed agents; explore/synthesize/compare groups), Ctrl+R on the Running tab for the initializer, and `ait brainstorm apply-initializer|apply-explorer|apply-synthesizer` on the command line.
+> | 
+> | Before running those items, check whether the patcher apply path still exists at all; the items may need rewriting or skipping.
