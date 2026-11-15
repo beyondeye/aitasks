@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
@@ -107,3 +109,5 @@ See `aiplans/p2278/p2278_1_marker_grammar_check_and_migration.md`.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-15T16:53:00Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-15T20:13:50Z status=pass attempt=1 type=human
