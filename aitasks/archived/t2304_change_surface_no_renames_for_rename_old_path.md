@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testmap, bash_scripts]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 17:53
-updated_at: 2026-11-15 22:39
+updated_at: 2026-11-15 23:23
+completed_at: 2026-11-15 23:23
 ---
 
 ## Context
@@ -95,3 +96,14 @@ sync, and tell aitasks_go#t61_1 / t61_5 the landing commit with `ait note`.
 > **✅ gate:plan_approved** run=2026-11-15T20:39:12Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-15T21:10:43Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-15T21:22:59Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:9e72ffdf49a1390b
+
+> **✅ gate:risk_evaluated** run=2026-11-15T21:22:59Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2304/risk_evaluated_2026-11-15T21:22:59Z-risk_evaluated-a1.log`
