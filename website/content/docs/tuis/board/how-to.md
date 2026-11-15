@@ -384,18 +384,18 @@ A work report summarizes what you are working on for someone who does not read t
 **Generating the report:**
 
 1. Focus any card in the column you want to report on, or the column's placeholder if it is collapsed or empty
-2. Press **W**
+2. Press **w**
 3. In the column picker, check every column the report should cover — the focused column is already checked. Press **Space** to toggle, **Enter** to confirm, **Esc** to cancel
 4. In the task picker, all tasks start checked. Deselect anything to exclude from the report, then press **Enter**
 5. The agent command dialog opens with the reviewed selection filled in. Launch it, or adjust the agent, model, or profile first
 
 The task picker always lists the full contents of each selected column, even when a search or view filter is currently narrowing the board — so a report never silently omits work just because it is filtered out of view. Ordering follows each column's board order and is preserved in the report.
 
-The **W** key is column-scoped: it appears in the persistent kanban views whenever a focused card or column placeholder identifies a column, and is hidden in the In-Flight, By-Topic and By-Trail views, which show derived lanes rather than columns. If you confirm a selection with no columns or no tasks in it, the board shows a notification instead of launching.
+The **w** key is column-scoped: it appears in the persistent kanban views whenever a focused card or column placeholder identifies a column, and is hidden in the In-Flight, By-Topic and By-Trail views, which show derived lanes rather than columns. If you confirm a selection with no columns or no tasks in it, the board shows a notification instead of launching.
 
 **Choosing the agent:** the `work-report` operation resolves through the [code agent wrapper]({{< relref "/docs/commands/codeagent" >}}). Change its default by editing `defaults."work-report"` in `aitasks/metadata/codeagent_config.json` (shared with the project) or `codeagent_config.local.json` (your personal override, which takes precedence), or from the Agent Defaults tab in `ait settings`. The launch dialog also lets you override the agent and model for a single run.
 
-> **Note:** To rebind **W** itself, press **?** on the board to open the shortcut editor, or use the Shortcuts tab in `ait settings`. Overrides are saved to `aitasks/metadata/userconfig.yaml` under `shortcuts.board.work_report` — not to `board_config.json`, which holds only column definitions.
+> **Note:** To rebind **w** itself, press **?** on the board to open the shortcut editor, or use the Shortcuts tab in `ait settings`. Overrides are saved to `aitasks/metadata/userconfig.yaml` under `shortcuts.board.work_report` — not to `board_config.json`, which holds only column definitions.
 
 For the full workflow, including how to read the completion projection, see [Work Report]({{< relref "/docs/workflows/work-report" >}}).
 
