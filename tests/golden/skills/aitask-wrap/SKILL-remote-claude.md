@@ -346,7 +346,7 @@ Both are included. `git diff` shows unstaged, `git diff --cached` shows staged. 
 If `aitask_create.sh --batch --commit` fails (e.g., no network for atomic counter), display the error and abort. No code changes will have been committed at this point.
 
 ### Archive Fails
-If `aitask_archive.sh` fails, display the error. The task and code commit will still exist — the user can archive manually later with `ait archive <N>`.
+If `aitask_archive.sh` fails, display the error. The task and code commit will still exist — the user can archive manually later with `./.aitask-scripts/aitask_archive.sh <N>`.
 
 ## Notes
 

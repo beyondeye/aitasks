@@ -30,7 +30,7 @@ Parse the single output line:
   - Header: "Materialize"
   - Options:
     - "Retry" (description: "Re-run this sub-step after fixing the marker/profile")
-    - "Abort this branch" (description: "Code merge stays committed; task stays unarchived — re-run aitask-web-merge later (no-op merge) or repair manually via aitask_gate.sh materialize-active + ait archive")
+    - "Abort this branch" (description: "Code merge stays committed; task stays unarchived — re-run aitask-web-merge later (no-op merge), or repair manually: fix the marker/profile, re-run ./.aitask-scripts/aitask_web_merge.sh materialize <task_id> <marker_json_file> until it returns a continue outcome (WEBMAT_OK or WEBMAT_SKIP:no-profile, as listed above), then ./.aitask-scripts/aitask_archive.sh <task_id>")
   Never self-append a gate result to work around the failure.
 
 When the procedure returns with a continue outcome, resume Step 5 (agent

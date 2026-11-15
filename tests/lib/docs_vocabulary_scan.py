@@ -190,7 +190,7 @@ DRAFT_ONLY_KEYS = {
 OTHER_WRITERS = {
     "completed_at": (".aitask-scripts/aitask_archive.sh",
                      'print "completed_at: '),
-    # `ait archive --superseded`. Same script and same awk-insertion shape as
+    # `aitask_archive.sh --superseded`. Same script and same awk-insertion shape as
     # completed_at, one line below it.
     "archived_reason": (".aitask-scripts/aitask_archive.sh",
                         'print "archived_reason: '),

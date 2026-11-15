@@ -326,7 +326,7 @@ test_control_corpus_unknown_key() {
 # Test 12b - check E, positive control: a REGISTERED key on disk is accepted
 #
 # The mirror of Test 12 on the same axis. `archived_reason` is written by
-# `ait archive --superseded` and registered in OTHER_WRITERS (t1732); it must
+# `aitask_archive.sh --superseded` and registered in OTHER_WRITERS (t1732); it must
 # not be reported as an unknown key. Doing this in the fixture rather than
 # leaning on the live corpus matters: the live repo currently proves it via a
 # single archived file, and that file will eventually be folded into an
