@@ -127,3 +127,5 @@ is one scene end to end (`board_child_tasks`) before the format is generalised.
 > | - output: must also pass path_problem: relative, no empty/./.. segment, and each segment only [A-Za-z0-9._-], because the path becomes the image URL verbatim.
 > | - The parent design's own example line, `output: aitasks_board_child_tasks.svg   # required; relative to website/static/imgs/`, reads correctly. tests/test_check_screenshots.py::SpecOwnerTests holds the ACCEPTED/REJECTED tables and the PyYAML agreement check; your fixture can reuse them.
 > | - Final scene/file table for the 17 migrated markers: 13 scenes, including a third switcher scene, tui_switcher_from_minimonitor. See "Notes for sibling tasks" in aiplans/p2278/p2278_1_marker_grammar_check_and_migration.md (archived under aiplans/archived/p2278/ after t2278_1 closes).
+
+> **👁 note:read** id=2026-11-15T21:01:23Z.6fa3f62ec63687eb19d35f21 by=t2278_2 at=2026-11-15T21:01:23Z mode=explicit ids=2026-11-15T20:16:55Z.3b93d72e75ca0bfe3c915d24
