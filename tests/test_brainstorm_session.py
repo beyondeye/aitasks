@@ -17,6 +17,7 @@ the apply.
 from __future__ import annotations
 
 import sys
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -153,6 +154,7 @@ class ApplyInitializerDefaultsTests(unittest.TestCase):
 
     def _run_apply(self, node_yaml_lines: list[str]) -> tuple[Path, dict]:
         td = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, td, True)  # removed on cleanup (t2290)
         wt = Path(td)
         _seed_apply(wt, node_yaml_lines)
         with patch(

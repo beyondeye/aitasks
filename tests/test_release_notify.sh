@@ -60,6 +60,9 @@ command -v jq >/dev/null 2>&1 || { echo "SKIP: jq is required by the gh/glab stu
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/test_release_notify_XXXXXX")"
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
+# The move seam SIGKILLs the helper on purpose, so its ait_ril_pending_* save
+# file can never be removed by the helper itself; keep it under $TMP (t2290).
+export TMPDIR="$TMP/tmp"; mkdir -p "$TMPDIR"
 AITASKS_LOCK_DIR="$TMP/locks"
 export AITASKS_LOCK_DIR
 mkdir -p "$AITASKS_LOCK_DIR"

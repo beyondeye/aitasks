@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import asyncio
 import sys
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -223,6 +224,7 @@ class WizardNavTests(unittest.TestCase):
 
     async def _drive(self, has_sections: bool):
         td = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, td, True)  # removed on cleanup (t2290)
         session = _make_session(td, "n001")
         app = _WizardHost(session, has_sections=has_sections)
         cm = app.run_test(size=(160, 48))

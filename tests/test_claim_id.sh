@@ -279,10 +279,12 @@ echo "--- Test 9: Init scans tar archive ---"
 TMPDIR_9="$(setup_paired_repos)"
 (
     cd "$TMPDIR_9/local" || exit 1
-    mkdir -p /tmp/tartest_$$
-    echo "---" > "/tmp/tartest_$$/t100_old_task.md"
-    tar -cf - -C "/tmp/tartest_$$" t100_old_task.md | zstd -q -o aitasks/archived/old.tar.zst
-    rm -rf "/tmp/tartest_$$"
+    # Staged inside the case dir, not a hard-coded /tmp path: removed with it
+    # even when a step below fails (t2290).
+    mkdir -p "$TMPDIR_9/tartest"
+    echo "---" > "$TMPDIR_9/tartest/t100_old_task.md"
+    tar -cf - -C "$TMPDIR_9/tartest" t100_old_task.md | zstd -q -o aitasks/archived/old.tar.zst
+    rm -rf "$TMPDIR_9/tartest"
     git add -A && git commit -m "Add tar" --quiet && git push --quiet 2>/dev/null
 )
 output9=$(cd "$TMPDIR_9/local" && ./.aitask-scripts/aitask_claim_id.sh --init 2>&1)

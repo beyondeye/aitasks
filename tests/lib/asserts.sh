@@ -61,8 +61,37 @@ _AIT_ASSERTS_LOADED=1
 
 AIT_ASSERT_COUNTER_SENTINEL="#ait-assert-counters-v1"
 
+# _assert_counters_sweep_stale -- remove counter files whose owning test died
+# before its footer (killed, timed out, or aborted early) (t2290).
+#
+# The record is removed only by assert_counters_load, and an EXIT trap cannot
+# cover the other exits: 30 of the 32 opted-in files install their own
+# `trap … EXIT` after assert_counters_init, overwriting it. So instead each file
+# carries its owner's pid in its name, and a later init reclaims a file only when
+#   * the name carries a pid (legacy, pid-less names are never touched),
+#   * that pid is gone (`kill -0` fails), and
+#   * the file is older than 60 minutes.
+# Safe because the record has exactly one reader -- the owner's own footer. Once
+# the owner is dead nothing reads it again; an orphaned subshell appending later
+# merely recreates a sentinel-less file under the same pid-tagged name, which the
+# next sweep collects. A wrong delete (pid reuse cannot cause one: a live pid is
+# kept) would surface as a FAIL in assert_counters_load, never as a false PASS.
+_assert_counters_sweep_stale() {
+    local dir="${TMPDIR:-/tmp}" f base pid
+    while IFS= read -r f; do
+        base="${f##*/}"
+        pid="${base#ait_assert_counters_}"
+        pid="${pid%%_*}"
+        [[ "$pid" =~ ^[0-9]+$ && "$base" == "ait_assert_counters_${pid}_"* ]] || continue
+        kill -0 "$pid" 2>/dev/null && continue
+        rm -f -- "$f" 2>/dev/null || true
+    done < <(find "$dir" -maxdepth 1 -type f -name 'ait_assert_counters_*_*' -mmin +60 2>/dev/null)
+    return 0
+}
+
 assert_counters_init() {
-    if ! AIT_ASSERT_COUNTER_FILE="$(mktemp "${TMPDIR:-/tmp}/ait_assert_counters_XXXXXX")"; then
+    _assert_counters_sweep_stale
+    if ! AIT_ASSERT_COUNTER_FILE="$(mktemp "${TMPDIR:-/tmp}/ait_assert_counters_$$_XXXXXX")"; then
         echo "FAIL: assert_counters_init could not create a counter file" >&2
         exit 1
     fi

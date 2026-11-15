@@ -149,6 +149,15 @@ if [[ -z "${_AIT_TMUX_ISOLATION_LOADED:-}" ]]; then
     # could neither see rule 1 nor resolve `-L ait` to the user's real socket
     # (/tmp/tmux-<uid>/ait) — it would probe the empty isolated dir and pass
     # vacuously.
+    # _ait_refuse_exit — the refusal exit. A refusing test has usually already
+    # run assert_counters_init, and the footer that would remove its counter
+    # file never runs, so drop it here: every agent session runs inside tmux,
+    # so each refusal used to leave one ait_assert_counters_* file (t2290).
+    _ait_refuse_exit() {
+        [[ -n "${AIT_ASSERT_COUNTER_FILE:-}" ]] && rm -f -- "$AIT_ASSERT_COUNTER_FILE" 2>/dev/null
+        exit 2
+    }
+
     require_clean_ait_server() {
         local script_name
         script_name="$(basename "${0:-this test}")"
@@ -172,7 +181,7 @@ Open a fresh terminal that is NOT inside tmux, then re-run:
 To override (dedicated CI box only):
     AIT_LIVE_TMUX_TEST_FORCE=1 bash tests/${script_name}
 EOF
-            exit 2
+            _ait_refuse_exit
         fi
 
         command -v tmux >/dev/null 2>&1 || return 0
@@ -201,7 +210,7 @@ Save your work, then from a terminal that is NOT inside tmux:
 To override (dedicated CI box only):
     AIT_LIVE_TMUX_TEST_FORCE=1 bash tests/${script_name}
 EOF
-            exit 2
+            _ait_refuse_exit
         fi
 
         local other

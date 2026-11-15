@@ -54,6 +54,8 @@ class PublicSurfaceTest(unittest.TestCase):
         with tempfile.NamedTemporaryFile("w", suffix=".md", delete=False) as fh:
             fh.write(text)
             path = fh.name
+        import os
+        self.addCleanup(os.unlink, path)  # removed on cleanup (t2290)
         self.assertEqual(gl.resume_point(path), gl.resume_point_from_text(text))
 
     def test_read_active_gates_profile_from_text_contract(self):

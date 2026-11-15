@@ -61,6 +61,12 @@ PASS=0
 FAIL=0
 TOTAL=0
 CLEANUP_DIRS=()
+# The incomplete-restore cases KEEP their ait_txn_snap_* directory on purpose
+# (it is then the only copy of the pre-fold bytes); a run-level TMPDIR that
+# teardown_all removes keeps those out of /tmp (t2290).
+FOLD_RUN_TMP="$(mktemp -d)"
+CLEANUP_DIRS+=("$FOLD_RUN_TMP")
+export TMPDIR="$FOLD_RUN_TMP"
 
 # Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
 . "$PROJECT_DIR/tests/lib/asserts.sh"
@@ -2159,6 +2165,9 @@ teardown_all() {
     for d in "${CLEANUP_DIRS[@]}"; do
         [[ -d "$d" ]] && rm -rf "$d"
     done
+    # Explicit: the EXIT handler's status becomes the script's. Fixture dirs nest
+    # under FOLD_RUN_TMP (removed first), so the last `[[ -d ]]` is false (t2290).
+    return 0
 }
 trap teardown_all EXIT
 

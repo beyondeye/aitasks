@@ -261,6 +261,39 @@ else
 fi
 
 # ============================================================
+# Stale-record reclamation (t2290)
+# ============================================================
+#
+# A test that dies before its footer leaks its counter file. A later
+# assert_counters_init reclaims it only when the pid-tagged owner is dead AND the
+# file is older than 60 minutes; live owners and legacy (pid-less) names stay.
+
+echo "Test 15: init reclaims a dead owner's old record, keeps live and legacy ones"
+SWEEP_DIR="$(mktemp -d)"
+dead_pid="$(bash -c 'echo $$')"          # this process has exited by now
+sleep 300 & live_pid=$!
+dead_f="$SWEEP_DIR/ait_assert_counters_${dead_pid}_AAAAAA"
+young_f="$SWEEP_DIR/ait_assert_counters_${dead_pid}_YYYYYY"
+live_f="$SWEEP_DIR/ait_assert_counters_${live_pid}_BBBBBB"
+legacy_f="$SWEEP_DIR/ait_assert_counters_CCCCCC"
+for f in "$dead_f" "$young_f" "$live_f" "$legacy_f"; do printf '#x\n' > "$f"; done
+for f in "$dead_f" "$live_f" "$legacy_f"; do touch -t "$(date -d '-2 hours' +%Y%m%d%H%M 2>/dev/null || date -v-2H +%Y%m%d%H%M)" "$f"; done
+out="$(run_child "
+    export TMPDIR='$SWEEP_DIR'
+    . '$ASSERTS'
+    assert_counters_init
+    echo \"own=\$AIT_ASSERT_COUNTER_FILE\"
+    rm -f \"\$AIT_ASSERT_COUNTER_FILE\"
+")"
+kill "$live_pid" 2>/dev/null || true; wait "$live_pid" 2>/dev/null || true
+[[ -e "$dead_f" ]] && { assert_record_fail; echo "FAIL: T15 dead owner's old record was not reclaimed"; } || assert_record_pass
+[[ -e "$young_f" ]] && assert_record_pass || { assert_record_fail; echo "FAIL: T15 a record younger than 60m was reclaimed"; }
+[[ -e "$live_f" ]] && assert_record_pass || { assert_record_fail; echo "FAIL: T15 a live owner's record was reclaimed"; }
+[[ -e "$legacy_f" ]] && assert_record_pass || { assert_record_fail; echo "FAIL: T15 a legacy pid-less record was reclaimed"; }
+assert_contains "T15: the new record carries the owner's pid" "ait_assert_counters_" "$out"
+rm -rf "$SWEEP_DIR"
+
+# ============================================================
 # Summary
 # ============================================================
 

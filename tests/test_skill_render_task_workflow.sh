@@ -50,6 +50,13 @@ cd "$PROJECT_DIR" || exit 1
 # shellcheck source=.aitask-scripts/lib/terminal_compat.sh
 source "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh"
 
+# Every temp profile below is registered here and removed by ONE EXIT trap.
+# Each section used to install its own `trap ... EXIT`, so each one overwrote
+# the last: the test_pa_* profiles (and TMP_PA_ABSENT, never registered at all)
+# were left in /tmp on every run (t2290).
+_TEMP_FILES=()
+trap 'rm -f ${_TEMP_FILES[@]+"${_TEMP_FILES[@]}"}' EXIT
+
 # shellcheck source=.aitask-scripts/lib/python_resolve.sh
 source "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh"
 PYTHON="$(require_ait_python)"
@@ -372,6 +379,7 @@ done
 # The `true` arm has no committed profile since fast flipped to false, so a
 # synthetic profile is its only coverage.
 TMP_SF_TRUE="$(mktemp_suffixed "${TMPDIR:-/tmp}/test_sf_true_XXXXXX.yaml")"
+_TEMP_FILES+=("$TMP_SF_TRUE")
 cat > "$TMP_SF_TRUE" <<'YAML'
 name: test_sf_true
 description: "Synthetic profile for t1907 test (enableFeedbackQuestions true)"
@@ -405,7 +413,7 @@ done
 
 echo "=== Test 4: synthetic remote_drift_check: skip profile ==="
 TMP_PROFILE="$(mktemp_suffixed "${TMPDIR:-/tmp}/test_rdc_XXXXXX.yaml")"
-trap 'rm -f "$TMP_PROFILE"' EXIT
+_TEMP_FILES+=("$TMP_PROFILE")
 cat > "$TMP_PROFILE" <<'YAML'
 name: test_rdc_skip
 description: "Synthetic profile for t777_7 test (remote_drift_check skip)"
@@ -421,6 +429,7 @@ assert_not_contains "synthetic profile suppresses fallback prose" \
 
 echo "=== Test 4b: synthetic output_branch profile ==="
 TMP_OB_PROFILE="$(mktemp_suffixed "${TMPDIR:-/tmp}/test_ob_XXXXXX.yaml")"
+_TEMP_FILES+=("$TMP_OB_PROFILE")
 cat > "$TMP_OB_PROFILE" <<'YAML'
 name: test_output_branch
 description: "Synthetic profile for t1233 (output_branch)"
@@ -584,7 +593,7 @@ PA_SRC="$WORKFLOW_DIR/parallel-admission.md"
 TMP_PA_WARN="$(mktemp_suffixed "${TMPDIR:-/tmp}/test_pa_warn_XXXXXX.yaml")"
 TMP_PA_CONFIRM="$(mktemp_suffixed "${TMPDIR:-/tmp}/test_pa_confirm_XXXXXX.yaml")"
 TMP_PA_OFF="$(mktemp_suffixed "${TMPDIR:-/tmp}/test_pa_off_XXXXXX.yaml")"
-trap 'rm -f "$TMP_PROFILE" "$TMP_OB_PROFILE" "$TMP_PA_WARN" "$TMP_PA_CONFIRM" "$TMP_PA_OFF"' EXIT
+_TEMP_FILES+=("$TMP_PA_WARN" "$TMP_PA_CONFIRM" "$TMP_PA_OFF")
 # Every COMMITTED profile ships `off`, so the active bodies have no committed
 # render at all. These two synthetic profiles are their only coverage -- the
 # same situation as remote_drift_check: skip in Test 4.
@@ -595,6 +604,7 @@ parallel_admission: warn
 YAML
 # …and the absent-key default must render the SAME body as an explicit `warn`.
 TMP_PA_ABSENT="$(mktemp_suffixed "${TMPDIR:-/tmp}/test_pa_absent_XXXXXX.yaml")"
+_TEMP_FILES+=("$TMP_PA_ABSENT")
 cat > "$TMP_PA_ABSENT" <<'YAML'
 name: test_pa_warn
 description: "Synthetic profile for t1569_4 (parallel_admission absent)"
@@ -914,7 +924,7 @@ TOTAL=$((TOTAL + 1))
 # risk_evaluated recording.
 echo "=== Test 6: synthetic record_gates: true profile ==="
 TMP_REC="$(mktemp_suffixed "${TMPDIR:-/tmp}/test_record_XXXXXX.yaml")"
-trap 'rm -f "$TMP_PROFILE" "$TMP_RISK" "$TMP_REC"' EXIT
+_TEMP_FILES+=("$TMP_REC")
 # default_gates makes rendered_set = [risk_evaluated], so the nested
 # risk_evaluated self-record site (record_gates AND rendered-set gated since
 # t635_33) is exercised alongside the plain record_gates sites.

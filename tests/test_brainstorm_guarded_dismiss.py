@@ -18,6 +18,7 @@ import ast
 import asyncio
 import inspect
 import sys
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -107,6 +108,13 @@ class _WizardHost(App):
         return [_Sec("auth"), _Sec("storage")]
 
 
+def _mkdtemp(case):
+    """A temp dir removed when <case> finishes (bare mkdtemp leaked one per test, t2290)."""
+    d = tempfile.mkdtemp()
+    case.addCleanup(shutil.rmtree, d, True)
+    return d
+
+
 class WizardStaleEscapeTests(unittest.TestCase):
     async def _wizard_on_config_with_help(self, app, pilot):
         await pilot.pause()
@@ -128,7 +136,7 @@ class WizardStaleEscapeTests(unittest.TestCase):
         # Red proof: the 2nd close popped the wizard, the 3rd raised
         # ScreenStackError on the 1-deep stack.
         async def runner():
-            app = _WizardHost(_make_session(tempfile.mkdtemp(), "n001"))
+            app = _WizardHost(_make_session(_mkdtemp(self), "n001"))
             async with app.run_test(size=(160, 48)) as pilot:
                 wizard, help_modal = await self._wizard_on_config_with_help(app, pilot)
                 step = wizard._wizard_step
@@ -144,7 +152,7 @@ class WizardStaleEscapeTests(unittest.TestCase):
 
     def test_escape_after_help_steps_wizard_back(self):
         async def runner():
-            app = _WizardHost(_make_session(tempfile.mkdtemp(), "n001"))
+            app = _WizardHost(_make_session(_mkdtemp(self), "n001"))
             async with app.run_test(size=(160, 48)) as pilot:
                 wizard, _ = await self._wizard_on_config_with_help(app, pilot)
                 await pilot.press("escape")
@@ -412,7 +420,7 @@ class StackedOverlayTests(unittest.TestCase):
         asyncio.run(runner())
 
     def _plans(self):
-        td = Path(tempfile.mkdtemp())
+        td = Path(_mkdtemp(self))
         a, b = td / "a.md", td / "b.md"
         a.write_text("# Plan\n\n## Step\n\nalpha\n", encoding="utf-8")
         b.write_text("# Plan\n\n## Step\n\nbeta\n", encoding="utf-8")

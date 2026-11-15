@@ -12,6 +12,7 @@ would also pass against "refuse everything" measures nothing.
 
 import json
 import os
+import shutil
 import sys
 import tempfile
 import unittest
@@ -117,6 +118,9 @@ class _RunHarness(unittest.TestCase):
 
     def setUp(self):
         self.tmp = tempfile.mkdtemp(prefix="roadmap_run_")
+        # addCleanup, not tearDown: it also runs when setUp fails after this
+        # line, and every test used to leave one roadmap_run_* dir behind (t2290).
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
         self._saved_run = rr._RUN
         self.seam = _Seam()
         rr._RUN = self.seam

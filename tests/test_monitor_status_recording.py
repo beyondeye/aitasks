@@ -285,6 +285,8 @@ class SocketTestCase(unittest.IsolatedAsyncioTestCase):
     async def asyncSetUp(self):
         # /tmp keeps the socket path well within the AF_UNIX length limit.
         self.tmp = tempfile.mkdtemp(dir="/tmp", prefix="ait-msr-")
+        # Also on a failed asyncSetUp, which skips asyncTearDown (t2290).
+        self.addCleanup(shutil.rmtree, self.tmp, True)
         self.sock = os.path.join(self.tmp, "s.sock")
         self.recording = sr.read_recording(FIXTURE)
         self.servers = []

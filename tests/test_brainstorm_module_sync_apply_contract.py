@@ -39,6 +39,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -286,6 +287,9 @@ class _GitSyncRepo:
     def __exit__(self, *exc):
         if self._prev_cwd is not None:
             os.chdir(self._prev_cwd)
+        # The seeded repo was never removed: one dir per use (t2290).
+        if self._tmp is not None:
+            shutil.rmtree(self._tmp, ignore_errors=True)
         return False
 
 

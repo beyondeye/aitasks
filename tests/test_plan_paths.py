@@ -11,6 +11,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -207,7 +208,9 @@ class TrackedSetsTests(unittest.TestCase):
         with self.assertRaises((subprocess.CalledProcessError, OSError)):
             # An empty temp dir with no repo above it: git must fail, and the
             # helper must not convert that into "nothing is tracked".
-            plan_paths.tracked_sets(Path(tempfile.mkdtemp()))
+            empty = tempfile.mkdtemp()
+            self.addCleanup(shutil.rmtree, empty, True)  # removed on cleanup (t2290)
+            plan_paths.tracked_sets(Path(empty))
 
 
 class ReadFailureTests(unittest.TestCase):

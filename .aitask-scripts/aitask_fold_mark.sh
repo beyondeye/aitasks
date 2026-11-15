@@ -528,9 +528,13 @@ _fold_abort_cleanup() {
 }
 
 txn_snap_init
-for _p in "${fold_paths[@]}"; do txn_snap_add "$_p"; done
+# Armed BEFORE the snapshot loop: txn_snap_add can die, and a trap installed
+# after it leaked the just-created snapshot directory (t2290). Until
+# _fold_txn_active=true below, _fold_abort_cleanup only drops the directory --
+# nothing has been mutated yet, so there is nothing to roll back.
 trap '_fold_abort_cleanup' EXIT
 ait_archive_rearm_exit_trap
+for _p in "${fold_paths[@]}"; do txn_snap_add "$_p"; done
 _fold_txn_active=true
 # --- end fold transaction ----------------------------------------------------
 

@@ -66,9 +66,15 @@ assert_line_count_lte() {
 # --- Fixture setup ---
 
 TMPDIR_BASE=""
+# setup_test_repo runs as `REPO=$(setup_test_repo)`, i.e. in a subshell, so the
+# TMPDIR_BASE it sets never reaches teardown_test_repo and every repo used to be
+# left in /tmp (t2290). Each repo now nests under one run-level base that this
+# shell owns and removes on exit.
+FF_RUN_BASE="$(mktemp -d)"
+trap 'rm -rf "$FF_RUN_BASE"' EXIT
 
 setup_test_repo() {
-    TMPDIR_BASE=$(mktemp -d)
+    TMPDIR_BASE=$(mktemp -d -p "$FF_RUN_BASE")
     local repo="$TMPDIR_BASE/repo"
     mkdir -p "$repo"
 

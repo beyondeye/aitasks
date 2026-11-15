@@ -33,7 +33,11 @@ cp "$LIB_UNDER_TEST" "$LIBDIR/registry_cas.sh"
 # shellcheck source=/dev/null
 . "$LIBDIR/registry_cas.sh"
 
-# Fresh work dir + private TMPDIR per case.
+# Fresh work dir + private TMPDIR per case. The caller's TMPDIR is restored
+# after each case (not a hard-coded /tmp), so later cases' work dirs stay under
+# whatever TMPDIR the run was given (t2290).
+_ORIG_TMPDIR_SET=${TMPDIR+x}
+_ORIG_TMPDIR="${TMPDIR:-}"
 setup_case() {
     CASE="$(mktemp -d)"
     mkdir -p "$CASE/tmp" "$CASE/data"
@@ -44,7 +48,7 @@ setup_case() {
 
 teardown_case() {
     unset AIT_CAS_BEFORE_SWAP_HOOK
-    export TMPDIR=/tmp
+    if [[ -n "$_ORIG_TMPDIR_SET" ]]; then export TMPDIR="$_ORIG_TMPDIR"; else unset TMPDIR; fi
     rm -rf "$CASE"
 }
 

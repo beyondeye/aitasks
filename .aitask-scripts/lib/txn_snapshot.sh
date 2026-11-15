@@ -108,7 +108,14 @@ _txn_report_retained() {
 txn_rollback_ok() { (( ${#_TXN_RESTORE_FAILED[@]} == 0 )); }
 
 # txn_snap_init -- start a fresh snapshot registry.
+#
+# Re-entrant: a previous registry this process still owns is released first,
+# through txn_snap_cleanup, so its keep-on-incomplete-restore rule still holds --
+# a directory that is the only copy of un-restored bytes (and was already named
+# in the report) survives; an ordinary one is removed. Without this, a second
+# init overwrote _TXN_SNAP_DIR and leaked the first directory (t2290).
 txn_snap_init() {
+    txn_snap_cleanup
     _TXN_SNAP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ait_txn_snap_XXXXXX")" \
         || die "txn: could not create the snapshot directory"
     _TXN_SNAP_PATHS=()

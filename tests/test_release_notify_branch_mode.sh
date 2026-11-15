@@ -41,6 +41,10 @@ TOTAL=0
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq is required by the gh stub"; exit 0; }
 
 TMP="$(mktemp -d -p "$_SYNC_FIXTURE_BASE")"
+# The move seam SIGKILLs the helper on purpose, so its ait_ril_pending_* save
+# file can never be removed by the helper itself. $TMP sits under the fixture
+# base, which the sync fixture's EXIT trap removes (t2290).
+export TMPDIR="$TMP/tmp"; mkdir -p "$TMPDIR"
 . "$PROJECT_DIR/tests/lib/release_notify_fixture.sh"
 rnf_write_stubs
 REAL_GIT="$(command -v git)"

@@ -61,6 +61,8 @@ fi
 # shellcheck source=.aitask-scripts/lib/python_resolve.sh
 source "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh"
 PY="$(require_ait_python)"
+# shellcheck source=lib/tmpdir_guard.sh
+source "$SCRIPT_DIR/lib/tmpdir_guard.sh"
 
 # Do NOT seed PYTHONPATH (t1236). Every test file bootstraps its own sys.path
 # from __file__; a runner-supplied path makes a wrong bootstrap pass here and
@@ -68,11 +70,11 @@ PY="$(require_ait_python)"
 # behaves identically regardless of the caller's environment.
 unset PYTHONPATH
 export PYTHONDONTWRITEBYTECODE=1
-# Unbuffered stdout (t1179): a module's own print() output is block-buffered
-# when redirected and would otherwise flush at exit — i.e. BELOW the framework's
 # Monitor tests must not read the user's question state (t2281): the monitor's
 # waiting-question reader resolves its directory from this, and never creates it.
 export AIT_QUESTIONS_STATE_DIR="${AIT_QUESTIONS_STATE_DIR:-${TMPDIR:-/tmp}/aitask-tests-no-question-state}"
+# Unbuffered stdout (t1179): a module's own print() output is block-buffered
+# when redirected and would otherwise flush at exit — i.e. BELOW the framework's
 # stderr verdict, making a failed run read as green from the tail.
 export PYTHONUNBUFFERED=1
 
@@ -237,19 +239,30 @@ if [[ ${#cmd[@]} -eq 0 && ${#serial_cmd[@]} -eq 0 ]]; then
     exit 2
 fi
 
+# Per-run TMPDIR (t2290): every phase writes its temp files into one private
+# directory, which is reported and removed below — on a signal too (the guard's
+# INT/TERM handler stops the phase's process group first). Created only now, so
+# the argument / empty-selection exits above leave nothing behind. Warn-only:
+# leftovers never change the verdict, and a guard that cannot start runs the
+# suite unguarded. See tests/lib/tmpdir_guard.sh.
+tmpdir_guard_begin pyrun || true
+
 set +e
 rc=0
 if [[ ${#cmd[@]} -gt 0 ]]; then
-    "${cmd[@]}"
+    tmpdir_guard_run "${cmd[@]}"
     rc=$?
 fi
 if [[ ${#serial_cmd[@]} -gt 0 ]]; then
-    "${serial_cmd[@]}"
+    tmpdir_guard_run "${serial_cmd[@]}"
     serial_rc=$?
     # A phase-1 failure is never masked by a clean phase 2.
     [[ "$rc" -eq 0 ]] && rc=$serial_rc
 fi
 set -e
+
+# Before the verdict, so the banner stays the LAST line (t1179).
+tmpdir_guard_end
 
 if [ "$rc" -eq 0 ]; then
     echo "PYTHON SUITE: PASSED (runner=$backend, exit=$rc)" >&2

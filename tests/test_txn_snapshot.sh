@@ -31,6 +31,10 @@ PASS=0; FAIL=0; TOTAL=0
 TMP="$(mktemp -d)"
 cleanup() { chmod -R u+w "$TMP" 2>/dev/null || true; rm -rf "$TMP"; }
 trap cleanup EXIT
+# Every snapshot directory this file creates -- including the C-group ones the
+# library deliberately KEEPS after an incomplete restore -- lands under $TMP, so
+# the cleanup above removes them instead of leaving them in /tmp (t2290).
+export TMPDIR="$TMP/tmp"; mkdir -p "$TMPDIR"
 
 # Group C forces failures with `chmod a-w`. Root ignores the write bit, so under
 # a root runner the forcing silently does nothing and every such case would pass

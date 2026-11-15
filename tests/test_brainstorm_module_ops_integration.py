@@ -26,6 +26,7 @@ from __future__ import annotations
 
 import os
 import sys
+import shutil
 import tempfile
 import unittest
 from pathlib import Path
@@ -480,6 +481,7 @@ class _StubRepo:
         self._tmp = None
         self._prev_cwd = None
         self.argv_log = None
+        self._argv = None
 
     def __enter__(self):
         self._tmp = tempfile.mkdtemp()
@@ -504,10 +506,19 @@ class _StubRepo:
         return self
 
     def recorded_argv(self):
+        if self._argv is not None:      # captured on exit, before removal
+            return self._argv
         return self.argv_log.read_text(encoding="utf-8").splitlines()
 
     def __exit__(self, *exc):
         os.chdir(self._prev_cwd)
+        # The stub tree was never removed: one dir per use (t2290). Tests
+        # read recorded_argv() after the block, so keep the argv in memory.
+        try:
+            self._argv = self.argv_log.read_text(encoding="utf-8").splitlines()
+        except OSError:
+            self._argv = None
+        shutil.rmtree(self._tmp, ignore_errors=True)
         return False
 
 

@@ -81,6 +81,8 @@ SESSION="ait_parity_$$"
 KILL_LOG="$FIXTURE_DIR/kills.log"
 
 cleanup() {
+    # The counter record (assert_counters_init) is removed here, on every exit (t2290).
+    [[ -z "${AIT_ASSERT_COUNTER_FILE:-}" ]] || rm -f -- "$AIT_ASSERT_COUNTER_FILE" 2>/dev/null || true
     PATH="$REAL_PATH" "$REAL_TMUX" kill-server 2>/dev/null || true
     rm -rf "$FIXTURE_DIR" 2>/dev/null || true
 }

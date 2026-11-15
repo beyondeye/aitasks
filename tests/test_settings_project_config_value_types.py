@@ -152,8 +152,11 @@ class TheReportedDefectTests(_Fixture):
         cost was a silent admit, so assert on the verdict.
         """
         self._save_value(ADMISSION_KEY, COLON_COMMAND)
+        # --log keeps the hook's log inside the fixture; without it the helper
+        # makes a mktemp log for the caller to read, which nothing here removes
+        # (t2290).
         proc = subprocess.run(
-            [str(_ADMISSION_HELPER)],
+            [str(_ADMISSION_HELPER), "--log", str(self.root / "admission.log")],
             cwd=self.root, capture_output=True, text=True,
         )
         self.assertIn("REASON:refused", proc.stdout)

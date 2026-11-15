@@ -26,6 +26,13 @@ file-backed counters** — `assert_counters_init` after sourcing
 opt-in the footer reports zero failures and the file exits 0 no matter what
 failed (t1207).
 
+Hunting `/tmp` leaks: `bash tests/run_shell_test.sh tests/test_foo.sh` runs one
+test under a private per-run `TMPDIR`, then prints `TMPDIR LEFTOVERS (<n>): …`
+for whatever it left there (warn-only, the test's exit status is unchanged).
+It is optional. Running the file directly stays the default. The Python
+runner below always uses the same guard (`tests/lib/tmpdir_guard.sh`). The guard
+sees only `$TMPDIR`, so hard-coded `/tmp` paths and `TMUX_TMPDIR` bypass it.
+
 Python tests do have one aggregate runner:
 ```bash
 bash tests/run_all_python_tests.sh                    # whole suite
