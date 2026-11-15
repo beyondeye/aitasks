@@ -192,3 +192,66 @@ mitigation task (t2288, which depends on this child).
 ## Step 9
 
 Post-Implementation per task-workflow: commit, then archive the child.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-15 22:37)
+- **Requested by user:** the new add-model / refresh-code-models lines said the
+  main-branch commits "are not pushed here". That is false in legacy mode,
+  where task data and code share the current branch and `./ait git push`
+  publishes the seed commits too (confirmed against a temporary legacy repo
+  with a bare remote). Qualify the promise and keep the legacy upload behaviour.
+- **Changes made:** both lines now say "In separate-branch mode the main-branch
+  … commits are not pushed here. In legacy mode they share the current branch
+  with the task data, so this push publishes them too." No behaviour change.
+- **Files affected:** `.claude/skills/aitask-add-model/SKILL.md`,
+  `.claude/skills/aitask-refresh-code-models/SKILL.md` (no goldens; skill verify
+  re-run clean).
+
+## Final Implementation Notes
+- **Actual work done:** implemented as planned. New plain-markdown procedure
+  `.claude/skills/task-workflow/task-data-push.md`: `./ait git push --batch`,
+  last-stdout-line parse (`PUSHED` / `NOTHING` / `NO_REMOTE` → `yes`;
+  `FAILED:<reason>:<n>`, a non-zero exit or no recognised line → `no` plus a
+  warning), never retried, and never changes the caller's control flow. At a
+  `## Stopped` exit, `task_data_pushed = no` prefixes the banner's `next` with
+  "`./ait git push` (task data not pushed), then ". It is wired into all 8
+  sites: A) `SKILL.md` Step 9 Defer (plus the Step 10 Defer bullet, the Step 6
+  child-stop summary and the Procedures list); B) `planning.md` child "Stop
+  here"; C) `cross-repo-child-assignment.md` Step 7 "Stop here"; D)
+  `_auto_continue_block.j2` "Save for later", unconditional (explore, revert,
+  fold, pr-import); E) aitask-qa Step 7 (plus its Procedures list); F)
+  docs-gap Step 7; G) add-model Step 7; H) refresh-code-models Step 9.
+  Regenerated 22 goldens: procs/task-workflow `SKILL-*`, `planning-*`,
+  `cross-repo-child-assignment-default`; skills explore / fold / pr-import /
+  revert / qa × 3 profiles. Rerendered every profile and agent tree.
+- **Deviations from plan:** the macro line reads "This run's task commits are
+  otherwise still local" rather than "the task-creation commit". aitask-fold
+  makes a fold commit, not a task creation, so the generic wording is accurate
+  for all four callers. Post-review: the add-model / refresh-code-models lines
+  were qualified for legacy mode (Change Request 1).
+- **Issues encountered:** none. Every golden diff was insert-only, and only the
+  22 predicted goldens changed (verified by rendering every golden first and
+  diffing).
+- **Key decisions:** a shared procedure rather than 8 inline copies, so the
+  parse contract lives in one place, as `workflow-end.md` does for banners, and
+  t2288 can pin one token (`task-data-push.md`). The Stopped banner grammar is
+  unchanged: a push failure goes into the free-text `next`, so
+  `lib/sitrep_harvest.py`'s closed outcome vocabulary is untouched. Decision
+  recorded for a failed Step 9 L1211 push: no change (the Complete banner
+  reports `pushed: no`).
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t1912_4** (writer cutover) can now remove
+    `converge_current_repo_with_remote` from `lib/verified_update_lib.sh`.
+    Every step that relied on its push side effect now calls
+    `task-data-push.md` **before** Satisfaction Feedback.
+  - Until t1912_4 lands, the converge still runs after these pushes. That is
+    harmless: there is nothing left to push.
+  - **t2288** (pin_rehomed_push_sites): the pinned site list is the A–H
+    inventory above. Pin the token `task-data-push.md` at each site in the
+    goldens. The "Not in scope" exits above (manual-verification stops, task
+    abort) need classifying by its discovery tripwire. The macro covers fold
+    and pr-import as well.
+  - `.agents/` / `.opencode/` trees are wrappers or renders of these sources,
+    so no port tasks are needed.
