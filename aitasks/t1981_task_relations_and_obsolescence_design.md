@@ -224,6 +224,47 @@ D1–D13, and a decomposition into child tasks. A plausible split:
 > | - On one core the engine takes 280 / 798 / 2,777 ms. PyPy 3.12 is no faster than CPython here.
 > | Tuning is aitasks_go#t127.
 
+> **✉ note:t93_6** id=2026-11-15T21:37:05Z.3732c928a5e7c9a20485b12c from=aitasks_go#t93_6 from_verified=yes at=2026-11-15T21:37:05Z base=87ecc97998ed901044d4555715cd41d7a9c114d1 base_branch=main dirty=yes host=omg16
+>
+> | From aitasks_go#t93_6 (search quality evaluation, code commit 82a811f). This is advisory: it is the measurement behind D6's `token` signal, and t1981_2 decides what to adopt.
+> | 
+> | **What was measured.**
+> | - The `ait-taskquery search` ranking was replayed as D6 would use it, on aitasks task data a16104aa534bb4ea2c58bdb5a70ce4be12981c50:
+> |   - the query is a pending source's identifiers;
+> |   - the search runs `--pending`, without `--plans`;
+> |   - the source is dropped before the cut;
+> |   - the candidates are the first 25.
+> | - Known related tasks come from task bodies and frontmatter only, never plans: description mentions, `inbox_note` edges, `depends` and folds, in both directions.
+> | 
+> | **Query extractor used.** D6 leaves this open, so it was fixed in the evaluation:
+> | - the snake_case runs (≥1 `_`) and camel/Pascal runs (≥2 humps) inside backticked spans of the description;
+> | - plus the bare UPPER_SNAKE names in the description;
+> | - excluding task-id shapes like `t93_4`;
+> | - distinct, in order of first appearance, joined by spaces.
+> | 
+> | A "raw" variant (each backticked span whole, plus UPPER_SNAKE) gave higher recall: r25 0.830 vs 0.812, non-family 0.765 vs 0.721. It ran on a slightly different query set (672 vs 630 queries), and it changed no ranking decision. Adopt either one, or diverge knowingly.
+> | 
+> | **Numbers** (630 queries; 349 with eligible related tasks; 1470 pairs, 695 of them non-family):
+> | - recall@10 0.668, @20 0.793, @25 0.812, @50 0.869; MRR@25 0.282.
+> | - non-family recall@25: 0.721.
+> | - per class @25: depends_in 0.888, depends_out 0.922, mention_in 0.840, mention_out 0.837, note_in 0.882, note_out 0.868.
+> | - by query length @25: 1 identifier 0.48, 2–4 0.70, 5–9 0.80, 10+ 0.86.
+> | - 1939 related tasks were ineligible (bundle 1005, archived 874, absent 44, Folded 16). They are not counted, because a `--pending` search cannot return them.
+> | 
+> | **Decisions.** All of t93_4's choices are kept. Under fixed rules (a 2-point r25 bar), no alternative won:
+> | - equal weights 0.811
+> | - no title field 0.810
+> | - whole tokens only 0.433 (do not query whole identifiers only)
+> | - atoms only 0.812
+> | - any-level heading 0.812
+> | - With `--plans`, plan weight 0.5 led weight 1 by 0.8 points (0.822 vs 0.814), under the bar. Plans barely move recall for this signal.
+> | 
+> | **For the consumer.** The source matches its own identifiers and ranks first. Call `search --pending --limit 0` (or `--limit 26`) and drop the source before taking 25; `--limit 25` alone yields 24 candidates.
+> | 
+> | **Also found** (spawned as aitasks_go#t129): `mentions` / `mentioned-by` `meta:depends` rows come only from string leaves, so integer ids (`depends: [1039]`) produce no row. `card`'s `CARD_REL` (`frontmatter.IDFields`) has them. Do not rely on `meta:depends` mention rows for depends edges until t129 settles it.
+> | 
+> | Full tables: aitasks_go `aiplans/archived/p93/p93_6_search_quality_evaluation.md`. The ranking is pinned by `goengines/ci/taskquery_eval.sh` (TQEVAL).
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
