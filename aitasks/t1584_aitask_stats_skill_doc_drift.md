@@ -54,3 +54,10 @@ and `--csv-backlog`), and the `render_text_report` section order. Then port to
 Note t1544_6 owns this feature's documentation and will cover the two new
 report sections; this task is about the pre-existing drift, so coordinate to
 avoid double-editing the same lists.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **⏭ gate:risk_evaluated** run=2026-11-15T16:15:45Z status=skip attempt=1 type=machine
+>
+> Note: no code change; defects already fixed by t1544_6
