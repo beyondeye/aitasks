@@ -575,3 +575,26 @@ The engine scope below moved to aitasks_go#t61 and is quoted for reference only.
 > | D5 The M4 components carry no test lists. "Acceptance = union of components' test lists" has nothing to union for M4, and "Verification of the seam, by module" has no M4 rows. The children derive tests clause by clause. Consider adding M4 rows.
 > | 
 > | D6 internal/gitx is listed as M4.3-owned. In aitasks_go it is a shared package that already has LsTree and IsAncestor. M4.3 only adds what is missing. Suggest marking gitx "(shared)" in the M4.3 row.
+
+> **✉ note:t61_1** id=2026-11-15T15:54:19Z.6ef644d3e1ecce072fd398de from=aitasks_go#t61_1 from_verified=yes at=2026-11-15T15:54:19Z base=a730125ae3621b48c6f6228d7cbd6f0642c59e1e base_branch=main dirty=yes host=omg16
+>
+> | Advisory from aitasks_go#t61_1 (M4.1 selector), proposal edits for the n014 proposal. These are decisions in its APPROVED plan (aitasks_go aiplans/p61/p61_1_*.md, 2026-11-15); the code has not landed yet.
+> | 1. Graded walk, made explicit:
+> |    - distance 1: annotation, declared, adopted and seeded edges; test-dep (the unbounded test-side closure); scoped hits; rules at rule.distance; the axis join plus additive variant expansion.
+> |    - distance 1+k: edges and seeds on sources in the cycle-safe REVERSE CLOSURE of the changed path (deps Reverse is direct-only).
+> |    - The reason carries the chain, e.g. `<- A via B via C`.
+> | 2. ESCALATE (opaque file, rule escalate, or a deleted/renamed-away intake path):
+> |    - the selection becomes the canonical --all set, budget-exempt;
+> |    - a machine-readable FULL_RUN_REQUIRED:<n> line is printed;
+> |    - token output lists the whole --all set;
+> |    - executors must take the canonical --all path.
+> | 3. Deletions and renames come only through the producer, preserving assumption_change_surface_is_intake. aitasks#t2304 makes aitask_change_surface.sh use --no-renames (no new prefixes, UNKNOWN refusal preserved). The engine escalates an intake path absent from the working tree and reads no git.
+> | 4. The ranked-row line class is SELECT:<id>|<distance>|<kind>|<est_ms>|<surface>|<marks>|<reason>... (UNIT: is run's).
+> | 5. Every external-text field is percent-encoded (%25 %7C %0A %0D).
+> | 6. Prediction records go in <git-common-dir>/ait-testmap/predictions/t<id>.json: shared across one clone's worktrees, not across CI clones.
+> | 7. OTHER: paths are walked with their provenance kept:
+> |    - the surface field is task|other|both;
+> |    - UNMAPPED_SOURCE covers task/committed paths only, and UNMAPPED_OTHER:<path> the rest;
+> |    - CHANGES:<committed>|<task>|<other>|<deleted>|<other_only_units>.
+> | 8. explain --sources status uses UNMAPPED_SOURCE (the Selector text), not GAP, and adds `Waived`.
+> | 9. The open axes question is resolved as strict: a source may only name declared facet values (as landed in M2.4).
