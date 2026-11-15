@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 18:31
-updated_at: 2026-11-15 19:11
+updated_at: 2026-11-15 22:11
 ---
 
 ## Origin
@@ -58,3 +59,8 @@ t1912_2 change. They fail deterministically in every run.
 ## Suggested fix
 
 Start with `git log` for both modules, since the recent commits are t2238 / t2239 (screen recording) and t2281 (questions). Determine whether each failure is environment-dependent, in which case the test needs a capability probe or a measured premise, or a real regression. Fix the cause, not the assertion.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-15T20:11:58Z status=pass attempt=1 type=human
