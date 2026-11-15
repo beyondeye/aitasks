@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
-status: Implementing
+status: Done
 labels: [website, documentation, tui, screenshots]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2278
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 18:12
-updated_at: 2026-11-15 18:53
+updated_at: 2026-11-15 22:17
+completed_at: 2026-11-15 22:17
 ---
 
 ## Context
@@ -111,3 +112,14 @@ See `aiplans/p2278/p2278_1_marker_grammar_check_and_migration.md`.
 > **✅ gate:plan_approved** run=2026-11-15T16:53:00Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-15T20:13:50Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-15T20:17:37Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:98fd30e1241928db
+
+> **✅ gate:risk_evaluated** run=2026-11-15T20:17:37Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2278_1/risk_evaluated_2026-11-15T20:17:37Z-risk_evaluated-a1.log`
