@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [brainstorm]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1879
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 18:09
-updated_at: 2026-11-15 18:54
+updated_at: 2026-11-15 22:12
+completed_at: 2026-11-15 22:12
 ---
 
 ## Origin
@@ -46,3 +47,14 @@ Give the three apply scripts a `show_help` + `--help|-h` branch modelled on `ait
 > **✅ gate:plan_approved** run=2026-11-15T16:54:37Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-15T19:57:14Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-15T20:12:22Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:1d924f55cb3eda7d
+
+> **✅ gate:risk_evaluated** run=2026-11-15T20:12:22Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2305/risk_evaluated_2026-11-15T20:12:22Z-risk_evaluated-a1.log`
