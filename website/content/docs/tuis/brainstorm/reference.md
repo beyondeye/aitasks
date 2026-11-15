@@ -25,7 +25,8 @@ depth: [advanced]
 | `Enter` | Open the focused node's detail hub | Browse (focused node) |
 | `A` | Open the Operations dialog for the focused node | Browse (focused node) |
 | `f` | Toggle the focused module's "deferred" status | Browse |
-| `Ctrl+R` | Retry applying the initializer agent output | Running tab |
+| `Ctrl+R` | Retry applying the initializer agent output (overwrites the first node) | Running tab |
+| `i` | Retry applying the output of the focused group's completed agents | Running tab (group row) |
 
 #### DAG graph view
 
@@ -197,6 +198,24 @@ The Module Decompose wizard offers three modes:
 
 Operation data is resolved on demand from on-disk files via a lightweight pointer (an `OpDataRef`: kind, target, optional section), so the session state never duplicates agent inputs, outputs, or logs.
 
+### Command-line subcommands
+
+Each subcommand takes the session's task number.
+
+| Command | What it does | Prints |
+|---------|--------------|--------|
+| `ait brainstorm <task_num>` | Open the studio for the task | — |
+| `ait brainstorm init <task_num> [--proposal-file <path>]` | Create the session; with a draft, start an initializer agent that imports it | `INITIALIZED:<task_num>`, plus `INITIALIZER_AGENT:<name>` and `RUNNER_STARTED:<crew_id>` with a draft |
+| `ait brainstorm status <task_num>` | Show the session's metadata | — |
+| `ait brainstorm list` | List all sessions | — |
+| `ait brainstorm archive <task_num>` | Export HEAD's proposal to `aiplans/`, mark the session archived, and remove its worktree | `PLAN:<path>`, `ARCHIVED:<task_num>` |
+| `ait brainstorm delete <task_num> [--yes]` | Permanently remove the session's worktree and branch; `--yes` skips the confirmation | `DELETED:<task_num>` |
+| `ait brainstorm apply-initializer <task_num>` | Overwrite the first node and its proposal from `initializer_bootstrap_output.md` | `APPLIED:n000_init` or `APPLY_FAILED:<error>` |
+| `ait brainstorm apply-explorer <task_num> <agent_name>` | Add the explorer's node from `<agent_name>_output.md` | `APPLIED:<node_id>` or `APPLY_FAILED:<error>` |
+| `ait brainstorm apply-synthesizer <task_num> <agent_name>` | Add the synthesizer's merged node from `<agent_name>_output.md` | `APPLIED:<node_id>` or `APPLY_FAILED:<error>` |
+
+For when to run the `apply-*` commands, see [How to Recover a Stuck Apply]({{< relref "/docs/tuis/brainstorm/how-to#how-to-recover-a-stuck-apply" >}}).
+
 ### Session files and layout
 
 A brainstorm session lives in its own AgentCrew worktree at `.aitask-crews/crew-brainstorm-<task_num>/`, created by `ait crew init` and populated by the brainstorm engine:
@@ -208,6 +227,8 @@ A brainstorm session lives in its own AgentCrew worktree at `.aitask-crews/crew-
 | `br_groups.yaml` | Operation groups — which agents ran, keyed by group, for provenance |
 | `br_nodes/` | Per-node metadata |
 | `br_proposals/` | Per-node proposal markdown |
+| `<agent>_output.md` | An agent's raw output, which apply reads (`initializer_bootstrap_output.md` for the initializer) |
+| `<agent>_apply_error.log` | Written by some apply failures for that agent (`initializer_bootstrap_apply_error.log` for the initializer); kept after a later success |
 
 A completed (`finalize`) session exports its HEAD proposal into `aiplans/`; `archive` and `delete` retire the worktree.
 

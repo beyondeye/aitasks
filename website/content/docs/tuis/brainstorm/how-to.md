@@ -147,7 +147,33 @@ The **Session** tab (`s`) exposes lifecycle actions:
 - **Archive** — mark a completed session as archived.
 - **Delete** — permanently remove the session, its worktree, and its branch.
 
-The same actions are available from the command line: `ait brainstorm status <task_num>`, `ait brainstorm list`, and `ait brainstorm archive <task_num>`.
+The same actions are available from the command line: `ait brainstorm status <task_num>`, `ait brainstorm list`, `ait brainstorm archive <task_num>`, and `ait brainstorm delete <task_num>`.
+
+Deleting cannot be undone. It removes the session's worktree (`.aitask-crews/crew-brainstorm-<task_num>/`, with every node and proposal in it) and its `crew-brainstorm-<task_num>` branch, locally and, when it can, on the remote. The task file and any plan you already finalized into `aiplans/` stay. On the command line, `delete` asks for confirmation; `--yes` skips the question. It does not check for running agents, and pausing the session only stops new ones from starting, so wait until the Running tab shows no agent at work.
+
+### How to Recover a Stuck Apply
+
+When an agent finishes, the studio reads the agent's output file and adds the result to the graph. This step is called *apply*. The studio only applies while it is open, and only to output that is complete: the file must contain all four block markers, `--- NODE_YAML_START ---`, `--- NODE_YAML_END ---`, `--- PROPOSAL_START ---` and `--- PROPOSAL_END ---`. When you reopen a session, it applies the complete output of every explorer and synthesizer that finished in the meantime, and the initializer's output if the first node still shows the imported placeholder.
+
+You need to act yourself when:
+
+- an apply failed and a banner shows the error;
+- an agent shows Completed but no new node appeared, or the first node still shows the imported placeholder after the initializer finished. The output is missing a block marker, and the studio skips it without a banner;
+- an explorer or synthesizer ended with status Error or Aborted after writing its output, which the studio never applies;
+- you want to import the initializer's output again over a first node that already has one.
+
+1. Find the agent's name, such as `explorer_001a`, in the banner or on the Running tab.
+2. Get the error. A banner already shows it. For an agent the studio skipped, run the apply yourself (step 4) to see it: the command line prints it as `APPLY_FAILED:<error>`. Some failures also leave a log in `.aitask-crews/crew-brainstorm-<task_num>/`: `<agent>_apply_error.log` for an explorer or synthesizer, `initializer_bootstrap_apply_error.log` for the initializer. Not every failure writes a log, and a log is kept after a later success, so trust the current message over an old log.
+3. If the agent's output is at fault, fix it: `<agent>_output.md` in the same directory, or `initializer_bootstrap_output.md` for the initializer.
+4. Apply the output again. These routes run the apply even for output the studio skipped:
+   - Explorer or synthesizer that ended Completed: press **i** on the agent's group in the Running tab. An open studio also retries a failed apply by itself every few seconds, but never one it skipped.
+   - Explorer or synthesizer that ended Error or Aborted: run `ait brainstorm apply-explorer <task_num> <agent_name>` or `ait brainstorm apply-synthesizer <task_num> <agent_name>`. The commands also work for a Completed agent.
+   - Initializer (the import of a draft into the first node): press **Ctrl+R** on the Running tab, or run `ait brainstorm apply-initializer <task_num>`.
+
+   The commands print `APPLIED:<node_id>` on success.
+5. If you applied from the command line while the studio was open, close and reopen it (`ait brainstorm <task_num>`) to load the new node.
+
+Retrying an explorer or synthesizer is safe, because the apply refuses to create a node that already exists. Retrying the initializer overwrites the first node and its proposal with the initializer's output and discards any change made to them since the import, so copy anything you want to keep before you press **Ctrl+R** or run `apply-initializer`.
 
 ### tmux integration
 
