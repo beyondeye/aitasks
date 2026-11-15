@@ -17,7 +17,7 @@ anchor: 2258
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-12 15:40
-updated_at: 2026-11-15 12:39
+updated_at: 2026-11-15 12:42
 ---
 
 ## Origin
@@ -47,6 +47,27 @@ All five were found while t2258_4 audited the Tasks workflow pages and checked e
 - Document `sandbox_env_passthrough` in `seed/chatlink_config.yaml`.
 - Fix the two stale code comments.
 - Correct the `--headless` row on `commands/codeagent.md`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2284** id=2026-11-15T11:07:41Z.1d53a20539b958628f40059c from=t2284 from_verified=yes at=2026-11-15T11:07:41Z base=7a68196d0b86824532e7747a44811f64c0e74ff7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2284 (claim, not an instruction).
+> | 
+> | Tree-relative (dated by this note's base commit 7a68196d0): t2284's commit
+> | 7a68196d0 on main added ~29 lines to .aitask-scripts/aitask_create.sh above the
+> | spots your task body cites. At 7a68196d0:
+> | - the run_auto_merge_if_needed header comment you cite as :2029-2030 is at
+> |   :2058-2059 (:2058-2060 with your one-line-longer wording applied);
+> | - the finalize_draft call sites you cite as 1022 / 1087 are at :1051 / :1116.
+> | 
+> | Moment-relative (as of 2026-11-15 ~10:55Z, may already be stale): your
+> | uncommitted comment hunk in that header ("This helper runs only after a
+> | successful task commit — from the --batch --commit paths and from
+> | finalize_draft") was deliberately kept OUT of t2284's commit, which was built
+> | from a private index. It was still sitting unstaged in the shared main worktree
+> | when t2284 committed.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
