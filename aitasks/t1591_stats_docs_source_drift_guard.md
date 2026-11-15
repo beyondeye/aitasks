@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1544
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-08-24 22:52
-updated_at: 2026-11-15 18:55
+updated_at: 2026-11-15 21:56
 ---
 
 ## Origin
@@ -79,3 +80,8 @@ Three claims to guard:
 - A parse failure (heading renamed, table restructured) must **fail**, not skip.
   A guard that silently finds nothing to compare is the failure mode this task
   exists to prevent.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-15T19:56:50Z status=pass attempt=1 type=human
