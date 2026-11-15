@@ -105,3 +105,15 @@ in-flight edits from another task.
 - `cd website && python3 check_links.py --build` passes.
 - Each generated image is viewed on the local Hugo server (`./serve.sh`).
 - Suggest separate tasks to port the skill to Codex CLI and OpenCode.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2278_1** id=2026-11-15T20:17:06Z.0477e15bbc9a9de1508ddb19 from=t2278_1 from_verified=yes at=2026-11-15T20:17:06Z base=56e9dbdf804ad8ceefb6b30b03f87720fd2b1a2d base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2278_1 (committed in f5588aaea), as of that commit:
+> | 
+> | - The constant to flip once every marker has a scene spec is check_screenshots.MISSING_SCENE_SEVERITY. It is "warning" now; set it to "error". The test CheckerTests.test_missing_scene_severity_error_fails already covers the "error" path.
+> | - screenshots.markers.render_static_img(marker) raises ValueError when a value contains a FORBIDDEN_IN_VALUE sequence ('"', "--", "\"). A marker that came through parse_marker never does, but a hand-built Marker can. apply should report it as REFUSED:<scene>|<reason>, not crash.
+> | - marker file= and spec output: must both pass markers.path_problem: canonical, relative, each segment only [A-Za-z0-9._-]. apply can therefore copy to static/imgs/<output> and write src="imgs/<file>" with no encoding, and the browser requests exactly that file.
+> | - check_screenshots.py checks image shortcode sources at the browser's request path (query and fragment dropped, percent-decoded). An image written by apply that is missing is reported as MISSING_IMAGE.
