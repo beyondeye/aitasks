@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1879
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 18:09
-updated_at: 2026-11-15 18:20
+updated_at: 2026-11-15 18:54
 ---
 
 ## Origin
@@ -36,3 +37,8 @@ Related, a judgement call for the implementer rather than a bug: `apply-initiali
 ## Suggested fix
 
 Give the three apply scripts a `show_help` + `--help|-h` branch modelled on `aitask_brainstorm_delete.sh` (usage, arguments, `APPLIED:` / `APPLY_FAILED:` output, example), and fix the `S` → `i` comment.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-15T16:54:37Z status=pass attempt=1 type=human
