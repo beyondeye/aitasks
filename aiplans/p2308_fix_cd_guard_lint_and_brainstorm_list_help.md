@@ -101,3 +101,11 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** As planned. `run_bg()` in `tests/test_issue_update_ledger.sh` now uses the scanner-accepted guarded form (`cd "$REPO" || exit 1` in a multi-line subshell). `aitask_brainstorm_status.sh` gained `show_list_help()` and a pre-scan for `--list`, so `--help`/`-h` answers for list mode in any flag order. New `tests/test_brainstorm_list_help.sh` (13 assertions: `list --help`/`-h`, reversed `--help --list`, `status --help`/`-h` control).
+- **Deviations from plan:** None. The new test's `run` helper discards stderr (no assertion reads it), which avoids an SC2034 unused-variable warning.
+- **Issues encountered:** None. Pre-fix control: running the HEAD version of the status script with `--list --help` printed `Usage: ait brainstorm status <task_num>`, so the new "does not show status usage" assertions would have failed before the fix.
+- **Key decisions:** Fixed `list --help` in the status script rather than the `ait` dispatcher, so `ait brainstorm status --list --help` gets the same answer. A failed `cd` in `run_bg` writes no `.rc` file, so the existing per-writer rc check still fails loudly.
+- **Verification:** `test_cd_guard_lint.sh` 92/92, `test_issue_update_ledger.sh` 141/141, `test_brainstorm_list_help.sh` 13/13, `test_brainstorm_cli.sh` 38/38, `test_brainstorm_apply_help.sh` 136/136; shellcheck clean at warning level on the new test (pre-existing SC2034 `U11` in `test_issue_update_ledger.sh:438` is unrelated).
+- **Upstream defects identified:** None
