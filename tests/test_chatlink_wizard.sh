@@ -507,7 +507,55 @@ check("live: teardown close called on the permission-gap path",
 check("live: permission fix hint carries the concrete invite URL",
       "discord.com/oauth2/authorize" in rows[3].fix_hint
       and "client_id=1234567890" in rows[3].fix_hint
-      and "permissions=397552863296" in rows[3].fix_hint)
+      and "permissions=395137109056" in rows[3].fix_hint)
+
+# t2286 — the invite integer is derived from REQUIRED_BOT_PERMISSIONS
+check("live: INVITE_PERMISSIONS is the ten required permissions",
+      live_check.INVITE_PERMISSIONS == 395137109056)
+check("live: INVITE_PERMISSIONS bits are exactly the required set",
+      {b for b in range(64) if live_check.INVITE_PERMISSIONS >> b & 1}
+      == {live_check._PERMISSION_BITS[n]
+          for n in live_check.REQUIRED_BOT_PERMISSIONS})
+
+# Independent oracle: real discord.Permissions, in a CHILD interpreter so
+# this process never imports the SDK (the no-discord guards stay
+# meaningful). Exit 3 = the discord package itself is not installed; any
+# other import failure (a broken or incompatible installed SDK) propagates
+# as a non-zero exit and fails the check rather than skipping it.
+import subprocess  # noqa: E402
+_ORACLE = (
+    "import sys\n"
+    "try:\n"
+    "    import discord\n"
+    "except ModuleNotFoundError as exc:\n"
+    "    if exc.name != 'discord':\n"
+    "        raise\n"
+    "    sys.exit(3)\n"
+    "names = sys.argv[1].split(',')\n"
+    "print(discord.Permissions(**{n: True for n in names}).value)\n"
+)
+_oracle = subprocess.run(
+    [sys.executable, "-I", "-c", _ORACLE,
+     ",".join(live_check.REQUIRED_BOT_PERMISSIONS)],
+    capture_output=True, text=True, timeout=60)
+if _oracle.returncode == 3:
+    print("SKIP - discord SDK not installed; discord.Permissions oracle "
+          "not run")
+else:
+    check("live: INVITE_PERMISSIONS matches discord.Permissions",
+          _oracle.returncode == 0
+          and _oracle.stdout.strip() == str(live_check.INVITE_PERMISSIONS))
+assert "discord" not in sys.modules, \
+    "FAIL: the discord.Permissions oracle leaked the SDK into this process"
+
+# Docs-drift guard: both documented copies of the invite URL carry the
+# computed value, and the old wrong integer is gone from both.
+for _doc in ("aidocs/chat/discord_bot_setup.md",
+             "website/content/docs/workflows/bug-report-intake.md"):
+    _text = (root / _doc).read_text(encoding="utf-8")
+    check(f"docs: {_doc} invite URL carries INVITE_PERMISSIONS",
+          f"permissions={live_check.INVITE_PERMISSIONS}" in _text
+          and "397552863296" not in _text)
 
 # only the optional permission missing → warn, not fail
 opt_perms = {n: True for n in ALL_PERMS}

@@ -65,3 +65,13 @@
 #sandbox_cpus: 2                    # container --cpus, clamp range 1-16
 #sandbox_pids: 512                  # container --pids-limit, clamp range 16-4096
 #sandbox_wall_clock_s: 1800         # wall-clock cap, clamp range 60-14400
+
+# --- Sandbox credentials --------------------------------------------------
+# Environment-variable NAMES (never values) the gateway copies from its own
+# environment into each sandbox. The agent CLI in the sandbox has no other
+# credentials, so a session cannot run until this names the variable that
+# holds the agent's API key. Names must match [A-Z][A-Z0-9_]* (at most 64
+# characters); a listed variable that is unset when a session launches is
+# skipped and logged. Never list the bot token or git credentials here.
+#sandbox_env_passthrough:
+#  - ANTHROPIC_API_KEY

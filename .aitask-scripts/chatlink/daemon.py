@@ -6,9 +6,11 @@ front-end arrives with t1120_6). Reached via ``ait chatlink --headless``
 no-Textual contract is asserted by ``tests/test_chatlink_daemon.sh``.
 
 Startup order (validation FIRST, zero side effects on the refuse paths):
-config → token → intake ref, each refusal with its own distinct message;
-then collaborators are constructed, the startup reconciliation pass runs
-(sessions with no live agent fail closed — the crash-ownership story), and
+config → yaml → intake ref → token (the shared preflight engine's cheap
+checks), then the explore-relay agent command, each refusal with its own
+distinct message; then collaborators are constructed, the startup
+reconciliation pass runs (sessions with no live agent fail closed — the
+crash-ownership story), and
 only then does the sequential intake loop start.
 
 **Execution shape (binding invariant):** one event at a time —

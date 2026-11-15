@@ -37,9 +37,11 @@ LIVE_CHECK_TIMEOUT_S = 30.0
 CLOSE_TIMEOUT_S = 5.0
 
 # Bot permissions the current bug-report intake / explore-relay flow needs
-# on the intake channel, as discord.py Permissions attribute names.
-# Canonical list: aidocs/chat/discord_bot_setup.md step 5 (the invite-URL
-# permission set) — update the two together.
+# on the intake channel, as discord.py Permissions attribute names. The
+# invite URL's ``permissions=`` value (INVITE_PERMISSIONS below) is derived
+# from this tuple; its documented copies are aidocs/chat/discord_bot_setup.md
+# step 5 and website/content/docs/workflows/bug-report-intake.md step 3
+# (tests/test_chatlink_wizard.sh pins all three together).
 REQUIRED_BOT_PERMISSIONS = (
     "view_channel",
     "send_messages",
@@ -55,6 +57,26 @@ REQUIRED_BOT_PERMISSIONS = (
 #: Documented as "drop if not needed" — absence is a warn, not a fail.
 OPTIONAL_BOT_PERMISSIONS = ("manage_messages",)
 
+#: Discord permission bit positions for the names above (the module stays
+#: discord-import-free; tests cross-check against discord.Permissions).
+_PERMISSION_BITS = {
+    "add_reactions": 6,
+    "view_channel": 10,
+    "send_messages": 11,
+    "manage_messages": 13,
+    "embed_links": 14,
+    "attach_files": 15,
+    "read_message_history": 16,
+    "manage_threads": 34,
+    "create_public_threads": 35,
+    "create_private_threads": 36,
+    "send_messages_in_threads": 38,
+}
+#: Invite-URL ``permissions=`` value: exactly REQUIRED_BOT_PERMISSIONS.
+#: Manage Messages is optional and deliberately not requested.
+INVITE_PERMISSIONS = sum(1 << _PERMISSION_BITS[name]
+                         for name in REQUIRED_BOT_PERMISSIONS)
+
 _CHECK_IDS = ("live_login", "live_intents", "live_channel_visible",
               "live_permissions")
 
@@ -65,7 +87,7 @@ _DOCS_URL = "https://www.aitasks.io/docs/workflows/bug-report-intake/"
 #: (equals the application ID for modern bots).
 _INVITE_URL_TMPL = ("https://discord.com/oauth2/authorize?client_id={cid}"
                     "&scope=bot+applications.commands"
-                    "&permissions=397552863296")
+                    "&permissions=" + str(INVITE_PERMISSIONS))
 
 _FIX_TOKEN = ("reset the bot token in the Discord developer portal "
               "(Bot page) and re-enter it in the wizard")

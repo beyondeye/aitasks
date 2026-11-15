@@ -176,7 +176,7 @@ When the resolved agent is Codex CLI, every skill is launched directly in Codex'
 |--------|-------------|
 | `--agent-string STR` | Override agent string for this invocation |
 | `--dry-run` | Print the command that would be executed without running it |
-| `--headless` | Run `claudecode batch-review` non-interactively (adds `--print`). No-op for other agents/operations. Defaults to interactive mode, since Claude Code bills headless print mode at a higher per-token rate. |
+| `--headless` | Run `claudecode batch-review` non-interactively (adds `--print`). Required for `explore-relay`, `relations` and `obsolescence`, which run only headless and refuse without it. No effect on any other operation. Without it, `batch-review` runs interactively, since Claude Code bills headless print mode at a higher per-token rate. |
 
 ### Configuration
 

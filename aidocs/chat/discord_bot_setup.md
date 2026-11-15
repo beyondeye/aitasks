@@ -47,18 +47,25 @@ over it. Install the SDK tier with `ait setup --with-chat`.
    manually:
 
    ```
-   https://discord.com/oauth2/authorize?client_id=<APPLICATION_ID>&scope=bot+applications.commands&permissions=397552863296
+   https://discord.com/oauth2/authorize?client_id=<APPLICATION_ID>&scope=bot+applications.commands&permissions=395137109056
    ```
 
    - **Scopes:** `bot` + `applications.commands` (the latter is required for
      `register_commands` — slash-command bulk upsert).
-   - **Permissions** (minimum for the full adapter surface): View Channels,
-     Send Messages, Send Messages in Threads, Create Public Threads,
-     Create Private Threads, Manage Threads (archive), Read Message History,
-     Attach Files, Embed Links, Add Reactions, Manage Messages
-     (delete_message of others' messages — drop if not needed).
-     The decimal `permissions=` value above encodes this set; recompute in
-     the portal's permission calculator when changing it.
+   - **Permissions** (the minimum the bug-report intake flow needs): View
+     Channels, Send Messages, Send Messages in Threads, Create Public
+     Threads, Create Private Threads, Manage Threads (archive), Read Message
+     History, Attach Files, Embed Links, Add Reactions.
+     The decimal `permissions=` value above encodes exactly this set. It is
+     computed from `REQUIRED_BOT_PERMISSIONS` as `INVITE_PERMISSIONS` in
+     `.aitask-scripts/chatlink/live_check.py`, and
+     `tests/test_chatlink_wizard.sh` pins this page, the public
+     bug-report-intake page and the code to the same value. Change the tuple,
+     not the number.
+   - **Manage Messages** is optional and not requested by the URL above. It is
+     needed only for `delete_message` of other users' messages, which the
+     intake flow never does; the live check reports its absence as a warning.
+     To grant it, add 8192 (`permissions=395137117248`).
 
 6. **Authorize**: open the URL, pick the target server (requires *Manage
    Server* on it), confirm.

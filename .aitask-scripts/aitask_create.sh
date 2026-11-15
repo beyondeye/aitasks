@@ -2055,8 +2055,9 @@ dedup_file_refs() {
 # aitask_find_by_file.sh. If matches are found, honor --auto-merge by
 # delegating to the aitask_fold_* scripts; otherwise warn and skip.
 #
-# This helper is only invoked from the --batch --commit paths. It is a
-# no-op for any of these conditions:
+# This helper runs only after a successful task commit — from the
+# --batch --commit paths and from finalize_draft. It is a no-op for any of
+# these conditions:
 #   - the new task has no file_references
 #   - no pending tasks reference any of those paths
 #   - BATCH_AUTO_MERGE is false AND there are matches (warn + skip)

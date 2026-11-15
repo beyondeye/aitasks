@@ -71,7 +71,7 @@ The example sets up a project called `backend` with a `#bugs` channel.
       Reactions.
 
       ```
-      https://discord.com/oauth2/authorize?client_id=<APPLICATION_ID>&scope=bot+applications.commands&permissions=397552863296
+      https://discord.com/oauth2/authorize?client_id=<APPLICATION_ID>&scope=bot+applications.commands&permissions=395137109056
       ```
 
       The invite adds the bot to the server, and the bot sees each channel
