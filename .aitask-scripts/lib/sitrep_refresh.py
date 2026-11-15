@@ -34,6 +34,9 @@ irreversible (done items are not re-checked):
   deleted. Ready / Editing / Implementing / Postponed stay ``open`` with the
   live status as the outcome. A lookup that cannot prove absence (an
   unlistable directory, an unreadable bundle) is ``unknown``, never "missing".
+  A record whose status is missing or outside the task vocabulary
+  (``VALID_STATUSES``) is ``unknown`` too -- and an unverifiable trail entry --
+  never open or done; the fold scan still reads its ``folded_tasks``.
 * push: done only when the commit is an ancestor of the remote-tracking ref of
   the branch's PUSH destination (``<branch>@{push}``), that ref belongs to the
   branch's configured push remote, and that remote's push URL is exactly its
@@ -129,7 +132,9 @@ DRIFT_CAP = 15.0
 MAX_FOLD_HOPS = 5
 MAX_WAVE_TITLE = 60
 
-OPEN_STATUSES = ("Ready", "Editing", "Implementing", "Postponed", "Blocked")
+# The task-status vocabulary -- what aitask_update.sh / aitask_pick_own.sh
+# accept. A record whose status is missing or outside it is unreadable.
+VALID_STATUSES = ("Ready", "Editing", "Implementing", "Postponed", "Done", "Folded")
 
 _CHILD_FILE_RE = re.compile(r"t\d+_\d+_")
 _TASK_NAME_RE = re.compile(r"^t(\d+(?:_\d+)?)_")
@@ -268,6 +273,17 @@ def _meta_of(text: str):
     return meta if isinstance(meta, dict) else None
 
 
+def status_problem(meta: dict) -> str:
+    """'' for a valid status, else why not: 'no status' (missing, empty or not
+    a string) or "invalid status 'X'" (outside VALID_STATUSES)."""
+    status = meta.get("status")
+    if not isinstance(status, str) or not status.strip():
+        return "no status"
+    if status.strip() not in VALID_STATUSES:
+        return f"invalid status {status.strip()!r}"
+    return ""
+
+
 def _facts(found: str, meta: dict) -> TaskFacts:
     fi = meta.get("folded_into")
     return TaskFacts(found=found, status=str(meta.get("status") or "").strip(),
@@ -311,6 +327,9 @@ class TaskIndex:
                 return TaskFacts("error", detail=f"{path.name}: {exc}")
             if meta is None:
                 return TaskFacts("error", detail=f"{path.name}: unparseable frontmatter")
+            why = status_problem(meta)
+            if why:
+                return TaskFacts("error", detail=f"{path.name}: {why}")
             return _facts("active", meta)
         if errors:
             # The active location could not be listed: an archived copy is not
@@ -326,6 +345,9 @@ class TaskIndex:
                 return TaskFacts("error", detail=f"{found[0]}: {exc}")
             if meta is None:
                 return TaskFacts("error", detail=f"{found[0]}: unparseable frontmatter")
+            why = status_problem(meta)
+            if why:
+                return TaskFacts("error", detail=f"{found[0]}: {why}")
             return _facts("archived", meta)
         return self._fold_lookup(tid)
 

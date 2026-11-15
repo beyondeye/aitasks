@@ -110,7 +110,7 @@ PID_RE = re.compile(r"^[0-9]+\Z")
 PATH_TOKEN_RE = re.compile(r"[A-Za-z0-9_./-]+")
 BACKTICK_RE = re.compile(r"`([^`\n]+)`")
 LINE_SUFFIX_RE = re.compile(r"(?::[0-9]+(?:-[0-9]+)?|#L[0-9]+(?:-L?[0-9]+)?)\Z")
-VALID_STATUSES = ("Ready", "Editing", "Implementing", "Postponed", "Done", "Folded")
+VALID_STATUSES = sitrep_refresh.VALID_STATUSES
 STORED = ("crashed", "orphan", "stale_lock")
 SKIP_ROWS = (2, 3, 4)
 
@@ -398,11 +398,9 @@ def strict_meta(name: str, text: str) -> tuple:
     if parsed is None or not isinstance(parsed[0], dict):
         return {}, f"{name}: no frontmatter"
     meta = parsed[0]
-    status = meta.get("status")
-    if not isinstance(status, str) or not status.strip():
-        return meta, f"{name}: no status"
-    if status.strip() not in VALID_STATUSES:
-        return meta, f"{name}: invalid status {status.strip()!r}"
+    why = sitrep_refresh.status_problem(meta)
+    if why:
+        return meta, f"{name}: {why}"
     return meta, ""
 
 

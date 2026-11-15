@@ -441,8 +441,10 @@ class TaskReader(GitCase):
         # "missing": fail closed, never absent.
         self.assertEqual(got["99"].where, "error")
         self.assertIn("fold scan", got["99"].why)
-        # The lax reader this replaces would have said "archived" here.
-        self.assertEqual(idx.lookup("12").found, "archived")
+        # TaskIndex validates the status too (t2307): the same verdict class.
+        facts = idx.lookup("12")
+        self.assertEqual(facts.found, "error")
+        self.assertIn("invalid status 'Banana'", facts.detail)
 
     def test_fold_scan(self):
         idx = sr.TaskIndex(self.root)

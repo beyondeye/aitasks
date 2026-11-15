@@ -330,8 +330,9 @@ class HeaderlessArchivedRecords(TreeCase):
     def test_a_migrated_historical_task_is_never_made_done(self):
         self._bundle_with({tid: MIGRATED + shape for tid, shape in HEADERLESS.items()})
         for tid in HEADERLESS:
-            self.assertEqual(self.verdict(tid),
-                             sr.Verdict("unknown", "archived with status (none)"), tid)
+            v = self.verdict(tid)
+            self.assertEqual(v.state, "unknown", tid)
+            self.assertIn(f"t{tid}_x.md: no status", v.outcome)
             self.assertEqual(sr.landed_state(tid, self.idx.lookup)[0], "unverifiable")
 
     def assertScanError(self):
@@ -366,6 +367,112 @@ class HeaderlessArchivedRecords(TreeCase):
         self._with_archived(T20_SHAPE)
         os.chmod(self.tree.base / "archived" / "t40_x.md", 0)
         self.assertScanError()
+
+
+VALID = ("Ready", "Editing", "Implementing", "Postponed", "Done", "Folded")
+
+# Frontmatter bodies whose status is unusable, keyed by the reason the lookup
+# must name. Raw text: `_task_text(None)` would write `status: None`, which YAML
+# reads as the string "None".
+BAD_STATUS = {
+    "banana": ("---\nstatus: Banana\n---\nbody\n", "invalid status 'Banana'"),
+    "empty": ("---\nstatus:\n---\nbody\n", "no status"),
+    "absent": ("---\npriority: high\n---\nbody\n", "no status"),
+    "list": ("---\nstatus: [Done]\n---\nbody\n", "no status"),
+    "number": ("---\nstatus: 5\n---\nbody\n", "no status"),
+}
+
+
+class StatusValidation(TreeCase):
+    """t2307: a direct lookup validates the status against the task vocabulary.
+    A record whose status is missing, not a string or outside the vocabulary is
+    an error -- refresh says `unknown` and the trail entry is `unverifiable`,
+    never an open or done verdict."""
+
+    def write(self, rel, text):
+        p = self.tree.base / rel
+        p.parent.mkdir(parents=True, exist_ok=True)
+        p.write_text(text, encoding="utf-8")
+
+    def assertRejected(self, tid, reason):
+        facts = self.idx.lookup(tid)
+        self.assertEqual(facts.found, "error", (tid, facts))
+        self.assertIn(reason, facts.detail)
+        v = self.verdict(tid)
+        self.assertEqual(v.state, "unknown", (tid, v))
+        self.assertTrue(v.outcome.startswith("lookup failed:"), v.outcome)
+        self.assertIn(reason, v.outcome)
+        self.assertEqual(sr.landed_state(tid, self.idx.lookup)[0], "unverifiable", tid)
+
+    def test_active_records(self):
+        for i, (key, (text, reason)) in enumerate(BAD_STATUS.items(), 10):
+            with self.subTest(key=key):
+                self.write(f"t{i}_x.md", text)
+                self.assertRejected(str(i), reason)
+
+    def test_active_child_record(self):
+        self.write("t13/t13_1_x.md", BAD_STATUS["banana"][0])
+        self.assertRejected("13_1", "invalid status 'Banana'")
+
+    def test_archived_loose_records(self):
+        for i, (key, (text, reason)) in enumerate(BAD_STATUS.items(), 20):
+            with self.subTest(key=key):
+                self.write(f"archived/t{i}_x.md", text)
+                self.assertRejected(str(i), reason)
+
+    def test_archived_child_record(self):
+        self.write("archived/t14/t14_1_x.md", BAD_STATUS["banana"][0])
+        self.assertRejected("14_1", "invalid status 'Banana'")
+
+    def test_archived_bundled_records(self):
+        self.tree.bundle({"t30_x.md": BAD_STATUS["banana"][0],
+                          "t31_x.md": BAD_STATUS["absent"][0]})
+        self.assertRejected("30", "t30_x.md: invalid status 'Banana'")
+        self.assertRejected("31", "t31_x.md: no status")
+
+    def test_a_completion_date_does_not_make_a_bad_record_done(self):
+        self.write("archived/t40_x.md",
+                   "---\nstatus: Completed\ncompleted_at: 2026-11-02 10:00\n---\nbody\n")
+        self.assertRejected("40", "invalid status 'Completed'")
+
+    def test_a_receiver_with_a_bad_status(self):
+        """The folded task's own reminder still closes (it is Folded), but the
+        receiver is unreadable: no live-state parenthetical, and the trail
+        entry cannot land."""
+        self.tree.task("31", "Folded", folded_into=30)
+        self.write("t30_x.md", BAD_STATUS["banana"][0])
+        self.assertEqual(self.verdict("31"), sr.Verdict("done", "folded into t30"))
+        self.assertEqual(sr.landed_state("31", self.idx.lookup), ("unverifiable", ["31", "30"]))
+        self.assertEqual(sr.describe(self.idx.lookup("30")), "unreadable")
+
+    def test_the_fold_scan_still_reads_a_bad_status_record(self):
+        """The scan answers who lists the id, not the receiver's state."""
+        self.write("t30_x.md", "---\nstatus: Banana\nfolded_tasks: [41]\n---\nbody\n")
+        self.assertEqual(self.verdict("41"), sr.Verdict("done", "folded into t30"))
+        self.assertEqual(sr.landed_state("41", self.idx.lookup), ("unverifiable", ["41", "30"]))
+        self.assertEqual(self.idx._fold_errors, [])
+
+    def test_control_every_valid_status_is_accepted(self):
+        for i, status in enumerate(VALID, 50):
+            with self.subTest(status=status):
+                self.tree.task(str(i), status)
+                facts = self.idx.lookup(str(i))
+                self.assertEqual((facts.found, facts.status), ("active", status))
+        for i, status in enumerate(VALID, 60):
+            with self.subTest(status=status, archived=True):
+                self.tree.task(str(i), status, archived=True)
+                facts = self.idx.lookup(str(i))
+                self.assertEqual((facts.found, facts.status), ("archived", status))
+
+    def test_control_surrounding_whitespace_still_validates(self):
+        self.write("t70_x.md", '---\nstatus: " Done "\n---\nbody\n')
+        self.assertEqual(self.verdict("70"),
+                         sr.Verdict("done", "status: Done (not yet archived)"))
+
+    def test_the_vocabulary(self):
+        self.assertEqual(sr.VALID_STATUSES, VALID)
+        import sitrep_crash
+        self.assertIs(sitrep_crash.VALID_STATUSES, sr.VALID_STATUSES)
 
 
 # --- the trail "landed" rule ---------------------------------------------------
