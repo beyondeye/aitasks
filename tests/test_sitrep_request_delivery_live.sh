@@ -32,7 +32,10 @@
 # read-back classified sent (d); the text inlined into the if-shell (f); no
 # Python pre-Enter mode read AND no conjunct (h)/(i); only the conjunct removed
 # (h stays green via the Python gate); the composer proof replaced by the
-# rejected occurrence count (j)/(k).
+# rejected occurrence count (j)/(k). That last mutant patches
+# `agent_submit.payload_matches`, the shared submit loop's own lookup site
+# (t2275): `agent_request_delivery` only re-exports the name, so rebinding it
+# there would reach nothing.
 #
 # Runs on a private server (require_isolated_tmux). Skips if tmux is missing.
 set -euo pipefail
@@ -89,6 +92,7 @@ import sys
 import time
 
 from monitor import agent_request_delivery as d
+from monitor import agent_submit
 from monitor import monitor_core as mc
 from monitor import review_loop as rl
 from monitor.ansi_utils import strip_ansi
@@ -435,7 +439,8 @@ MUTANTS = [
      ["h", "i"], True),
     ("only the conjunct removed", [(mc, "dispatch_condition", identity_only)], ["h"], False),
     ("occurrence count instead of the composer proof",
-     [(rl, "composer_payload", stash_payload), (d, "payload_matches", occurrence_count)],
+     [(rl, "composer_payload", stash_payload),
+      (agent_submit, "payload_matches", occurrence_count)],
      ["j", "k"], True),
 ]
 for label, patches, cases, want_red in MUTANTS:

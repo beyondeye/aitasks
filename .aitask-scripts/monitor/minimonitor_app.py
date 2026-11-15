@@ -65,6 +65,9 @@ from monitor.monitor_core import (  # noqa: E402
     classify_window_panes,
 )
 from monitor import review_loop  # noqa: E402  (auto-recheck decision core, t1159_2)
+# The one guarded submit loop, shared with the sitrep request delivery (t2275).
+from monitor import agent_submit  # noqa: E402
+from monitor.monitor_core import DISPATCH_FAILED, DISPATCH_SENT  # noqa: E402
 from monitor import review_loop_log  # noqa: E402  (durable disarm/hold record, t1606)
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 import agent_marks  # noqa: E402
@@ -6095,8 +6098,17 @@ class MiniMonitorApp(
     ) -> tuple[str, str]:
         """Submit an already-written recheck prompt, and VERIFY that it went.
 
-        Returns ``('sent' | 'failed', detail)``. Called with the prompt text
-        already in the shadow's composer.
+        Returns ``('sent' | 'not_ready' | 'failed', detail)``. Called with the
+        prompt text already in the shadow's composer.
+
+        **The loop itself is shared (t2275).** The drain, the pre-Enter proof,
+        the mode read, the Enter, the post-Enter read and the bounded retry are
+        ``agent_submit.submit_typed_text`` -- the same implementation the
+        sitrep request delivery uses, so a fix to one cannot miss the other.
+        This method supplies the transport (``send_keys``), the drain seam and
+        the supersession checkpoint, and maps the neutral outcomes onto the
+        loop's ``HOLD_*`` / ``DISARM_*`` codes. Everything below describes
+        the contract that mapping keeps.
 
         **Why this exists (t1525).** The two `send_keys` calls used to be
         adjacent, and codex-cli coalesces that input burst: the Enter is
@@ -6109,8 +6121,8 @@ class MiniMonitorApp(
         Two gates, and they deliberately answer different questions:
 
         * **Before each Enter** -- authorises an ACTION, so it fails CLOSED.
-          ``SHADOW_BUSY`` (the composer holding the text we just wrote) is the
-          ONLY verdict that permits the keystroke. A dialog would eat the
+          ``SHADOW_BUSY`` is the ONLY verdict that permits the keystroke, and
+          only together with the composer payload proof below. A dialog would eat the
           Enter; an indeterminate read is no evidence at all; READY/WORKING
           mean our text is not where we put it. The two refusals carry
           different messages because the two situations differ -- with
@@ -6125,6 +6137,24 @@ class MiniMonitorApp(
           "sent" there would silently reproduce the very failure above. It and
           UNKNOWN are reported as unverified, with a warning naming the
           verdict.
+
+        **The composer payload proof (t2274).** ``SHADOW_BUSY`` only says the
+        composer holds SOME typed text. Before every Enter, retries included,
+        its complete displayed payload (``review_loop.composer_payload``) must
+        be exactly the prompt (``agent_submit.payload_matches``, measured at the
+        shadow widths by t2280); otherwise the Enter would submit the user's
+        words appended to ours. A payload that differs holds
+        ``HOLD_PRE_ENTER_COMPOSER_CHANGED``, one that cannot be read as
+        measured holds ``HOLD_PRE_ENTER_COMPOSER_UNPROVABLE`` -- holds, because
+        a BUSY composer reads not-ready and the loop provably holds without
+        re-writing. After an Enter, BUSY is a swallowed Enter (retried) ONLY
+        when the composer still holds exactly the prompt. Any other BUSY
+        composer means the prompt left it and someone typed again: that is
+        reported "sent" with a warning and never retried -- a retry would
+        submit the user's draft, and a hold would re-fire a duplicate round.
+        The same holds for the RETRY's pre-Enter read: an Enter has already
+        gone by then, so a changed or unprovable composer there is "sent" with
+        a warning too, never the pre-submission hold the first attempt gets.
 
         The post-Enter capture is deliberately NOT fed to
         `_apply_shadow_settle_latch`: the controller is in DELIVERING/FIRED
@@ -6156,7 +6186,10 @@ class MiniMonitorApp(
         keystroke. An earlier draft also re-checked at the top of the loop; it
         was removed once its negative control proved unfalsifiable (this check
         catches that case first), rather than kept as unreachable belt-and-
-        braces. A superseded delivery may leave the prompt in the composer;
+        braces. That check is the ``checkpoint`` handed to the shared loop: it
+        is synchronous and runs after the attempt's mode read, so it still sits
+        after the last await and ahead of every verdict. A superseded delivery
+        may leave the prompt in the composer;
         the fresh lifecycle then reads ``SHADOW_BUSY`` and holds.
 
         The one outcome NOT re-checked is ``"sent"`` from a non-BUSY post-Enter
@@ -6167,92 +6200,124 @@ class MiniMonitorApp(
         budget-exhausted return.
         """
         ctrl = self._review_loop
-        for _attempt in range(review_loop.SHADOW_SUBMIT_RETRIES + 1):
-            await _composer_drain(review_loop.COMPOSER_DRAIN_SECONDS)
-            before = review_loop.shadow_state(
-                await capture_raw_tail(monitor, shadow_pane), shadow_key)
-            in_mode, mode_name = await query_pane_mode(monitor, shadow_pane)
+
+        def checkpoint(_where, obs):
+            # The mode reading goes on the record of whatever this delivery
+            # decides (t2001), then supersession wins ahead of every verdict.
             self._loop_delivery_detail = {
-                **_pane_mode_detail(in_mode, mode_name),
-                "pre_enter_verdict": before,
+                **_pane_mode_detail(obs.in_mode, obs.mode_name),
+                "pre_enter_verdict": obs.state,
             }
             if not ctrl.delivery_valid(token):
                 # The user disarmed (or re-armed) during one of the awaits.
                 # This is supersession, not failure — and reporting it as one
                 # was actively harmful: it routed to the auto-disarm, so a
                 # disarm-then-RE-ARM in this window had the stale delivery
-                # kill the FRESH arm. First, ahead of every verdict below, for
-                # the same reason: a fatal READY/WORKING decided here would do
-                # the same thing. Its sibling checks in `_fire_shadow_recheck`
-                # return "not_ready" too.
-                return "not_ready", review_loop.HOLD_DELIVERY_SUPERSEDED
-            if before != review_loop.SHADOW_BUSY:
-                # The VETO is unchanged — no key is sent on any verdict here.
-                # Only the CONSEQUENCE differs, and only for the two AMBIGUOUS
-                # verdicts (t1606):
-                #
-                #   DIALOG  — `_ordered_state` sweeps the prompt patterns over
-                #             the whole tail before the composer scan, so a
-                #             dialog string in the shadow's own transcript
-                #             masks a still-busy composer. The shadow's job on
-                #             "refetch and recheck" is to RUN COMMANDS, so an
-                #             exec-approval dialog appearing between the write
-                #             and this read is a normal consequence of the
-                #             fire, not a fault.
-                #   UNKNOWN — the capture failed. That is no evidence at all,
-                #             and disarming on it directly contradicted the
-                #             rule this subsystem states for itself in
-                #             `find_shadow_pane_info_async`: "a transient tmux
-                #             failure pauses the loop, only a verified absence
-                #             disarms it".
-                #
-                # Both collapse through `_ready_from_state` to a not-True
-                # readiness, so the aborted loop provably HOLDS rather than
-                # re-firing — pinned by
-                # `test_review_loop.AmbiguousVerdictsHoldTests`.
-                #
-                # READY/WORKING stay FATAL, and that asymmetry is deliberate.
-                # There the text is demonstrably not where we put it, and
-                # READY collapses to ready-True: aborting would re-permit on
-                # the very next tick and re-WRITE the prompt, an unbounded
-                # key-injection spin. Their message was already true.
-                if before == review_loop.SHADOW_DIALOG:
-                    return "not_ready", review_loop.HOLD_PRE_ENTER_DIALOG
-                if before == review_loop.SHADOW_UNKNOWN:
-                    return "not_ready", review_loop.HOLD_PRE_ENTER_UNREADABLE
-                return "failed", review_loop.DISARM_TEXT_NOT_IN_COMPOSER
-            # BUSY authorises the Enter only outside a tmux mode (t2001). The
-            # text IS in the composer here, so both holds say so; neither
-            # cancels the user's mode.
-            if in_mode is None:
-                return "not_ready", review_loop.HOLD_PRE_ENTER_MODE_UNREADABLE
-            if in_mode:
-                return "not_ready", review_loop.HOLD_PRE_ENTER_IN_MODE
-            if not monitor.send_keys(shadow_pane, "Enter"):
-                # Genuine transport failure after a successful write: the text
-                # IS sitting in the composer, so the leftover-text message is
-                # true here.
-                return "failed", review_loop.DISARM_ENTER_SEND_FAILED
-            await _composer_drain(review_loop.COMPOSER_DRAIN_SECONDS)
-            state = review_loop.shadow_state(
-                await capture_raw_tail(monitor, shadow_pane), shadow_key)
-            if state == review_loop.SHADOW_BUSY:
-                continue  # the Enter was swallowed — retry while budget lasts
-            if state in (review_loop.SHADOW_DIALOG, review_loop.SHADOW_UNKNOWN):
+                # kill the FRESH arm. First, ahead of every verdict, for the
+                # same reason: a fatal READY/WORKING decided here would do the
+                # same thing. Its sibling checks in `_fire_shadow_recheck`
+                # return "not_ready" too. At "exhausted" it guards the fatal
+                # budget-exhausted return after the last post-Enter capture.
+                return review_loop.HOLD_DELIVERY_SUPERSEDED
+            return None
+
+        async def send_enter():
+            # No await in here, so nothing separates the checkpoint from the key.
+            if monitor.send_keys(shadow_pane, "Enter"):
+                return DISPATCH_SENT, ""
+            return DISPATCH_FAILED, "send_keys"
+
+        out = await agent_submit.submit_typed_text(
+            monitor, shadow_pane, shadow_key, prompt, send_enter=send_enter,
+            sleep=_composer_drain, checkpoint=checkpoint)
+        kind = out.kind
+        if kind == agent_submit.STOPPED:
+            return "not_ready", out.stop
+        if kind == agent_submit.PRE_NOT_BUSY:
+            # The VETO is unchanged — no key is sent on any verdict here.
+            # Only the CONSEQUENCE differs, and only for the two AMBIGUOUS
+            # verdicts (t1606):
+            #
+            #   DIALOG  — `_ordered_state` sweeps the prompt patterns over
+            #             the whole tail before the composer scan, so a
+            #             dialog string in the shadow's own transcript
+            #             masks a still-busy composer. The shadow's job on
+            #             "refetch and recheck" is to RUN COMMANDS, so an
+            #             exec-approval dialog appearing between the write
+            #             and this read is a normal consequence of the
+            #             fire, not a fault.
+            #   UNKNOWN — the capture failed. That is no evidence at all,
+            #             and disarming on it directly contradicted the
+            #             rule this subsystem states for itself in
+            #             `find_shadow_pane_info_async`: "a transient tmux
+            #             failure pauses the loop, only a verified absence
+            #             disarms it".
+            #
+            # Both collapse through `_ready_from_state` to a not-True
+            # readiness, so the aborted loop provably HOLDS rather than
+            # re-firing — pinned by
+            # `test_review_loop.AmbiguousVerdictsHoldTests`.
+            #
+            # READY/WORKING stay FATAL, and that asymmetry is deliberate.
+            # There the text is demonstrably not where we put it, and
+            # READY collapses to ready-True: aborting would re-permit on
+            # the very next tick and re-WRITE the prompt, an unbounded
+            # key-injection spin. Their message was already true.
+            if out.state == review_loop.SHADOW_DIALOG:
+                return "not_ready", review_loop.HOLD_PRE_ENTER_DIALOG
+            if out.state == review_loop.SHADOW_UNKNOWN:
+                return "not_ready", review_loop.HOLD_PRE_ENTER_UNREADABLE
+            return "failed", review_loop.DISARM_TEXT_NOT_IN_COMPOSER
+        # BUSY, but not provably exactly our prompt (t2274). On a RETRY an
+        # Enter has already gone, and the prompt may have been submitted
+        # between that Enter's post-read and this one: a pre-submission hold
+        # ("nothing submitted") would be a false claim, and its abort_fire
+        # would keep the streak and stamp no cooldown, inviting a duplicate
+        # round. So a later attempt gets the post-Enter treatment below.
+        if (kind in (agent_submit.PRE_CHANGED, agent_submit.PRE_UNPROVABLE)
+                and out.attempt > 0):
+            kind = (agent_submit.POST_CHANGED if kind == agent_submit.PRE_CHANGED
+                    else agent_submit.POST_UNPROVABLE)
+        # On the first attempt nothing was sent: holds, like the mode holds
+        # below — the composer reads BUSY, so not-ready.
+        if kind == agent_submit.PRE_CHANGED:
+            return "not_ready", review_loop.HOLD_PRE_ENTER_COMPOSER_CHANGED
+        if kind == agent_submit.PRE_UNPROVABLE:
+            return "not_ready", review_loop.HOLD_PRE_ENTER_COMPOSER_UNPROVABLE
+        # BUSY authorises the Enter only outside a tmux mode (t2001). The text
+        # IS in the composer here, so both holds say so; neither cancels the
+        # user's mode.
+        if kind == agent_submit.PRE_MODE_UNREADABLE:
+            return "not_ready", review_loop.HOLD_PRE_ENTER_MODE_UNREADABLE
+        if kind == agent_submit.PRE_IN_MODE:
+            return "not_ready", review_loop.HOLD_PRE_ENTER_IN_MODE
+        if kind == agent_submit.ENTER_NOT_SENT:
+            # Genuine transport failure after a successful write: the text IS
+            # sitting in the composer, so the leftover-text message is true.
+            return "failed", review_loop.DISARM_ENTER_SEND_FAILED
+        if kind == agent_submit.POST_UNVERIFIED:
+            if out.state in (review_loop.SHADOW_DIALOG, review_loop.SHADOW_UNKNOWN):
                 self.notify(
                     f"recheck sent, but submission could not be verified "
-                    f"(shadow reads '{state}')", severity="warning")
+                    f"(shadow reads '{out.state}')", severity="warning")
             return "sent", prompt
-        # The last capture above was an await with no token check after it,
-        # and the return below is fatal: a disarm + re-arm during it would
-        # have this stale delivery kill the fresh arm (t2001).
-        if not ctrl.delivery_valid(token):
-            return "not_ready", review_loop.HOLD_DELIVERY_SUPERSEDED
-        # Budget exhausted: every Enter was swallowed and the composer read
-        # positively BUSY each time, so the text IS still sitting there — the
-        # leftover-text message is true — and this is the case t1525
-        # deliberately made a VISIBLE auto-disarm rather than a silent hold.
-        # It stays fatal.
+        if kind in (agent_submit.POST_CHANGED, agent_submit.POST_UNPROVABLE):
+            # The prompt left the composer and other text is there now: it
+            # most likely went. Never a retry Enter (it would submit the
+            # user's draft) and never a hold (it would re-fire a duplicate).
+            held = ("then held other text" if kind == agent_submit.POST_CHANGED
+                    else "then could not be read")
+            self.notify(
+                f"recheck sent, but the shadow composer {held} — submission "
+                f"could not be verified", severity="warning")
+            return "sent", prompt
+        if kind == agent_submit.POST_SUBMITTED:
+            return "sent", prompt
+        # EXHAUSTED: every Enter was swallowed and the composer read positively
+        # BUSY with exactly the prompt each time, so the text IS still sitting
+        # there — the leftover-text message is true — and this is the case
+        # t1525 deliberately made a VISIBLE auto-disarm rather than a silent
+        # hold. It stays fatal.
         return "failed", review_loop.DISARM_SUBMIT_UNCONFIRMED
 
     async def action_pick_concerns(self) -> None:

@@ -2064,6 +2064,16 @@ import os as _os
 sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 
 import review_loop_fixtures as _rlfx  # noqa: E402
+import composer_render as _composer_render  # noqa: E402  (t2275)
+
+#: The canonical "composer holds typed text" captures: while one is the fake's
+#: `typed_tail`, it stands for "the composer holds exactly what was typed" and
+#: the readback renders that text into the agent's composer (t2275).
+_TYPED_RENDER = {
+    _rlfx.CLAUDE_TYPED_RAW: "claude",
+    _rlfx.CODEX_TYPED_RAW: "codex",
+    _rlfx.OPENCODE_TYPED_RAW: "opencode",
+}
 from monitor import review_loop as _rl  # noqa: E402
 from monitor.monitor_shared import workflow_phase as _wp  # noqa: E402
 
@@ -2091,12 +2101,22 @@ class _LoopFakeMon(_FakeMon):
         # --- composer model (t1525) ---
         # Delivery now READS BACK the pane between its keystrokes, so the fake
         # has to behave like a composer: a literal write puts text in it, an
-        # Enter submits and clears it. Without this the pre-Enter gate (which
-        # authorises on SHADOW_BUSY alone) would see the at-rest tail and veto
-        # every fire, and each fire test would have to hand-script the readback.
+        # Enter submits and clears it. Without this the pre-Enter gate would
+        # see the at-rest tail and veto every fire, and each fire test would
+        # have to hand-script the readback.
+        #
+        # The gate proves the composer's PAYLOAD (t2274/t2275), so the readback
+        # must show the text that was actually typed: while `typed_tail` is one
+        # of the canonical typed captures (`_TYPED_RENDER`), the capture is the
+        # typed text rendered into that agent's measured composer at
+        # `shadow_width` (`composer_render`, checked against every genuine
+        # capture in `shadow_recheck_fixtures`). Any other `typed_tail` (a
+        # dialog, an at-rest screen) is served verbatim.
         self.composer_text = ""
         self.submitted = False
         self.typed_tail = _rlfx.CLAUDE_TYPED_RAW
+        self.shadow_width = 60           # `#{pane_width}`: shadow_pane_width's default
+        self.pane_width_reply = None     # override the width ANSWER only (a resize)
         # Emulate the t1525 bug itself: the Enter is accepted by tmux (rc 0)
         # but eaten by the TUI, so the text stays put.
         self.swallow_enter = False
@@ -2128,6 +2148,12 @@ class _LoopFakeMon(_FakeMon):
             if self.on_capture is not None:
                 self.on_capture()
             return (self.capture_rc, self._capture_tail())
+        if args[0] == "display-message" and "pane_width" in args[-1]:
+            # The composer proof's width read: not a mode query (t2275).
+            pane = args[args.index("-t") + 1]
+            width = (self.shadow_width if self.pane_width_reply is None
+                     else self.pane_width_reply)
+            return (0, f"{pane}\t{width}\n")
         if args[0] == "display-message":
             self.mode_queries += 1
             if self.on_mode_query is not None:
@@ -2141,8 +2167,12 @@ class _LoopFakeMon(_FakeMon):
         return self.pane_in_mode not in ("", "0")
 
     def _capture_tail(self):
-        if self.composer_text:
-            return self.typed_tail          # composer holds unsubmitted text
+        if self.composer_text:              # composer holds unsubmitted text
+            agent = _TYPED_RENDER.get(self.typed_tail)
+            if agent is None:
+                return self.typed_tail
+            return _composer_render.render(agent, self.shadow_width,
+                                           self.composer_text)
         if self.submitted and self.post_submit_tail is not None:
             return self.post_submit_tail
         return (self.raw_tails.pop(0) if len(self.raw_tails) > 1
@@ -4951,6 +4981,140 @@ class SupersessionDuringDeliveryAwaitsTests(_LoopEventStoreMixin,
         self.assertFalse(
             any(_rl.loop_reason_message(_rl.HOLD_DELIVERY_SUPERSEDED) in m
                 for m, _s in app.spy_notify), app.spy_notify)
+
+
+class ComposerPayloadProofTests(_LoopEventStoreMixin, unittest.TestCase):
+    """Before every Enter the shadow composer must hold EXACTLY the prompt (t2274).
+
+    `SHADOW_BUSY` only says the composer holds SOME typed text: text the user
+    added after the prompt, or a draft typed right after a real submit, would
+    be submitted by an Enter authorised on BUSY alone. The gate is the shared
+    `agent_submit` loop (t2275), so these run end to end through a tick.
+    The pre-fix control (the BUSY-only gate accepting both hazards) was run
+    once against the pre-refactor code and is recorded in the t2275 plan.
+    """
+
+    APPENDED = " plus my own words"
+    DRAFT = "an unrelated draft of mine"
+    AGENTS = (
+        ("claude", _SHADOW_LIST_CLAUDE, _rlfx.CLAUDE_TYPED_RAW),
+        ("codex", _SHADOW_LIST_CODEX, _rlfx.CODEX_TYPED_RAW),
+        ("opencode", _SHADOW_LIST_OPENCODE, _rlfx.OPENCODE_TYPED_RAW),
+    )
+    AT_REST = {
+        _rlfx.CLAUDE_TYPED_RAW: _rlfx.CLAUDE_AT_REST_RAW,
+        _rlfx.CODEX_TYPED_RAW: _rlfx.CODEX_AT_REST_RAW,
+        _rlfx.OPENCODE_TYPED_RAW: _rlfx.OPENCODE_AT_REST_AFTER_TURN_RAW,
+    }
+
+    def _armed(self, agent_list=_SHADOW_LIST_CLAUDE, typed=_rlfx.CLAUDE_TYPED_RAW,
+               width=60):
+        app, mon, snap = _loop_app(self, async_list=agent_list, typed_tail=typed,
+                                   raw_tail=self.AT_REST[typed])
+        mon.shadow_width = width
+        app._review_loop.arm(pending_work=True)
+        app._loop_baseline = (snap.content, snap.awaiting_input_kind,
+                              "%1", None, (100, 30))
+        return app, mon
+
+    def test_the_genuine_prompt_is_submitted_at_both_shadow_widths(self):
+        """The positive control: every measured agent, both measured widths."""
+        for agent, listing, typed in self.AGENTS:
+            for width in (60, 44):
+                with self.subTest(agent=agent, width=width):
+                    app, mon = self._armed(listing, typed, width)
+                    _tick(app, 3)
+                    self.assertEqual(_literal_writes(mon), 1, mon.sent)
+                    self.assertEqual(_enters(mon), 1, mon.sent)
+                    self.assertNotIn(_rl.HOLD_PRE_ENTER_COMPOSER_UNPROVABLE,
+                                     self.reasons())
+
+    def test_appended_user_text_gets_no_enter(self):
+        for agent, listing, typed in self.AGENTS:
+            with self.subTest(agent=agent):
+                app, mon = self._armed(listing, typed)
+
+                def typed_more(m=mon):
+                    if (_literal_writes(m) == 1 and _enters(m) == 0
+                            and m.composer_text
+                            and not m.composer_text.endswith(self.APPENDED)):
+                        m.composer_text += self.APPENDED
+                mon.on_capture = typed_more
+                _tick(app, 3)
+                self.assertEqual(_enters(mon), 0, mon.sent)
+                self.assertTrue(app._review_loop.armed, "a hold, not a disarm")
+                self.assertIn(_rl.HOLD_PRE_ENTER_COMPOSER_CHANGED,
+                              self.reasons(mm.review_loop_log.KIND_HOLD))
+                self.assertEqual(self.reasons(mm.review_loop_log.KIND_DISARM), [])
+
+    def test_a_foreign_draft_after_the_enter_gets_no_retry_enter(self):
+        for agent, listing, typed in self.AGENTS:
+            with self.subTest(agent=agent):
+                app, mon = self._armed(listing, typed)
+
+                def drafted(m=mon):
+                    if _enters(m) == 1 and m.submitted and not m.composer_text:
+                        m.composer_text = self.DRAFT
+                mon.on_capture = drafted
+                _tick(app, 3)
+                self.assertEqual(_enters(mon), 1, mon.sent)
+                self.assertTrue(
+                    any("then held other text" in m for m, _s in app.spy_notify),
+                    app.spy_notify)
+                self.assertEqual(self.reasons(mm.review_loop_log.KIND_DISARM), [])
+
+    def test_a_changed_composer_at_the_retry_is_sent_with_a_warning(self):
+        """The first Enter looked swallowed; by the retry's pre-Enter read the
+        composer holds something else (a foreign draft) or cannot be read. An
+        Enter is already out, so the prompt may have gone: never a "nothing
+        submitted" hold (its abort_fire keeps the streak and stamps no
+        cooldown, so a later tick could fire a duplicate round)."""
+        def at_retry_pre_read(change):
+            def hook(m, seen=[0]):
+                if _enters(m) == 1:
+                    seen[0] += 1
+                    if seen[0] == 2:          # 1 = post-Enter read, 2 = retry pre-read
+                        change(m)
+            return hook
+
+        def draft(m):
+            m.composer_text = self.DRAFT
+
+        def resized(m):
+            m.pane_width_reply = 61
+        for label, change in (("changed", draft), ("unprovable", resized)):
+            with self.subTest(label):
+                app, mon = self._armed()
+                mon.swallow_enter = True
+                hook = at_retry_pre_read(change)
+                mon.on_capture = lambda m=mon, h=hook: h(m)
+                _tick(app, 3)
+                self.assertEqual(_enters(mon), 1, mon.sent)
+                self.assertTrue(
+                    any("submission could not be verified" in msg
+                        for msg, _s in app.spy_notify), app.spy_notify)
+                holds = self.reasons(mm.review_loop_log.KIND_HOLD)
+                self.assertNotIn(_rl.HOLD_PRE_ENTER_COMPOSER_CHANGED, holds)
+                self.assertNotIn(_rl.HOLD_PRE_ENTER_COMPOSER_UNPROVABLE, holds)
+                self.assertEqual(self.reasons(mm.review_loop_log.KIND_DISARM), [])
+
+    def test_an_unprovable_composer_gets_no_enter(self):
+        """A composer region that does not read as measured (here: the pane
+        width disagrees with the composer's rule rows) authorises nothing."""
+        app, mon = self._armed()
+        mon.pane_width_reply = 61
+        _tick(app, 3)
+        self.assertEqual(_enters(mon), 0, mon.sent)
+        self.assertIn(_rl.HOLD_PRE_ENTER_COMPOSER_UNPROVABLE,
+                      self.reasons(mm.review_loop_log.KIND_HOLD))
+
+    def test_the_new_holds_have_banners_and_honest_messages(self):
+        for code in (_rl.HOLD_PRE_ENTER_COMPOSER_CHANGED,
+                     _rl.HOLD_PRE_ENTER_COMPOSER_UNPROVABLE):
+            with self.subTest(code):
+                self.assertTrue(_rl.loop_hold_banner(code))
+                self.assertLessEqual(len(_rl.loop_hold_banner(code)), 76)
+                self.assertIn("nothing submitted", _rl.loop_reason_message(code))
 
 
 class QueryPaneModeTests(unittest.TestCase):

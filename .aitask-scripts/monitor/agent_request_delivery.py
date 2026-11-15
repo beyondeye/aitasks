@@ -18,7 +18,10 @@ observed phases, each failing closed:
    included) the current composer's complete payload must equal the request
    (``review_loop.composer_payload`` + :func:`payload_matches`), and the pane
    mode is the last thing read; the Enter is itself a guarded, acked dispatch.
-   A re-capture then decides whether it went.
+   A re-capture then decides whether it went. The loop is
+   ``agent_submit.submit_typed_text``, shared with the minimonitor's shadow
+   recheck (t2275); this module only maps its outcomes onto
+   :class:`DeliveryResult` codes.
 
 Every outcome is one :class:`DeliveryResult` code; ``unknown`` is never
 reported as sent. Nothing here is cached across calls: the agent pane and its
@@ -29,7 +32,6 @@ from __future__ import annotations
 
 import asyncio
 import os
-import re
 import sys
 import unicodedata
 from dataclasses import dataclass
@@ -40,9 +42,19 @@ for _p in (_SCRIPTS, os.path.join(_SCRIPTS, "lib")):
         sys.path.insert(0, _p)
 
 import agent_keys  # noqa: E402
+from monitor import agent_submit  # noqa: E402  (the one submit loop, t2275)
 from monitor import monitor_core  # noqa: E402
 from monitor import review_loop  # noqa: E402  (the one readiness / payload reader)
 from tmux_exec import tmux_os_path  # noqa: E402
+
+# The composer matcher moved to agent_submit (t2275); re-exported so every
+# importer of this module keeps working. The submit loop calls
+# ``agent_submit.payload_matches``: rebinding the names here reaches nothing.
+from monitor.agent_submit import (  # noqa: E402,F401
+    _FRAGMENT_RE, _WORD_RE, _hyphen_justified, _moved_piece, display_width,
+    payload_matches,
+)
+from monitor.agent_submit import pane_width as _pane_width  # noqa: E402,F401
 
 # -- result vocabulary ----------------------------------------------------------
 
@@ -160,91 +172,6 @@ def request_line_error(text: str, *, check_prefix: bool = True) -> str:
     return ""
 
 
-def display_width(text: str) -> int:
-    """Terminal columns ``text`` occupies (East-Asian wide/full = 2, combining = 0)."""
-    width = 0
-    for ch in text:
-        if unicodedata.combining(ch):
-            continue
-        width += 2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1
-    return width
-
-
-_WORD_RE = re.compile(r"\S+")
-#: The smallest piece a hyphen-breaking agent could have kept on the row: up to
-#: and including the first hyphen, else up to the next space (t2280). Smaller
-#: is the conservative reading: it makes a break harder, never easier, to justify.
-_FRAGMENT_RE = re.compile(r"[^\s-]*-|[^\s-]+")
-
-
-def _moved_piece(payload: "review_loop.ComposerPayload", expected: str, pos: int):
-    """The piece a break before ``pos`` moved to the next row, and its fit limit.
-
-    The limit depends on how the piece ends. Followed by a space: ``wrap_width``
-    (measured by the word-wrap edges, and for opencode by its ``re-`` / ``run``
-    break). Ending in a hyphen: ``content_width`` (measured: codex and opencode
-    keep a hyphen-ended piece on the row up to the content width). Ending the
-    text: unmeasured, so ``content_width``, the sound upper bound -- no row holds
-    more -- under which an unmeasured ending can only fail closed.
-    """
-    m = (_FRAGMENT_RE if payload.hyphen_breaks else _WORD_RE).match(expected, pos)
-    if not m or not m.group(0):
-        return "", 0
-    end = m.end()
-    limit = payload.wrap_width if expected[end:end + 1] == " " else payload.content_width
-    return m.group(0), limit
-
-
-def _hyphen_justified(payload, row: str, expected: str, pos: int) -> bool:
-    """Would the piece at ``pos`` not have fit after ``row`` (which ends in ``-``)?"""
-    piece, limit = _moved_piece(payload, expected, pos)
-    return bool(piece) and display_width(row) + display_width(piece) > limit
-
-
-def payload_matches(payload: "review_loop.ComposerPayload | None", expected: str) -> bool:
-    """True iff the composer's displayed payload is EXACTLY ``expected``.
-
-    Every display row must be the next slice of ``expected``; a row break is
-    allowed only where it is a justified display wrap: a word wrap (one space
-    of ``expected`` sits there, consumed, and the moved piece would not have
-    fit: ``row + 1 + piece > limit``), a hyphen break (only for an agent with
-    ``hyphen_breaks``: the row ends in ``-``, nothing is consumed, and ``row +
-    piece > limit``) or a hard break inside a token (no space there, and the
-    row fills ``content_width``; a hyphen break that is not justified is still
-    accepted as this). Text left over on either side, an extra row or an
-    unjustified break -> False. A break that is not justified is a typed
-    newline, so the composer is not ``expected``.
-
-    The moved piece and its ``limit`` come from :func:`_moved_piece`: for a
-    hyphen-breaking agent the piece is the smallest one it could have kept on
-    the row (up to the first hyphen), and the limit follows the piece's ending
-    -- ``wrap_width`` before a space, else ``content_width``. Measured at 60,
-    44 and 120 columns (t2211_4, t2280); an unmeasured ending (the end of the
-    text) gets the sound upper bound, so it can only fail closed.
-    """
-    if payload is None or not payload.lines or not expected:
-        return False
-    pos = 0
-    last = len(payload.lines) - 1
-    for idx, row in enumerate(payload.lines):
-        if not row or not expected.startswith(row, pos):
-            return False
-        pos += len(row)
-        if idx == last:
-            break
-        if expected[pos:pos + 1] == " ":
-            pos += 1
-            piece, limit = _moved_piece(payload, expected, pos)
-            if not piece or display_width(row) + 1 + display_width(piece) <= limit:
-                return False
-        elif payload.hyphen_breaks and row.endswith("-") and _hyphen_justified(
-                payload, row, expected, pos):
-            pass
-        elif display_width(row) != payload.content_width:
-            return False
-    return pos == len(expected)
-
-
 # -- phase 1: readiness ----------------------------------------------------------------
 
 def readiness_verdict(tail1: "str | None", tail2: "str | None", agent: str,
@@ -325,16 +252,6 @@ def agent_key_for(target: Target) -> str:
                                           ident.pane_id)
 
 
-async def _pane_width(monitor, pane_id: str) -> "int | None":
-    rc, out = await monitor.tmux_run_async(
-        ["display-message", "-p", "-t", pane_id, "#{pane_id}\t#{pane_width}"], timeout=3.0)
-    if rc != 0:
-        return None
-    found, _, width = (out.splitlines() or [""])[0].partition("\t")
-    width = width.strip()
-    return int(width) if found.strip() == pane_id and width.isdigit() else None
-
-
 async def _pause(pause, phase: str) -> None:
     if pause is not None:
         await pause(phase)
@@ -403,57 +320,61 @@ async def deliver_sitrep_request(monitor, root: str, text: str, *, roles=None,
     if state != monitor_core.DISPATCH_SENT:
         return DeliveryResult(UNKNOWN, "paste_unacknowledged", text)
 
-    # Phase 3 -- submission.
+    # Phase 3 -- submission: the shared loop (agent_submit), mapped onto codes.
     await _pause(pause, "after_paste")
-    for attempt in range(review_loop.SHADOW_SUBMIT_RETRIES + 1):
-        if attempt:
-            await _pause(pause, "before_retry")
-        await sleep(review_loop.COMPOSER_DRAIN_SECONDS)
-        tail = await monitor_core.capture_raw_tail(monitor, pane)
-        width = await _pane_width(monitor, pane)
-        before = review_loop.shadow_state(tail, agent)
-        if before != review_loop.SHADOW_BUSY:
-            detail = {review_loop.SHADOW_DIALOG: "pre_enter_dialog",
-                      review_loop.SHADOW_UNKNOWN: "pre_enter_unreadable"}.get(
-                          before, "text_not_in_composer")
-            return DeliveryResult(UNKNOWN, detail, text)
-        payload = review_loop.composer_payload(tail, agent, width)
-        if payload is None:
-            return DeliveryResult(UNKNOWN, "composer_unprovable", text)
-        if not payload_matches(payload, text):
-            if attempt == 0:
-                return DeliveryResult(TYPED, "composer_changed", text)
-            return DeliveryResult(UNKNOWN, "composer_changed_after_enter", text)
-        # The pane mode is the LAST read before every Enter (t2001); the Enter's
-        # own condition re-checks it in the server.
-        in_mode, _mode = await monitor_core.query_pane_mode(monitor, pane)
-        if in_mode is None:
-            return DeliveryResult(TYPED_MODE_UNREADABLE, "", text)
-        if in_mode:
-            return DeliveryResult(TYPED_IN_MODE, "", text)
-        state, reason = await asyncio.to_thread(
+
+    async def send_enter():
+        # A fresh nonce per Enter; the only suspension is the dispatch itself.
+        return await asyncio.to_thread(
             monitor_core.guarded_send_key, monitor, ident, "Enter", nonce())
+
+    async def before_retry():
+        await _pause(pause, "before_retry")
+
+    out = await agent_submit.submit_typed_text(
+        monitor, pane, agent, text, send_enter=send_enter, sleep=sleep,
+        before_retry=before_retry)
+    return _delivery_result(out, text)
+
+
+#: ``PRE_NOT_BUSY`` verdict -> detail (anything else: ``text_not_in_composer``).
+_PRE_NOT_BUSY_DETAIL = {review_loop.SHADOW_DIALOG: "pre_enter_dialog",
+                        review_loop.SHADOW_UNKNOWN: "pre_enter_unreadable"}
+
+
+def _delivery_result(out: "agent_submit.SubmitOutcome", text: str) -> DeliveryResult:
+    """The sitrep vocabulary for one ``agent_submit`` outcome (t2211_4 labels)."""
+    s = agent_submit
+    kind = out.kind
+    if kind == s.PRE_NOT_BUSY:
+        return DeliveryResult(UNKNOWN, _PRE_NOT_BUSY_DETAIL.get(
+            out.state, "text_not_in_composer"), text)
+    if kind == s.PRE_UNPROVABLE:
+        return DeliveryResult(UNKNOWN, "composer_unprovable", text)
+    if kind == s.PRE_CHANGED:
+        if out.attempt == 0:
+            return DeliveryResult(TYPED, "composer_changed", text)
+        return DeliveryResult(UNKNOWN, "composer_changed_after_enter", text)
+    if kind == s.PRE_MODE_UNREADABLE:
+        return DeliveryResult(TYPED_MODE_UNREADABLE, "", text)
+    if kind == s.PRE_IN_MODE:
+        return DeliveryResult(TYPED_IN_MODE, "", text)
+    if kind == s.ENTER_NOT_SENT:
+        state, reason = out.enter
         if state == monitor_core.DISPATCH_SKIPPED:
             if reason == monitor_core.SKIP_IN_MODE:
                 return DeliveryResult(TYPED_IN_MODE, "enter_skipped", text)
             return _refused(R_IDENTITY_CHANGED, "enter_skipped", text)
-        if state != monitor_core.DISPATCH_SENT:
-            return DeliveryResult(UNKNOWN, "enter_unacknowledged", text)
-        await sleep(review_loop.COMPOSER_DRAIN_SECONDS)
-        after = await monitor_core.capture_raw_tail(monitor, pane)
-        after_state = review_loop.shadow_state(after, agent)
-        if after_state in (review_loop.SHADOW_READY, review_loop.SHADOW_WORKING):
-            return DeliveryResult(SUBMITTED, "", text)
-        if after_state != review_loop.SHADOW_BUSY:
-            return DeliveryResult(UNKNOWN, f"post_enter_{after_state}", text)
-        # Still BUSY: the Enter was swallowed, or the request went and someone
-        # typed again. Only a composer that still holds exactly the request is
-        # a swallowed Enter; anything else means our text may have been
-        # submitted, and "not submitted" would invite a duplicate.
-        held = review_loop.composer_payload(
-            after, agent, await _pane_width(monitor, pane))
-        if held is None:
-            return DeliveryResult(UNKNOWN, "composer_unprovable_after_enter", text)
-        if not payload_matches(held, text):
-            return DeliveryResult(UNKNOWN, "composer_changed_after_enter", text)
-    return DeliveryResult(TYPED, "submit_unconfirmed", text)
+        return DeliveryResult(UNKNOWN, "enter_unacknowledged", text)
+    if kind == s.POST_SUBMITTED:
+        return DeliveryResult(SUBMITTED, "", text)
+    if kind == s.POST_UNVERIFIED:
+        return DeliveryResult(UNKNOWN, f"post_enter_{out.state}", text)
+    if kind == s.POST_UNPROVABLE:
+        return DeliveryResult(UNKNOWN, "composer_unprovable_after_enter", text)
+    if kind == s.POST_CHANGED:
+        return DeliveryResult(UNKNOWN, "composer_changed_after_enter", text)
+    if kind == s.EXHAUSTED:
+        return DeliveryResult(TYPED, "submit_unconfirmed", text)
+    # STOPPED needs a checkpoint, and this caller passes none.
+    return DeliveryResult(UNKNOWN, f"submit_{kind}", text)

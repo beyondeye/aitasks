@@ -866,14 +866,27 @@ latch, the bounded-capture residual), not the full list:
 
    `_submit_shadow_prompt` then owns the Enter, and its two gates deliberately
    answer different questions — which is why `SHADOW_UNKNOWN` appears on both
-   sides with opposite effect:
+   sides with opposite effect. The gates themselves (drain, capture, width and
+   mode reads, the Enter, the post-Enter read, the bounded retry) are
+   `monitor/agent_submit.py`'s `submit_typed_text`, the **one** implementation
+   shared with the sitrep TUI's request delivery
+   (`agent_request_delivery.deliver_sitrep_request`, phase 3), so a fix to one
+   path cannot miss the other. It returns a neutral outcome; each caller maps
+   it onto its own vocabulary. `_submit_shadow_prompt` supplies only the
+   transport (`send_keys`), the drain seam and the supersession checkpoint,
+   and keeps the `HOLD_*` / `DISARM_*` codes below:
 
    - **Before each Enter** it authorises an *action*, so it fails **closed**.
-     `SHADOW_BUSY` — the composer positively holding the text just written — is
-     the **only** verdict that permits the keystroke. `SHADOW_DIALOG` would
-     have the Enter answer the dialog; `SHADOW_UNKNOWN` is no evidence the pane
-     is safe; `SHADOW_READY`/`SHADOW_WORKING` mean the text is not where it was
-     put.
+     `SHADOW_BUSY` **and an exact composer payload** authorise the keystroke,
+     and nothing else does. `SHADOW_BUSY` alone only says the composer holds
+     *some* typed text, so the composer's complete displayed payload
+     (`review_loop.composer_payload`, read at the pane's `#{pane_width}`) must
+     also be exactly the prompt (`agent_submit.payload_matches`, which accepts
+     only justified display wraps — measured for claude, codex and opencode at
+     the shadow widths 60 and 44). Without it, words the user typed after the
+     prompt would be submitted with it. `SHADOW_DIALOG` would have the Enter
+     answer the dialog; `SHADOW_UNKNOWN` is no evidence the pane is safe;
+     `SHADOW_READY`/`SHADOW_WORKING` mean the text is not where it was put.
 
      **The veto is unchanged; what follows it is not (t1606).** All four
      verdicts still send no key. The *consequence* now splits, and the split
@@ -884,9 +897,12 @@ latch, the bounded-capture residual), not the full list:
      | `SHADOW_DIALOG` | **hold**, armed | `_ordered_state` sweeps the prompt patterns over the whole tail before the composer scan, so a dialog string in the shadow's own transcript masks a still-busy composer — and the shadow's job on a recheck is to *run commands*, so an approval dialog opening between the write and this read is a normal consequence of the fire |
      | `SHADOW_UNKNOWN` | **hold**, armed | a failed capture is no evidence at all; disarming on it contradicted item 6 and `find_shadow_pane_info_async`'s own rule |
      | `SHADOW_READY` / `SHADOW_WORKING` | **disarm** | the text is demonstrably not where it was put, and that message was already true |
+     | `SHADOW_BUSY`, payload not exactly the prompt | **hold** `HOLD_PRE_ENTER_COMPOSER_CHANGED`, armed | other text is in the composer (typed after the prompt); an Enter would submit it |
+     | `SHADOW_BUSY`, payload not provable | **hold** `HOLD_PRE_ENTER_COMPOSER_UNPROVABLE`, armed | the composer region does not read as measured (a resize between reads, an unmeasured layout); it authorises nothing |
 
-     Holding is safe for the first two and **only** those two, because both
-     collapse through `_ready_from_state` to a not-`True` readiness: the loop
+     Holding is safe for the ambiguous verdicts and the two payload holds
+     **only**, because all of them collapse through `_ready_from_state` to a
+     not-`True` readiness (a `BUSY` composer reads not-ready): the loop
      provably holds instead of re-firing. `SHADOW_READY` collapses to `True`,
      and `abort_fire` preserves the streak and stamps **no cooldown** — so
      aborting there would re-permit on the very next tick and **re-write the
@@ -902,10 +918,19 @@ latch, the bounded-capture residual), not the full list:
    - **After each Enter** it only decides what to *claim* about a key already
      sent, so it fails **open-but-loud**. Only `WORKING`/`READY` are positive
      evidence of a submit. A still-`BUSY` composer means the Enter was
-     swallowed and is retried up to `review_loop.SHADOW_SUBMIT_RETRIES` times;
+     swallowed **only when its payload is still exactly the prompt**; then it
+     is retried up to `review_loop.SHADOW_SUBMIT_RETRIES` times, and
      exhausting that budget auto-disarms visibly, naming the leftover text —
      which is what finally makes that message **reachable**, since it was
      previously gated on a non-zero send rc that never occurs in this failure.
+     A `BUSY` composer holding anything else (or nothing provable) means the
+     prompt left it and someone typed again: it is reported `sent` with a
+     warning and **never retried** — a retry Enter would submit the user's
+     draft, and a hold would re-fire a duplicate round. The same applies to
+     the retry's own pre-Enter read: an Enter has already gone by then, so a
+     changed or unprovable composer there is `sent` with a warning too — the
+     two payload holds above are for the **first** attempt only, where
+     nothing has been sent.
      `DIALOG` and `UNKNOWN` are reported as **unverified** (a warning naming
      the verdict), never as submitted: `_ordered_state` sweeps the prompt
      patterns over the whole tail before the composer scan, so a dialog string
@@ -988,8 +1013,11 @@ latch, the bounded-capture residual), not the full list:
    reaches a token check — including a swallowed Enter, whose `BUSY`
    post-Enter read retries through the next attempt's check or reaches the
    one before the budget-exhausted return. The one exception is a
-   non-`BUSY` post-Enter read, which returns `sent`: a claim about a key
-   already sent. The caller gates on the controller's verdict for both
+   post-Enter read that returns `sent` (a non-`BUSY` read, or a `BUSY` one
+   whose payload is not the prompt): a claim about a key already sent. The
+   check is the synchronous `checkpoint` handed to `submit_typed_text`, run
+   after the attempt's mode read — still after the last await and ahead of
+   every verdict. The caller gates on the controller's verdict for both
    outcomes — `confirm_fire` / `abort_fire` refuse a stale token — so a
    superseded delivery never changes the live lifecycle's hold state or
    banner; its superseded hold is still recorded.

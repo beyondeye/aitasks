@@ -118,20 +118,59 @@ PANE_HEIGHT = 10     # pinned so the capture-window arithmetic is deterministic
 #
 # `cat` was enough while delivery was two adjacent send_keys, but the delivery
 # now READS THE PANE BACK between them: it authorises the Enter only on a
-# composer positively holding the typed text (SHADOW_BUSY) and then verifies
-# that the text left the composer. Those are exactly the two behaviours a `cat`
-# pane does not have. This stub has them and nothing else — it is a fixture for
-# the delivery protocol, not an emulation of any agent's input handling.
+# composer positively holding EXACTLY the typed text and then verifies that the
+# text left the composer. Those are exactly the behaviours a `cat` pane does
+# not have. This stub has them and nothing else — it is a fixture for the
+# delivery protocol, not an emulation of any agent's input handling.
+#
+# The proof reads the composer by the MEASURED Claude grammar
+# (`review_loop.composer_payload`, t2274/t2275), so the stub draws its region
+# the measured way: a full-width rule row, `❯`+NBSP and the text, continuation
+# rows indented two spaces and word-wrapped at width - 4, a closing rule row
+# (`tests/shadow_recheck_fixtures.py`). It paints with absolute cursor
+# addressing and no newline, bottom-aligned, so nothing ever scrolls into the
+# history `capture-pane -S -15` reads. A submitted line is echoed above the
+# composer in full, the way a real transcript shows it.
 #
 # ❯ = ❯, and the pad after it is NBSP (`_CLAUDE_COMPOSER_RE` keys on it).
 _COMPOSER_STUB = r'''
-import sys, tty
+import os, sys, tty
 
 buf = ""
+history = []
+
+
+def wrap(text, width):
+    rows, row = [], ""
+    for word in text.split(" "):
+        if row and len(row) + 1 + len(word) <= width:
+            row += " " + word
+            continue
+        if row and len(word) > width:
+            room = width - len(row) - 1
+            if room > 0:
+                row, word = row + " " + word[:room], word[room:]
+        if row:
+            rows.append(row)
+        while len(word) > width:
+            rows.append(word[:width])
+            word = word[width:]
+        row = word
+    return rows + [row] if row else rows
 
 
 def draw():
-    sys.stdout.write("\r\x1b[K❯ " + buf)
+    cols, lines = os.get_terminal_size(sys.stdout.fileno())
+    rule = "─" * cols
+    rows = wrap(buf, cols - 4) or [""]
+    region = ([rule, "❯ " + rows[0]] + ["  " + r for r in rows[1:]]
+              + [rule, "  stub"])
+    screen = history[-max(0, lines - len(region)):] + region
+    screen = [""] * (lines - len(screen)) + screen
+    sys.stdout.write("".join("\x1b[%d;1H\x1b[2K%s" % (i + 1, row)
+                             for i, row in enumerate(screen)))
+    sys.stdout.write("\x1b[%d;%dH" % (lines - len(region) + 2,
+                                      3 + len(rows[0]) if len(rows) == 1 else 1))
     sys.stdout.flush()
 
 
@@ -140,8 +179,9 @@ tty.setraw(sys.stdin.fileno())
 while True:
     ch = sys.stdin.read(1)
     if ch in ("\r", "\n"):
-        # Submit: echo into the scrollback the way a real TUI does, then clear.
-        sys.stdout.write("\r\x1b[K" + buf + "\r\n")
+        # Submit: the line goes to the transcript, the composer clears.
+        if buf:
+            history.append(buf)
         buf = ""
     elif ch == "\x03":
         break

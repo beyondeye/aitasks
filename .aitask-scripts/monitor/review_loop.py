@@ -131,6 +131,13 @@ HOLD_SHADOW_IN_MODE = "shadow_in_mode"
 HOLD_SHADOW_MODE_UNREADABLE = "shadow_mode_unreadable"
 HOLD_PRE_ENTER_IN_MODE = "pre_enter_in_mode"
 HOLD_PRE_ENTER_MODE_UNREADABLE = "pre_enter_mode_unreadable"
+# The composer is BUSY but its payload is not provably the recheck prompt
+# (t2274): text was typed after ours, or the composer region is not readable
+# as measured. SHADOW_BUSY alone would have submitted the user's words too.
+# Holds, not disarms: a BUSY composer reads not-ready, so the loop holds
+# without re-writing (the HOLD_PRE_ENTER_IN_MODE argument).
+HOLD_PRE_ENTER_COMPOSER_CHANGED = "pre_enter_composer_changed"
+HOLD_PRE_ENTER_COMPOSER_UNPROVABLE = "pre_enter_composer_unprovable"
 
 #: The single source of user-facing prose for every reason code.
 #:
@@ -184,6 +191,12 @@ LOOP_REASON_MESSAGES: dict[str, str] = {
     HOLD_PRE_ENTER_MODE_UNREADABLE:
         "could not read the shadow pane's tmux mode before the Enter — "
         "recheck text left in the shadow composer; submit or clear it there",
+    HOLD_PRE_ENTER_COMPOSER_CHANGED:
+        "the shadow composer held more than the recheck prompt before the "
+        "Enter (text typed there?) — nothing submitted; submit or clear it there",
+    HOLD_PRE_ENTER_COMPOSER_UNPROVABLE:
+        "could not prove the shadow composer holds exactly the recheck "
+        "prompt — nothing submitted; check its composer",
 }
 
 #: Short banner wording for the holds that get a visible banner, budgeted
@@ -205,6 +218,10 @@ LOOP_HOLD_BANNERS: dict[str, str] = {
         "⟳ holding: Enter withheld (shadow in tmux mode) — check its composer",
     HOLD_PRE_ENTER_MODE_UNREADABLE:
         "⟳ holding: Enter withheld (shadow mode unreadable) — check its composer",
+    HOLD_PRE_ENTER_COMPOSER_CHANGED:
+        "⟳ holding: Enter withheld (shadow composer changed) — check its composer",
+    HOLD_PRE_ENTER_COMPOSER_UNPROVABLE:
+        "⟳ holding: Enter withheld (composer unprovable) — check its composer",
 }
 
 
