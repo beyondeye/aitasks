@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [sitrep]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2299
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 19:37
-updated_at: 2026-11-15 23:03
+updated_at: 2026-11-15 23:43
+completed_at: 2026-11-15 23:43
 ---
 
 ## Origin
@@ -42,3 +43,14 @@ In `TaskIndex._lookup`, validate the status for both active and archived records
 > **✅ gate:plan_approved** run=2026-11-15T21:03:09Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-15T21:33:37Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-15T21:43:34Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4a1a3c4e21d2234b
+
+> **✅ gate:risk_evaluated** run=2026-11-15T21:43:34Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2307/risk_evaluated_2026-11-15T21:43:34Z-risk_evaluated-a1.log`
