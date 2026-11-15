@@ -103,6 +103,9 @@ Subcommands:
 Both headers are always printed: a missing signal is its own state, not a
 silent negative. Do NOT read PLANSCOPE:missing as "nothing is this task's".
 
+A rename is reported as two ordinary path lines -- its old path and its new
+path -- each classified on its own (the same holds for `baseline`).
+
 `baseline` output -- one header line, then one line per recorded path:
   BASELINE:ok|missing|foreign
   DIRTY_AT_CLAIM:<path>     already dirty when the task was claimed
@@ -127,9 +130,19 @@ baseline_file() {
 # no lines and exits 1, and under `set -o pipefail` that failure propagates out
 # of the command substitution and kills the caller with no message at all
 # (shell_conventions.md, "silent set -e aborts via $(...) capture").
+#
+# RENAMES ARE TWO PATHS (t2304). `--no-renames` is load-bearing on this read AND
+# on pass A's `git show` in cmd_list: git's default rename detection prints only
+# a rename's NEW path, so the OLD one would never reach the surface. The testmap
+# selector escalates a listed path that is absent from the tree to a full run (a
+# deleted import drops every relationship derived from it); a missing old path
+# under-selects instead, silently. Both reads carry the flag so `capture` /
+# `baseline` and `list` see the same path set. It also overrides a user's
+# `diff.renames` config (including `copies`). No new line prefix: each half is
+# an ordinary path, classified by the ordinary rules.
 current_dirty_set() {
     {
-        git diff --name-only HEAD -- . "${EXCLUDES[@]}" "${SELF_EXCLUDES[@]}" 2>/dev/null || true
+        git diff --no-renames --name-only HEAD -- . "${EXCLUDES[@]}" "${SELF_EXCLUDES[@]}" 2>/dev/null || true
         git ls-files --others --exclude-standard -- . "${EXCLUDES[@]}" "${SELF_EXCLUDES[@]}" 2>/dev/null || true
     } | sed 's|^\./||' | grep -v '^$' | sort -u || true
 }
@@ -274,8 +287,9 @@ cmd_list() {
                 [[ -n "$sha" ]] || continue
                 # No `--` before the sha: that would make git read it as a
                 # PATHSPEC rather than a revision, and Pass A would silently
-                # return nothing for every task (t1263).
-                committed+="$(git show --name-only --format= "$sha" 2>/dev/null || true)"$'\n'
+                # return nothing for every task (t1263). `--no-renames`: a
+                # renamed file contributes BOTH paths -- see current_dirty_set.
+                committed+="$(git show --no-renames --name-only --format= "$sha" 2>/dev/null || true)"$'\n'
             done <<< "$shas"
         fi
     fi

@@ -21,6 +21,9 @@
 #   - The exclude set does not drift from gate_ledger._DIGEST_EXCLUDES.
 #   - aitask_pick_own.sh writes the baseline on a fresh claim only, and its
 #     stdout contract is unchanged by the capture call.
+#   - A rename is two paths (t2304): staged, unstaged and committed renames list
+#     the OLD half as well as the new, each classified by the ordinary rules;
+#     plain deletions are still listed; `baseline` and `list` agree.
 #
 # Run: bash tests/test_change_surface.sh
 set -u
@@ -429,6 +432,123 @@ assert_line "list still folds the plan-named one into UNKNOWN" \
     "UNKNOWN:sub/mine.md" "$(cs "$fx11" list 12)"
 assert_eq "baseline: missing is its own state" \
     "BASELINE:missing" "$(cs "$fx11" baseline 99)"
+
+# ---------------------------------------------------------------------------
+# 10. RENAMES ARE TWO PATHS (t2304).
+#
+# Git's default rename detection prints only a rename's NEW path, in both
+# `git diff --name-only HEAD` (dirty set: capture/baseline and list pass B) and
+# `git show --name-only` (pass A). The OLD path then never reaches the surface,
+# and the testmap selector -- which escalates an absent listed path to a full
+# run -- under-selects instead. Every case below runs the REAL script, and each
+# rename case first proves git really pairs the rename in that fixture; without
+# that the old-half assertions could pass on a fixture git never treated as a
+# rename.
+#
+# RENAME DETECTION IS PINNED ON FOR THE PRODUCER TOO, not only for the controls.
+# Under a user's `diff.renames=false` the unpatched script never hides an old
+# half, so every assertion here would pass with the `--no-renames` flags removed
+# -- the regression would escape. `rn` pins it through GIT_CONFIG_COUNT (command
+# scope, above every config file) and drops an inherited GIT_CONFIG_PARAMETERS
+# (`git -c ...` from a parent process) that could re-override it. The control
+# and the producer run under the SAME `rn` environment, so a passing control
+# vouches for exactly the config the producer saw.
+# ---------------------------------------------------------------------------
+
+RENAMES_ON=(env -u GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT=1
+            GIT_CONFIG_KEY_0=diff.renames GIT_CONFIG_VALUE_0=true)
+# rn_cs <dir> <args...> / rn_git <dir> <args...> — the helper / git, from the
+# fixture root, with rename detection pinned on.
+rn_cs()  { local d="$1"; shift; ( cd "$d" && "${RENAMES_ON[@]}" "$CS" "$@" ); }
+rn_git() { local d="$1"; shift; ( cd "$d" && "${RENAMES_ON[@]}" git "$@" ); }
+
+# add_files <dir> <name>... — create each file with DISTINCT content (so git
+# cannot pair the wrong two) and commit them.
+add_files() {
+    local d="$1" n; shift
+    for n in "$@"; do printf 'body of %s\n%s\n' "$n" "$n-unique-line" > "$d/$n"; done
+    ( cd "$d" && git add -- "$@" && git commit -qm "add $*" ) >/dev/null 2>&1
+}
+
+# surface_paths <output> — the path field of every classified `list` line.
+surface_paths() {
+    sed -n -E 's/^(COMMITTED|TASK|OTHER|UNKNOWN)://p' <<<"$1" | LC_ALL=C sort
+}
+
+# 10a. Staged rename (`git mv`): the old half in each of the three classes.
+fx_r="$(new_repo)"
+add_files "$fx_r" ra.sh na.sh pa.sh
+write_plan "$fx_r" 20 'Rename ra.sh to rb.sh.'
+( cd "$fx_r" && git mv pa.sh pb.sh ) >/dev/null 2>&1        # BEFORE the claim
+rn_cs "$fx_r" capture 20 >/dev/null
+( cd "$fx_r" && git mv ra.sh rb.sh && git mv na.sh nb.sh ) >/dev/null 2>&1
+ctl_r="$(rn_git "$fx_r" diff --name-only HEAD)"
+assert_line "10a control: git pairs the staged rename (new half listed)" "rb.sh" "$ctl_r"
+assert_no_line "10a control: git pairs the staged rename (old half hidden)" "ra.sh" "$ctl_r"
+out_r="$(rn_cs "$fx_r" list 20)"
+assert_line "staged rename, plan-named: old half is TASK" "TASK:ra.sh" "$out_r"
+assert_line "staged rename, plan-named: new half is TASK" "TASK:rb.sh" "$out_r"
+assert_line "staged rename, baseline-only: old half is OTHER" "OTHER:pa.sh" "$out_r"
+assert_line "staged rename, baseline-only: new half is OTHER" "OTHER:pb.sh" "$out_r"
+assert_line "staged rename, unowned: old half is UNKNOWN" "UNKNOWN:na.sh" "$out_r"
+assert_line "staged rename, unowned: new half is UNKNOWN" "UNKNOWN:nb.sh" "$out_r"
+# NEGATIVES on the halves NO plan claims: never attributed by another route.
+assert_no_line "NEG: baseline-only old half is not TASK" "TASK:pa.sh" "$out_r"
+assert_no_line "NEG: unowned old half is not TASK" "TASK:na.sh" "$out_r"
+
+# 10b. Unstaged rename (`mv`; the new file is untracked).
+fx_u="$(new_repo)"
+add_files "$fx_u" ua.sh un.sh uo.sh
+write_plan "$fx_u" 22 'Rename ua.sh to ub.sh.'
+mv "$fx_u/uo.sh" "$fx_u/up.sh"                               # BEFORE the claim
+rn_cs "$fx_u" capture 22 >/dev/null
+mv "$fx_u/ua.sh" "$fx_u/ub.sh"
+mv "$fx_u/un.sh" "$fx_u/um.sh"
+out_u="$(rn_cs "$fx_u" list 22)"
+assert_line "unstaged rename, plan-named: old half is TASK" "TASK:ua.sh" "$out_u"
+assert_line "unstaged rename, plan-named: new half is TASK" "TASK:ub.sh" "$out_u"
+assert_line "unstaged rename, baseline-only: old half is OTHER" "OTHER:uo.sh" "$out_u"
+assert_line "unstaged rename, baseline-only: new half is OTHER" "OTHER:up.sh" "$out_u"
+assert_line "unstaged rename, unowned: old half is UNKNOWN" "UNKNOWN:un.sh" "$out_u"
+assert_line "unstaged rename, unowned: new half is UNKNOWN" "UNKNOWN:um.sh" "$out_u"
+assert_no_line "NEG: unstaged baseline-only old half is not TASK" "TASK:uo.sh" "$out_u"
+assert_no_line "NEG: unstaged unowned old half is not TASK" "TASK:un.sh" "$out_u"
+
+# 10c. Committed rename in a (t<id>) commit: pass A reports both halves.
+fx_c="$(new_repo)"
+add_files "$fx_c" ca.sh
+( cd "$fx_c" && git mv ca.sh cb.sh && git commit -qm "refactor: rename ca (t21)" ) >/dev/null 2>&1
+ctl_c="$(rn_git "$fx_c" show --name-only --format= HEAD)"
+assert_line "10c control: git pairs the committed rename (new half listed)" "cb.sh" "$ctl_c"
+assert_no_line "10c control: git pairs the committed rename (old half hidden)" "ca.sh" "$ctl_c"
+out_c="$(rn_cs "$fx_c" list 21)"
+assert_line "committed rename: old half is COMMITTED" "COMMITTED:ca.sh" "$out_c"
+assert_line "committed rename: new half is COMMITTED" "COMMITTED:cb.sh" "$out_c"
+
+# 10d. Plain deletions are still listed (regression guard).
+fx_d="$(new_repo)"
+add_files "$fx_d" dd.sh de.sh
+write_plan "$fx_d" 23 'Nothing named here.'
+rn_cs "$fx_d" capture 23 >/dev/null
+( cd "$fx_d" && git rm -q dd.sh ) >/dev/null 2>&1
+rm "$fx_d/de.sh"
+out_d="$(rn_cs "$fx_d" list 23)"
+assert_line "staged deletion is listed" "UNKNOWN:dd.sh" "$out_d"
+assert_line "unstaged deletion is listed" "UNKNOWN:de.sh" "$out_d"
+
+# 10e. `baseline` (DIRTY_AT_CLAIM) and `list` agree on the same tree: both
+# halves of a staged and of an unstaged rename, through both subcommands.
+fx_e="$(new_repo)"
+add_files "$fx_e" ea.sh ec.sh
+( cd "$fx_e" && git mv ea.sh eb.sh ) >/dev/null 2>&1
+mv "$fx_e/ec.sh" "$fx_e/ed.sh"
+assert_eq "capture records both halves of both renames" \
+    "CAPTURED:4" "$(rn_cs "$fx_e" capture 24)"
+base_e="$(rn_cs "$fx_e" baseline 24 | sed -n 's/^DIRTY_AT_CLAIM://p' | LC_ALL=C sort)"
+list_e="$(surface_paths "$(rn_cs "$fx_e" list 24)")"
+assert_eq "baseline path set equals list path set on the same tree" "$list_e" "$base_e"
+assert_eq "...and it is exactly both halves of both renames" \
+    "$(printf '%s\n' ea.sh eb.sh ec.sh ed.sh)" "$base_e"
 
 # --- summary ---------------------------------------------------------------
 echo ""
