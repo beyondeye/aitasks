@@ -633,6 +633,7 @@ Use `AskUserQuestion`:
 
 **If "Save for later":**
 - Inform user: "Revert task t\<N\>_revert_t\<original_id\>.md is ready. Run `/aitask-pick <N>` when you want to implement it."
+- Execute the **Task-Data Push Procedure** (see `.claude/skills/task-workflow/task-data-push.md`). This run's task commits are otherwise still local.
 - Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name` = `"revert"`.
 - End the workflow.
 

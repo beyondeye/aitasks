@@ -181,7 +181,9 @@ Display summary: "Model configurations updated. N new models added, M models upd
 
 ### Step 9: Satisfaction Feedback
 
-Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name` = `"refresh-code-models"`.
+First execute the **Task-Data Push Procedure** (see `.claude/skills/task-workflow/task-data-push.md`). The metadata commit from Step 8 is otherwise still local. In separate-branch mode the main-branch seed and supersession commits are not pushed here. In legacy mode they share the current branch with the task data, so this push publishes them too.
+
+Then execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name` = `"refresh-code-models"`.
 
 ## Model Naming Convention
 

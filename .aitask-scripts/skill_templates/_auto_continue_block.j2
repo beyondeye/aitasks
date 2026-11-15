@@ -33,6 +33,10 @@ Parameters:
                           Procedure call on the Save-for-later branch with
                           this skill_name. Default: "" (no feedback call).
 
+The Save-for-later branch always runs the Task-Data Push Procedure
+(task-workflow/task-data-push.md), whatever the parameters: it is the last step
+of the session, so nothing after it would publish this run's task commits.
+
 Whitespace contract: the macro return begins and ends with `\n`, so the
 call-site renders cleanly as one block inside the surrounding skill body.
 See `aidocs/framework/skill_authoring_conventions.md` "Jinja templating in skills"
@@ -61,6 +65,7 @@ Use `AskUserQuestion`:
 {% endif -%}
 **If "Save for later":**
 - Inform user: "{{ inform_label }} {{ inform_filename }} is ready. Run `/aitask-pick {{ inform_pick_arg }}` when you want to implement it."
+- Execute the **Task-Data Push Procedure** (see `.claude/skills/task-workflow/task-data-push.md`). This run's task commits are otherwise still local.
 {%- if feedback_skill_name %}
 - Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name` = `"{{ feedback_skill_name }}"`.
 {%- endif %}

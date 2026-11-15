@@ -80,7 +80,9 @@ Proceed to Step 7.
 
 ### Step 7: Satisfaction Feedback
 
-Execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name: "qa"`.
+First execute the **Task-Data Push Procedure** (see `.claude/skills/task-workflow/task-data-push.md`). A follow-up task created in Step 6 is otherwise still local.
+
+Then execute the **Satisfaction Feedback Procedure** (see `.claude/skills/task-workflow/satisfaction-feedback.md`) with `skill_name: "qa"`.
 
 ---
 
@@ -94,6 +96,7 @@ The following procedures are in individual files — read on demand when referen
 - **Test Execution Procedure** (`test-execution.md`) — Run tests, present results, health score, verification gate
 - **Test Plan Proposal Procedure** (`test-plan-proposal.md`) — Generate test ideas, regression hints, determine action
 - **Follow-up Task Creation Procedure** (`follow-up-task-creation.md`) — Create sibling or standalone test task
+- **Task-Data Push Procedure** (`.claude/skills/task-workflow/task-data-push.md`) — Publish this run's task-data commits before the session closes
 - **Satisfaction Feedback Procedure** (`.claude/skills/task-workflow/satisfaction-feedback.md`) — Collect user feedback
 
 ## Notes

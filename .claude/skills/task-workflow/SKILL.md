@@ -481,7 +481,7 @@ Runs only when `resume_point` (from Step 3 Check 5) is `IMPLEMENT` or `POSTIMPL`
 > - Checkpoint (post-plan action)
 >
 > After the checkpoint in `planning.md`:
-> - If child tasks were created and the child checkpoint returned "Stop here" → collect **Satisfaction Feedback Procedure** (see `satisfaction-feedback.md`) with `skill_name` from context variables, then show the **Stopped** banner (see `workflow-end.md`) with `outcome=split` — `planning.md` owns that display — and **END the workflow** (do NOT proceed to Step 7/8/9)
+> - If child tasks were created and the child checkpoint returned "Stop here" → execute the **Task-Data Push Procedure** (see `task-data-push.md`), then collect **Satisfaction Feedback Procedure** (see `satisfaction-feedback.md`) with `skill_name` from context variables, then show the **Stopped** banner (see `workflow-end.md`) with `outcome=split` — `planning.md` owns that display — and **END the workflow** (do NOT proceed to Step 7/8/9)
 > - If child tasks were created and the child checkpoint returned "Start first child" → restart with `/aitask-pick <parent>_1` (do NOT proceed to Step 7)
 > - Otherwise (normal single-task plan) → proceed to Step 7
 
@@ -1139,7 +1139,9 @@ today.) Instead use `AskUserQuestion`:
   are the resume state, and the task lock is intentionally left held. Inform the
   user: "Archival deferred — t<task_id> stays in-flight. Re-pick it with
   `/aitask-pick <task_id>` once the pending gate(s) pass." Skip the
-  push-after-archival step and proceed directly to **Step 9b** (Satisfaction
+  push-after-archival step. Instead execute the **Task-Data Push Procedure**
+  (see `task-data-push.md`): the Step 8 plan commit and any verification-state
+  commit are otherwise still local. Then proceed to **Step 9b** (Satisfaction
   Feedback) — the implementation work was completed — and then to **Step 10**,
   which ends the run with the `in-flight` banner.
 
@@ -1234,6 +1236,8 @@ Execute the **Workflow End Banner Procedure** (see `workflow-end.md`):
 - **Step 9's gate guard took "Defer — keep in-flight"** → section `## Stopped`,
   with `outcome=in-flight`, reason "archival deferred — pending gate(s)
   \<csv\>", next "`/aitask-pick <task_id>` once the pending gate(s) pass".
+  When the Task-Data Push Procedure set `task_data_pushed` to `no`, `next`
+  begins with the prefix that procedure defines.
 
 The banner is a message for the user only. The monitor's COMPLETED badge is
 derived from the task file and is unaffected by it.
@@ -1251,6 +1255,7 @@ The following procedures are in individual files — read on demand when referen
 - **Model Self-Detection Sub-Procedure** (`model-self-detection.md`) — Detect the current code agent and model. Referenced from Agent Attribution and Satisfaction Feedback.
 - **Agent Attribution Procedure** (`agent-attribution.md`) — Record implementing code agent and model. Referenced from Step 7.
 - **Satisfaction Feedback Procedure** (`satisfaction-feedback.md`) — Record skill usage and, when the profile enables it, collect a rating and update verified model scores. Referenced from Step 9b and standalone skills.
+- **Task-Data Push Procedure** (`task-data-push.md`) — One best-effort `./ait git push` of this run's task-data commits, at a session-closing step that has no push of its own; sets `task_data_pushed`. Referenced from Step 9 ("Defer — keep in-flight"), the Step 6 child-split stop, `planning.md`, `cross-repo-child-assignment.md` and standalone skills.
 - **Lock Release Procedure** (`lock-release.md`) — Release task locks. Referenced from Task Abort Procedure.
 - **Crash Recovery Procedure** (`crash-recovery.md`) — Surveys in-progress work and prompts the user when a reclaim signal is detected (multi-PC, same-host crash via PID anchor, or lock anomaly). Referenced from Step 4 dispatcher and Step 7 ownership guard.
 - **Manual Verification Procedure** (`manual-verification.md`) — Interactive checklist runner for `issue_type: manual_verification` tasks. Referenced from Step 3 (Check 3).

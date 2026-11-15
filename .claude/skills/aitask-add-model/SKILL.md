@@ -333,7 +333,13 @@ Only include groups that actually changed. Skip unchanged files.
 
 ### Step 7: Satisfaction Feedback
 
-Execute the **Satisfaction Feedback Procedure** (see
+First execute the **Task-Data Push Procedure** (see
+`.claude/skills/task-workflow/task-data-push.md`). The registry commit from
+Step 6 is otherwise still local. In separate-branch mode the main-branch
+commits are not pushed here. In legacy mode they share the current branch with
+the task data, so this push publishes them too.
+
+Then execute the **Satisfaction Feedback Procedure** (see
 `.claude/skills/task-workflow/satisfaction-feedback.md`) with
 `skill_name` = `"add-model"`.
 

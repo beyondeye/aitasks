@@ -85,6 +85,7 @@ Use `AskUserQuestion`:
 
 **If "Save for later":**
 - Inform user: "Task t\<primary_id\>_\<name\>.md is ready. Run `/aitask-pick <primary_id>` when you want to implement it."
+- Execute the **Task-Data Push Procedure** (see `.claude/skills/task-workflow/task-data-push.md`). This run's task commits are otherwise still local.
 - End the workflow.
 
 **If "Continue to implementation":**
