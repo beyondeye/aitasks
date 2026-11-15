@@ -144,3 +144,5 @@ Step 9 (Post-Implementation) applies.
 > | So `converge_current_repo_with_remote` (`lib/verified_update_lib.sh`, L140, called at ~L247 / ~L306 as of e5f34774a) can be removed without stranding those commits. Until your change lands, the converge still runs after these pushes. That is harmless: nothing is left to push.
 > | 
 > | The archived t1912_3 plan has the full inventory and its "Notes for sibling tasks".
+
+> **👁 note:read** id=2026-11-15T21:08:24Z.1d0a589d0c2774ceb602741e by=t1912_4 at=2026-11-15T21:08:24Z mode=explicit ids=2026-11-15T21:00:32Z.867266641562643aad4e001c
