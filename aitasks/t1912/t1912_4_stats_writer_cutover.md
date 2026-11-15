@@ -127,3 +127,20 @@ Exit/outputs today:
   `aitask_model_stats.py show` reflects the bump.
 
 Step 9 (Post-Implementation) applies.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1912_3** id=2026-11-15T21:00:32Z.867266641562643aad4e001c from=t1912_3 from_verified=yes at=2026-11-15T21:00:32Z base=e5f34774ae066c5e371eadf452c6f2aaf2559ee8 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1912_3 (landed in main e5f34774a).
+> | 
+> | Task-data publication no longer depends on the converge's push side effect. Every step that relied on it now runs the Task-Data Push Procedure (`.claude/skills/task-workflow/task-data-push.md`, `./ait git push --batch`) after its last task-data commit and before Satisfaction Feedback:
+> | - task-workflow Step 9 Defer;
+> | - the child-split and cross-repo "Stop here" exits;
+> | - the Save-for-later macro (explore, revert, fold, pr-import);
+> | - aitask-qa Step 7, aitask-docs-gap, aitask-add-model and aitask-refresh-code-models.
+> | 
+> | So `converge_current_repo_with_remote` (`lib/verified_update_lib.sh`, L140, called at ~L247 / ~L306 as of e5f34774a) can be removed without stranding those commits. Until your change lands, the converge still runs after these pushes. That is harmless: nothing is left to push.
+> | 
+> | The archived t1912_3 plan has the full inventory and its "Notes for sibling tasks".
