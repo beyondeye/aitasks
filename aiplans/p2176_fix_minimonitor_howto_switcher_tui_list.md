@@ -73,3 +73,17 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-15 17:20)
+- **Requested by user:** The three new pointers promise a "full list" at `/docs/tuis/#navigating-between-tuis`, but that canonical paragraph omitted App Linker, which `tui_registry.py` lists with `in_switcher=True`. Add it there so every pointer is accurate.
+- **Changes made:** Verified that `_build_tui_list` (`.aitask-scripts/lib/tui_switcher.py`) passes every `switcher_tuis()` entry through unfiltered, so App Linker is shown, on quick-jump key `a`, which the bottom hint row deliberately does not advertise. Added "App Linker" to the canonical list and "App Linker on **`a`**" to the sentence naming the keys the hint row omits.
+- **Files affected:** `website/content/docs/tuis/_index.md`
+
+## Final Implementation Notes
+- **Actual work done:** The three hand-copied switcher lists became a short summary plus a relref to `/docs/tuis/#navigating-between-tuis`. They were in `website/content/docs/tuis/minimonitor/how-to.md` ("How to Jump to Another TUI"), `website/content/docs/tuis/monitor/how-to.md` (same section) and `website/content/docs/tuis/monitor/_index.md` ("Jumping to Another TUI"). Minimonitor is no longer presented as a switcher entry. Review-driven: the canonical paragraph in `website/content/docs/tuis/_index.md` now includes App Linker (and its `a` key), so the "full list" the pointers promise is complete.
+- **Deviations from plan:** One extra file (`tuis/_index.md`) from Change Request 1. The plan had assumed the canonical paragraph was already complete.
+- **Issues encountered:** None. `check_links.py --build` passed before and after the review change; the stale-list grep finds nothing.
+- **Key decisions:** Link instead of enumerate, so the per-page text cannot drift from `TUI_REGISTRY` again; only the canonical paragraph lists every TUI. `diffviewer` stays unmentioned (CLAUDE.md). The summary names the git TUI and running agent/brainstorm windows because `_build_tui_list` and the switcher append them dynamically.
+- **Upstream defects identified:** None
