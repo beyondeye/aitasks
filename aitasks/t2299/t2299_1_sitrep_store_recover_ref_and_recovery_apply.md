@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2299
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 12:53
-updated_at: 2026-11-15 13:07
+updated_at: 2026-11-15 16:19
 ---
 
 ## Context
@@ -95,3 +96,8 @@ The state, outcome, checked_at, title, group and context land in ONE `_commit_to
 
 - Never `git restore`, `git stash` or checkout: the shared tree holds other crashed tasks' uncommitted hunks. Commit only this task's paths.
 - `aidocs/framework/sitrep.md` is updated in t2299_4, not here.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-15T14:19:12Z status=pass attempt=1 type=human
