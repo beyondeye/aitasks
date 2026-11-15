@@ -5,6 +5,7 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [tests, testing]
+gates: [risk_evaluated]
 anchor: 1599
 followup_kind: upstream_defect
 created_at: 2026-11-15 23:45
