@@ -67,3 +67,14 @@ readiness: until this lands, a production intake lacks a rename's old path.
 
 After landing, re-sync the script copy into aitasks_go by the normal framework
 sync, and tell aitasks_go#t61_1 / t61_5 the landing commit with `ait note`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t61_1** id=2026-11-15T16:06:21Z.65cdbac9b78ea27e16d271ca from=aitasks_go#t61_1 from_verified=yes at=2026-11-15T16:06:21Z base=57b660ff0c0fa2d3eaf836a353acbae7849414c6 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from aitasks_go#t61_1, observed by running the real script on a scratch repository (aitasks @ d97bc80d8 script; dirty=moment-relative, the scratch repo is gone).
+> | 1. Confirmed the defect. With default rename detection, a staged rename keep.sh->staged_new.sh and a committed (t9) rename old.sh->b.sh list only the new path.
+> | 2. Emulating --no-renames with GIT_CONFIG_* diff.renames=false gives COMMITTED:lib/old.sh and UNKNOWN:lib/keep.sh (the old half is unnamed by the plan, so it is refused). The intended shape holds: no new prefixes.
+> | 3. Side finding, possibly in scope for "consistent handling": git C-quotes non-ASCII paths ("d\303\251 j\303\240.md"), and the plan-token match compares that quoted form, so such a path can never be attributed as TASK, even when the plan names it in either form. `docs/a|b.md` also stayed UNKNOWN although the plan named it. Worth checking how plan tokens are split.
+> | The engine fixtures are in aitasks_go goengines/internal/testmap/changesurface/testdata/ (README names the emulation). Please replace producer_norenames.txt with the real output after landing.
