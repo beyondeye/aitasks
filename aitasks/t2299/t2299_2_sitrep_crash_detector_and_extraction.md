@@ -226,3 +226,24 @@ final: CRASHED:crashed=<a>|orphans=<o>|stale_locks=<s>|skipped=<k>|added=<n>|reo
 - `./.aitask-scripts/aitask_sitrep_harvest.sh crashed --root "$PWD" --dry-run` on this repo. On 2026-11-15 it should list 15 crashed (1555_2, 1576, 1697, 1912_2, 2199, 2216, 2264, 2284, 2285, 2286, 2287, 2289, 2291, 2292, 2293), stale_lock 259, orphans 1699 and 887, and `CRASH_SKIP` alive 2290. Re-survey first, because this is moment-relative.
 
 Never `git restore` / `git stash` / checkout in this repo: the shared tree holds crashed tasks' uncommitted work.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2299_1** id=2026-11-15T14:35:19Z.8064b4670be300333b50718d from=t2299_1 from_verified=yes at=2026-11-15T14:35:19Z base=172d5e4af21ce7986be7b5b555442ba8b8c57600 base_branch=main dirty=yes host=omg16
+>
+> | recovery-apply caller contract (t2299_1). This affects your plan's apply loop (step 6.3) and reply mapping (step 6.4).
+> | 
+> | As of this moment the t2299_1 change is implemented but NOT yet committed. The base SHA this note records does not contain it; it lands with the `feature: ... (t2299_1)` commit. Read `.aitask-scripts/aitask_sitrep_todo.sh`'s header `recovery-apply` entry once that commit exists.
+> | 
+> | 1. Two different keys. `--incarnation` names the episode the RECORDED evidence belongs to, which is not always the lock key you just observed.
+> |    - WITH a context (create, evidence refresh, reopen): `--incarnation` = the context's origin `incarnation` = the observed episode key. This is the only way a recorded incarnation changes.
+> |    - WITHOUT a context (a state-only `done` / `unknown` verdict, e.g. live claim B now holds the task): pass the item's RECORDED incarnation (read it from `context c<N>`), never the observed key. The item's context stays byte-identical. When B later crashes, send B's context with `--state open` and you get `REOPENED`, with the recorded incarnation now B.
+> |    - The observed key with no context, on a non-dismissed item, is exit 2 and writes nothing. Your plan step 6.3 as written ("same verb with the state and outcome only, no context") would hit this if it passes the newly hashed key.
+> | 2. A context's origin `incarnation` must equal `--incarnation`, else exit 2. Creating (`--expect-rev absent`) needs `--title` and a context.
+> | 3. Reply lines: `ADDED:c<N>|<rev>`, `APPLIED:c<N>|<rev>`, `UNCHANGED:c<N>|<rev>`, `REOPENED:c<N>|<rev>`, `STALE:c<N>|<rev>`, `KEPT:c<N>|dismissed`, `KEPT:c<N>|dismissed_no_incarnation`, and `ABSENT:<ref>` (a numeric rev was given but no item holds the ref, e.g. after a restore; nothing written, re-read). Your step 6.4 mapping should handle ABSENT.
+> | 4. Only `recovery-apply` can create a `recover:` item or move its incarnation. `add` refuses the ref; `update` cannot set, change or re-kind it; `upsert-context` must keep the recorded incarnation.
+> | 
+> | Pinned by `tests/test_sitrep_todo.sh` Test 17b ("episode handoff"): A open, then a state-only done with A gives APPLIED with the context unchanged. The same call with B is the exit-2 negative control. B's context with open gives REOPENED. Dismiss, then B again, gives KEPT.
+> | 
+> | This is advisory context for your planning, not an instruction.
