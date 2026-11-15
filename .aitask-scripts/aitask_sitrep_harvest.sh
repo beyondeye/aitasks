@@ -24,6 +24,12 @@
 #   case list|show|read|review|replay|export|check-fixture ...
 #                             the review-case corpus (lib/sitrep_corpus.py,
 #                             t2175_6); `replay --apply` runs under the mutex
+#   crashed [--root <abs>] [--dry-run]
+#                             the crash detector (lib/sitrep_crash.py, t2299_2):
+#                             one `recover:t<N>` item per task whose agent is
+#                             gone, written only through the writer's atomic
+#                             `recovery-apply`. --root defaults to $PWD;
+#                             --dry-run takes no lock and writes nothing.
 #
 # Wire lines (stdout, one per event):
 #   HARVEST_RUN:<16 hex>                       banner only, first line
@@ -38,6 +44,19 @@
 #                                  |sitrep_agent
 #         | HARVEST_FAILED:<src>|<reason>
 # Exit codes: 0 success (incl. NONE), 1 at least one harvest failed, 2 usage.
+#
+# Wire lines of `crashed` (stdout, one per event; read lib/sitrep_crash.py's
+# header for the decision table, the episode key and the idempotence rule):
+#   CRASH_ITEM:t<N>|c<M>|added|applied|unchanged|reopened|kept_dismissed|dry_run|<category>
+#                                              (`-` for c<M> when no item exists yet)
+#   CRASH_SKIP:t<N>|alive|unknown|other_host:<host>
+#   CRASH_WARN:t<N>|<reason>                   nothing written for that task
+#   final:  CRASHED:crashed=<a>|orphans=<o>|stale_locks=<s>|skipped=<k>|added=<n>|reopened=<r>|warned=<w>
+#         | CRASH_NONE:nothing_inflight
+#         | CRASH_FAILED:<reason>              nothing (more) written; exit 1
+# The same exit codes apply. AITASK_SITREP_CRASH_FAULT=<point> (before_apply,
+# after_retain) and AITASK_SITREP_CRASH_PAUSE_FIFO (at before_apply) are its
+# test seams; AITASK_SITREP_NOW pins its clock.
 #
 # ONE STORE PER REPOSITORY. Every verb maps its root to the repository's main
 # worktree (a linked `aiwork/<task>` worktree, even a removed one, maps to the
@@ -117,11 +136,15 @@ source "$SCRIPT_DIR/lib/python_resolve.sh"
 
 CORE="$SCRIPT_DIR/lib/sitrep_harvest.py"
 CORPUS="$SCRIPT_DIR/lib/sitrep_corpus.py"
+CRASH="$SCRIPT_DIR/lib/sitrep_crash.py"
 LOCK_TIMEOUT="${AITASK_SITREP_HARVEST_LOCK_TIMEOUT:-20}"
 EXCLUDE_RULE=".aitask-sitrep/"
 
 PY=""
 BUF=""
+# How with_harvest_lock reports a failure: `harvest` (HARVEST_FAILED:<src>|<reason>)
+# or `crash` (CRASH_FAILED:<reason>, the `crashed` verb's grammar).
+LOCK_FAIL_STYLE="harvest"
 
 usage() {
     cat >&2 <<'EOF'
@@ -130,6 +153,7 @@ Usage: aitask_sitrep_harvest.sh record <id> [--force]
        aitask_sitrep_harvest.sh banner --task <id> [--skill <name>]   (text on stdin)
        aitask_sitrep_harvest.sh capture --root <path> [--agent W] [--task T] [--operation op]
        aitask_sitrep_harvest.sh case list|show|read|review|replay|export|check-fixture ...
+       aitask_sitrep_harvest.sh crashed [--root <abs>] [--dry-run]
 EOF
     exit 2
 }
@@ -189,6 +213,14 @@ ensure_ignored() {
     git -C "$root" check-ignore -q ".aitask-sitrep/todo.md" 2>/dev/null
 }
 
+lock_failed() {   # lock_failed <src> <reason>
+    if [[ "$LOCK_FAIL_STYLE" == crash ]]; then
+        echo "CRASH_FAILED:$2"
+    else
+        echo "HARVEST_FAILED:$1|$2"
+    fi
+}
+
 # Run a command with the store's harvest mutex held (the store made
 # git-ignored and writable first). Every identity check (does this run or
 # input already have an item?) runs under it.
@@ -197,20 +229,20 @@ with_harvest_lock() {
     local src="$1" root="$2"; shift 2
     local store="$root/.aitask-sitrep" lockdir rc=0
     if ! ensure_ignored "$root"; then
-        echo "HARVEST_FAILED:$src|store_not_ignorable"
+        lock_failed "$src" store_not_ignorable
         return 1
     fi
     if ! mkdir -p "$store" 2>/dev/null || [[ ! -w "$store" ]]; then
-        echo "HARVEST_FAILED:$src|store_unwritable"
+        lock_failed "$src" store_unwritable
         return 1
     fi
     lockdir="$store/.harvest.lockd"
     if [[ -L "$lockdir" || ( -e "$lockdir" && ! -d "$lockdir" ) ]]; then
-        echo "HARVEST_FAILED:$src|harvest_lock_unusable"
+        lock_failed "$src" harvest_lock_unusable
         return 1
     fi
     if ! registry_lock_acquire "$lockdir" "$LOCK_TIMEOUT"; then
-        echo "HARVEST_FAILED:$src|harvest_lock_busy"
+        lock_failed "$src" harvest_lock_busy
         return 1
     fi
     pause_seam apply:locked
@@ -384,6 +416,47 @@ cmd_case() {
     with_harvest_lock "case" "$root" "$PY" "$CORPUS" "$@" --root-canonical "$root" </dev/null
 }
 
+# crashed [--root <abs>] [--dry-run]: the crash detector (lib/sitrep_crash.py).
+# plan (lock-free) -> WORK:<root> -> apply under the store's harvest mutex.
+cmd_crashed() {
+    local root="" dry=0 out rc=0 line work=""
+    while [[ $# -gt 0 ]]; do
+        case "$1" in
+            --root) root="${2:-}"; [[ -n "$root" ]] || err_usage "--root needs a path"; shift ;;
+            --dry-run) dry=1 ;;
+            *) err_usage "unknown argument: $1" ;;
+        esac
+        shift
+    done
+    [[ -n "$root" ]] || root="$PWD"
+    no_dotdot "$root"
+    [[ "$root" == /* ]] || err_usage "--root must be an absolute path"
+    PY="$(resolve_python)"
+    if [[ -z "$PY" ]]; then
+        echo "CRASH_FAILED:no_python"
+        return 1
+    fi
+    if [[ "$dry" == 1 ]]; then
+        "$PY" "$CRASH" dry-run --root "$root" </dev/null
+        return
+    fi
+    out="$("$PY" "$CRASH" plan --root "$root" </dev/null)" || rc=$?
+    while IFS= read -r line; do
+        case "$line" in
+            WORK:*) work="${line#WORK:}" ;;
+            "") ;;
+            *) printf '%s\n' "$line" ;;
+        esac
+    done <<<"$out"
+    if [[ "$rc" -ne 0 ]]; then
+        [[ -n "$out" ]] || echo "CRASH_FAILED:plan_exit_$rc"
+        return 1
+    fi
+    [[ -n "$work" ]] || return 0
+    LOCK_FAIL_STYLE=crash
+    with_harvest_lock crash "$work" "$PY" "$CRASH" apply --root-canonical "$work" </dev/null
+}
+
 main() {
     [[ $# -ge 1 ]] || usage
     [[ "$LOCK_TIMEOUT" =~ ^[0-9]+$ ]] \
@@ -395,6 +468,7 @@ main() {
         banner)  cmd_banner "$@" ;;
         capture) cmd_capture "$@" ;;
         case)    cmd_case "$@" ;;
+        crashed) cmd_crashed "$@" ;;
         -h|--help) usage ;;
         *) err_usage "unknown verb: $verb" ;;
     esac
