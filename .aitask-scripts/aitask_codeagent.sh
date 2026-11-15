@@ -312,6 +312,27 @@ cmd_list_agents() {
     done
 }
 
+# Print models_<agent>.json with its usagestats / verifiedstats made effective:
+# the file's counters plus the local aitask-stats branch's, or the branch's alone
+# once the agent is migrated (aitask_model_stats.py overlay, t1912_2). Never
+# fetches. Falls back to the raw file: silently when the stats CLI or a Python is
+# unavailable (scaffolded test repos), with a warning when the CLI itself fails.
+_list_models_view() {
+    local agent="$1" models_file="$2"
+    local cli="$SCRIPT_DIR/aitask_model_stats.py" py out
+    if [[ -f "$cli" ]]; then
+        py="$(resolve_python 2>/dev/null || true)"
+        if [[ -n "$py" ]]; then
+            if out="$("$py" "$cli" overlay --agent "$agent" --file "$models_file")"; then
+                printf '%s\n' "$out"
+                return 0
+            fi
+            warn "model-stats overlay failed for '$agent' (${out:-no output}); showing the registry file's counters only"
+        fi
+    fi
+    cat "$models_file"
+}
+
 cmd_list_models() {
     local active_only=false
     local filter_agent=""
@@ -347,27 +368,42 @@ cmd_list_models() {
         fi
 
         echo "=== $agent ==="
+        local view
+        view="$(_list_models_view "$agent" "$models_file")"
         jq -r "$jq_filter"'
-            | "MODEL:\(.name) CLI_ID:\(.cli_id) STATUS:\(.status // "active") NOTES:\(.notes) VERIFIED:\((.verified // {}) | to_entries | map("\(.key)=\(.value)") | join(","))"
-              + (
-                    # Each op is bucketed ({all_time, month, prev_month, week});
-                    # all_time is what runs/avg report. A flat {runs, score_sum}
-                    # entry is the pre-bucket format, still accepted as in
-                    # lib/stats_data.py.
-                    ((.verifiedstats // {}) | to_entries
-                      | map(
-                          (.value
-                            | if type == "object" then
-                                (if has("all_time") then (.all_time // {})
-                                 elif has("runs") then .
-                                 else {} end)
-                              else {} end) as $b
-                          | ($b.runs // 0) as $r
-                          | "\(.key)(runs \($r), avg \(if $r > 0 then (($b.score_sum // 0) / $r | round) else 0 end))")
-                      | join(",")) as $stats
-                    | if $stats == "" then "" else "\nSTATS:\($stats)" end
-                )
-        ' "$models_file"
+            # Each verifiedstats op is bucketed ({all_time, month, prev_month,
+            # week}); all_time is what runs/avg report. A flat {runs,
+            # score_sum} entry is the pre-bucket format, still accepted as in
+            # lib/stats_data.py.
+            | ((.verifiedstats // {}) | to_entries
+              | map(
+                  (.value
+                    | if type == "object" then
+                        (if has("all_time") then (.all_time // {})
+                         elif has("runs") then .
+                         else {} end)
+                      else {} end) as $b
+                  | ($b.runs // 0) as $r
+                  | {key, r: $r,
+                     avg: (if $r > 0 then (($b.score_sum // 0) / $r | round) else 0 end)})) as $vs
+            # VERIFIED is the effective score (t1912_2): the registry prior
+            # `verified` is only a fallback. Each prior key keeps its place,
+            # with the verifiedstats all_time average replacing its value when
+            # that skill has runs; skills with runs but no prior follow. The
+            # stored prior is never rewritten.
+            | ($vs | map(select(.r > 0) | {key, value: .avg}) | from_entries) as $derived
+            | ((.verified // {}) | to_entries
+                | map(.key as $k
+                      | if ($derived | has($k)) then .value = $derived[$k] else . end)) as $prior
+            | ($prior | map(.key)) as $prior_keys
+            | ($prior
+               + ($vs | map(select(.r > 0) | .key as $k
+                            | select($prior_keys | any(. == $k) | not)
+                            | {key, value: .avg}))) as $verified
+            | "MODEL:\(.name) CLI_ID:\(.cli_id) STATUS:\(.status // "active") NOTES:\(.notes) VERIFIED:\($verified | map("\(.key)=\(.value)") | join(","))"
+              + (($vs | map("\(.key)(runs \(.r), avg \(.avg))") | join(",")) as $stats
+                 | if $stats == "" then "" else "\nSTATS:\($stats)" end)
+        ' <<<"$view"
         echo ""
     done
 }

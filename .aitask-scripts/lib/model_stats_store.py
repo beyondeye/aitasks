@@ -695,6 +695,83 @@ def load_all_stats(project_root, *, metadata_path=None) -> dict:
             for agent in sorted(agents)}
 
 
+# ================================================================= overlay
+
+def _overlay_key(own, branch_entry):
+    """One stats key of one row, file + branch, the file's skill order first.
+
+    Skills on both sides are summed with ``merge_buckets``; a one-sided skill is
+    a deep copy of its entry. Branch-only skills follow in sorted order. A
+    non-dict file value contributes nothing (readers treat it as absent).
+    """
+    own = own if isinstance(own, dict) else {}
+    out = {}
+    for skill, entry in own.items():
+        if skill in branch_entry:
+            out[skill] = merge_buckets(entry, branch_entry[skill])
+        else:
+            out[skill] = copy.deepcopy(entry)
+    for skill in sorted(set(branch_entry) - set(own)):
+        out[skill] = copy.deepcopy(branch_entry[skill])
+    return out
+
+
+def overlay_rows(repo, agent, rows) -> list:
+    """Registry ``rows`` with ``usagestats`` / ``verifiedstats`` made effective.
+
+    ``repo`` is the directory the rows were read from (or the explicit project
+    root they belong to), never an ambient cwd: the stats branch read is the one
+    of the repository that holds that registry. The legacy counters are the
+    rows' own values, so the result describes exactly the file the caller
+    parsed. Per row and per stats key:
+
+    - marker present  => the branch's entry, or the key is removed when the
+      branch has none for this model;
+    - no marker, no branch data => the row's own value, untouched in content and
+      skill order (while the branch is empty, every reader sees today's file);
+    - no marker, branch data => file + branch (``_overlay_key``).
+
+    ``verified`` and every other field pass through. A non-dict row, or one
+    without a string ``name``, passes through unchanged. Input is never
+    mutated; never fetches.
+    """
+    check_agent(agent)
+    if not isinstance(rows, list):
+        return rows
+    content = _branch_content(repo)
+    branch = content["agents"].get(agent, {})
+    marked = agent in content["markers"]
+    out = []
+    for row in rows:
+        if not isinstance(row, dict) or not isinstance(row.get("name"), str):
+            out.append(row)
+            continue
+        brow = branch.get(row["name"])
+        brow = brow if isinstance(brow, dict) else {}
+        new = copy.deepcopy(row)
+        for key in STATS_KEYS:
+            bkey = brow.get(key) if isinstance(brow.get(key), dict) else None
+            if marked:
+                if bkey is None:
+                    new.pop(key, None)
+                else:
+                    new[key] = copy.deepcopy(bkey)
+            elif bkey:
+                new[key] = _overlay_key(row.get(key), bkey)
+        out.append(new)
+    return out
+
+
+def overlay_data(repo, agent, data):
+    """A parsed ``models_<agent>.json`` with its rows overlaid (``overlay_rows``).
+
+    Anything other than a dict whose ``models`` is a list is returned as is.
+    """
+    if not isinstance(data, dict) or not isinstance(data.get("models"), list):
+        return data
+    return {**data, "models": overlay_rows(repo, agent, data["models"])}
+
+
 def branch_state(project_root) -> dict:
     """``{"sha": <sha|None>, "markers": [...]}`` of the local stats ref."""
     try:

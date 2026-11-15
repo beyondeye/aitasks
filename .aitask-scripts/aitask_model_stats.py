@@ -11,6 +11,10 @@ Verbs (single-line structured stdout, diagnostics on stderr):
                   -> REFRESHED:<sha> | REFRESH_SKIPPED:<reason> |
                      STATS_DIVERGED:<local>|<remote>      (always exit 0)
   export          --agent A      -> effective {"schema":1,"models":{...}} JSON
+  overlay         --agent A --file F [--root R]
+                                 -> F (a models_<A>.json) as JSON with its
+                                    usagestats / verifiedstats made effective;
+                                    --root defaults to F's directory
   show                           -> BRANCH:/MARKER: header, then one line per
                                     agent/model/stats key/skill
 
@@ -115,6 +119,21 @@ def cmd_export(args) -> int:
     return 0
 
 
+def cmd_overlay(args) -> int:
+    if not mss.AGENT_RE.fullmatch(args.agent or ""):
+        raise UsageError(f"invalid --agent: {args.agent!r}")
+    path = args.file
+    try:
+        with open(path, encoding="utf-8") as fh:
+            data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise UsageError(f"unreadable --file {path!r}: {exc}") from None
+    root = args.root if args.root is not None else os.path.dirname(os.path.abspath(path))
+    out = mss.overlay_data(root, args.agent, data)
+    sys.stdout.write(json.dumps(out, indent=2, ensure_ascii=False) + "\n")
+    return 0
+
+
 def cmd_show(args) -> int:
     state = mss.branch_state(args.root)
     _line(f"BRANCH:{state['sha'] or 'none'}")
@@ -157,6 +176,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--timeout", type=float)
     p = add("export", cmd_export)
     p.add_argument("--agent", required=True)
+    p = add("overlay", cmd_overlay)
+    p.add_argument("--agent", required=True)
+    p.add_argument("--file", required=True)
+    p.set_defaults(root=None)
     add("show", cmd_show)
     return parser
 
@@ -167,7 +190,7 @@ def main(argv=None) -> int:
         args = parser.parse_args(argv)
         if not getattr(args, "func", None):
             raise UsageError("a verb is required: bump-usage, record-verified, "
-                             "refresh, export, show")
+                             "refresh, export, overlay, show")
         return args.func(args)
     except UsageError as exc:
         _line(f"STATS_ERROR:usage:{str(exc).replace(chr(10), ' ')}")

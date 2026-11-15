@@ -55,6 +55,10 @@ from model_stats_windows import (  # noqa: E402,F401
     resolve_windows,
 )
 
+# The effective counters (file + aitask-stats branch, t1912_2). Stdlib-only and
+# never fetches: it reads the local stats ref.
+import model_stats_store as _mss  # noqa: E402
+
 # Honor the framework-wide TASK_DIR override via the canonical resolver rather
 # than hardcoding "aitasks": a caller that scans one task tree for membership
 # must not silently read a different tree's archive for completion history.
@@ -518,11 +522,29 @@ def load_model_cli_ids(project_root: Optional[Path] = None) -> Dict[Tuple[str, s
     return result
 
 
+def _effective_rows(metadata_dir: Path, project_root: Optional[Path],
+                    agent: str, payload) -> list:
+    """The registry rows of one models_<agent>.json with effective counters.
+
+    The stats branch read is the one of the repository holding the registry:
+    the explicit `project_root`, else the metadata directory itself (never the
+    cwd, which an absolute TASK_DIR points away from).
+    """
+    rows = payload.get("models", []) if isinstance(payload, dict) else []
+    if not isinstance(rows, list):
+        return rows
+    repo = project_root if project_root is not None else metadata_dir
+    return _mss.overlay_rows(repo, agent, rows)
+
+
 def load_verified_rankings(
     project_root: Optional[Path] = None,
     today: Optional[date] = None,
 ) -> VerifiedRankingData:
-    """Load verifiedstats from all models_*.json and build rankings.
+    """Load the effective verifiedstats of all models_*.json and build rankings.
+
+    The counters are the registry file's plus the local aitask-stats branch's
+    (`model_stats_store.overlay_rows`; branch only once an agent is migrated).
 
     Returns rankings by operation, provider, and time window, plus
     all_providers aggregation using canonical_model_id() normalization.
@@ -546,7 +568,7 @@ def load_verified_rankings(
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        for model in payload.get("models", []):
+        for model in _effective_rows(metadata_dir, project_root, agent, payload):
             cli_id = model.get("cli_id", "")
             vstats = model.get("verifiedstats")
             if not isinstance(vstats, dict) or not vstats or not cli_id:
@@ -656,7 +678,9 @@ def load_usage_rankings(
     project_root: Optional[Path] = None,
     today: Optional[date] = None,
 ) -> UsageRankingData:
-    """Load usagestats from all models_*.json and build rankings.
+    """Load the effective usagestats of all models_*.json and build rankings.
+
+    Counters as in load_verified_rankings (file + local aitask-stats branch).
 
     Mirrors load_verified_rankings shape (by_window[op][provider][window]),
     but reads usagestats and carries no score field. Window keys match
@@ -676,7 +700,7 @@ def load_usage_rankings(
             payload = json.loads(path.read_text(encoding="utf-8"))
         except (OSError, json.JSONDecodeError):
             continue
-        for model in payload.get("models", []):
+        for model in _effective_rows(metadata_dir, project_root, agent, payload):
             cli_id = model.get("cli_id", "")
             ustats = model.get("usagestats")
             if not isinstance(ustats, dict) or not ustats or not cli_id:

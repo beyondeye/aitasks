@@ -39,7 +39,6 @@ if _LIB_DIR not in sys.path:
 from guarded_dismiss import GuardedModalScreen  # noqa: E402
 from config_utils import (  # noqa: E402,F401
     MODEL_FILES,
-    _load_json,
     load_all_models,
     metadata_dir,
 )
@@ -598,9 +597,14 @@ class AgentModelPickerScreen(GuardedModalScreen):
         return out
 
     def _build_options_for_agent(self, agent: str) -> list[dict]:
-        model_path = MODEL_FILES.get(agent, Path("nonexistent"))
-        model_data = _load_json(model_path)
-        models = model_data.get("models", []) if model_data else []
+        # The catalog this screen was given (already overlaid with the
+        # effective stats by load_all_models / Settings, t1912_2) — never a
+        # cwd-relative re-read of MODEL_FILES, which would show another
+        # project's or the raw file's counters.
+        model_data = self.all_models.get(agent)
+        models = model_data.get("models", []) if isinstance(model_data, dict) else []
+        if not isinstance(models, list):
+            models = []
         scored: list[tuple[int, dict]] = []
         unscored: list[tuple[int, dict]] = []
         for m in models:

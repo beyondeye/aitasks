@@ -158,8 +158,74 @@ assert_eq "bucketed and flat ops on one model" \
 assert_not_contains "no model with stats reports zero runs" "runs 0" "$output"
 assert_eq "model without verifiedstats prints no STATS line" \
     "" "$(stats_after nostats | grep '^STATS:' || true)"
+# VERIFIED is the effective score (t1912_2): a skill with runs shows its
+# all_time average even when the registry prior lacks it. Writers never produce
+# such a row; this pins the deliberate change from the old raw-prior headline.
+assert_contains "effective VERIFIED fills skills the prior lacks" \
+    "MODEL:mixed CLI_ID:m-1 STATUS:active NOTES:n VERIFIED:pick=95,wrap=80" "$output"
 unset -f stats_after
 cleanup_test_env "$STATS_ENV"
+
+# Test 4c: list-models reads the effective counters through the stats store
+# overlay (t1912_2): the file's counters plus the local aitask-stats branch's,
+# or the branch's alone once the agent is migrated. The registry prior
+# (verified.pick = 95) differs from the effective average, so the headline must
+# follow verifiedstats, not the frozen prior.
+echo "--- Test 4c: list-models effective stats from the aitask-stats branch ---"
+BR_ENV="$(setup_test_env)"
+cp "$PROJECT_DIR/.aitask-scripts/aitask_model_stats.py" "$BR_ENV/.aitask-scripts/"
+copy_lib_py_closure "$BR_ENV" model_stats_store
+BR_PY="$(command -v python3)"
+assert_exit_zero "stats CLI imports in the scaffold (closure complete)" \
+    "$BR_PY" "$BR_ENV/.aitask-scripts/aitask_model_stats.py" overlay --help
+cat > "$BR_ENV/aitasks/metadata/models_claudecode.json" <<'EOF'
+{
+  "models": [
+    {"name": "bucketed", "cli_id": "b-1", "notes": "n", "verified": {"pick": 95, "explore": 70},
+     "verifiedstats": {"pick": {"all_time": {"runs": 4, "score_sum": 380}}}},
+    {"name": "flat", "cli_id": "f-1", "notes": "n", "verified": {"pick": 75},
+     "verifiedstats": {"pick": {"runs": 2, "score_sum": 150}}}
+  ]
+}
+EOF
+for _ in 1 2; do   # two runs at score 2 (40 each): (380 + 80) / 6 = 76.67 -> 77
+    "$BR_PY" "$BR_ENV/.aitask-scripts/aitask_model_stats.py" record-verified --root "$BR_ENV" \
+        --agent claudecode --model bucketed --skill pick --score 2 --date 2026-11-04 >/dev/null
+done
+br_line() { printf '%s\n' "$br_out" | grep -A1 "^MODEL:$1 " | sed -n "$2p"; }
+br_out=$(cd "$BR_ENV" && bash "$BR_ENV/.aitask-scripts/aitask_codeagent.sh" list-models claudecode 2>&1)
+assert_eq "STATS sums the file and the branch" "STATS:pick(runs 6, avg 77)" "$(br_line bucketed 2)"
+assert_eq "VERIFIED headline is the effective average; a prior without runs keeps its place" \
+    "MODEL:bucketed CLI_ID:b-1 STATUS:active NOTES:n VERIFIED:pick=77,explore=70" "$(br_line bucketed 1)"
+assert_eq "a row the branch does not know is unchanged" "STATS:pick(runs 2, avg 75)" "$(br_line flat 2)"
+assert_not_contains "no overlay warning on a healthy store" "overlay failed" "$br_out"
+# Migration marker => the branch alone.
+br_tip=$(git -C "$BR_ENV" rev-parse refs/heads/aitask-stats)
+br_blob=$(printf '{}\n' | git -C "$BR_ENV" hash-object -w --stdin)
+br_idx="$BR_ENV/.git/mark.index"
+GIT_INDEX_FILE="$br_idx" git -C "$BR_ENV" read-tree "$br_tip^{tree}"
+GIT_INDEX_FILE="$br_idx" git -C "$BR_ENV" update-index --add \
+    --cacheinfo "100644,$br_blob,migrations/claudecode.json"
+br_tree=$(GIT_INDEX_FILE="$br_idx" git -C "$BR_ENV" write-tree)
+rm -f "$br_idx"
+br_commit=$(git -C "$BR_ENV" commit-tree "$br_tree" -p "$br_tip" -m marker)
+git -C "$BR_ENV" update-ref refs/heads/aitask-stats "$br_commit" "$br_tip"
+br_out=$(cd "$BR_ENV" && bash "$BR_ENV/.aitask-scripts/aitask_codeagent.sh" list-models claudecode 2>&1)
+assert_eq "marker: STATS is the branch alone" "STATS:pick(runs 2, avg 40)" "$(br_line bucketed 2)"
+assert_eq "marker: VERIFIED follows the branch average" \
+    "MODEL:bucketed CLI_ID:b-1 STATUS:active NOTES:n VERIFIED:pick=40,explore=70" "$(br_line bucketed 1)"
+assert_eq "marker: a row without branch counters falls back to its prior" \
+    "MODEL:flat CLI_ID:f-1 STATUS:active NOTES:n VERIFIED:pick=75" \
+    "$(printf '%s\n' "$br_out" | grep '^MODEL:flat ')"
+assert_eq "marker: that row prints no STATS line" "" "$(br_line flat 2 | grep '^STATS:' || true)"
+# A broken CLI falls back to the raw file, with a warning.
+printf '#!/usr/bin/env python3\nimport sys; print("STATS_ERROR:boom"); sys.exit(1)\n' \
+    > "$BR_ENV/.aitask-scripts/aitask_model_stats.py"
+br_out=$(cd "$BR_ENV" && bash "$BR_ENV/.aitask-scripts/aitask_codeagent.sh" list-models claudecode 2>&1)
+assert_contains "a failing overlay warns" "model-stats overlay failed for 'claudecode'" "$br_out"
+assert_eq "a failing overlay shows the file's counters" "STATS:pick(runs 4, avg 95)" "$(br_line bucketed 2)"
+unset -f br_line
+cleanup_test_env "$BR_ENV"
 
 # Test 5: resolve pick returns the SEEDED default — derived, never pinned.
 # The fixture installs seed/codeagent_config.json as the project config, so that

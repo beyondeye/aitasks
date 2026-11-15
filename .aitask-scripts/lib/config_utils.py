@@ -287,22 +287,36 @@ def load_all_models(
     - neither — today's cwd-relative module behavior.
 
     Providers whose file is missing or empty are omitted.
+
+    Each row's ``usagestats`` / ``verifiedstats`` are the effective counters:
+    the file's plus the local aitask-stats branch's, or the branch's alone once
+    the agent is migrated (``model_stats_store.overlay_data``, t1912_2). The
+    branch read is the repository holding the catalog: ``metadata_path`` or
+    ``project_root`` when given, else the metadata directory itself. Never
+    fetches.
     """
+    # Lazy: keeps this module's import graph unchanged for its many headless
+    # callers; model_stats_store is stdlib-only.
+    import model_stats_store as mss
+
     if metadata_path is not None:
         meta = Path(metadata_path)
+        repo = meta
     elif project_root is not None:
         rel = task_dir()
         if rel.is_absolute():
             rel = Path("aitasks")
         meta = Path(project_root) / rel / "metadata"
+        repo = Path(project_root)
     else:
         meta = metadata_dir()
+        repo = meta
 
     result: dict[str, dict] = {}
     for provider in MODEL_FILES:
         data = _load_json(meta / f"models_{provider}.json")
         if data:
-            result[provider] = data
+            result[provider] = mss.overlay_data(repo, provider, data)
     return result
 
 

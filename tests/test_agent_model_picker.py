@@ -213,14 +213,34 @@ class PerAgentListTests(unittest.TestCase):
                 "prev_month": {"period": "2026-10", "runs": 1, "score_sum": 80},
             }}},
         ]}
-        with tempfile.TemporaryDirectory() as tmp:
-            path = Path(tmp) / "models_claudecode.json"
-            path.write_text(json.dumps(models), encoding="utf-8")
-            with mock.patch.dict(agent_model_picker.MODEL_FILES, {"claudecode": path}):
-                options = _screen("batch-review")._build_options_for_agent("claudecode")
+        screen = AgentModelPickerScreen("batch-review", all_models={"claudecode": models},
+                                        today=TODAY)
+        options = screen._build_options_for_agent("claudecode")
         self.assertEqual(_values(options), ["reviewer", "plain"])
         self.assertEqual(options[0]["description"], "[90 (2 runs, 1 this mo, 1 prev mo)]")
         self.assertEqual(options[1]["description"], "")
+
+    def test_reads_the_catalog_it_was_given_not_model_files(self):
+        """The per-agent list uses `all_models` (overlaid by its caller, t1912_2).
+
+        A cwd-relative MODEL_FILES re-read would show the raw file's counters, or
+        another project's, instead of the effective ones the caller loaded.
+        """
+        given = {"models": [{"name": "given", "verifiedstats": {"pick": {
+            "all_time": {"runs": 3, "score_sum": 240}}}}]}
+        decoy = {"models": [{"name": "decoy", "verifiedstats": {"pick": {
+            "all_time": {"runs": 9, "score_sum": 900}}}}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "models_claudecode.json"
+            path.write_text(json.dumps(decoy), encoding="utf-8")
+            with mock.patch.dict(agent_model_picker.MODEL_FILES, {"claudecode": path}):
+                screen = AgentModelPickerScreen("pick", all_models={"claudecode": given},
+                                                today=TODAY)
+                options = screen._build_options_for_agent("claudecode")
+                missing = screen._build_options_for_agent("codex")
+        self.assertEqual(_values(options), ["given"])
+        self.assertEqual(options[0]["description"], "[80 (3 runs)]")
+        self.assertEqual(_values(missing), [""])                # "(no models found)"
 
 
 class FormatOpStatsTests(unittest.TestCase):

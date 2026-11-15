@@ -53,6 +53,7 @@ from model_stats_windows import (  # noqa: E402
     resolve_windows,
     stats_key_for_operation,
 )
+import model_stats_store as mss  # noqa: E402
 
 from config_utils import (  # noqa: E402
     EXPORT_EXTENSION,
@@ -833,9 +834,14 @@ class ConfigManager:
             models = data.get("models") if isinstance(data, dict) else None
             if not isinstance(models, list):
                 continue  # wrong shape: every reader assumes a model list
-            # Keep only entry dicts; readers call .get() on each entry.
+            # Keep only entry dicts; readers call .get() on each entry. The
+            # counters are the effective ones: file + the local aitask-stats
+            # branch of the repository holding this registry (t1912_2). Never
+            # fetches; the models stay read-only here.
             all_models[provider] = {
-                **data, "models": [m for m in models if isinstance(m, dict)]}
+                **data, "models": mss.overlay_rows(
+                    path.parent, provider,
+                    [m for m in models if isinstance(m, dict)])}
 
         # Every read succeeded: only now replace the in-memory state.
         self.codeagent, self.codeagent_project, self.codeagent_local = (

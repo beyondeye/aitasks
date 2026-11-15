@@ -685,5 +685,134 @@ class TestCliValidation(IsolatedGit):
                          "UPDATED:codex/gpt_5:pick:80\n")
 
 
+class TestOverlay(IsolatedGit):
+    """overlay_rows / overlay_data: the readers' seam (t1912_2)."""
+
+    # Skills deliberately out of sorted order: the overlay must keep file order.
+    ROWS = [
+        {"name": "opus", "cli_id": "c-opus", "verified": {"wrap": 80, "pick": 90},
+         "verifiedstats": {
+             "wrap": {"all_time": {"runs": 1, "score_sum": 80}},
+             "pick": {"all_time": {"runs": 2, "score_sum": 180},
+                      "month": {"period": "2026-11", "runs": 2, "score_sum": 180}}},
+         "usagestats": {"wrap": {"all_time": {"runs": 1}},
+                        "pick": usage_entry(4)}},
+        {"name": "flat", "verified": {"pick": 75},
+         "verifiedstats": {"pick": {"runs": 2, "score_sum": 150}}},
+        {"name": "bare", "verified": {}},
+        "not-a-row",
+        {"cli_id": "nameless", "usagestats": {"pick": usage_entry(9)}},
+    ]
+
+    def record(self, root, model, skill, score, day="2026-11-12"):
+        return mss.update(root, "claudecode",
+                          lambda b: mss.record_verified(b, model, skill, score * 20, D(day)))
+
+    def mark(self, root):
+        tip = git(root, "rev-parse", "refs/heads/aitask-stats")
+        marked = ors.build_commit(root, tip, {"migrations/claudecode.json": b"{}\n"}, "marker")
+        git(root, "update-ref", "refs/heads/aitask-stats", marked, tip)
+
+    def test_empty_branch_is_identity_in_content_and_order(self):
+        root = self.repo("p", remote=False)
+        rows = copy.deepcopy(self.ROWS)
+        out = mss.overlay_rows(root, "claudecode", rows)
+        self.assertEqual(out, self.ROWS)
+        self.assertEqual(list(out[0]["verifiedstats"]), ["wrap", "pick"])
+        self.assertEqual(list(out[0]["usagestats"]), ["wrap", "pick"])
+        self.assertEqual(list(out[0]), list(self.ROWS[0]))   # key order of the row
+        self.assertIsNot(out[0], rows[0])
+        self.assertIsNot(out[0]["verified"], rows[0]["verified"])
+        self.assertEqual(rows, self.ROWS)                    # input not mutated
+
+    def test_no_marker_sums_file_and_branch_keeping_file_order(self):
+        root = self.repo("p", remote=False)
+        self.record(root, "opus", "pick", 5)                 # 1 run, 100
+        self.record(root, "opus", "explore", 4)              # branch-only skill
+        self.record(root, "opus", "ask", 3)                  # branch-only, sorts first
+        self.bump(root, model="opus", skill="pick")
+        rows = copy.deepcopy(self.ROWS)
+        out = mss.overlay_rows(root, "claudecode", rows)
+        vs = out[0]["verifiedstats"]
+        self.assertEqual(list(vs), ["wrap", "pick", "ask", "explore"])
+        self.assertEqual(vs["pick"]["all_time"], {"runs": 3, "score_sum": 280})
+        self.assertEqual(vs["wrap"], self.ROWS[0]["verifiedstats"]["wrap"])
+        self.assertEqual(vs["explore"]["all_time"], {"runs": 1, "score_sum": 80})
+        self.assertEqual(out[0]["usagestats"]["pick"]["all_time"], {"runs": 5})
+        self.assertEqual(out[0]["verified"], {"wrap": 80, "pick": 90})  # prior untouched
+        # Rows the branch knows nothing about are unchanged.
+        self.assertEqual(out[1], self.ROWS[1])
+        self.assertEqual(out[2], self.ROWS[2])
+        self.assertEqual(out[3:], self.ROWS[3:])
+        self.assertEqual(rows, self.ROWS)
+
+    def test_marker_means_branch_only_and_drops_unbacked_keys(self):
+        root = self.repo("p", remote=False)
+        self.record(root, "opus", "pick", 2)
+        self.mark(root)
+        out = mss.overlay_rows(root, "claudecode", copy.deepcopy(self.ROWS))
+        self.assertEqual(list(out[0]["verifiedstats"]), ["pick"])
+        self.assertEqual(out[0]["verifiedstats"]["pick"]["all_time"],
+                         {"runs": 1, "score_sum": 40})
+        self.assertNotIn("usagestats", out[0])               # branch has no usage row
+        self.assertNotIn("verifiedstats", out[1])            # flat: no branch data
+        self.assertEqual(out[1]["verified"], {"pick": 75})   # the prior survives
+        self.assertEqual(out[2], self.ROWS[2])
+        self.assertEqual(out[3:], self.ROWS[3:])             # non-rows pass through
+
+    def test_duplicate_names_keep_their_own_counters(self):
+        root = self.repo("p", remote=False)
+        self.bump(root, model="dup", skill="pick")
+        rows = [{"name": "dup", "usagestats": {"pick": {"all_time": {"runs": 2}}}},
+                {"name": "dup", "usagestats": {"pick": {"all_time": {"runs": 7}}}}]
+        out = mss.overlay_rows(root, "claudecode", rows)
+        self.assertEqual([r["usagestats"]["pick"]["all_time"]["runs"] for r in out], [3, 8])
+
+    def test_overlay_data_shape_guard_and_non_git_dir(self):
+        root = self.repo("p", remote=False)
+        self.assertEqual(mss.overlay_data(root, "claudecode", ["x"]), ["x"])
+        self.assertEqual(mss.overlay_data(root, "claudecode", {"models": {}}), {"models": {}})
+        data = {"version": 2, "models": copy.deepcopy(self.ROWS)}
+        self.assertEqual(mss.overlay_data(root, "claudecode", data), data)
+        plain = self.tmp / "not-a-repo"
+        plain.mkdir()
+        self.assertEqual(mss.overlay_rows(plain, "claudecode", copy.deepcopy(self.ROWS)),
+                         self.ROWS)
+
+    def test_repo_is_the_given_directory_not_the_cwd(self):
+        here, there = self.repo("here", remote=False), self.repo("there", remote=False)
+        self.bump(here, model="opus", skill="pick")
+        self.bump(here, model="opus", skill="pick")
+        meta = there / "aitasks" / "metadata"
+        meta.mkdir(parents=True)
+        old = os.getcwd()
+        os.chdir(here)
+        try:
+            out = mss.overlay_rows(meta, "claudecode", copy.deepcopy(self.ROWS))
+        finally:
+            os.chdir(old)
+        self.assertEqual(out, self.ROWS)                     # cwd's branch not read
+
+    def test_cli_overlay_verb(self):
+        root = self.repo("p", remote=False)
+        write_legacy(root, self.ROWS[:3])
+        self.record(root, "opus", "pick", 5)
+        cli = Path(__file__).resolve().parent.parent / ".aitask-scripts" / "aitask_model_stats.py"
+        path = root / "aitasks" / "metadata" / "models_claudecode.json"
+        proc = subprocess.run([sys.executable, str(cli), "overlay", "--agent", "claudecode",
+                               "--file", str(path)], capture_output=True, text=True,
+                              cwd=str(self.tmp))
+        self.assertEqual(proc.returncode, 0, proc.stdout + proc.stderr)
+        out = json.loads(proc.stdout)
+        self.assertEqual(out["models"][0]["verifiedstats"]["pick"]["all_time"],
+                         {"runs": 3, "score_sum": 280})
+        self.assertEqual(list(out["models"][0]["verifiedstats"]), ["wrap", "pick"])
+        bad = subprocess.run([sys.executable, str(cli), "overlay", "--agent", "claudecode",
+                              "--file", str(self.tmp / "missing.json")],
+                             capture_output=True, text=True)
+        self.assertEqual(bad.returncode, 2)
+        self.assertTrue(bad.stdout.startswith("STATS_ERROR:usage:"), bad.stdout)
+
+
 if __name__ == "__main__":
     unittest.main()
