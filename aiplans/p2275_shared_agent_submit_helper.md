@@ -278,7 +278,7 @@ part of this one.
   · severity: low (residual — the label table is proven on pre-refactor HEAD with its own fakes,
   independent of `_LoopFakeMon`) · → mitigation: inline pre-phase pin_caller_labels
 - The two Enter transports stay different behind one helper (`send_keys` vs guarded `if-shell`).
-  The t2001 residual stays open on the minimonitor side · severity: low · → mitigation: guarded_enter_for_shadow
+  The t2001 residual stays open on the minimonitor side · severity: low · → mitigation: t2309
 
 ### Goal-achievement risk: medium
 - The composer grammar (`composer_payload`) was measured at 120-column panes only. Shadow panes
@@ -290,7 +290,7 @@ part of this one.
 ### Planned mitigations
 - timing: pre-phase | name: pin_caller_labels | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — supersession/ordering invariants and test-fake masking | desc: table-driven label characterization of both submit callers, proven green on pre-refactor HEAD and kept green except the marked t2274 rows
 - timing: before | name: measure_shadow_width_composer | type: test | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — composer grammar unmeasured at shadow pane widths | desc: live spike with real claude/codex/opencode in an isolated tmux server at the shadow width (60 cols, plus one narrower) holding the real recheck prompt and an appended-text variant; store the captures as fixtures and assert composer_payload + payload_matches accept the genuine ones and reject the edited ones (fix the grammar if they do not) | created: t2280
-- timing: after | name: guarded_enter_for_shadow | type: enhancement | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: code-health — two Enter transports; t2001 single-round-trip residual on the minimonitor | desc: give the minimonitor's send_enter (and possibly the prompt write) the identity- and mode-guarded if-shell dispatch through agent_submit's transport callable, with a shadow RunIdentity read at fire time
+- timing: after | name: guarded_enter_for_shadow | type: enhancement | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: code-health — two Enter transports; t2001 single-round-trip residual on the minimonitor | desc: give the minimonitor's send_enter (and possibly the prompt write) the identity- and mode-guarded if-shell dispatch through agent_submit's transport callable, with a shadow RunIdentity read at fire time | created: t2309
 
 ## Step 9 (Post-Implementation)
 
