@@ -193,3 +193,49 @@ ones, plus the in-file negative controls. The section order is read from the rea
 `main()` assembly, not from a copy of it. Both doc sites are covered for claims 2
 and 3. The render is synthetic, so the test doesn't depend on repo data, as the task
 requires.)
+
+## Implementation progress
+
+- [x] `tests/test_stats_docs_drift.py` written as planned (18 tests: 1 preset, 4 CSV,
+  3 section-list, 10 fail-closed negative controls). No other file touched.
+- Deviation (minor): CSV anchors use one `parse_columns(text, pattern)` for both
+  the website (inline backticks) and skill (bullet) forms instead of two
+  functions, and require **exactly one** match, so two disagreeing copies of a
+  list in one doc also fail.
+- `section()` ignores `#` lines inside ``` fences, so a shell comment in a code
+  block can't end a section early.
+
+## Verification results
+
+- `~/.aitask/venv/bin/python -m pytest tests/test_stats_docs_drift.py -v` → 18 passed.
+- One process, both orders, with `tests/test_aitask_stats_py.py` → 76 passed each
+  time (no module-state collision).
+- `python -m unittest tests.test_stats_docs_drift` (the runner's fallback backend) → OK.
+- Ad-hoc mutant on the `main()` route: stubbing `render_verified_rankings` to `""`
+  → 12 headings instead of 13, so the drift is detected. After the stub is
+  restored, the next call returns the full pinned list.
+
+## Final Implementation Notes
+- **Actual work done:** Added `tests/test_stats_docs_drift.py` (18 unittest tests,
+  pytest- and unittest-runnable). It guards the three hand-pinned doc claims t1544_6
+  had checked by hand:
+  1. the stats TUI preset table == `DEFAULT_PRESETS` × `PANE_DEFS[...].title`;
+  2. the `--csv` and `--csv-backlog` column lists, on both the website and skill
+     doc sites, == the headers `write_csv` / `write_backlog_csv` emit;
+  3. the numbered "Statistics provided" lists, on both doc sites, == the `### `
+     headings `main()` prints, paired through the in-test `SECTIONS` table.
+  The source side is synthetic: a one-archived-task temp repo patched into
+  `aitask_stats` + `stats_data`, with `load_verified_rankings` stubbed. No assertion
+  depends on repository task data.
+- **Deviations from plan:** One `parse_columns(text, pattern)` serves both CSV doc
+  forms, requiring exactly one match (stricter than planned). `section()` skips
+  `#` lines inside ``` fences. No other deviations.
+- **Issues encountered:** None. Both review findings raised at plan approval were
+  folded into the plan before implementation: every numbered line in the list
+  region must be bolded, and the section order is read from the `main()` route.
+- **Key decisions:** The `SECTIONS` pin table is the single registration point for
+  a new report section. A cosmetic heading rename fails the test by design. Negative
+  controls mutate in-memory copies of the real docs, never the files. A `_mutate()`
+  helper asserts that the target text still exists, so a stale control fails
+  instead of passing vacuously.
+- **Upstream defects identified:** None
