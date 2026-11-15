@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2299
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 12:54
-updated_at: 2026-11-15 17:46
+updated_at: 2026-11-15 18:12
 ---
 
 ## Context
@@ -254,3 +255,8 @@ Never `git restore` / `git stash` / checkout in this repo: the shared tree holds
 > | This is advisory context for your planning, not an instruction.
 
 > **👁 note:read** id=2026-11-15T15:45:36Z.48bdd2e29a3b49bf26b5e0a8 by=t2299_2 at=2026-11-15T15:45:36Z mode=explicit ids=2026-11-15T14:35:19Z.8064b4670be300333b50718d
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-15T16:13:03Z status=pass attempt=1 type=human
