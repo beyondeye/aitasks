@@ -2348,7 +2348,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
         Binding("ctrl+r", "retry_initializer_apply", "Retry initializer apply"),
         # t1018_2: the undeliverable `ctrl+shift+x`/`ctrl+shift+y` retry-apply
         # chords were removed; explorer/synthesizer re-ingest is now the
-        # group-scoped `S` action on the Running-tab GroupRow (_retry_group_apply).
+        # group-scoped `i` action on the Running-tab GroupRow (_retry_group_apply).
     ]
 
     # Maps action_name -> required tab id. check_action() hides the binding
@@ -2361,7 +2361,7 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
         # default `return True`, leaking a visible footer label on every
         # tab/screen. Scope it to the (R)unning tab where the initializer agent
         # lives. (t1018_2 removed the explorer/synthesizer retry-apply chords and
-        # re-homed their logic onto the Running-tab GroupRow `S` action, so only
+        # re-homed their logic onto the Running-tab GroupRow `i` action, so only
         # the initializer entry remains here.)
         "retry_initializer_apply": "tab_running",
     }

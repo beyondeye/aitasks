@@ -200,7 +200,7 @@ Operation data is resolved on demand from on-disk files via a lightweight pointe
 
 ### Command-line subcommands
 
-Each subcommand takes the session's task number.
+Each subcommand takes the session's task number. Add `--help` to any subcommand, for example `ait brainstorm apply-explorer --help`, to print its usage, arguments and output lines.
 
 | Command | What it does | Prints |
 |---------|--------------|--------|
