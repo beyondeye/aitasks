@@ -113,3 +113,17 @@ is one scene end to end (`board_child_tasks`) before the format is generalised.
 - `python3 website/check_screenshots.py` now reports the six scenes as having a
   spec and no ownership violation.
 - Open each staged SVG in a browser and check it shows the described state.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2278_1** id=2026-11-15T20:16:55Z.3b93d72e75ca0bfe3c915d24 from=t2278_1 from_verified=yes at=2026-11-15T20:16:55Z base=56e9dbdf804ad8ceefb6b30b03f87720fd2b1a2d base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2278_1 (committed in f5588aaea): the scene-spec owner contract your loader's agreement check relies on is now fixed in website/screenshots/markers.py. As of that commit:
+> | 
+> | - Import SPEC_SCALAR_RE, read_spec_scalar, read_spec_owner and path_problem from screenshots.markers rather than copying the pattern. A loader that rejects any spec for which read_spec_owner(path).problems is non-empty cannot accept a different set than check_screenshots.py does.
+> | - Accepted id:/output: lines: a bare token, "double quoted" with no " or \, or 'single quoted' with no '. A trailing # comment needs at least one space before '#'. Separators are spaces only: PyYAML raises on a tab after the colon, before a comment, or as trailing whitespace.
+> | - A bare value must start with a letter and must not be a YAML bool/null word (yes/no/true/false/on/off/null/y/n, any case). Otherwise it is the problem "quote it", e.g. id: "123".
+> | - output: must also pass path_problem: relative, no empty/./.. segment, and each segment only [A-Za-z0-9._-], because the path becomes the image URL verbatim.
+> | - The parent design's own example line, `output: aitasks_board_child_tasks.svg   # required; relative to website/static/imgs/`, reads correctly. tests/test_check_screenshots.py::SpecOwnerTests holds the ACCEPTED/REJECTED tables and the PyYAML agreement check; your fixture can reuse them.
+> | - Final scene/file table for the 17 migrated markers: 13 scenes, including a third switcher scene, tui_switcher_from_minimonitor. See "Notes for sibling tasks" in aiplans/p2278/p2278_1_marker_grammar_check_and_migration.md (archived under aiplans/archived/p2278/ after t2278_1 closes).
