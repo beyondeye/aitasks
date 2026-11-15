@@ -170,7 +170,7 @@ class AnimMode(_VideoCase):
             labels += ["-label", f"{m[1]} {m[2]}s\n+0ms", f]
         bad = self.tmp / "strip-old-layout.png"
         subprocess.run(["magick", "montage", "-background", "#1e1e1e", "-fill", "#f2f2f2",
-                        "-pointsize", "15", *labels, "-tile", f"{cols}x",
+                        "-pointsize", "15", *font_args(), *labels, "-tile", f"{cols}x",
                         "-geometry", f"{tw}x{th}+4+4", bad], check=True)
         self.assertNotEqual(dirty_borders(bad, tw, cols), [])
 
@@ -1464,9 +1464,16 @@ def sheet_gray(path):
     return w, h, out
 
 
+def font_args():
+    """The -font arguments video_prep measures and draws sheet labels with."""
+    import video_prep
+    return list(video_prep.sheet_font_args())
+
+
 def label_width(text):
-    out = subprocess.run(["magick", "-pointsize", "15", f"label:{core.im_label(text)}",
-                          "-format", "%w", "info:"], capture_output=True, text=True, check=True)
+    out = subprocess.run(["magick", "-pointsize", "15", *font_args(),
+                          f"label:{core.im_label(text)}", "-format", "%w", "info:"],
+                         capture_output=True, text=True, check=True)
     return int(out.stdout)
 
 
@@ -1480,6 +1487,181 @@ def dirty_borders(path, cell_w, cols):
         if any(g[y * w + x] > 60 for x in range(x0 - 3, x0 + 3) for y in range(h)):
             bad.append(x0)
     return bad
+
+
+class SheetFont(unittest.TestCase):
+    """The font sheet labels are measured and drawn with, and the label band
+    each sheet row leaves for them (t2306: an ImageMagick whose default font maps
+    to files that are not installed draws every label 1 px wide, i.e. blank)."""
+
+    def setUp(self):
+        import video_prep
+        self.vp = video_prep
+        self._clear()
+        self.addCleanup(self._clear)
+
+    def _clear(self):
+        self.vp.sheet_font_args.cache_clear()
+        self.vp.sheet_label_h.cache_clear()
+
+    def widths(self, table):
+        """Patch _label_px with {font_args: px}; returns the list of calls."""
+        calls = []
+
+        def fake(font_args):
+            calls.append(font_args)
+            px = table.get(font_args, 0)
+            if isinstance(px, Exception):
+                raise px
+            return px
+        patcher = mock.patch.object(self.vp, "_label_px", fake)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        return calls
+
+    def fonts(self, paths):
+        patcher = mock.patch.object(self.vp, "_fontconfig_sans", lambda: list(paths))
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_default_font_is_kept_while_it_draws_text(self):
+        calls = self.widths({(): 90})
+        self.fonts(["/never/asked.ttf"])
+        self.assertEqual(self.vp.sheet_font_args(), ())
+        self.assertEqual(calls, [()], "fontconfig is consulted only for a blank default")
+
+    def test_fontconfig_font_replaces_a_default_that_draws_nothing(self):
+        self.widths({(): 1, ("-font", "/f.ttf"): 90})
+        self.fonts(["/f.ttf"])
+        self.assertEqual(self.vp.sheet_font_args(), ("-font", "/f.ttf"))
+
+    def test_a_fontconfig_font_that_draws_nothing_is_an_error(self):
+        self.widths({(): 1, ("-font", "/f.ttf"): 1})
+        self.fonts(["/f.ttf"])
+        with self.assertRaises(self.vp.PrepError) as cm:
+            self.vp.sheet_font_args()
+        self.assertIn("draws no text", str(cm.exception))
+
+    def test_no_fontconfig_and_a_blank_default_is_an_error(self):
+        self.widths({(): 1})
+        self.fonts([])
+        with self.assertRaisesRegex(self.vp.PrepError, "labels would be blank"):
+            self.vp.sheet_font_args()
+
+    DENIED = ("magick failed (1):\nmagick: attempt to perform an operation not "
+              "authorized by the security policy `LABEL'")
+
+    def test_an_unreadable_default_font_falls_back_to_fontconfig(self):
+        self.widths({(): self.vp.PrepError("magick failed (1):\nmagick: unable to read "
+                                           "font `/bad.ttf'"),
+                     ("-font", "/f.ttf"): 90})
+        self.fonts(["/f.ttf"])
+        self.assertEqual(self.vp.sheet_font_args(), ("-font", "/f.ttf"))
+
+    def test_a_failing_default_alone_is_reported_as_magick_said_it(self):
+        denied = self.vp.PrepError(self.DENIED)
+        self.widths({(): denied})
+        self.fonts([])
+        with self.assertRaises(self.vp.PrepError) as cm:
+            self.vp.sheet_font_args()
+        self.assertIs(cm.exception, denied)
+
+    def test_failing_default_and_fallback_report_both_messages_and_no_font_advice(self):
+        self.widths({(): self.vp.PrepError(self.DENIED),
+                     ("-font", "/f.ttf"): self.vp.PrepError(self.DENIED)})
+        self.fonts(["/f.ttf"])
+        with self.assertRaises(self.vp.PrepError) as cm:
+            self.vp.sheet_font_args()
+        msg = str(cm.exception)
+        self.assertEqual(msg.count("not authorized"), 2, msg)
+        self.assertIn("/f.ttf: magick failed", msg)
+        self.assertNotIn("gsfonts", msg, "a policy denial is not a font problem")
+
+    def test_a_failing_fallback_font_is_named_in_the_error(self):
+        self.widths({(): 1, ("-font", "/f.ttf"): self.vp.PrepError("unable to read font")})
+        self.fonts(["/f.ttf"])
+        with self.assertRaises(self.vp.PrepError) as cm:
+            self.vp.sheet_font_args()
+        self.assertIn("/f.ttf: unable to read font", str(cm.exception))
+        self.assertIn("measures 1 px wide", str(cm.exception))
+
+    def sheet_under_config(self, name, text, extra=None):
+        """Run `sheet` on a one-image folder with MAGICK_CONFIGURE_PATH holding one
+        file (name, text; @DIR@ is the scratch dir, where the extra {name: text}
+        files go); (completed process, out dir). Skips when this magick does not
+        take that file from MAGICK_CONFIGURE_PATH (premise: a plain label: probe
+        under it fails)."""
+        tmp = Path(tempfile.mkdtemp(prefix="vp-imconf-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        for fname, body in (extra or {}).items():
+            (tmp / fname).write_text(body)
+        (tmp / "conf").mkdir()
+        (tmp / "conf" / name).write_text(text.replace("@DIR@", str(tmp)))
+        env = {**os.environ, "MAGICK_CONFIGURE_PATH": str(tmp / "conf")}
+        probe = subprocess.run(["magick", "-pointsize", "15", "label:x", "info:"], env=env,
+                               capture_output=True, text=True, check=False)
+        if probe.returncode == 0:
+            self.skipTest(f"this ImageMagick does not read {name} from MAGICK_CONFIGURE_PATH")
+        d = tmp / "in"
+        d.mkdir()
+        write_png(d / "t00000000.png", 20, 20)
+        out = tmp / "out"
+        cp = subprocess.run([sys.executable, str(SCRIPT), "sheet", str(d), "--out", str(out)],
+                            env=env, capture_output=True, text=True)
+        return cp, out
+
+    @unittest.skipUnless(HAVE_MAGICK, "ImageMagick (magick) not installed")
+    def test_a_policy_denying_labels_reaches_the_user_unchanged(self):
+        cp, _ = self.sheet_under_config(
+            "policy.xml",
+            '<policymap><policy domain="coder" rights="none" pattern="LABEL" /></policymap>\n')
+        self.assertNotEqual(cp.returncode, 0)
+        self.assertIn("not authorized", cp.stderr)
+        self.assertNotIn("draws no text", cp.stderr)
+
+    @unittest.skipUnless(HAVE_MAGICK and shutil.which("fc-match"),
+                         "needs ImageMagick (magick) and fontconfig (fc-match)")
+    def test_an_unreadable_default_font_still_gets_readable_labels(self):
+        # the default font (Helvetica, or Arial) mapped to a file that is no font
+        types = "".join(
+            f'<type name="{n}" fullname="{n}" family="{n}" weight="400" style="normal" '
+            f'stretch="normal" format="truetype" glyphs="@DIR@/bad.ttf"/>'
+            for n in ("Helvetica", "Arial"))
+        cp, out = self.sheet_under_config("type.xml", f"<typemap>{types}</typemap>\n",
+                                          extra={"bad.ttf": "not a font\n"})
+        self.assertEqual(cp.returncode, 0, cp.stderr)
+        tiles = list(csv.DictReader(open(out / "tiles.tsv", encoding="utf-8"), delimiter="\t"))
+        self.assertGreater(int(tiles[0]["cell_w"]), 64, "the labels were measured with width")
+
+    def test_label_band_never_drops_below_the_floor(self):
+        def fake_run(cmd, **_kw):
+            if cmd[1] == "montage":            # a font whose two lines need only 30 px
+                write_png(cmd[-1], 16, 8 + 8 + 30)
+            return "", ""
+        with mock.patch.object(self.vp, "sheet_font_args", lambda: ()), \
+                mock.patch.object(self.vp, "run", fake_run):
+            self.assertEqual(self.vp.sheet_label_h(), self.vp.SHEET_LABEL_H)
+
+    @unittest.skipUnless(HAVE_MAGICK, "ImageMagick (magick) not installed")
+    def test_sheet_labels_are_drawn_with_real_width_here(self):
+        (w, _), = self.vp.measure_labels([self.vp.SHEET_FONT_PROBE])
+        self.assertGreater(w, 3 * self.vp.SHEET_POINTSIZE, "the sheet labels would be blank")
+
+    @unittest.skipUnless(HAVE_MAGICK, "ImageMagick (magick) not installed")
+    def test_modelled_row_height_covers_what_montage_draws(self):
+        tmp = Path(tempfile.mkdtemp(prefix="vp-label-band-"))
+        self.addCleanup(shutil.rmtree, tmp, True)
+        tile, out = tmp / "t.png", tmp / "m.png"
+        write_png(tile, 8, 8, fill=0)
+        label = f"{self.vp.SHEET_FONT_PROBE}\n{self.vp.SHEET_FONT_PROBE}"
+        subprocess.run(["magick", "montage", "-background", "#1e1e1e", "-fill", "#f2f2f2",
+                        "-pointsize", "15", *font_args(), "-label", label, tile,
+                        "-label", label, tile, "-tile", "1x", "-geometry", "8x8+4+4", out],
+                       check=True)
+        band = self.vp.sheet_label_h()
+        self.assertGreaterEqual(band, self.vp.SHEET_LABEL_H)
+        _, h, _ = sheet_gray(out)
+        self.assertLessEqual(h, 2 * (8 + 8 + band), "two rows are taller than modelled")
 
 
 @unittest.skipUnless(HAVE_MAGICK, "ImageMagick (magick) not installed")
@@ -1698,7 +1880,7 @@ class SheetMode(unittest.TestCase):
         # images, labels as long as the real ones)
         bad = self.tmp / "bad.png"
         subprocess.run(["magick", "montage", "-background", "#1e1e1e", "-fill", "#f2f2f2",
-                        "-pointsize", "15",
+                        "-pointsize", "15", *font_args(),
                         *[a for i in range(3) for a in ("-label", "#1 t00000000_annotated_by_hand"
                                                         ".png\n0.000 s first", d / sorted(
                                                             p.name for p in d.iterdir())[i])],
@@ -1724,12 +1906,13 @@ class SheetMode(unittest.TestCase):
 
     def test_too_many_per_sheet_is_split_with_a_warning(self):
         texts = ["0.000 s first"] + [f"{i * 10 / 1000:.3f} s +10 ms" for i in range(1, 400)]
-        out = subprocess.run(["magick", "-pointsize", "15", *[f"label:{t}" for t in texts],
+        out = subprocess.run(["magick", "-pointsize", "15", *font_args(), *[f"label:{t}" for t in texts],
                               "-format", "%w\\n", "info:"],
                              capture_output=True, text=True, check=True).stdout
         w_min = min(int(x) for x in out.split())
-        # 20x20 tiles: floor 64 px, so at most 1600 // (64 + 40 + 8) = 14 rows
-        cap_upper = (1600 // (w_min + 6 + 8)) * (1600 // (64 + 40 + 8))
+        # 20x20 tiles: floor 64 px, rows as tall as the labels montage draws
+        import video_prep
+        cap_upper = (1600 // (w_min + 6 + 8)) * (1600 // (64 + video_prep.sheet_label_h() + 8))
         count = cap_upper + 1
         self.assertLessEqual(count, 400, "premise: w_min was measured over these labels")
         self.assertGreater(count, cap_upper)

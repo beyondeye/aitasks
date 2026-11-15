@@ -521,9 +521,13 @@ class StoreTests(unittest.TestCase):
         """Independent of the code under test: `ps` over the stand-in's
         process group (its session), not owner's procfs walk. The child's own
         line has the marker in its first two words; the stand-in merely
-        carries script paths as later arguments."""
+        carries script paths as later arguments.
+
+        -ww: unlimited width. Under pytest, readline has been imported and has
+        exported COLUMNS=80 into the C environment (os.environ does not show
+        it), procps ps honours that, and the cut line loses the marker."""
         import subprocess
-        done = subprocess.run(["ps", "-o", "args=", "-g", str(pid)],
+        done = subprocess.run(["ps", "-ww", "-o", "args=", "-g", str(pid)],
                               capture_output=True, text=True, check=False)
         return any(word.endswith(marker) for line in done.stdout.splitlines()
                    for word in line.split()[:2])

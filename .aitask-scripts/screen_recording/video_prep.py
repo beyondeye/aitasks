@@ -27,6 +27,7 @@ import argparse
 import bisect
 import contextlib
 import csv
+import functools
 import hashlib
 import json
 import math
@@ -445,16 +446,106 @@ def have_magick() -> bool:
 
 
 SHEET_POINTSIZE = 15
-SHEET_LABEL_H = 40         # two label lines at SHEET_POINTSIZE
+SHEET_LABEL_H = 40         # floor for the measured label band (sheet_label_h)
 SHEET_LABEL_MARGIN = 6     # px kept free beside the widest label line in a cell
+SHEET_FONT_PROBE = "0.000 s first"   # a real second label line
+
+
+def _label_px(font_args: tuple[str, ...]) -> int:
+    """Width magick draws SHEET_FONT_PROBE in at SHEET_POINTSIZE with font_args.
+    PrepError, carrying magick's own message, when magick fails outright (a
+    security policy denying the LABEL coder, an unreadable -font file, ...)."""
+    out, _ = run(["magick", "-pointsize", str(SHEET_POINTSIZE), *font_args,
+                  f"label:{SHEET_FONT_PROBE}", "-format", "%w", "info:"])
+    try:
+        return int(out.strip())
+    except ValueError as exc:
+        raise PrepError(f"could not measure a sheet label: magick printed "
+                        f"{out.strip()[:200]!r}") from exc
+
+
+def _fontconfig_sans() -> list[str]:
+    """fontconfig's sans-serif font file (absolute and existing), or []."""
+    if not shutil.which("fc-match"):
+        return []
+    try:
+        out, _ = run(["fc-match", "-f", "%{file}", "sans-serif"])
+    except PrepError:
+        return []
+    p = Path(out.strip())
+    return [str(p)] if p.is_absolute() and p.is_file() else []
+
+
+@functools.lru_cache(maxsize=None)
+def sheet_font_args() -> tuple[str, ...]:
+    """The -font arguments every sheet label is measured and drawn with: () while
+    ImageMagick's default font draws text, else fontconfig's sans-serif file. The
+    default can resolve to font files that are not installed (type.xml naming
+    gsfonts that are absent), and then it draws every label 1 px wide: blank.
+
+    A magick failure on the default probe (a default font file it cannot read, a
+    policy denying LABEL, ...) is kept, and the fallback is still tried: a bad
+    default font is exactly what it can recover from. When nothing draws, every
+    kept message is reported, and a lone default failure is raised unchanged."""
+    default_err = None
+    try:
+        default_px = _label_px(())
+    except PrepError as exc:
+        default_px, default_err = None, exc
+    if default_px is not None and default_px > SHEET_POINTSIZE:   # 13 glyphs > one em
+        return ()
+    tried = []
+    for path in _fontconfig_sans():
+        try:
+            px = _label_px(("-font", path))
+        except PrepError as exc:
+            tried.append(f"{path}: {exc}")
+            continue
+        if px > SHEET_POINTSIZE:
+            return ("-font", path)
+        tried.append(f"{path}: draws it {px} px wide")
+    if default_err is not None and not tried:
+        raise default_err
+    fallback = (f"fontconfig's sans-serif font did not help either: {'; '.join(tried)}"
+                if tried else "fontconfig offers no sans-serif font file to fall back on")
+    if default_err is not None:
+        raise PrepError(f"ImageMagick could not draw a sample label with its default "
+                        f"font ({default_err}), and {fallback}")
+    raise PrepError(
+        f"ImageMagick draws no text with its default font (a sample label measures "
+        f"{default_px} px wide; a usual cause is a font configuration naming font "
+        f"files that are not installed), so the sheet labels would be blank; "
+        f"{fallback}. Check `magick -list font`; installing a sans-serif font, or the "
+        "fonts ImageMagick's type.xml names (e.g. gsfonts / urw-base35), usually fixes it")
+
+
+@functools.lru_cache(maxsize=None)
+def sheet_label_h() -> int:
+    """Height montage gives a two-line label below a tile, in the sheet font
+    (labels are at most two lines: _CONTROL turns newlines into '?'). Floored at
+    SHEET_LABEL_H, so a font that fits it keeps the layout it always had; a
+    taller one (Liberation Sans 44 px, Noto Sans 52 px at 15 pt) gets its rows
+    sized to what is drawn, and the sheet stays within SHEET_MAX_EDGE."""
+    with tempfile.TemporaryDirectory(prefix="vp-label-h-") as d:
+        tile, out = Path(d) / "t.png", Path(d) / "m.png"
+        run(["magick", "-size", "8x8", "xc:black", str(tile)])
+        run(["magick", "montage", "-background", "#1e1e1e", "-fill", "#f2f2f2",
+             "-pointsize", str(SHEET_POINTSIZE), *sheet_font_args(),
+             "-label", f"{SHEET_FONT_PROBE}\n{SHEET_FONT_PROBE}", str(tile),
+             "-tile", "1x", "-geometry", "8x8+4+4", str(out)])
+        with open(out, "rb") as fh:
+            size = core.png_size(fh.read(24))
+    if size is None:
+        raise PrepError("could not measure the sheet label height")
+    return max(SHEET_LABEL_H, size[1] - 8 - 8)   # minus the tile and its +4+4 border
 
 
 def measure_labels(texts: list[str]) -> list[tuple[int, int]]:
-    """Rendered (width, height) of each one-line label, with the default font
-    and SHEET_POINTSIZE that montage uses, in one magick call."""
+    """Rendered (width, height) of each one-line label, with the sheet font
+    (sheet_font_args) and SHEET_POINTSIZE that montage uses, in one magick call."""
     if not texts:
         return []
-    cmd = ["magick", "-pointsize", str(SHEET_POINTSIZE)]
+    cmd = ["magick", "-pointsize", str(SHEET_POINTSIZE), *sheet_font_args()]
     cmd += [f"label:{core.im_label(t)}" for t in texts]
     out, _ = run(cmd + ["-format", "%w %h\\n", "info:"])
     lines = out.splitlines()
@@ -497,14 +588,14 @@ def contact_sheets(items: list[tuple[Path, str]], out_dir: Path, per_sheet: int,
         need.append(max(line_w, default=0) + SHEET_LABEL_MARGIN)
     try:
         chunks = core.chunk_sheets([(w, h)] * len(items), per_sheet, need,
-                                   SHEET_MAX_EDGE, SHEET_LABEL_H)
+                                   SHEET_MAX_EDGE, sheet_label_h())
     except ValueError as exc:
         raise PrepError(str(exc)) from exc
     sheets = []
     for n, (start, count, reduced, (cols, cell_w, th, _s)) in enumerate(chunks, 1):
         out = out_dir / f"{prefix}_{n:02d}.png"
         cmd = ["magick", "montage", "-background", "#1e1e1e", "-fill", "#f2f2f2",
-               "-pointsize", str(SHEET_POINTSIZE)]
+               "-pointsize", str(SHEET_POINTSIZE), *sheet_font_args()]
         for (path, _), label in zip(items[start:start + count], labels[start:start + count]):
             cmd += ["-label", core.im_label(label), str(path)]
         cmd += ["-tile", f"{cols}x", "-geometry", f"{cell_w}x{th}+4+4", str(out)]
@@ -2139,7 +2230,7 @@ def cmd_sheet(args) -> int:
         try:
             chunks = core.chunk_sheets(
                 boxes, args.per_sheet, [w + SHEET_LABEL_MARGIN for w in widths],
-                SHEET_MAX_EDGE, SHEET_LABEL_H)
+                SHEET_MAX_EDGE, sheet_label_h())
         except ValueError as exc:
             raise PrepError(str(exc)) from exc
 
@@ -2152,7 +2243,7 @@ def cmd_sheet(args) -> int:
                                cell_w)
             path = out / f"sheet_{n_sheet:02d}.png"
             cmd = ["magick", "montage", "-background", "#1e1e1e", "-fill", "#f2f2f2",
-                   "-pointsize", str(SHEET_POINTSIZE)]
+                   "-pointsize", str(SHEET_POINTSIZE), *sheet_font_args()]
             for k, it in enumerate(chunk):
                 label = f"{names[k]}\n{seconds[start + k]}"
                 cmd += ["-label", core.im_label(label), f"{stage[it.name]}[0]"]
