@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1912_3]
 issue_type: refactor
-status: Ready
+status: Implementing
 labels: [git, concurrency, verifiedstats, models, robustness]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 created_at: 2026-11-12 19:42
-updated_at: 2026-11-12 19:42
+updated_at: 2026-11-15 23:09
 ---
 
 ## Context
