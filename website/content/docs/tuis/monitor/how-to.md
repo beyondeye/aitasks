@@ -133,14 +133,7 @@ Monitor calls `tmux switch-client`/`select-window` to bring that pane to the fro
 
 ### How to Jump to Another TUI
 
-Press **j** from any zone to open the TUI switcher overlay. The overlay lists the TUIs integrated with the tmux workflow:
-
-- **board** — `ait board`
-- **monitor** — `ait monitor` (the current TUI)
-- **minimonitor** — the minimal monitor variant
-- **codebrowser** — `ait codebrowser`
-- **settings** — `ait settings`
-- **brainstorm** — `ait brainstorm`
+Press **j** from any zone to open the TUI switcher overlay. It lists the TUIs integrated with the tmux workflow — board, trails, monitor, codebrowser, settings, stats, syncer and more — plus your configured git TUI and any running code agent and brainstorm windows. Minimonitor is not listed. [Navigating between TUIs]({{< relref "/docs/tuis" >}}#navigating-between-tuis) has the full list and the multi-session controls.
 
 Select a target and the switcher either focuses the existing tmux window running that TUI or creates a new window and launches it. This is the fastest way to move between the monitor dashboard and any other ait TUI without leaving tmux.
 
