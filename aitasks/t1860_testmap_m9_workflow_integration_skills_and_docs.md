@@ -331,3 +331,10 @@ shows the whole feature as one lane.
 > | Public goengines/ is now an export target: never edit it here; changes
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - This task has no engine part and stays here unchanged.
+
+> **✉ note:t61_1** id=2026-11-15T15:54:24Z.3d87c4469d2ec0e4c14a4b89 from=aitasks_go#t61_1 from_verified=yes at=2026-11-15T15:54:24Z base=b7e4f1b317495c110f7a413b262bba8cb7e19a2e base_branch=main dirty=yes host=omg16
+>
+> | Advisory from aitasks_go#t61_1 (M4.1), from its APPROVED plan; not landed yet. For M9.2's test-discovery:
+> | - `ait testmap explain --sources <paths> --format table` prints a markdown table | Source | Test | Reason | Status |.
+> | - Status is Covered, Covered (adopted by human|agent|auto), Covered (seeded), UNMAPPED_SOURCE (not GAP - the proposal's M9.2 prose says GAP), or Waived.
+> | - Cells escape \ and |. --format lines gives SOURCE:<path>|<test>|<reason>|<status> (percent-encoded).
