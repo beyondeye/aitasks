@@ -350,3 +350,121 @@ Re-read every API the plan names. These still hold:
 
 Post-implementation: commit this task's paths only (`feature: … (t2299_2)`); archive via Step 9.
 Never `git restore` / `git stash` / checkout in this repo: the shared tree holds crashed tasks' uncommitted work.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-15 18:45)
+- **Requested by user:** four review findings, all verified as real:
+  1. `named_paths` stripped the leading dot from hidden-directory paths (`.aitask-scripts/…`).
+  2. Ownership matching ignored named untracked files.
+  3. A failed `git status` and an unreadable plan silently became empty evidence.
+  4. Unattributed shared-tree edits did not raise the tree warning.
+- **Changes made:**
+  - `named_paths` now normalizes only explicit `./` prefixes and trailing `.`/`/`.
+  - Ownership matching runs over tracked ∪ dirty paths: `git status --untracked-files=all`, with the task-data pathspecs `aitasks/**`, `aiplans/**` and `.aitask-data/**` excluded as `code_digest` excludes them. Commit history runs only over tracked files.
+  - A failed `ls-files` or `status` raises `CRASH_FAILED:tracked_files_unreadable` / `shared_status_unreadable`. Both are read up front in `run()`, before any write.
+  - An unreadable plan:
+    - is recorded in `plan_errors`;
+    - makes its own task `CRASH_WARN:…|unreadable: plan …` with no write;
+    - shows as `overlap: ? t<M>(plan_unreadable)` in other tasks' surveys.
+  - A failed commit log or worktree status is recorded as `incomplete` (`commits: unknown`).
+  - `Survey.warning()` warns on own survivors, else on unattributed shared-tree edits, else on incomplete evidence. `survivors`, which ranks the item, is unchanged.
+- **Files affected:** `.aitask-scripts/lib/sitrep_crash.py`, `tests/test_sitrep_crash.py`, `tests/test_sitrep_crash.sh`
+- **Tests added:**
+  - a hidden-dir exact path (unit and survey);
+  - a named untracked file, plus the unnamed-untracked control;
+  - task data never in the dirty set;
+  - a failed status (unit: corrupt index; e2e: a git shim failing only `status`, so `check-ignore` still works);
+  - an unreadable plan (own task: warn with the item byte-identical; other task: `?` overlap);
+  - the unattributed and incomplete-evidence warnings.
+
+### Change Request 2 (2026-11-15 18:55)
+- **Requested by user:** `named_paths` sent `file_references:` entries and backticked spans through the bare-word tokenizer, so a path with a space (`src/my file.py`) was never matched. That lost its attribution and let `plan_fresh` read `fresh`. Verified as real.
+- **Changes made:**
+  - `named_paths(text, universe, idx, explicit=…)` matches explicit metadata entries and backticked spans as COMPLETE paths first. `_whole` strips only a trailing line reference (`:12`, `:12-30`, `#L12-L30`), and `_match_path` normalizes only `./` and trailing `.`/`/`.
+  - The bare-word scan runs after them as the fallback.
+  - `Pass.names` passes `file_references:` as explicit entries instead of joining them into text.
+- **Files affected:** `.aitask-scripts/lib/sitrep_crash.py`, `tests/test_sitrep_crash.py`
+- **Tests added:**
+  - `NamesWhole`: explicit entries with a line suffix; backticked spans with `#L`/`:` suffixes; a control showing bare prose never reassembles a spaced name.
+  - A survey test that a dirty spaced filename, named by `file_references` and by a backtick span, is attributed and gives `stale:dirty_referenced:1`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - New `.aitask-scripts/lib/sitrep_crash.py`:
+    - strict lock and task readers;
+    - the ordered 9-row `recovery_verdict`, with `liveness_of` running host guard → no-anchor → liveness;
+    - `episode_key`, `format_outcome` / `parse_outcome`, `age_bucket` and `retain_pointer`;
+    - the evidence extractors: phase, plan / signature / freshness, work (worktree or shared tree), overlaps, commits, branch head, pane tail;
+    - survey/title/group/context rendering;
+    - the `Pass` apply loop, with the local no-op precheck and one `recovery-apply` per task;
+    - CLI `plan | apply | dry-run`.
+  - `aitask_sitrep_harvest.sh` gained the `crashed [--root] [--dry-run]` verb, its header contract, and the `lock_failed` helper (`LOCK_FAIL_STYLE=crash` gives `CRASH_FAILED:<reason>`; harvest output is unchanged).
+  - New tests: `tests/test_sitrep_crash.py` (46 units) and `tests/test_sitrep_crash.sh` (119 e2e assertions, with the real writer, real lock refs, and real dead and live PIDs).
+- **Deviations from plan:**
+  - The test seam `AITASK_SITREP_CRASH_PAUSE_FIFO` (at `before_apply`) was added for the read-vs-dismiss race test. It reads the fifo one byte at a time: a buffered `readline` swallowed the next pause's line and hung the suite.
+  - Overlaps count only paths named by this task AND another Implementing task that are dirty in the shared tree. Only uncommitted work can collide on a restore or stash, and listing every commonly named file would be noise.
+  - Done or dismissed recover items with no lock and no active file are skipped without reading the archive. They can only land on row 9 or on row 1, which never writes, so old items cost no bundle read per pass.
+  - `CRASH_ITEM` uses `-` for c<M> when no item exists yet (dry-run). Non-stored rows print a `CRASH_ITEM` line only when they write.
+  - Review rounds (see Post-Review Changes):
+    - hidden-dir and spaced path matching;
+    - untracked named files, with task data excluded;
+    - fail-closed `ls-files`/`status`/plan reads;
+    - the tree warning for unattributed edits and incomplete evidence.
+- **Issues encountered:**
+  - `git ls-tree` is cwd-relative: run from a subdirectory it lists nothing. Fixed with `--full-tree`, plus a test from a subdirectory.
+  - The scratch `HOME` hides the framework Python, so the e2e test exports `AIT_PYTHON` first, as `test_sitrep_refresh.sh` does.
+  - A corrupt index makes `check-ignore` fail in the wrapper before `status` runs, so the e2e status failure uses a git shim that fails only `status`.
+  - The TaskIndex fold scan fails closed: one unparseable record anywhere makes "missing" unprovable, so the result is `error`. The test pins this.
+- **Key decisions:**
+  - Row 1 never writes. This is stricter than the task's table, per its strict-input rule.
+  - `classify_liveness` is not reused (it folds alive/unknown into `lock_only`). The host guard is restated with the same rule, and a test checks the two agree.
+  - Archived records are validated with the same `strict_meta` as active ones. `TaskIndex` is used only for its fold-scan answer.
+  - Idempotence: stored evidence holds only time-invariant facts (absolute `locked_at`, bucketed `lock_age`). An equal proposal writes nothing, so a recover item's `checked_at` means "evidence last changed".
+  - The `read_task_gate_state` registry is a computed `os.path.join(...)`, so the ledger-only guard has nothing to register. The Python entry `chdir`s to the root because witnesses resolve relative to the cwd.
+- **Verification:**
+  - **Suites:**
+    - `test_sitrep_crash.py`: 46 passed.
+    - `test_sitrep_crash.sh`: 119 passed.
+    - `test_sitrep_harvest.sh`: 139/139.
+    - `test_sitrep_todo.sh`: all passed.
+    - pytest over the harvest, refresh and gate-ledger-only-surfaces modules: 135 passed.
+    - `test_no_lib_to_tui_import.sh`: passed.
+    - `shellcheck -x`: clean.
+  - **Live dry run** (2026-11-15 ~18:55):
+    - Crashed: 1555_2, 1576, 1697, 2199, 2216, 2264, 2285, 2287, 2289, 2291, 2292, 2293 (12).
+    - Orphans: 887, 1699.
+    - Stale_lock: 259.
+    - Skipped (alive): 2275, 2278_1, 2299_2, 2305 and later others; the count is moment-relative.
+
+    It wrote nothing; the real store has no `recover:` items.
+- **Post-phase verdict_mutant_checks** (an isolated `git worktree --detach` copy, removed afterwards). Failing assertions per mutant, unit / e2e, on the final code:
+  - (a) liveness before the host guard: 2 / 2;
+  - (b) unknown → crashed: 2 / 3;
+  - (c) `locked_at` in the anchored key: 1 / 4;
+  - (d) no-anchor before the host guard: 1 / 5;
+  - (e) row 1 writes `unknown`: 0 / 13;
+  - (f) exact lock age: 1 / 5.
+
+  Each was caught by its guard-specific test: the other-host control, the unknown control, the self-refresh key, the foreign-host/no-PID precedence, the byte-identical open/unknown item on `CRASH_WARN`, and the advanced-clock `unchanged` pass.
+- **Post-phase pass_cost_probe:** strace and `/usr/bin/time` are absent, so it used a PATH git shim and bash `time`.
+  - Live `--dry-run`: 0.69 s wall.
+  - Scratch repo with 20 crashed tasks, cold apply: 8.9 s wall, 134 git calls plus 40 writer calls (20 retains + 20 applies).
+  - The steady-state second pass: 0.75 s (20 `unchanged`, nothing written).
+
+  Under the 10 s threshold, so no note was sent. The cold cost is linear in newly stored tasks, at about 0.4 s per item (2 writer calls).
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/sitrep_refresh.py:271-275 — TaskIndex._facts accepts a missing or invalid status: an archived record with status '' or 'Banana' comes back as found=archived with no error, so refresh classifies unvalidated records`
+- **Notes for sibling tasks:**
+  - **t2299_3 (refresh / monitor / TUI):**
+    - Call `sitrep_crash.Pass(root, dry_run).run()`, or the wrapper verb, under the harvest mutex. Do not re-implement the table: `recovery_verdict(lock, task, liveness_of(lock))` is the shared decision.
+    - Refresh's `check="recovery"` should read through `read_locks`, `read_active_tasks` and `read_inactive_task`, the strict readers.
+    - A cold pass costs about 0.4 s per newly stored item; a steady pass is about 0.75 s. Budget the monitor tick accordingly; a first pass on a repo with many crashes is the slow case.
+    - `checked_at` on recover items is "evidence last changed".
+    - TUI pick routing: `st.parse_recover_ref(item.ref)` gives the task id.
+  - **t2299_4 (skill / docs):**
+    - The wire grammar is in the `aitask_sitrep_harvest.sh` header, and the decision table, episode key, evidence and idempotence rules are in `lib/sitrep_crash.py`'s header.
+    - Row 1 never writes (stricter than the original table).
+    - The tree warning has three forms: surviving work, unattributed shared-tree edits, and incomplete evidence.
+    - Nothing is ever reclaimed or restored.
+    - The skill that calls `crashed` needs no new allow-list entry; the verb lives in an already-listed script.
