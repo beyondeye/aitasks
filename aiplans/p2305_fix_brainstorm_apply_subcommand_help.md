@@ -147,3 +147,111 @@ positionals, and the Python apply bodies are untouched.
 Otherwise none identified. The fix addresses every item in the task: initializer
 `--help`, explorer/synthesizer `--help`, the `S` → `i` comment, and the optional
 doc note.
+
+## Implementation notes
+
+All five steps are done as planned. Deviations and findings:
+
+- **Explorer example name**: the help uses `explorer_001a`. Real explorer
+  agent names carry a per-agent suffix (`brainstorm_crew.py`:
+  `f"explorer_{seq}{agent_suffix}"`); synthesizer names do not
+  (`synthesizer_001`).
+- **Test portability**: the test uses plain functions instead of
+  `declare -A`, because `tests/lib/asserts.sh` is kept bash-3.2-safe (macOS).
+- **Red proof (Python-free block)**: an isolated mutant copy of the initializer
+  wrapper had its parse loop moved after `require_ait_python`, in the
+  scratchpad with a symlinked `lib/`. Under the stub env, `--help` exited 1 and
+  the stub log showed `called -c import sys; …` and `called --version`. In the
+  normal env the same mutant exited 0. So the stub assertions catch the
+  ordering bug and the normal-environment assertions alone do not.
+- **Docs**: before the edit, `./ait brainstorm <sub> --help` exited 0 with a
+  `Usage:` line for every subcommand (`init`, `status`, `list`, `archive`,
+  `delete`, all three `apply-*`). `list --help` prints `status`'s usage,
+  because `list` routes through `status --list`. That is a pre-existing quirk
+  outside this task.
+- **Pre-existing, unrelated**: `tests/test_cd_guard_lint.sh` fails 1/92 on
+  `tests/test_issue_update_ledger.sh:231` (`unconfined-andchain`), a file last
+  touched by t2277's commit cddb129c5, not by this change.
+
+Verification run:
+- `tests/test_brainstorm_apply_help.sh`: 79/79 PASS, and it leaves no TMPDIR
+  leftovers under `run_shell_test.sh`
+- `tests/test_brainstorm_apply_created_by_group.sh`: 1/1 PASS
+- `tests/test_brainstorm_cli.sh`: 38/38 PASS
+- `shellcheck -S warning` on the three wrappers and the new test: clean
+- `brainstorm_app.py` parses (`ast.parse`)
+- `website/check_links.py --build`: SWEEP PASSED
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-15 19:40)
+- **Requested by user:** (1) [medium, blocking] the parsers used empty
+  values as their positional-slot state, so `apply-initializer "" 42` and
+  `apply-explorer 42 "" agent_x` were accepted and reached Python (exit 1)
+  instead of being rejected as surplus arguments (exit 2). Before t2305, the
+  initializer rejected `"" 42`. (2) [low, blocking] the help text sent
+  users to an apply-error log unconditionally, but the initializer writes it
+  only for a NODE_YAML parse error, and explorer/synthesizer write none when
+  the output file is missing.
+- **Verified before changing:** (1) reproduced under the failing
+  `AIT_PYTHON` stub with the then-current parser: `init "" 42` → rc=1 and
+  `explorer 42 "" agent_x` → rc=1; the pre-t2305 initializer gave rc=2.
+  (2) `brainstorm_session.py`: `apply_initializer_output` writes the log
+  only in its `yaml.YAMLError` handler; the shared explorer/synthesizer path
+  raises `FileNotFoundError` before its logging `try` and logs the rest
+  best-effort.
+- **Changes made:**
+  - All three wrappers collect positionals into a `POSITIONAL=()` array.
+    They check the count (missing → usage, surplus → `Unexpected argument:`)
+    and then reject empty values (`Empty <task_num> argument` /
+    `Empty <agent_name> argument`), all with exit 2 and before Python.
+  - The initializer also rejects a bare `brainstorm-` (it strips to an
+    empty number).
+  - The help Output sections and the script header comments now say which
+    failures write a log. `reference.md` / `how-to.md` already hedged
+    ("Some failures also leave a log"), so they are unchanged.
+  - Test: new "empty / surplus positionals rejected before Python" block
+    (17 cases × 3 assertions: exit 2, message, stub never invoked), plus a
+    help assertion for the log caveat. 136/136 PASS.
+- **Files affected:** the three `aitask_brainstorm_apply_*.sh` wrappers,
+  `tests/test_brainstorm_apply_help.sh`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - The three `ait brainstorm apply-*` wrappers each gained a `show_help`
+    (usage, description, arguments, output lines, a qualified note on when an
+    apply-error log is written, and an example) and a `--help|-h` branch that
+    exits 0.
+  - Unknown options, missing, surplus and empty positionals all exit 2 with a
+    `--help` hint. Arguments are parsed before `require_ait_python` and the
+    pyyaml check, so help works with a broken interpreter.
+  - The two stale `S` → `i` comments in `brainstorm_app.py` are fixed.
+  - One sentence in `website/.../brainstorm/reference.md` notes that `--help`
+    works on every subcommand.
+  - New `tests/test_brainstorm_apply_help.sh` (136 assertions), including a
+    failing-`AIT_PYTHON`-stub block with a positive control.
+- **Deviations from plan:**
+  - The parse loop first used empty-string slots. That accepted `"" 42` as
+    the task number 42, so it was replaced by a counted `POSITIONAL=()` array
+    that also rejects empty values and a bare `brainstorm-` (Change Request 1).
+  - The help's error-log line is qualified per failure type (Change Request 1).
+  - The explorer example agent name is `explorer_001a`, the real naming form.
+- **Issues encountered:**
+  - The plan review flagged that normal-environment tests cannot prove
+    "help before Python". The stub block was added, then red-proofed with a
+    reordered mutant: under the stub its `--help` gives rc=1 and the stub is
+    invoked, while in the normal env it gives rc=0.
+  - The test avoids `declare -A` to stay bash-3.2-safe, like `asserts.sh`.
+- **Key decisions:**
+  - Usage errors keep exit 2 (the pre-existing contract), because exit 1
+    means `APPLY_FAILED`.
+  - No overwrite guard was added to `apply-initializer`: the force-apply is
+    the intended recovery path, the same as Ctrl+R's `force=True`. The help
+    states the overwrite plainly.
+- **Upstream defects identified:**
+  - `tests/test_issue_update_ledger.sh:231` — `unconfined-andchain` cd-guard
+    violation (`( cd "$REPO" && … )`) makes `tests/test_cd_guard_lint.sh`
+    fail 1/92 on the live tree.
+  - `ait:310` — `ait brainstorm list --help` routes to
+    `aitask_brainstorm_status.sh --list --help` and prints `status`'s usage
+    (`Usage: ait brainstorm status <task_num>`) instead of `list`'s.
