@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2174
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-10-31 22:00
-updated_at: 2026-11-15 17:09
+updated_at: 2026-11-15 17:20
 ---
 
 ## Origin
@@ -32,3 +33,8 @@ While documenting t2174 (Shift+M in the TUI switcher adds a minimonitor beside t
 ## Suggested fix
 
 Rewrite the list from the switcher's registry (`switcher_tuis()` in `.aitask-scripts/lib/tui_registry.py`) or replace it with a link to the canonical switcher description in `website/content/docs/tuis/_index.md`. Drop the minimonitor row. Run `cd website && python3 check_links.py --build` afterwards.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-15T15:20:44Z status=pass attempt=1 type=human
