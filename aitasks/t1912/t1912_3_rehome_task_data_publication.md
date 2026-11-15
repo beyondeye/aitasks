@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-12 19:42
-updated_at: 2026-11-15 19:11
+updated_at: 2026-11-15 22:17
 ---
 
 ## Context
@@ -97,3 +98,8 @@ Paths that already push and need no change:
   does not belong here.
 
 Step 9 (Post-Implementation) applies.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-15T20:17:44Z status=pass attempt=1 type=human
