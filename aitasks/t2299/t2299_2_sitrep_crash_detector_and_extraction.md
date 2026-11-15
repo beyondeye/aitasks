@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t2299_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [sitrep, crash_recovery]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2299
 created_at: 2026-11-15 12:54
-updated_at: 2026-11-15 12:54
+updated_at: 2026-11-15 17:45
 ---
 
 ## Context
