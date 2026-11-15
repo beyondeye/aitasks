@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-12 19:42
-updated_at: 2026-11-15 16:08
+updated_at: 2026-11-15 17:52
 ---
 
 ## Context
@@ -132,3 +133,8 @@ effective view, so reader bodies change minimally.
 - TUIs never fetch: no reader path calls `refresh`.
 
 Step 9 (Post-Implementation) applies.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-15T15:52:22Z status=pass attempt=1 type=human
