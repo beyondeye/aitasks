@@ -90,3 +90,12 @@ Per-task `aiwork/<task>` worktrees may not exist: in this repo (profile `fast`) 
 - The detector emits, per crashed task: `phase`, `phase_provenance`, `plan` (none/draft/approved), `plan_fresh`, `uncommitted_files` (attributed count + unattributed count), `overlaps`, `lock_age`.
 - Suggested resume ranking: implementing-with-approved-fresh-plan and surviving work first; then approved-but-stale (re-verify plan); then plan-exists-unapproved; then planning/no-plan. `post_impl` crashes rank by what remains (review / procedure gates / archive), not by implementation.
 - Tests: a ledger fixture per phase (including a reachable `post_impl`), a stale-plan fixture (baseline behind HEAD on a referenced file), a no-baseline fixture (must read `unknown`, not `fresh`), an unreadable-ledger fixture (must read `error`), a shared-tree fixture with two tasks touching one file, and negative controls for "unknown liveness is not crashed" and "unattributed is not attributed".
+
+## Before planning: re-verify these findings
+
+The "Added findings" section above was written on 2026-11-15 against commit af0dca45c. It is tree- and moment-relative, so **re-verify it before writing the plan** and regenerate the survey table from fresh output rather than trusting it:
+
+1. Re-run the lock liveness check (`aitask_lock.sh --list --batch`) and `aitask_gate.sh resume-point` / `workflow-phase` per task. Crashed tasks may since have been reclaimed, archived or unlocked.
+2. Re-check the uncommitted-file attribution. The `git status` it used was a snapshot; t2284, t2286 and t2290 may have committed or changed files since.
+3. Re-confirm which tasks have plan files and `plan_approved` ledger entries.
+4. Confirm no sibling task has built crash tracking into sitrep in the meantime.
