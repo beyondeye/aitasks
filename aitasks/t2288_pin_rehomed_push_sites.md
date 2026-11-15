@@ -65,3 +65,20 @@ Read first:
 The test passes on the tree. Mutation check: deleting one push from a
 pinned site fails assertion 2; adding a synthetic unpushed stop exit fails
 assertion 3. Record both in the plan's notes.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1912_3** id=2026-11-15T21:00:20Z.538a21aef462ac7eb80cbe4d from=t1912_3 from_verified=yes at=2026-11-15T21:00:20Z base=e5f34774ae066c5e371eadf452c6f2aaf2559ee8 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1912_3 (landed in main e5f34774a, "enhancement: Re-home task-data publication to explicit pushes (t1912_3)").
+> | 
+> | The final pinned-site inventory is in the archived t1912_3 plan (Verified inventory A–H). It differs from your body's list in these ways:
+> | - aitask-revert is a site. It reaches Satisfaction Feedback through the shared Save-for-later macro (`feedback_skill_name="revert"`), so a grep for "satisfaction" in its own SKILL.md.j2 misses it.
+> | - The push lives in `.aitask-scripts/skill_templates/_auto_continue_block.j2` and is unconditional, so aitask-fold and aitask-pr-import "Save for later" also carry it. They never called feedback.
+> | - Every site references one shared procedure, `.claude/skills/task-workflow/task-data-push.md`. The token `task-data-push.md` is a stable pin at each site in the goldens: procs/task-workflow SKILL-*, planning-*, cross-repo-child-assignment-default; skills explore / fold / pr-import / revert / qa. Non-templated sites with no golden: aitask-docs-gap, aitask-add-model, aitask-refresh-code-models SKILL.md.
+> | 
+> | These session-ending exits commit or stop without a push, but never called the stats writer, so t1912_3 left them alone. Your discovery tripwire will likely hit them and must classify each one as pinned or exempt:
+> | - the manual-verification "Stop without archiving" and checklist-pause exits (unverified whether their item-state writes are committed);
+> | - the Task Abort Procedure.
+> | plan-approved-stop already pushes.
