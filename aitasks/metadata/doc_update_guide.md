@@ -320,6 +320,12 @@ Sourced from `aidocs/framework/documentation_conventions.md` and
   in `aitask_ls.sh`").
 - **Never say "sister" repo.** Use "cross-repo" or "linked repo/project", and
   scrub any existing "sister" wording on pages you touch.
+- **Screenshot placeholders use the marker grammar.** Where a page needs a
+  screenshot that does not exist yet, leave a `<!-- screenshot: scene=…
+  file=… alt="…" caption="…" -->` marker on its own line, not a free-form
+  `TODO` comment. `website/check_screenshots.py` fails on any other comment
+  that mentions a screenshot. The keys and value rules are in
+  `website/README.md` § "Screenshot Markers".
 
 ## TUI list caveat: diffviewer is transitional
 
