@@ -374,3 +374,100 @@ Post-implementation: Step 9 of the task workflow (review, commit, archival).
 - The scene and filename choices may need renaming when child 2 builds the
   scenes · severity: low · → mitigation: none, because markers are comments
   and renaming one is a one-line edit that the check validates
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-15 19:40)
+- **Requested by user:** four review findings: (1) `scan_image_sources` cut a
+  shortcode at a `>}}` inside a quoted value and ignored bare / backtick values;
+  (2) a backtick fence whose info string contains a backtick was treated as a
+  fence, hiding the marker after it; (3) ownership and `--owners` compared raw
+  `output:` strings, so `./x.svg` and `x.svg` slipped past both; (4) the README
+  claimed capture/replace tooling that does not exist yet.
+- **Changes made:** (1) replaced the regex with a tokenizer `_parse_shortcode`
+  that follows Hugo's argument lexer (probed on Hugo 0.169): `"…"` with `\"`,
+  `` `…` `` raw, bare tokens, spaces around `=`, close delimiters inside quotes
+  ignored, non-image shortcodes skipped whole, `{{</* */>}}` skipped; (2) a
+  backtick fence opener with a backtick in its info string is not a fence (tilde
+  fences may contain one); (3) `path_problem()` requires a canonical path (no
+  leading `/` or `./`, no empty / `.` / `..` segment) for marker `file=` and spec
+  `output:`; a non-canonical `output:` is an `OWNERSHIP` problem and is never
+  compared; (4) README describes only the marker and the checker.
+  Differential Hugo tests were added for (1) and (2).
+- **Files affected:** `website/screenshots/markers.py`, `website/README.md`,
+  `tests/test_check_screenshots.py`, `tests/test_check_screenshots_hugo.py`.
+
+### Change Request 2 (2026-11-15 19:55)
+- **Requested by user:** `path_problem` accepted `#` / `?` in filenames; the
+  template emits them verbatim, so the browser requests `/imgs/a`, while the
+  checker validated the literal filesystem name.
+- **Changes made:** `PATH_SEGMENT_RE = ^[A-Za-z0-9._-]+$` per segment (RFC 3986
+  unreserved minus `~`), so the filesystem name, the URL and the requested path
+  are one string. `check_screenshots.request_path()` checks an image `src` at the
+  path a browser requests (`urlsplit(...).path`, percent-decoded). Added
+  marker → Hugo → request-path fixtures and a `#`/`?` control.
+- **Files affected:** `website/screenshots/markers.py`,
+  `website/check_screenshots.py`, `website/README.md`, both test modules.
+
+## Final Implementation Notes
+- **Actual work done:** `website/screenshots/__init__.py`, `website/screenshots/markers.py`
+  (grammar, scanner, `render_static_img`, image-source tokenizer, canonical-path
+  rule, spec-owner reader), `website/check_screenshots.py` (classes UNPARSEABLE,
+  NO_SCENE, OWNERSHIP, MISSING_IMAGE, UNRESOLVED; `--report`, `--strict`,
+  `--owners`, `--content/--static/--scenes`), `tests/test_check_screenshots.py`
+  (unit, scratch trees) and `tests/test_check_screenshots_hugo.py` (minimal
+  scratch Hugo site with the real `static-img.html`; skips without `hugo`).
+  17 markers migrated in 13 pages (one line each). CI step "Check screenshot
+  markers" after "Check internal links" in `.github/workflows/hugo.yml`.
+  `website/README.md` § "Screenshot Markers"; one bullet in
+  `aitasks/metadata/doc_update_guide.md` § "Writing conventions".
+- **Deviations from plan:** board layout alt says "filter area" (the page's own
+  list item 2) instead of "search box". The minimonitor switcher got its own
+  scene, as the verified plan already decided. The four review rounds above
+  tightened the tokenizer, fence, path and request-path rules.
+- **Issues encountered:** a HEAD-vs-new full-site HTML comparison first showed
+  261 differing files; they came from `enableGitInfo` (scratch content dir has
+  no git history) and from Docsy edit links embedding the content dir path.
+  With `--enableGitInfo=false` and the dir name normalized, all 376 files are
+  byte-identical (the minifier strips comments anyway).
+  Full Python suite: 9 failures, none in this change — 1 in
+  `test_metadata_writer_inventory` caused by a concurrent session's untracked
+  `.aitask-scripts/lib/sitrep_crash.py`, 8 in `test_screen_recording_cli` /
+  `test_aitask_questions` (fail the same way in isolation; they do not import
+  anything under `website/`).
+- **Key decisions:** reject rather than escape: `FORBIDDEN_IN_VALUE = ('"', "--", "\\")`
+  so every accepted value goes into a shortcode verbatim, independent of the
+  Hugo version. Hugo result (local 0.169.0; CI's pinned 0.155.3 not checked):
+  apostrophe, `&`, `<`, `>`, `}}`, `>}}`, `#`, non-ASCII, `.`, `-` all round-trip
+  through alt / figcaption / onclick (`'` becomes `'`); a raw trailing
+  backslash makes the build exit 1. Mutants for every rule were run and each
+  fails the suite.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **Scene/file table (final):** `tui_switcher_dialog` → `aitasks_tui_switcher_dialog.svg`
+    (tuis/_index, board/how-to, settings/how-to, codebrowser/how-to);
+    `tui_switcher_from_monitor` → `aitasks_tui_switcher_from_monitor.svg`
+    (monitor/_index, monitor/how-to); `tui_switcher_from_minimonitor` →
+    `aitasks_tui_switcher_from_minimonitor.svg` (minimonitor/how-to; narrow
+    layout, `_switcher_narrow()`); `board_layout_annotated`,
+    `board_card_annotated`, `board_child_tasks`, `board_task_detail_lock`,
+    `monitor_layout_annotated`, `brainstorm_browse_tab`, `trails_main_view`,
+    `ait_ide_startup`, `minimonitor_main_view` → `aitasks_<scene>.svg`;
+    `sitrep_window` → `aitasks_sitrep_tui_main_view.svg`. 17 markers, 13 scenes.
+  - **t2278_5:** flip `check_screenshots.MISSING_SCENE_SEVERITY` to `"error"`.
+    `markers.render_static_img` raises `ValueError` on a forbidden value or
+    (via `parse_marker`) never sees a non-canonical path — `apply` should report
+    `REFUSED:<scene>|<reason>`, not crash.
+  - **t2278_2 (scene loader contract):** import `markers.SPEC_SCALAR_RE`,
+    `read_spec_scalar`, `read_spec_owner` and `path_problem`; reject any spec
+    for which `read_spec_owner(...).problems` is non-empty. Contract: an accepted
+    `id:`/`output:` value equals `yaml.safe_load(line)[key]` as `str`; spaces only
+    (tabs make PyYAML raise); a trailing `# comment` needs a space before `#`;
+    bare values must start with a letter and not be a YAML bool/null word
+    (quote `on`, `null`, `123`, dates); `output:` must be canonical and URL-safe.
+    The parent design's commented `output:` example reads correctly.
+  - **Scanner rules:** fenced blocks skipped (backtick info strings with a
+    backtick are not fences); block comment = line starting `<!--` (≤3 spaces)
+    up to the first `-->`; a screenshot comment must be one line; any other line
+    with `<!--` and `screenshot` is an inline-comment error. Verified against
+    Goldmark by `test_fence_rules_match_goldmark`.
