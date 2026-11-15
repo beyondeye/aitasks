@@ -4,3 +4,5 @@ ITEM:c3|3|question|unknown|waiting|never|aitasks#2171|script||Should refresh run
 ITEM:c4|4|watch|open|now|never||script||CI on the sitrep branch
 ITEM:c5|7|task|dismissed|next|2026-11-01T09:31:00Z|t2180|script|user: duplicate of t2175_3|Explore follow-up never picked
 ITEM:c6|8|action|open|now|never|push:main@1a2b3c4d5e6f|agent||Push main
+ITEM:c7|9|task|open|now|2026-11-15T12:00:00Z|recover:t42|script|crashed · plan approved|t42 crashed while implementing
+ITEM:c8|11|task|dismissed|next|2026-11-15T12:00:00Z|recover:t43|script|user: not worth resuming|t43 crashed while planning

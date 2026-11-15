@@ -46,13 +46,26 @@ CONSUMER CONTRACT. ``tests/fixtures/sitrep/`` holds a writer-produced store and
 ``tests/test_sitrep_todo.sh`` pins its ``list``/``context``/``check-sources``
 output. A format change edits that fixture and bumps ``format=``.
 
-FORMAT VERSIONS. todo.md is format 2: format 1 plus the ``push:<branch>@<sha>``
-ref (a push reminder, created by the sitrep skill and checked by the refresh,
-t2175_3). Format 1 files are still read -- render emits the parsed version, so
-render∘parse stays the identity -- and the first write that CHANGES one upgrades
-it to 2 (a no-op leaves it byte-identical); a format 1 file holding a ``push:``
-ref is refused. ``tests/fixtures/sitrep/store_v1/`` pins the format 1 read.
+FORMAT VERSIONS. todo.md is format 3:
+* format 2 adds the ``push:<branch>@<sha>`` ref (a push reminder, created by the
+  sitrep skill and checked by the refresh, t2175_3);
+* format 3 adds the ``recover:t<N>[_<M>]`` ref (one crash-recovery item per
+  task, kind=task, written only by ``recovery-apply``) and the ``incarnation``
+  origin key (the 12-hex episode that item's evidence belongs to, t2299_1).
+Older files are still read -- render emits the parsed version, so render∘parse
+stays the identity -- and the first write that CHANGES one upgrades it to the
+current format (a no-op leaves it byte-identical). A file holding a ref or
+origin key newer than its own format is refused.
+``tests/fixtures/sitrep/store_v1/`` and ``store_v2/`` pin the older reads.
 qa.md is unchanged and stays format 1.
+
+RECOVERY ITEMS. ``recovery-apply`` is the one verb that creates a ``recover:``
+item or changes its recorded incarnation; ``add`` refuses the ref, ``update``
+cannot set, change or re-kind it, and ``upsert-context`` must keep the recorded
+incarnation. A dismissal is scoped to the recorded incarnation: an apply that
+names the same episode keeps the item dismissed, a different one (with its
+context, ``--state open``) reopens it. A state-only apply (no context) passes
+the item's RECORDED incarnation, never a newly observed one.
 
 REVISIONS cover the item AND its context entry: every change to either gives
 the item a fresh store-wide rev, so a refresh verdict computed from an older
@@ -72,12 +85,12 @@ import re
 import sys
 from dataclasses import dataclass, field
 
-# todo.md is format 2 since t2175_3 (the `push:` ref form); format 1 files are
-# still READ (render emits the parsed version, so render∘parse stays the
-# identity) and are upgraded to 2 by the first write that changes them. qa.md
-# did not change and stays format 1.
-TODO_FORMAT_VERSION = 2
-TODO_READ_FORMATS = (1, 2)
+# todo.md is format 3 since t2299_1 (the `recover:` ref and the `incarnation`
+# origin key); formats 1 and 2 are still READ (render emits the parsed version,
+# so render∘parse stays the identity) and are upgraded by the first write that
+# changes them. qa.md did not change and stays format 1.
+TODO_FORMAT_VERSION = 3
+TODO_READ_FORMATS = (1, 2, 3)
 QA_FORMAT_VERSION = 1
 
 TODO_BANNER = (
@@ -96,6 +109,9 @@ QA_HEADER = f"<!-- aitask-sitrep qa format={QA_FORMAT_VERSION} -->"
 _TODO_HEADER_RE = re.compile(r"^<!-- aitask-sitrep todo format=([1-9][0-9]*) -->\Z")
 # The first format whose grammar has the `push:` ref.
 PUSH_REF_FORMAT = 2
+# The first format whose grammar has the `recover:` ref and the `incarnation`
+# origin key.
+RECOVER_FORMAT = 3
 
 
 def todo_header(version: int) -> str:
@@ -129,7 +145,8 @@ DENIED_CONTEXT_KEYS = frozenset({
     "status", "state", "next", "todo", "count", "counts", "progress",
     "summary", "overlap", "eta", "blocked", "done",
 })
-ORIGIN_KEYS = frozenset({"agent", "task", "commit", "date", "skill", "pane"})
+ORIGIN_KEYS = frozenset({"agent", "task", "commit", "date", "skill", "pane",
+                         "incarnation"})
 SOURCE_TYPES = ("task", "plan", "trail", "capture", "commit", "artifact",
                 "file", "url")
 
@@ -171,6 +188,12 @@ XREF_RE = re.compile(r"^([A-Za-z0-9][A-Za-z0-9._-]*)#t?([1-9][0-9]*(?:_[1-9][0-9
 # `git check-ref-format --branch` before using it, always as one argv element.
 PUSH_REF_RE = re.compile(
     r"^push:([A-Za-z0-9_][A-Za-z0-9._/-]*)@([0-9a-fA-F]{7,40})\Z")
+# A crash-recovery item (t2299_1): `recover:t<N>[_<M>]` -- one item per task,
+# kind=task. The `t` is mandatory and lower case; the ref is accepted only in
+# its canonical spelling (no normalization), so dedup by ref stays exact.
+RECOVER_REF_RE = re.compile(r"^recover:t([1-9][0-9]*(?:_[1-9][0-9]*)?)\Z")
+# The `incarnation` origin value: the 12-hex episode key of a recovery item.
+INCARNATION_RE = re.compile(r"^[0-9a-f]{12}\Z")
 CAPTURE_RE = re.compile(r"^sources/([0-9a-f]{16})\.txt#L([1-9][0-9]*)(?:-L([1-9][0-9]*))?\Z")
 COMMIT_RE = re.compile(r"^[0-9a-f]{7,40}\Z")
 URL_RE = re.compile(r"^https?://\S+\Z")
@@ -483,6 +506,9 @@ def parse_todo(text: str, path: str = "todo.md") -> TodoStore:
             if store.format < PUSH_REF_FORMAT and item.ref.startswith("push:"):
                 raise FormatError(path, lineno, f"push refs need format={PUSH_REF_FORMAT} "
                                   f"(this file is format={store.format})")
+            if store.format < RECOVER_FORMAT and item.ref.startswith("recover:"):
+                raise FormatError(path, lineno, f"recover refs need format={RECOVER_FORMAT} "
+                                  f"(this file is format={store.format})")
             if item.num in store.items:
                 raise FormatError(path, lineno, f"duplicate item id c{item.num}")
             store.items[item.num] = item
@@ -517,6 +543,11 @@ def parse_todo(text: str, path: str = "todo.md") -> TodoStore:
             raise FormatError(path, lineno + 1 + off, msg) from None
         except RequestError as e:
             raise FormatError(path, lineno, str(e)) from None
+        if store.format < RECOVER_FORMAT and context_incarnation(entry) is not None:
+            off = next(i for i, ln in enumerate(body) if ln.startswith("- origin:"))
+            raise FormatError(path, lineno + 1 + off,
+                              f"the incarnation origin key needs format={RECOVER_FORMAT} "
+                              f"(this file is format={store.format})")
         store.contexts[num] = entry
     _canonical_check(path, text, render_todo(store))
     return store
@@ -582,12 +613,31 @@ def normalize_ref(ref: str) -> str:
     m = XREF_RE.match(ref)
     if m:
         return f"{m.group(1)}#{m.group(2)}"
+    if RECOVER_REF_RE.match(ref):
+        return ref
     m = PUSH_REF_RE.match(ref)
     if m and _push_branch_ok(m.group(1)):
         return f"push:{m.group(1)}@{m.group(2).lower()}"
     raise RequestError(f"invalid ref {ref!r} (expected t<N>[_<M>], "
-                       "<project>#<N>[_<M>] for a cross-repo task, or "
-                       "push:<branch>@<sha> for a push reminder)")
+                       "<project>#<N>[_<M>] for a cross-repo task, "
+                       "push:<branch>@<sha> for a push reminder, or "
+                       "recover:t<N>[_<M>] for a crash-recovery item)")
+
+
+def parse_recover_ref(ref: str):
+    """The task id (``"12"`` / ``"12_3"``) of a canonical `recover:` ref, or None."""
+    m = RECOVER_REF_RE.match(ref or "")
+    return m.group(1) if m else None
+
+
+def context_incarnation(entry) -> "str | None":
+    """The `incarnation` origin value of a context entry, or None."""
+    if entry is None:
+        return None
+    for k, v in entry.origin:
+        if k == "incarnation":
+            return v
+    return None
 
 
 def _push_branch_ok(branch: str) -> bool:
@@ -648,6 +698,8 @@ def _check_item_values(item: Item) -> None:
         raise RequestError(f"invalid checked_at {item.checked_at!r}")
     if item.ref and normalize_ref(item.ref) != item.ref:
         raise RequestError(f"ref {item.ref!r} is not in canonical form")
+    if parse_recover_ref(item.ref) and item.kind != "task":
+        raise RequestError(f"a recover: ref needs kind=task (found kind={item.kind})")
     if item.outcome != _single_line("outcome", item.outcome, MAX_OUTCOME, False):
         raise RequestError("outcome is not in canonical form")
     if not item.title or item.title != _single_line("title", item.title, MAX_TITLE, True):
@@ -706,9 +758,11 @@ def _check_context_values(entry: ContextEntry, store_dir) -> None:
     if len(entry.background) > MAX_BACKGROUND:
         raise RequestError(f"background is longer than {MAX_BACKGROUND} characters "
                            "-- keep 1-2 sentences, long material stays behind a pointer")
-    for _, v in entry.origin:
+    for k, v in entry.origin:
         if "|" in v:
             raise RequestError("origin values must not contain '|'")
+        if k == "incarnation" and not INCARNATION_RE.match(v):
+            raise RequestError(f"origin incarnation {v!r} is not 12 lowercase hex characters")
     if entry.theme and not THEME_RE.match(entry.theme):
         raise RequestError(f"invalid theme {entry.theme!r} (expected [a-z0-9][a-z0-9_-]*)")
     for stype, ptr in entry.sources:
@@ -1053,6 +1107,8 @@ def op_add(args, text):
     if not title:
         raise RequestError("title must not be empty")
     ref = normalize_ref(args.ref or "")
+    if parse_recover_ref(ref):
+        raise RequestError("recover: items are written by recovery-apply, not add")
     checked = normalize_ts(args.checked_at, allow_never=True)
     proto = Item(1, 1, args.kind, args.state, args.group, checked, ref,
                  args.derived, "", title)
@@ -1108,6 +1164,8 @@ def op_update(args, _text):
         if not title:
             raise RequestError("title must not be empty")
     ref = normalize_ref(args.ref) if args.ref is not None else None
+    if ref and parse_recover_ref(ref):
+        raise RequestError("recover: items are written by recovery-apply, not update")
     if args.kind is not None and args.kind not in KINDS:
         raise RequestError(f"invalid kind {args.kind!r}")
     if args.group is not None and args.group not in GROUPS:
@@ -1118,6 +1176,11 @@ def op_update(args, _text):
     item = _find(store, num)
     if not _expect(item, args.expect_rev):
         return
+    if parse_recover_ref(item.ref):
+        if ref is not None and ref != item.ref:
+            raise RequestError(f"c{num} is a recovery item: its ref {item.ref} is fixed")
+        if args.kind is not None and args.kind != "task":
+            raise RequestError(f"c{num} is a recovery item: its kind stays task")
     if ref:
         owner = _ref_owner(store, ref)
         if owner is not None and owner != num:
@@ -1198,10 +1261,17 @@ def op_upsert_context(args, text):
     if args.check_only:
         return
     store = load_todo(args.store)
-    _find(store, num)
+    item = _find(store, num)
     _check_context_values(entry, args.store)
     _check_related(entry, alloc_id(args.store), num)
     old = store.contexts.get(num)
+    if parse_recover_ref(item.ref):
+        # The incarnation scopes a dismissal; only recovery-apply may move it.
+        recorded = context_incarnation(old)
+        if context_incarnation(entry) != recorded:
+            raise RequestError(f"c{num} is a recovery item: the context must keep "
+                               f"incarnation={recorded or '(none)'}; a new episode "
+                               "goes through recovery-apply")
     if old is not None and old.body_lines() == entry.body_lines():
         print(f"CONTEXT:c{num}|unchanged")
         return
@@ -1213,6 +1283,122 @@ def op_upsert_context(args, text):
     store.items[num].rev = revs.take()
     _commit_todo(args, store, revs)
     print(f"CONTEXT:c{num}|{'replaced' if old is not None else 'created'}")
+
+
+def _parse_expect_rev(value: str):
+    """`absent` -> None; a positive int -> int. Anything else is exit 2."""
+    value = _no_line_breaks("--expect-rev", value).strip()
+    if value == "absent":
+        return None
+    if not re.match(r"^[1-9][0-9]*\Z", value):
+        raise RequestError(f"--expect-rev {value!r} is not 'absent' or a positive integer")
+    return int(value)
+
+
+def op_recovery_apply(args, text):
+    """One atomic, rev-guarded write of a crash-recovery item (t2299_1).
+
+    `--incarnation` names the episode the RECORDED evidence belongs to. With a
+    context it is the context's own origin incarnation (create, evidence
+    refresh, reopen) -- the only way a recorded incarnation changes. Without a
+    context (a state-only verdict) it must be the item's recorded incarnation:
+    passing a newly observed key there would claim a new episode while keeping
+    the old evidence, and a later dismissal would be scoped to the wrong one.
+    """
+    ref = normalize_ref(args.ref)
+    if not parse_recover_ref(ref):
+        raise RequestError(f"recovery-apply takes a recover:t<N>[_<M>] ref (got {args.ref!r})")
+    expect = _parse_expect_rev(args.expect_rev)
+    inc = _no_line_breaks("--incarnation", args.incarnation)
+    if not INCARNATION_RE.match(inc):
+        raise RequestError(f"--incarnation {inc!r} is not 12 lowercase hex characters")
+    if args.state not in ("open", "unknown", "done"):
+        raise RequestError("recovery-apply takes --state open, unknown or done")
+    outcome = _single_line("outcome", args.outcome, MAX_OUTCOME, False)
+    ts = normalize_ts(args.checked_at, allow_never=False)
+    title = None
+    if args.title is not None:
+        title = _single_line("title", args.title, MAX_TITLE, True)
+        if not title:
+            raise RequestError("title must not be empty")
+    if args.group is not None and args.group not in GROUPS:
+        raise RequestError(f"invalid group {args.group!r}")
+    entry = validate_context_input(text, None) if args.input else None
+    if entry is not None and context_incarnation(entry) != inc:
+        raise RequestError(f"the context's origin incarnation "
+                           f"({context_incarnation(entry) or 'missing'}) must equal "
+                           f"--incarnation {inc}")
+    if expect is None and (entry is None or title is None):
+        raise RequestError("creating a recovery item (--expect-rev absent) needs "
+                           "--title and a context (--context-file -)")
+    if args.check_only:
+        return
+    store = load_todo(args.store)
+    owner = _ref_owner(store, ref)
+    if expect is None:
+        if owner is not None:
+            print(f"STALE:c{owner}|{store.items[owner].rev}")
+            return
+        num = alloc_id(args.store)
+        _check_context_values(entry, args.store)
+        _check_related(entry, num, num)
+        revs = Revs(args.store)
+        item = Item(num, revs.take(), "task", args.state, args.group or "next",
+                    ts, ref, "script", outcome, title)
+        _check_item_values(item)
+        store.items[num] = item
+        store.contexts[num] = entry
+        _commit_todo(args, store, revs)
+        print(f"ADDED:c{num}|{item.rev}")
+        print(f"@NEXT_ID:{num + 1}")
+        return
+    if owner is None:
+        print(f"ABSENT:{ref}")
+        return
+    item = store.items[owner]
+    if item.rev != expect:
+        print(f"STALE:c{owner}|{item.rev}")
+        return
+    recorded = context_incarnation(store.contexts.get(owner))
+    reopen = False
+    if item.state == "dismissed":
+        # Dismissal is scoped to the recorded episode: only a different one,
+        # crashed again (--state open) and carrying its evidence, reopens it.
+        if entry is None:
+            print(f"KEPT:c{owner}|dismissed")
+            return
+        if recorded is None:
+            print(f"KEPT:c{owner}|dismissed_no_incarnation")
+            return
+        if recorded == inc or args.state != "open":
+            print(f"KEPT:c{owner}|dismissed")
+            return
+        reopen = True
+    else:
+        if entry is None and inc != recorded:
+            raise RequestError(f"--incarnation {inc} differs from c{owner}'s recorded "
+                               f"incarnation ({recorded or 'none'}) and no context was "
+                               "given: a state-only apply passes the recorded "
+                               "incarnation; a new episode needs its context")
+        reopen = item.state == "done" and args.state == "open"
+    if entry is not None:
+        _check_context_values(entry, args.store)
+        _check_related(entry, alloc_id(args.store), owner)
+    revs = Revs(args.store)
+    changed = _apply(item, revs, state=args.state, outcome=outcome, checked_at=ts,
+                     title=title, group=args.group)
+    old = store.contexts.get(owner)
+    if entry is not None and (old is None or old.body_lines() != entry.body_lines()):
+        store.contexts[owner] = entry
+        if not changed:
+            item.rev = revs.take()
+        changed = True
+    if not changed:
+        print(f"UNCHANGED:c{owner}|{item.rev}")
+        return
+    _check_item_values(item)
+    _commit_todo(args, store, revs)
+    print(f"{'REOPENED' if reopen else 'APPLIED'}:c{owner}|{item.rev}")
 
 
 def op_qa(args, text):
@@ -1548,6 +1734,12 @@ def _build_parser() -> argparse.ArgumentParser:
     sp.add_argument("--outcome", default=None)
     sp.add_argument("--expect-rev", type=int, default=None)
     mk("set-state-batch", op_set_state_batch, True, True)
+    sp = mk("recovery-apply", op_recovery_apply, True, True)
+    for flag in ("--ref", "--expect-rev", "--incarnation", "--state", "--outcome",
+                 "--checked-at"):
+        sp.add_argument(flag, required=True)
+    sp.add_argument("--title", default=None)
+    sp.add_argument("--group", default=None)
     sp = mk("situation", op_situation, True, True)
     sp.add_argument("theme")
     sp = mk("upsert-context", op_upsert_context, True, True)

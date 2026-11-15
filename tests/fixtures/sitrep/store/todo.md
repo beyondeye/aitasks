@@ -1,5 +1,5 @@
 <!-- GENERATED FILE - DO NOT EDIT MANUALLY. Machine-written by .aitask-scripts/aitask_sitrep_todo.sh in a strict format; a manual edit makes the store unreadable (recover with: aitask_sitrep_todo.sh restore todo). -->
-<!-- aitask-sitrep todo format=2 -->
+<!-- aitask-sitrep todo format=3 -->
 # Sitrep todo
 
 ## Part 1: Todo
@@ -19,6 +19,7 @@ Cross-repo question still open.
 - c1 | rev=1 | kind=task | state=open | group=now | checked_at=never | ref=t2175_2 | derived=script | outcome= | Harvest parser for finished agents
 - c4 | rev=4 | kind=watch | state=open | group=now | checked_at=never | ref= | derived=script | outcome= | CI on the sitrep branch
 - c6 | rev=8 | kind=action | state=open | group=now | checked_at=never | ref=push:main@1a2b3c4d5e6f | derived=agent | outcome= | Push main
+- c7 | rev=9 | kind=task | state=open | group=now | checked_at=2026-11-15T12:00:00Z | ref=recover:t42 | derived=script | outcome=crashed · plan approved | t42 crashed while implementing
 
 ### Next
 
@@ -33,6 +34,7 @@ Cross-repo question still open.
 ### Dismissed
 
 - c5 | rev=7 | kind=task | state=dismissed | group=next | checked_at=2026-11-01T09:31:00Z | ref=t2180 | derived=script | outcome=user: duplicate of t2175_3 | Explore follow-up never picked
+- c8 | rev=11 | kind=task | state=dismissed | group=next | checked_at=2026-11-15T12:00:00Z | ref=recover:t43 | derived=script | outcome=user: not worth resuming | t43 crashed while planning
 
 ## Part 2: Context
 
@@ -64,3 +66,18 @@ Cross-repo question still open.
 - sources:
   - commit: 1a2b3c4d5e6f
 - related: c2
+
+### c7
+- background: Agent on t42 died with its PID anchor gone; plan approved, work left in the shared tree.
+- origin: task=t42 date=2026-11-15 skill=aitask-sitrep incarnation=0123456789ab
+- theme: sitrep
+- sources:
+  - task: aitasks/t42_example_task.md
+  - plan: aiplans/p42_example_task.md
+
+### c8
+- background: Agent on t43 died during planning; nothing to resume.
+- origin: task=t43 date=2026-11-15 incarnation=89abcdef0123
+- theme: sitrep
+- sources:
+  - task: aitasks/t43_other_task.md

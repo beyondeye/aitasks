@@ -105,7 +105,7 @@ class Refusals(unittest.TestCase):
         self.assertRefusedAt(self.text.replace("DO NOT EDIT", "do not edit", 1), 1)
 
     def test_future_format(self):
-        self.assertRefusedAt(self.text.replace("format=2", "format=3"), 2)
+        self.assertRefusedAt(self.text.replace("format=3", "format=4"), 2)
 
     def test_stray_blank_line_names_its_line(self):
         lines = self.text.split("\n")
@@ -135,7 +135,7 @@ class Refusals(unittest.TestCase):
 
 
 class FormatVersions(unittest.TestCase):
-    """todo.md format 2 (t2175_3): reads format 1, writes format 2."""
+    """todo.md format 3 (t2299_1): reads formats 1 and 2, writes format 3."""
 
     V1 = os.path.join(os.path.dirname(__file__), "fixtures", "sitrep",
                       "store_v1", "todo.md")
@@ -151,11 +151,11 @@ class FormatVersions(unittest.TestCase):
         s = _store(_item(1))
         s.format = 1
         self.assertIn("todo format=1 -->", st.render_todo(s).split("\n")[1])
-        self.assertIn("todo format=2 -->", st.empty_text("todo").split("\n")[1])
+        self.assertIn("todo format=3 -->", st.empty_text("todo").split("\n")[1])
 
     def test_v1_with_a_push_ref_is_refused_at_the_item_line(self):
         s = _store(_item(1), _item(2, kind="action", ref="push:main@abcdef1"))
-        text = st.render_todo(s).replace("todo format=2", "todo format=1")
+        text = st.render_todo(s).replace("todo format=3", "todo format=1")
         lineno = text.split("\n").index(s.items[2].line()) + 1
         with self.assertRaises(st.FormatError) as cm:
             st.parse_todo(text, "todo.md")
@@ -166,6 +166,86 @@ class FormatVersions(unittest.TestCase):
         s = _store(_item(1, kind="action", ref="push:main@abcdef1"))
         self.assertEqual(st.parse_todo(st.render_todo(s)).items[1].ref,
                          "push:main@abcdef1")
+
+    V2 = os.path.join(os.path.dirname(__file__), "fixtures", "sitrep",
+                      "store_v2", "todo.md")
+
+    def test_v2_fixture_round_trips_as_v2(self):
+        with open(self.V2, encoding="utf-8") as fh:
+            text = fh.read()
+        parsed = st.parse_todo(text)
+        self.assertEqual(parsed.format, 2)
+        self.assertEqual(st.render_todo(parsed), text)
+
+    def test_current_fixture_is_v3_and_round_trips(self):
+        with open(os.path.join(FIXTURE, "todo.md"), encoding="utf-8") as fh:
+            text = fh.read()
+        parsed = st.parse_todo(text)
+        self.assertEqual(parsed.format, 3)
+        self.assertEqual(st.render_todo(parsed), text)
+        recover = {n: it.ref for n, it in parsed.items.items()
+                   if st.parse_recover_ref(it.ref)}
+        self.assertEqual(recover, {7: "recover:t42", 8: "recover:t43"})
+        self.assertEqual(parsed.items[8].state, "dismissed")
+        self.assertEqual(st.context_incarnation(parsed.contexts[7]), "0123456789ab")
+        self.assertEqual(st.context_incarnation(parsed.contexts[8]), "89abcdef0123")
+
+    def test_v2_with_a_recover_ref_is_refused_at_the_item_line(self):
+        s = _store(_item(1), _item(2, ref="recover:t42"))
+        text = st.render_todo(s).replace("todo format=3", "todo format=2")
+        lineno = text.split("\n").index(s.items[2].line()) + 1
+        with self.assertRaises(st.FormatError) as cm:
+            st.parse_todo(text, "todo.md")
+        self.assertIn(f"todo.md:{lineno}:", str(cm.exception))
+        self.assertIn("recover refs need format=3", str(cm.exception))
+
+    def test_v2_with_an_incarnation_origin_is_refused_at_the_origin_line(self):
+        s = _store(_item(1))
+        s.contexts[1] = st.ContextEntry("b", [("task", "t1"), ("incarnation", "0123456789ab")])
+        text = st.render_todo(s).replace("todo format=3", "todo format=2")
+        lineno = text.split("\n").index("- origin: task=t1 incarnation=0123456789ab") + 1
+        with self.assertRaises(st.FormatError) as cm:
+            st.parse_todo(text, "todo.md")
+        self.assertIn(f"todo.md:{lineno}:", str(cm.exception))
+        self.assertIn("incarnation origin key needs format=3", str(cm.exception))
+
+    def test_v3_with_recover_and_incarnation_parses(self):
+        s = _store(_item(1, ref="recover:t42_3"))
+        s.contexts[1] = st.ContextEntry("b", [("task", "t42_3"), ("incarnation", "0123456789ab")])
+        parsed = st.parse_todo(st.render_todo(s))
+        self.assertEqual(parsed.items[1].ref, "recover:t42_3")
+        self.assertEqual(st.context_incarnation(parsed.contexts[1]), "0123456789ab")
+
+    def test_recover_ref_needs_kind_task_at_parse(self):
+        s = _store(_item(1, ref="recover:t42"))
+        text = st.render_todo(s).replace("kind=task", "kind=action")
+        with self.assertRaises(st.FormatError) as cm:
+            st.parse_todo(text, "todo.md")
+        self.assertIn("recover: ref needs kind=task", str(cm.exception))
+
+    def test_recover_ref_grammar(self):
+        self.assertEqual(st.normalize_ref("recover:t42"), "recover:t42")
+        self.assertEqual(st.parse_recover_ref("recover:t42"), "42")
+        self.assertEqual(st.parse_recover_ref("recover:t42_3"), "42_3")
+        for bad in ("recover:42", "recover:T42", "Recover:t42", "recover:t0",
+                    "recover:t42_", "recover:t42_0", "recover:t042", "recover:",
+                    "recover:proj#42", "recover:t42\n", "recover:t42 x"):
+            with self.assertRaises(st.RequestError, msg=bad):
+                st.normalize_ref(bad)
+            self.assertIsNone(st.parse_recover_ref(bad), bad)
+        for other in ("t42", "proj#42", "push:main@abcdef1", "", None):
+            self.assertIsNone(st.parse_recover_ref(other), other)
+
+    def test_incarnation_value_grammar(self):
+        ok = st.validate_context_input(
+            "- background: b\n- origin: task=t1 incarnation=0123456789ab\n")
+        self.assertEqual(st.context_incarnation(ok), "0123456789ab")
+        self.assertIsNone(st.context_incarnation(
+            st.validate_context_input("- background: b\n- origin: task=t1\n")))
+        for bad in ("0123456789a", "0123456789abc", "0123456789AB", "0123456789ag"):
+            with self.assertRaises(st.RequestError, msg=bad):
+                st.validate_context_input(
+                    f"- background: b\n- origin: task=t1 incarnation={bad}\n")
 
     def test_qa_stays_format_1(self):
         qa = st.empty_text("qa")

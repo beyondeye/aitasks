@@ -28,8 +28,10 @@
 # banner and the parser is strict: a hand-edited file is refused (exit 4) until
 # `restore` puts the last good generation back. The consumer contract is the
 # golden store in tests/fixtures/sitrep/ -- a format change edits that fixture
-# and bumps `format=`. todo.md is format 2 (adds the `push:<branch>@<sha>` ref,
-# t2175_3); format 1 files are read and upgraded by their first changing write.
+# and bumps `format=`. todo.md is format 3: format 2 adds the
+# `push:<branch>@<sha>` ref (t2175_3), format 3 the `recover:t<N>[_<M>]` ref and
+# the `incarnation` origin key (t2299_1). Older files are read and upgraded by
+# their first changing write; one holding a newer ref or key is refused.
 #
 # CONCURRENCY. `lib/atomic_write.sh` gives readers a whole-old-or-whole-new view
 # but does not serialize a read-modify-write, so every mutation holds the
@@ -87,15 +89,39 @@
 # aitask_sitrep_refresh.sh) scripts, and the sitrep skill (t2175_4).
 #
 # Verbs (ids are c<N> or <N>; stdin text never contains NUL):
-#   Refs: t<N>[_<M>] (task), <project>#<N>[_<M>] (cross-repo task) or
+#   Refs: t<N>[_<M>] (task), <project>#<N>[_<M>] (cross-repo task),
 #   push:<branch>@<sha> (push reminder; branch in a shell-safe subset of git's
-#   ref grammar, sha 7-40 hex, stored lowercase).
+#   ref grammar, sha 7-40 hex, stored lowercase) or recover:t<N>[_<M>] (a
+#   crash-recovery item, kind=task, written ONLY by recovery-apply).
 #   add --kind K --title T [--ref R] [--group now|next|waiting]
 #       [--state open|unknown] [--derived script|agent] [--checked-at TS|now|never]
 #       [--context-file -]          ADDED:c<N> | EXISTS:c<N> (a non-empty ref
-#                                   already present in ANY state: nothing written)
+#                                   already present in ANY state: nothing written);
+#                                   a recover: ref is exit 2
 #   update <id> [--title T] [--group G] [--ref R] [--kind K] [--expect-rev N]
-#                                   UPDATED:c<N>|<rev> | STALE:c<N>|<rev>
+#                                   UPDATED:c<N>|<rev> | STALE:c<N>|<rev>; setting,
+#                                   changing or re-kinding a recover: ref is exit 2
+#   recovery-apply --ref recover:t<N>[_<M>] --expect-rev absent|<rev>
+#       --incarnation <12 hex> --state open|unknown|done --outcome T
+#       --checked-at TS|now [--title T] [--group G] [--context-file -]
+#                                   one atomic write of a crash-recovery item:
+#                                   ADDED:c<N>|<rev> (absent; needs --title and a
+#                                   context) | APPLIED:c<N>|<rev> | UNCHANGED:c<N>|<rev>
+#                                   | REOPENED:c<N>|<rev> (done -> open, or a
+#                                   dismissed item reopened by a DIFFERENT
+#                                   incarnation with --state open and its context)
+#                                   | KEPT:c<N>|dismissed | KEPT:c<N>|dismissed_no_incarnation
+#                                   | STALE:c<N>|<rev> | ABSENT:<ref> (a rev was
+#                                   given but no item holds the ref; re-read).
+#                                   A context's origin incarnation must equal
+#                                   --incarnation. TWO KEYS: with a context,
+#                                   --incarnation is the newly observed episode;
+#                                   WITHOUT one (a state-only done/unknown verdict)
+#                                   it must be the item's RECORDED incarnation (read
+#                                   it from `context c<N>`) -- a different key and
+#                                   no context is exit 2, so a dismissal is never
+#                                   re-scoped to an episode whose evidence was not
+#                                   written
 #   set-state <id> <state> [--checked-at TS|now] [--outcome T] [--expect-rev N]
 #                                   STATE:c<N>|<state>|<rev> | STALE:c<N>|<rev>
 #   set-state --batch               stdin: <id>|<rev>|<state>|<checked_at>|<outcome>
@@ -105,7 +131,9 @@
 #                                   STATE:c<N>|dismissed|<rev>
 #   situation <theme>               stdin (empty removes) -> SITUATION:<theme>|set
 #                                   | removed | absent
-#   upsert-context <id>             stdin -> CONTEXT:c<N>|created|replaced|unchanged
+#   upsert-context <id>             stdin -> CONTEXT:c<N>|created|replaced|unchanged;
+#                                   on a recover: item the entry must keep the
+#                                   recorded incarnation (else exit 2)
 #   retain                          stdin passage (<=64 KiB) ->
 #                                   RETAINED:sources/<hex>.txt#L1-L<n>
 #   retain-raw                      stdin raw input, verbatim (any non-NUL bytes,
@@ -176,6 +204,9 @@ usage() {
 Usage: aitask_sitrep_todo.sh add --kind K --title T [--ref R] [--group G] [--state S]
                                  [--derived D] [--checked-at TS] [--context-file -]
        aitask_sitrep_todo.sh update <id> [--title T] [--group G] [--ref R] [--kind K] [--expect-rev N]
+       aitask_sitrep_todo.sh recovery-apply --ref recover:t<N> --expect-rev absent|<rev>
+                                 --incarnation <12hex> --state S --outcome T --checked-at TS
+                                 [--title T] [--group G] [--context-file -]
        aitask_sitrep_todo.sh set-state <id> <state> [--checked-at TS] [--outcome T] [--expect-rev N]
        aitask_sitrep_todo.sh set-state --batch        (lines on stdin)
        aitask_sitrep_todo.sh dismiss <id> [--outcome T] [--expect-rev N]
@@ -468,6 +499,28 @@ cmd_update() {
     mutate todo update "${args[@]}"
 }
 
+cmd_recovery_apply() {
+    local args=() ctx=false
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --ref|--expect-rev|--incarnation|--state|--outcome|--checked-at|--title|--group)
+                [ $# -ge 2 ] || err_usage "$1 requires a value"
+                args+=("$1" "$2"); shift 2 ;;
+            --context-file)
+                [ $# -ge 2 ] || err_usage "--context-file requires a value"
+                [[ "$2" == "-" ]] || err_usage "--context-file takes '-' (the entry on stdin)"
+                ctx=true; shift 2 ;;
+            *) usage ;;
+        esac
+    done
+    if [[ "$ctx" == true ]]; then
+        read_stdin
+        args+=(--input -)
+    fi
+    precheck recovery-apply "${args[@]}"
+    mutate todo recovery-apply "${args[@]}"
+}
+
 _state_opts() {
     while [ $# -gt 0 ]; do
         case "$1" in
@@ -696,6 +749,7 @@ main() {
     case "$verb" in
         add)            cmd_add "$@" ;;
         update)         cmd_update "$@" ;;
+        recovery-apply) cmd_recovery_apply "$@" ;;
         set-state)      cmd_set_state "$@" ;;
         dismiss)        cmd_dismiss "$@" ;;
         situation)      cmd_situation "$@" ;;

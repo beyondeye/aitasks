@@ -713,7 +713,7 @@ run - update c2 --title "$title"
 assert_eq "a no-op update on the fixture succeeds" "0" "$RC"
 assert_eq "... and leaves todo.md byte-identical" "$(cat "$FIXTURE/store/todo.md")" "$(cat "$S/todo.md")"
 assert_eq "the fixture qa.md parses" "VERIFIED:qa" "$(python3 "$CORE" verify qa "$S/qa.md")"
-assert_contains "the fixture is todo format 2" "format=2" "$(sed -n 2p "$S/todo.md")"
+assert_contains "the fixture is todo format 3" "format=3" "$(sed -n 2p "$S/todo.md")"
 
 # =============================================================================
 echo "=== Test 16b: a format=1 store is read as-is and upgraded by its first changing write ==="
@@ -731,7 +731,7 @@ assert_eq "... and leaves the v1 todo.md byte-identical (still format=1)" \
     "$(cat "$FIXTURE/store_v1/todo.md")" "$(cat "$S/todo.md")"
 run - update c4 --title "CI on the sitrep branch (renamed)"
 assert_eq "a changing update on the v1 fixture succeeds" "0" "$RC"
-assert_eq "... line 2 is now format=2" "<!-- aitask-sitrep todo format=2 -->" "$(sed -n 2p "$S/todo.md")"
+assert_eq "... line 2 is now format=3" "<!-- aitask-sitrep todo format=3 -->" "$(sed -n 2p "$S/todo.md")"
 v1_rest="$(sed -e 2d -e '/^- c4 |/d' "$FIXTURE/store_v1/todo.md")"
 v2_rest="$(sed -e 2d -e '/^- c4 |/d' "$S/todo.md")"
 assert_eq "... and every other line except the touched item is unchanged" "$v1_rest" "$v2_rest"
@@ -756,6 +756,237 @@ for bad in "push:main" "push:@abcdef1" "push:main@abc12" "push:main@xyz1234" "pu
     assert_eq "invalid push ref '$bad' -> exit 2" "2" "$RC"
 done
 assert_eq "... and nothing was written" "$before" "$(cat "$S/todo.md")"
+
+# =============================================================================
+echo "=== Test 16d: a format=2 store is read as-is and upgraded to 3 by its first changing write ==="
+reset_store
+mkdir -p "$S"
+cp -R "$FIXTURE/store_v2/." "$S/"
+run - read
+assert_eq "read returns the v2 fixture byte-identical" "$(cat "$FIXTURE/store_v2/todo.md")" "$OUT"
+run - list --machine
+assert_eq "list --machine on the v2 fixture" "$(cat "$FIXTURE/expected_list_v2.txt")" "$OUT"
+title="$(sed -n 's/^ITEM:c2|\([^|]*|\)\{8\}//p' "$FIXTURE/expected_list_v2.txt")"
+run - update c2 --title "$title"
+assert_eq "a no-op update on the v2 fixture succeeds" "0" "$RC"
+assert_eq "... and leaves the v2 todo.md byte-identical (still format=2)" \
+    "$(cat "$FIXTURE/store_v2/todo.md")" "$(cat "$S/todo.md")"
+run - update c4 --title "CI on the sitrep branch (renamed)"
+assert_eq "a changing update on the v2 fixture succeeds" "0" "$RC"
+assert_eq "... line 2 is now format=3" "<!-- aitask-sitrep todo format=3 -->" "$(sed -n 2p "$S/todo.md")"
+v2_rest="$(sed -e 2d -e '/^- c4 |/d' "$FIXTURE/store_v2/todo.md")"
+v3_rest="$(sed -e 2d -e '/^- c4 |/d' "$S/todo.md")"
+assert_eq "... and every other line except the touched item is unchanged" "$v2_rest" "$v3_rest"
+assert_eq "the upgraded todo.md verifies" "VERIFIED:todo" "$(python3 "$CORE" verify todo "$S/todo.md")"
+# A v2 file holding format-3 grammar is refused (exit 4), never read loosely.
+reset_store
+mkdir -p "$S"
+cp -R "$FIXTURE/store_v2/." "$S/"
+sed -i '/^- c6 |/a - c9 | rev=20 | kind=task | state=open | group=now | checked_at=never | ref=recover:t42 | derived=script | outcome= | t42 crashed' "$S/todo.md"
+run - list
+assert_eq "a v2 file with a recover: ref -> exit 4" "4" "$RC"
+assert_contains "... naming the format it needs" "recover refs need format=3" "$ERR"
+cp "$FIXTURE/store_v2/todo.md" "$S/todo.md"
+sed -i 's/^- origin: agent=agent-pick-2175 date=2026-11-01$/& incarnation=0123456789ab/' "$S/todo.md"
+assert_contains "(the origin line was edited)" "incarnation=0123456789ab" "$(cat "$S/todo.md")"
+run - list
+assert_eq "a v2 file with an incarnation origin -> exit 4" "4" "$RC"
+assert_contains "... naming the format it needs" "incarnation origin key needs format=3" "$ERR"
+
+# =============================================================================
+echo "=== Test 17: recovery-apply (t2299_1) ==="
+A=aaaaaaaaaaaa
+B=bbbbbbbbbbbb
+C=cccccccccccc
+rctx() {   # rctx <task> <incarnation> [background]
+    printf -- '- background: %s\n- origin: task=%s incarnation=%s\n' "${3:-crashed agent}" "$1" "$2"
+}
+# ra <stdin|-> <ref> <expect-rev> <incarnation> <state> <outcome> [extra args...]
+ra() {
+    local input="$1" ref="$2" rev="$3" inc="$4" state="$5" outcome="$6"
+    shift 6
+    local extra=()
+    [[ "$input" == "-" ]] || extra=(--context-file -)
+    run "$input" recovery-apply --ref "$ref" --expect-rev "$rev" --incarnation "$inc" \
+        --state "$state" --outcome "$outcome" --checked-at now "$@" "${extra[@]}"
+}
+ctx_inc() {   # the recorded incarnation of item <cN>
+    sed -n "/^### $1\$/,/^\$/p" "$S/todo.md" | grep -o 'incarnation=[0-9a-f]*' | cut -d= -f2
+}
+rev_of() { item_line "$1" | sed -n 's/^- c[0-9]* | rev=\([0-9]*\) .*/\1/p'; }
+
+reset_store
+ra "$(rctx t42 $A)" recover:t42 absent $A open "crashed · plan approved" --title "t42 crashed" --group now
+assert_eq "absent + no owner -> ADDED with its rev" "ADDED:c1|1" "$OUT"
+assert_contains "the item is kind=task derived=script in group now" \
+    "kind=task | state=open | group=now | checked_at=2026-11-01T10:00:00Z | ref=recover:t42 | derived=script | outcome=crashed · plan approved | t42 crashed" "$(item_line c1)"
+assert_eq "the context records the incarnation" "$A" "$(ctx_inc c1)"
+before="$(cat "$S/todo.md")"
+ra "$(rctx t42 $A)" recover:t42 absent $A open "again" --title "t42 crashed"
+assert_eq "absent + an owner -> STALE with the owner's rev" "STALE:c1|1" "$OUT"
+assert_eq "... and nothing was written" "$before" "$(cat "$S/todo.md")"
+ra - recover:t44 absent $A open "x" --title "t44"
+assert_eq "absent without a context -> exit 2" "2" "$RC"
+ra "$(rctx t44 $A)" recover:t44 absent $A open "x"
+assert_eq "absent without --title -> exit 2" "2" "$RC"
+ra - recover:t99 5 $A open "x"
+assert_eq "a rev but no owner -> ABSENT" "ABSENT:recover:t99" "$OUT"
+ra - recover:t42 7 $A open "x"
+assert_eq "a rev mismatch -> STALE" "STALE:c1|1" "$OUT"
+assert_eq "... and nothing was written" "$before" "$(cat "$S/todo.md")"
+ra - recover:t42 1 $A open "crashed · work survives"
+assert_eq "open item, a changed field -> APPLIED with a fresh rev" "APPLIED:c1|2" "$OUT"
+before="$(cat "$S/todo.md")"
+ra - recover:t42 2 $A open "crashed · work survives"
+assert_eq "nothing differs -> UNCHANGED" "UNCHANGED:c1|2" "$OUT"
+assert_eq "... and nothing was written" "$before" "$(cat "$S/todo.md")"
+ra "$(rctx t42 $A "crashed agent, more evidence")" recover:t42 2 $A open "crashed · work survives"
+assert_eq "a context-only change -> APPLIED with one fresh rev" "APPLIED:c1|3" "$OUT"
+ra - recover:t42 3 $A done "reclaimed"
+assert_eq "state-only done with the recorded key -> APPLIED" "APPLIED:c1|4" "$OUT"
+ra - recover:t42 4 $A open "crashed again"
+assert_eq "done + --state open -> REOPENED" "REOPENED:c1|5" "$OUT"
+# Dismissal is scoped to the recorded episode.
+run - dismiss c1
+d1="$(rev_of c1)"
+before="$(cat "$S/todo.md")"
+ra - recover:t42 "$d1" $B open "x"
+assert_eq "dismissed, no context -> KEPT" "KEPT:c1|dismissed" "$OUT"
+ra "$(rctx t42 $A)" recover:t42 "$d1" $A open "x"
+assert_eq "dismissed, the same incarnation -> KEPT" "KEPT:c1|dismissed" "$OUT"
+ra "$(rctx t42 $B)" recover:t42 "$d1" $B done "x"
+assert_eq "dismissed, a new incarnation but not --state open -> KEPT" "KEPT:c1|dismissed" "$OUT"
+assert_eq "... none of the KEPT replies wrote anything" "$before" "$(cat "$S/todo.md")"
+ra "$(rctx t42 $B "crashed on a new claim")" recover:t42 "$d1" $B open "crashed · new claim"
+assert_eq "dismissed, a new incarnation, --state open, its context -> REOPENED" "REOPENED:c1|$((d1 + 1))" "$OUT"
+assert_contains "... the item is open again" "state=open" "$(item_line c1)"
+assert_eq "... the new incarnation is recorded" "$B" "$(ctx_inc c1)"
+assert_contains "... with the new evidence" "crashed on a new claim" "$(cat "$S/todo.md")"
+assert_eq "... in ONE generation: .bak is the dismissed one" "$before" "$(cat "$S/todo.md.bak")"
+# A dismissed recover item with no recorded incarnation (hand-made: no verb can
+# produce one) is never reopened.
+ra "$(rctx t43 $C)" recover:t43 absent $C open "crashed" --title "t43 crashed"
+run - dismiss c2
+d2="$(rev_of c2)"
+sed -i "s/^- origin: task=t43 incarnation=$C\$/- origin: task=t43/" "$S/todo.md"
+assert_eq "(the hand edit kept the store valid)" "VERIFIED:todo" "$(python3 "$CORE" verify todo "$S/todo.md")"
+ra "$(rctx t43 $B)" recover:t43 "$d2" $B open "x"
+assert_eq "dismissed, no recorded incarnation -> KEPT dismissed_no_incarnation" \
+    "KEPT:c2|dismissed_no_incarnation" "$OUT"
+# Request refusals: exit 2, nothing written.
+before="$(cat "$S/todo.md")"
+ra - t42 "$(rev_of c1)" $B open "x"
+assert_eq "a non-recover ref -> exit 2" "2" "$RC"
+ra - recover:T42 "$(rev_of c1)" $B open "x"
+assert_eq "an upper-case recover ref -> exit 2" "2" "$RC"
+ra - recover:42 "$(rev_of c1)" $B open "x"
+assert_eq "a recover ref without the t -> exit 2" "2" "$RC"
+ra "$(rctx t42 $C)" recover:t42 "$(rev_of c1)" $B open "x"
+assert_eq "the context's incarnation differs from --incarnation -> exit 2" "2" "$RC"
+ra "$(printf -- '- background: x\n- origin: task=t42\n')" recover:t42 "$(rev_of c1)" $B open "x"
+assert_eq "a context without an incarnation -> exit 2" "2" "$RC"
+for bad in aaaaaaaaaaa AAAAAAAAAAAA gggggggggggg aaaaaaaaaaaaa; do
+    ra - recover:t42 "$(rev_of c1)" "$bad" open "x"
+    assert_eq "a bad --incarnation '$bad' -> exit 2" "2" "$RC"
+done
+ra "$(rctx t42 ABCDEF012345)" recover:t42 "$(rev_of c1)" ABCDEF012345 open "x"
+assert_eq "an upper-case incarnation in the context -> exit 2" "2" "$RC"
+ra - recover:t42 "$(rev_of c1)" $B dismissed "x"
+assert_eq "--state dismissed -> exit 2 (dismissal is the user's)" "2" "$RC"
+ra - recover:t42 now $B open "x"
+assert_eq "a bad --expect-rev -> exit 2" "2" "$RC"
+ra - recover:t42 "$(rev_of c1)" $B open "a | b"
+assert_eq "an outcome with '|' -> exit 2" "2" "$RC"
+assert_eq "... none of the refusals wrote anything" "$before" "$(cat "$S/todo.md")"
+# The kind binding: a recover ref is kind=task at parse time too.
+cp "$S/todo.md" "$TMP/kind.md"
+sed -i 's/^\(- c1 | rev=[0-9]* | \)kind=task/\1kind=action/' "$TMP/kind.md"
+python3 "$CORE" verify todo "$TMP/kind.md" >/dev/null 2>"$TMP/err"; RC=$?
+assert_eq "a recover: item with kind=action is refused at parse -> exit 4" "4" "$RC"
+assert_contains "... naming the binding" "recover: ref needs kind=task" "$(cat "$TMP/err")"
+# The dismissal exception never leaks to other refs.
+run - add --kind task --title "plain" --ref t70
+run - dismiss c3
+run "c3|$(rev_of c3)|open|now|
+" set-state --batch
+assert_eq "a dismissed NON-recover item is still KEPT by a batch" "KEPT:c3|dismissed" "$OUT"
+
+echo "=== Test 17b: episode handoff -- a state-only verdict keeps the recorded episode (t2299_2 contract) ==="
+reset_store
+ra "$(rctx t50 $A)" recover:t50 absent $A open "crashed" --title "t50 crashed"
+ctx_before="$(sed -n '/^### c1$/,/^$/p' "$S/todo.md")"
+r="$(rev_of c1)"
+before="$(cat "$S/todo.md")"
+ra - recover:t50 "$r" $B done "live claim holds it"
+assert_eq "negative control: state-only with the OBSERVED key -> exit 2" "2" "$RC"
+assert_eq "... and nothing was written" "$before" "$(cat "$S/todo.md")"
+ra - recover:t50 "$r" $A done "live claim holds it"
+assert_eq "state-only done with the RECORDED key -> APPLIED" "APPLIED:c1|$((r + 1))" "$OUT"
+assert_contains "... the item is done" "state=done" "$(item_line c1)"
+assert_eq "... its context is byte-identical (still episode A)" "$ctx_before" "$(sed -n '/^### c1$/,/^$/p' "$S/todo.md")"
+ra "$(rctx t50 $B "claim B crashed too")" recover:t50 "$((r + 1))" $B open "crashed · claim B"
+assert_eq "claim B crashes: B's context + --state open -> REOPENED" "REOPENED:c1|$((r + 2))" "$OUT"
+assert_eq "... the recorded incarnation is now B" "$B" "$(ctx_inc c1)"
+run - dismiss c1
+ra "$(rctx t50 $B "claim B crashed too")" recover:t50 "$(rev_of c1)" $B open "crashed · claim B"
+assert_eq "dismissing B, then B again -> KEPT (the dismissal is scoped to B)" "KEPT:c1|dismissed" "$OUT"
+
+echo "=== Test 17c: only recovery-apply moves a recover item's ref or incarnation ==="
+reset_store
+ra "$(rctx t60 $A)" recover:t60 absent $A open "crashed" --title "t60 crashed"
+run - add --kind task --title "plain" --ref t61
+fingerprint() { printf '%s|%s' "$(item_line c1 | grep -o 'ref=[^ ]*')" "$(ctx_inc c1)"; }
+fp0="$(fingerprint)"
+# guard_case <label> <expect: refuse|keep> <stdin|-> <verb args...>
+guard_case() {
+    local label="$1" expect="$2" input="$3"
+    shift 3
+    local snap
+    snap="$(cat "$S/todo.md")"
+    run "$input" "$@"
+    if [[ "$expect" == refuse ]]; then
+        assert_eq "$label -> exit 2" "2" "$RC"
+        assert_eq "... todo.md unchanged" "$snap" "$(cat "$S/todo.md")"
+    else
+        assert_eq "$label -> exit 0" "0" "$RC"
+        assert_eq "... the recover ref and incarnation are unchanged" "$fp0" "$(fingerprint)"
+    fi
+}
+guard_case "add --ref recover:t60" refuse - add --kind task --title "x" --ref recover:t60
+guard_case "add --ref recover:t62 (a new one)" refuse - add --kind task --title "x" --ref recover:t62
+guard_case "add --ref t60 (the plain task ref)" keep - add --kind task --title "x" --ref t60
+guard_case "update c2 --ref recover:t61" refuse - update c2 --ref recover:t61
+guard_case "update c1 --ref t60" refuse - update c1 --ref t60
+guard_case "update c1 --kind watch" refuse - update c1 --kind watch
+guard_case "update c1 --title" keep - update c1 --title "t60 crashed (renamed)"
+guard_case "upsert-context c1 with another incarnation" refuse "$(rctx t60 $C)" upsert-context c1
+guard_case "upsert-context c1 with no incarnation" refuse "$(ctx "no key")" upsert-context c1
+guard_case "upsert-context c1 keeping the incarnation" keep "$(rctx t60 $A "richer map")" upsert-context c1
+guard_case "set-state c1 unknown" keep - set-state c1 unknown
+guard_case "situation" keep "Crash recovery pending." situation sitrep
+guard_case "qa --items c1" keep "Q: resume t60?" qa --items c1
+guard_case "dismiss c1" keep - dismiss c1
+guard_case "set-state --batch on the dismissed c1" keep "c1|$(rev_of c1)|open|now|
+" set-state --batch
+assert_eq "... the batch KEPT the dismissed item" "KEPT:c1|dismissed" "$OUT"
+ra "$(rctx t60 $B)" recover:t60 "$(rev_of c1)" $B open "crashed again"
+assert_eq "recovery-apply (a new episode) reopens it" "REOPENED:c1|$(rev_of c1)" "$OUT"
+assert_eq "... and is the one verb that moved the incarnation" "$B" "$(ctx_inc c1)"
+
+echo "=== Test 17d: a recovery-apply killed inside the lock leaves the old generation ==="
+reset_store
+ra "$(rctx t80 $A)" recover:t80 absent $A open "crashed" --title "t80 crashed"
+run - dismiss c1
+r="$(rev_of c1)"
+cp "$S/todo.md" "$TMP/gen_rec.md"
+rctx t80 $B > "$TMP/rec.in"
+park_and_kill write:after_backup "$TMP/rec.in" recovery-apply --ref recover:t80 --expect-rev "$r" \
+    --incarnation $B --state open --outcome "crashed again" --checked-at now --context-file -
+assert_eq "recovery-apply parked after the backup" "write:after_backup" "$KILLED_AT"
+assert_eq "killed after the backup -> todo.md is the old generation" "$(cat "$TMP/gen_rec.md")" "$(cat "$S/todo.md")"
+ra "$(rctx t80 $B)" recover:t80 "$r" $B open "crashed again"
+assert_contains "the next writer reopens it" "REOPENED:c1|" "$OUT"
+assert_eq "... with the new incarnation" "$B" "$(ctx_inc c1)"
 
 echo ""
 echo "==============================="

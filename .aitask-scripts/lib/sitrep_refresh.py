@@ -223,6 +223,11 @@ def select_targets(store: st.TodoStore) -> list:
             continue
         base = dict(num=num, rev=it.rev, kind=it.kind, state=it.state,
                     outcome=it.outcome, checked_at=it.checked_at, ref=it.ref)
+        if it.kind == "task" and st.parse_recover_ref(it.ref):
+            # A crash-recovery item is not a task reminder: its state comes
+            # from the recovery detector, never from the task's status.
+            # t2299_3 gives it its own check="recovery".
+            continue
         if it.kind == "task" and it.ref and not it.ref.startswith("push:"):
             out.append(Target(check="task", **base))
         elif it.kind == "action" and st.parse_push_ref(it.ref):

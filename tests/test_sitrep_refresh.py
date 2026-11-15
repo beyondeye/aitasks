@@ -659,6 +659,14 @@ class Targets(unittest.TestCase):
         got = [(t.num, t.check) for t in sr.select_targets(s)]
         self.assertEqual(got, [(1, "task"), (2, "task"), (7, "push"), (9, "trail"), (11, "task")])
 
+    def test_a_recovery_item_is_not_a_task_target(self):
+        # t2299_1: a recover: item's state comes from the crash detector, never
+        # from the task's status; t2299_3 gives it its own check.
+        s = _store_with(_item(1, ref="recover:t10"), _item(2, ref="t10"),
+                        _item(3, ref="recover:t11", state="unknown"))
+        got = [(t.num, t.check) for t in sr.select_targets(s)]
+        self.assertEqual(got, [(2, "task")])
+
     def test_order_is_oldest_check_first(self):
         ts = [sr.Target(n, n, "task", "open", "", c, "task") for n, c in
               ((1, "2026-11-02T10:00:00Z"), (2, "never"), (3, "2026-11-01T10:00:00Z"),
