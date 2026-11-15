@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -38,3 +40,5 @@ In `TaskIndex._lookup`, validate the status for both active and archived records
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-15T21:03:09Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-15T21:33:37Z status=pass attempt=1 type=human
