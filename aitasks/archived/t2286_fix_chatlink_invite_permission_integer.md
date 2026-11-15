@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [documentation, doc_quality]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2258
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-12 15:40
-updated_at: 2026-11-15 12:42
+updated_at: 2026-11-15 13:20
+completed_at: 2026-11-15 13:20
 ---
 
 ## Origin
@@ -75,3 +76,14 @@ All five were found while t2258_4 audited the Tasks workflow pages and checked e
 > **✅ gate:plan_approved** run=2026-11-12T21:06:25Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-15T11:11:07Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-15T11:20:09Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:b934b9e2fea6447d
+
+> **✅ gate:risk_evaluated** run=2026-11-15T11:20:09Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2286/risk_evaluated_2026-11-15T11:20:09Z-risk_evaluated-a1.log`
