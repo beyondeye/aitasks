@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [minimonitor, switcher, website]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2174
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-10-31 22:00
-updated_at: 2026-11-15 17:20
+updated_at: 2026-11-15 17:46
+completed_at: 2026-11-15 17:46
 ---
 
 ## Origin
@@ -42,3 +43,14 @@ Rewrite the list from the switcher's registry (`switcher_tuis()` in `.aitask-scr
 > **✅ gate:plan_approved** run=2026-11-15T15:20:44Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-15T15:45:05Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-15T15:46:12Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:c68a71e33abf5451
+
+> **✅ gate:risk_evaluated** run=2026-11-15T15:46:12Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2176/risk_evaluated_2026-11-15T15:46:12Z-risk_evaluated-a1.log`
