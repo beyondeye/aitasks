@@ -125,3 +125,5 @@ follow-up, which it deliberately did not take.
 > | SHA this note records.
 > | 
 > | Your body (aitasks/t1363_fix_board_work_report_key_docs_and_ait_help_gate_pass.md) cites stale line anchors: aitask_board.py:5615.
+
+> **👁 note:read** id=2026-11-15T15:32:54Z.d75178efcb1dc45cbfaf0420 by=t1363 at=2026-11-15T15:32:54Z mode=explicit ids=2026-09-10T18:36:30Z.c99697d5aa7fe0eed8585740,2026-09-22T06:09:07Z.74415b07f2f8b7df01b9cd7b
