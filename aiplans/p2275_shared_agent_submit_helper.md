@@ -46,7 +46,18 @@ On the re-pick the plan is force re-verified, and the measured fixtures feed the
 
 Moved here from `agent_request_delivery.py` (which re-exports them, so `d.payload_matches`,
 `d.display_width` and every importer keep working): `display_width`, `_WORD_RE`, `payload_matches`,
+its t2280 private helpers `_FRAGMENT_RE`, `_moved_piece`, `_hyphen_justified` (part of
+`payload_matches` since c3cc5f580 — hyphen-break justification for codex/opencode),
 `_pane_width` (renamed `pane_width`, kept as `_pane_width` alias in the old module).
+
+*Re-pick verification (2026-11-15, HEAD 57b660ff0):* `agent_submit.py` absent; all target files
+clean; current anchors — `agent_request_delivery.py` L163-247 matcher block, L328 `_pane_width`,
+L345 `deliver_sitrep_request`; `minimonitor_app.py` L5992 `_fire_shadow_recheck`, L6093
+`_submit_shadow_prompt`. t2281/t2283 touched the minimonitor but not the submit loop. t2280
+note (acknowledged): fixtures in `tests/shadow_recheck_fixtures.py` (widths 60/44, all three
+agents measured); the minimonitor fake composer for codex/opencode must hyphen-break like the
+`hyphen_*`/`recheck_*` fixtures; a codex last row of exactly W-3 reads unprovable (kept
+fail-closed, not hit at 60/44).
 A new module avoids a circular import: minimonitor must not import the sitrep module, and
 the sitrep module imports the helper.
 
@@ -197,7 +208,8 @@ part of this one.
    ordering invariant, and the neutral vocabulary). Move `display_width` / `payload_matches` /
    `pane_width` there, and re-export them from `agent_request_delivery.py`. **One-shot
    verification, not a committed test:** right after the move, run a throwaway scratchpad script
-   over the explicit moved list `("display_width", "_WORD_RE", "payload_matches", "pane_width")`.
+   over the explicit moved list `("display_width", "_WORD_RE", "_FRAGMENT_RE", "_moved_piece",
+   "_hyphen_justified", "payload_matches", "pane_width")`.
    It is an AST scan of top-level bindings, imports excluded, and checks that each name is defined
    in `agent_submit.py` and in no other module of `monitor/`, and that `agent_request_delivery` imports
    each back. Record the script verbatim and its output in this plan under `## Verification
@@ -285,3 +297,186 @@ part of this one.
 Commit `refactor: Share one guarded agent-submit helper between minimonitor and sitrep (t2275)`
 by path, then the standard Step 9 archival. t2274 is archived with t2275 as folded. Offer the
 guarded-Enter transport follow-up.
+
+## Final Implementation Notes
+
+- **Actual work done:** `monitor/agent_submit.py` (new) owns the matcher (`display_width`,
+  `_WORD_RE`, `_FRAGMENT_RE`, `_moved_piece`, `_hyphen_justified`, `payload_matches`,
+  `pane_width`), moved verbatim from `agent_request_delivery.py` (which re-exports them) and
+  `submit_typed_text` with the neutral outcome vocabulary as designed. `deliver_sitrep_request`
+  phase 3 is one helper call + `_delivery_result` (labels unchanged). `_submit_shadow_prompt` is a
+  checkpoint + async `send_keys` adapter + mapper; the t1606/t2001 rationale comments moved into
+  the mapper. `review_loop.py`: `HOLD_PRE_ENTER_COMPOSER_CHANGED` / `_UNPROVABLE` + messages
+  (no "left in the shadow composer") + banners. `aidocs/framework/shadow_agent.md` item 9 updated.
+  Transport decision as planned: the minimonitor keeps `send_keys` (guarded-Enter follow-up).
+- **Deviations from plan:**
+  - New test helper `tests/composer_render.py`: the minimonitor fake's composer renderer
+    (greedy wrap over the measured `ComposerPayload` parameters, substituted into the
+    `<agent>_w<W>_recheck_plan` capture). Needed because the loop tests use round-2 prompts and
+    the fixtures hold round 1. Verified against every genuine capture (100/100 row-exact,
+    `test_agent_submit.ComposerRenderTests`). One measured agent difference surfaced:
+    claude fills the current row before hard-breaking an over-long token (`FILL_LONG`);
+    codex/opencode start it on a new row. Its `composer_payload` is bound at import so a test
+    that patches the production reader (the pre-fix control) does not change what it renders.
+  - `_LoopFakeMon`: the three canonical TYPED captures (`_TYPED_RENDER`) now mean "render the
+    typed text"; width queries answer `shadow_width` (default 60) and are not mode queries;
+    `pane_width_reply` overrides only the width answer.
+  - `tests/test_minimonitor_concern_smoke.py`: the real-tmux Claude composer stub drew a bare
+    `❯ buf` line, which the measured grammar cannot prove; it now draws the measured region
+    (rule row, `❯`+NBSP, two-space continuations wrapped at W-4, rule row), painted with
+    absolute addressing so nothing scrolls into history. Not in the plan's file list.
+  - `RecheckPromptShapeTests` (in `test_agent_submit.py`) is the step-4 prompt-shape unit test.
+- **Issues encountered:** the first pre-fix control run "passed" because the patched
+  `review_loop.composer_payload` broke the fake's renderer and the script counted only
+  failures, not errors. Fixed by binding the renderer's reader at import and counting errors.
+- **Key decisions:** post-Enter BUSY with a foreign / unprovable payload → `sent` + warning, no
+  retry (as planned); the two new pre-Enter outcomes are holds.
+- **Upstream defects identified:** None
+
+## Verification record
+
+### Pre-phase pin_caller_labels on pre-refactor HEAD (f9b5888cd, monitor/ clean)
+
+`tests/test_submit_labels_pinned.py` rows driven through a scratch runner that expects `old`
+for t2274 rows: `MISMATCHES: 0` (21 minimonitor rows, 17 sitrep rows). t2274 rows, old → new:
+
+| row | pre-refactor | now |
+|---|---|---|
+| t2274_appended_text | sent, 1 Enter | not_ready `pre_enter_composer_changed`, 0 Enters |
+| t2274_unprovable_composer | sent, 1 Enter | not_ready `pre_enter_composer_unprovable`, 0 Enters |
+| t2274_foreign_draft_after_enter | sent, 2 Enters | sent + warning, 1 Enter |
+| t2274_unprovable_after_enter | sent, 2 Enters | sent + warning, 1 Enter |
+
+Every other row identical before and after (the committed test asserts `expect`).
+
+### One-shot moved-name AST check (step 1)
+
+```python
+"""One-shot (t2275 step 1): each moved name is defined (top-level, imports
+excluded) in agent_submit.py and in no other monitor/ module, and
+agent_request_delivery imports each back from agent_submit."""
+import ast, pathlib, sys
+MOVED = ("display_width", "_WORD_RE", "_FRAGMENT_RE", "_moved_piece",
+         "_hyphen_justified", "payload_matches", "pane_width")
+mon = pathlib.Path(".aitask-scripts/monitor")
+defs = {}
+for f in sorted(mon.glob("*.py")):
+    tree = ast.parse(f.read_text())
+    for node in tree.body:
+        names = []
+        if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+            names = [node.name]
+        elif isinstance(node, ast.Assign):
+            names = [t.id for t in node.targets if isinstance(t, ast.Name)]
+        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
+            names = [node.target.id]
+        for n in names:
+            if n in MOVED or n == "_pane_width":
+                defs.setdefault(n, []).append(f.name)
+ok = True
+for n in MOVED:
+    where = defs.get(n, [])
+    good = where == ["agent_submit.py"]
+    ok &= good
+    print(f"{n:18} defined in {where} {'OK' if good else 'BAD'}")
+print(f"{'_pane_width':18} defined in {defs.get('_pane_width', [])} (alias must be import-only)")
+ok &= "_pane_width" not in defs
+tree = ast.parse((mon / "agent_request_delivery.py").read_text())
+imported = {}
+for node in tree.body:
+    if isinstance(node, ast.ImportFrom) and node.module == "monitor.agent_submit":
+        for a in node.names:
+            imported[a.name] = a.asname or a.name
+for n in MOVED:
+    good = n in imported
+    ok &= good
+    print(f"agent_request_delivery imports {n:18} as {imported.get(n)} {'OK' if good else 'BAD'}")
+print("RESULT:", "PASS" if ok else "FAIL")
+sys.exit(0 if ok else 1)
+```
+
+Output:
+
+```
+display_width      defined in ['agent_submit.py'] OK
+_WORD_RE           defined in ['agent_submit.py'] OK
+_FRAGMENT_RE       defined in ['agent_submit.py'] OK
+_moved_piece       defined in ['agent_submit.py'] OK
+_hyphen_justified  defined in ['agent_submit.py'] OK
+payload_matches    defined in ['agent_submit.py'] OK
+pane_width         defined in ['agent_submit.py'] OK
+_pane_width        defined in [] (alias must be import-only)
+agent_request_delivery imports display_width      as display_width OK
+agent_request_delivery imports _WORD_RE           as _WORD_RE OK
+agent_request_delivery imports _FRAGMENT_RE       as _FRAGMENT_RE OK
+agent_request_delivery imports _moved_piece       as _moved_piece OK
+agent_request_delivery imports _hyphen_justified  as _hyphen_justified OK
+agent_request_delivery imports payload_matches    as payload_matches OK
+agent_request_delivery imports pane_width         as _pane_width OK
+RESULT: PASS
+```
+
+### Pre-fix control (t2274 regressions vs a BUSY-only gate)
+
+```python
+"""Throwaway pre-fix control (t2275): neutralise the payload proof so the
+shared loop authorises on SHADOW_BUSY alone (the pre-t2274 minimonitor gate),
+then run the two t2274 regressions. Both must FAIL (an Enter is sent)."""
+import sys, unittest
+from unittest import mock
+sys.path.insert(0, ".")
+import test_minimonitor_concern_action as t
+from monitor import agent_submit, review_loop
+busy_only = [mock.patch.object(agent_submit, "payload_matches", lambda p, e: True),
+             mock.patch.object(review_loop, "composer_payload", lambda *a, **k: object())]
+for p in busy_only: p.start()
+suite = unittest.TestSuite([
+    t.ComposerPayloadProofTests("test_appended_user_text_gets_no_enter"),
+    t.ComposerPayloadProofTests("test_a_foreign_draft_after_the_enter_gets_no_retry_enter"),
+])
+r = unittest.TextTestRunner(verbosity=0).run(suite)
+for test, tb in r.failures + r.errors:
+    print("FAILED AS EXPECTED:", test.id().rsplit(".", 1)[-1], "|", tb.strip().splitlines()[-1][:120])
+print("CONTROL:", "BITES" if len(r.failures) == 2 and not r.errors else "DOES NOT BITE")
+```
+
+Result: all 6 subtests fail with the Enter sent (appended: `1 != 0` Enters for claude, codex,
+opencode; foreign draft: `2 != 1` for all three). The script's final `CONTROL:` line compares
+against 2 test-level failures and so printed "DOES NOT BITE"; the six recorded subtest
+failures are the evidence. With the real gate all six pass.
+
+### Live (`tests/test_sitrep_request_delivery_live.sh`)
+
+Real-server cases (a)-(l) OK; every mutant red on its cases; retargeted occurrence-count
+mutant: (j) red (`received '>t c12 plus my words\r'`), (k) red (`'>t c12\r\r'`). Negative
+control (a scratch copy with the mutant left on `d.payload_matches`): rc=1,
+`(j) stayed green`, `(k) stayed green`, so the retarget is what makes it bite.
+
+### Suites
+
+- `test_no_raw_tmux.sh`: ALL TESTS PASSED.
+- focused set (agent_submit, submit_labels_pinned, sitrep_request_delivery (unchanged, 46),
+  shadow_recheck_composer, minimonitor_concern_action, review_loop, review_loop_log,
+  minimonitor_concern_smoke, sitrep_tui_requests): all pass.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-15 20:10)
+- **Requested by user:** (review finding, medium, blocking) `_submit_shadow_prompt` mapped
+  `PRE_CHANGED` / `PRE_UNPROVABLE` to the pre-submission holds regardless of `out.attempt`.
+  With captures [prompt, prompt, foreign draft] one Enter had already gone, yet the result was
+  `pre_enter_composer_changed` ("nothing submitted"), no warning; `abort_fire` keeps the work
+  latch and streak and stamps no cooldown, so a later tick could fire a duplicate round.
+- **Changes made:** on `attempt > 0` those two outcomes take the post-Enter treatment
+  (`sent` + warning, no retry); attempt 0 keeps the holds. The sitrep mapping already split
+  `PRE_CHANGED` by attempt (`composer_changed_after_enter`) and reports `PRE_UNPROVABLE` as
+  `unknown`, never a pre-submit claim, so it is unchanged. New pinned rows
+  `t2274_retry_pre_read_changed` / `_unprovable` (old: sent, 2 Enters; now: sent + warning,
+  1 Enter) and the end-to-end regression
+  `ComposerPayloadProofTests.test_a_changed_composer_at_the_retry_is_sent_with_a_warning`
+  (draft / resize at the retry pre-read). Negative control: the split disabled in place (exact
+  string swap, restored byte-identical, verified with `cmp`) turns both red; with it, green.
+  `shadow_agent.md` item 9 states the first-attempt-only scope of the holds.
+- **Files affected:** `.aitask-scripts/monitor/minimonitor_app.py`,
+  `tests/test_submit_labels_pinned.py`, `tests/test_minimonitor_concern_action.py`,
+  `aidocs/framework/shadow_agent.md`
