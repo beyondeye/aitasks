@@ -155,3 +155,11 @@ real fix is in the active path and in the receiver/owner descriptions.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Implemented as planned. `sitrep_refresh.py` gained `VALID_STATUSES` (replacing the dead `OPEN_STATUSES`, which named a non-existent `Blocked`) and `status_problem(meta)`; `TaskIndex._lookup` now returns `TaskFacts("error", detail="<name>: no status" | "<name>: invalid status 'X'")` for active and archived records alike. `sitrep_crash.py` reuses both (`VALID_STATUSES = sitrep_refresh.VALID_STATUSES`, `strict_meta` calls `status_problem`) — its reason strings are byte-identical, so `test_sitrep_crash.sh`'s `CRASH_WARN:t21|unreadable: t21_x.md: no status` still passes. The fold scan is unchanged (it reads `folded_tasks` of bad-status records; migrated `{}` records still complete it).
+- **Deviations from plan:** None. `StatusValidation` gained an archived child-id case beside the active one, and `test_the_vocabulary` also pins that the crash detector's `VALID_STATUSES` is the same object.
+- **Issues encountered:** None. Pre-fix control (new tests against the unmodified module): 18 failures + 1 error (`VALID_STATUSES` absent), exactly the invalid-status cases, the migrated-record outcome update and the flipped crash contrast; the valid-status and whitespace controls passed before and after.
+- **Key decisions:** Validate in the direct lookup only, never in the fold scan — the scan answers "who lists this id", and a bad-status receiver is then reported unreadable by its own lookup (`describe()` → "unreadable", reminder closes as "folded into tN" with no parenthetical, trail entry `unverifiable`). The no-status branches of `reminder_verdict` / `landed_state` / `describe` stay as fail-closed defaults.
+- **Verification:** `tests/test_sitrep_refresh.py` 81/81, `tests/test_sitrep_crash.py` 46/46, `tests/test_sitrep_crash.sh` 119/119, `tests/test_sitrep_refresh.sh` 120/120, `tests/test_monitor_sitrep_refresh.py` 10/10, `tests/test_sitrep_tui_actions.py` 70/70, `tests/test_sitrep_tui_app.py` 66/66, `tests/test_sitrep_skill_contract.sh` 70/70.
+- **Upstream defects identified:** None
