@@ -1,0 +1,304 @@
+{
+  "schema": 1,
+  "models": {
+    "gpt5_6_sol": {
+      "usagestats": {
+        "pick": {
+          "all_time": {
+            "runs": 7
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 7
+          },
+          "week": {
+            "period": "2026-W31",
+            "runs": 5
+          }
+        }
+      },
+      "verifiedstats": {
+        "pick": {
+          "all_time": {
+            "runs": 7,
+            "score_sum": 700
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 7,
+            "score_sum": 700
+          },
+          "week": {
+            "period": "2026-W31",
+            "runs": 5,
+            "score_sum": 500
+          }
+        }
+      }
+    },
+    "gpt5_6_terra": {
+      "usagestats": {
+        "explore": {
+          "all_time": {
+            "runs": 1
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W29",
+            "runs": 1
+          }
+        },
+        "pick": {
+          "all_time": {
+            "runs": 5
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 5
+          },
+          "week": {
+            "period": "2026-W30",
+            "runs": 4
+          }
+        }
+      },
+      "verifiedstats": {
+        "explore": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W29",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "pick": {
+          "all_time": {
+            "runs": 4,
+            "score_sum": 400
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 4,
+            "score_sum": 400
+          },
+          "week": {
+            "period": "2026-W30",
+            "runs": 4,
+            "score_sum": 400
+          }
+        }
+      }
+    },
+    "gpt5_6_luna": {
+      "verifiedstats": {}
+    },
+    "gpt5_5": {
+      "usagestats": {
+        "wrap": {
+          "all_time": {
+            "runs": 2
+          },
+          "prev_month": {
+            "period": "2026-05",
+            "runs": 1
+          },
+          "month": {
+            "period": "2026-06",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W26",
+            "runs": 1
+          }
+        },
+        "pick": {
+          "all_time": {
+            "runs": 39
+          },
+          "prev_month": {
+            "period": "2026-06",
+            "runs": 28
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 8
+          },
+          "week": {
+            "period": "2026-W27",
+            "runs": 10
+          }
+        },
+        "explore": {
+          "all_time": {
+            "runs": 3
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 3
+          },
+          "week": {
+            "period": "2026-W28",
+            "runs": 1
+          }
+        }
+      },
+      "verifiedstats": {
+        "pick": {
+          "all_time": {
+            "runs": 35,
+            "score_sum": 3480
+          },
+          "prev_month": {
+            "period": "2026-06",
+            "runs": 26,
+            "score_sum": 2580
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 8,
+            "score_sum": 800
+          },
+          "week": {
+            "period": "2026-W27",
+            "runs": 9,
+            "score_sum": 900
+          }
+        },
+        "explore": {
+          "all_time": {
+            "runs": 3,
+            "score_sum": 300
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 3,
+            "score_sum": 300
+          },
+          "week": {
+            "period": "2026-W28",
+            "runs": 1,
+            "score_sum": 100
+          }
+        }
+      }
+    },
+    "gpt5_4": {
+      "verifiedstats": {}
+    },
+    "gpt5_4_mini": {
+      "verifiedstats": {}
+    },
+    "gpt5_3codex": {
+      "verifiedstats": {}
+    },
+    "gpt5_3codex_spark": {
+      "verifiedstats": {}
+    },
+    "gpt5_2": {
+      "verifiedstats": {}
+    },
+    "gpt6_sol": {
+      "verifiedstats": {}
+    },
+    "gpt6_luna": {
+      "verifiedstats": {}
+    },
+    "gpt6_1_sol": {
+      "usagestats": {
+        "changelog": {
+          "all_time": {
+            "runs": 1
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-11",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W46",
+            "runs": 1
+          }
+        }
+      },
+      "verifiedstats": {
+        "changelog": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 80
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-11",
+            "runs": 1,
+            "score_sum": 80
+          },
+          "week": {
+            "period": "2026-W46",
+            "runs": 1,
+            "score_sum": 80
+          }
+        }
+      }
+    },
+    "gpt6_1_terra": {
+      "verifiedstats": {}
+    },
+    "gpt6_astra": {
+      "verifiedstats": {}
+    }
+  }
+}
