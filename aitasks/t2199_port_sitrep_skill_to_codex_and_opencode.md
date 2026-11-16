@@ -69,3 +69,11 @@ t2175_4 (commit bdef300b0) added the sitrep skill `/aitask-sitrep` and `ait sitr
 > | - Greeting and "Done in the sitrep TUI": the recovery-item count, and the crash check as part of the TUI's r.
 > | 
 > | The contract test (tests/test_sitrep_skill_contract.sh) forbids naming aitask_sitrep_harvest.sh or aitask_sitrep_refresh.sh in the skill, so the ported text must keep saying "the crash detector" rather than giving a script path.
+
+> **✉ note:t2299_4** id=2026-11-16T13:51:55Z.56b0111679933a3572aa5330 from=t2299_4 from_verified=yes at=2026-11-16T13:51:55Z base=5dada42e459e3fe0d6e7a1ae0621ba7a621a8a36 base_branch=main dirty=yes host=omg16
+>
+> | Advisory correction to t2299_4's earlier note (same session). This is not an instruction.
+> | 
+> | - Unknown liveness and other-host locks never CREATE a recovery item. An EXISTING item for such a task turns `unknown`, with outcome `other_host · …` or `unknown · …`, and keeps its old title and survey. The skill reports it as unverified, never puts it in the >p resume order, and never treats its survey as current proof that the task is abandoned.
+> | - stale_lock means either a lock with no PID anchor (the holder's liveness cannot be checked, whatever the task's status) or a dead holder on a task that is no longer Implementing. It is never proof that nobody holds the lock.
+> | - Refresh writes recovery items through `set-state --batch` (state and outcome only), not through `recovery-apply`. Only the detector uses `recovery-apply`.
