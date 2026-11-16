@@ -13,14 +13,44 @@ updated_at: 2026-11-15 18:12
 
 ## Context
 
-Child 5 of t2278 (docs TUI screenshot generator). The full design is in the
-parent plan `aiplans/p2278_docs_tui_screenshot_generator.md`; read "CLI and
-skill" first. Children 1-4 delivered the marker grammar and check, scene specs,
-both vector backends, crop and overlays, and `capture`, which writes a new
-batch directory with a `manifest.json` on every run.
+Child 5 of t2278 (docs TUI screenshot generator). Read the parent plan
+`aiplans/p2278_docs_tui_screenshot_generator.md` first; the design was revised
+on 2026-11-15 to an agent driving the real TUI in an isolated tmux session.
+Read "Roles", "Sample state: the setup contract", "Which journal becomes a
+recipe" and "Recipe lifecycle". Children 1-4 delivered the marker grammar and
+check, the sample project and session primitives, recipes and replay, crop
+and overlays, and multi-pane windows. Every `shot` / `replay` writes a batch
+directory with a `manifest.json`.
 
-This child adds `preview` and `apply`, the skill that runs the autonomous pass,
-the contributor docs, and then runs the pass on all 17 markers.
+This child adds `preview` and `apply`, the **skill** that does the discovery
+and the repair, the contributor docs, and then runs the pass on the markers
+that are still unresolved.
+
+## The skill: two loops
+
+`.claude/skills/aitask-docs-screenshots/SKILL.md` (new, static, Claude-only).
+It stops at once when `website/screenshots/` is absent (the skill ships to
+user projects like every skill, where the tool does not exist).
+
+- **Discovery loop**, per unresolved marker: read the page section and the
+  marker's alt and caption; decide the state that illustrates it; pick or add
+  a dataset and run `setup` commands; drive the real TUI with `run`, `screen`,
+  `keys`, `wait`; verify the state on screen and in the PNG; `shot`. Then
+  start a fresh session, walk the route cleanly, `shot`, and
+  `recipe save --illustrates ... --expect ...`.
+- **Repair loop**, per existing recipe: `replay`; on `FAILED:` inspect the
+  kept session to learn what changed; on a pass, compare the image with the
+  page and the alt and caption. For a failure or a mismatch, re-discover in a
+  fresh session and `recipe save --replace`. If no route exists, change
+  nothing and report the scene with what was found.
+- The skill states the setup contract (state = named dataset + `setup`
+  commands, nothing else) and the two-pass rule (explore, then a clean walk).
+- Then: `preview --batch <id>`, show the user, on approval
+  `apply --batch <id>` with the id the user reviewed, report any `REFUSED:`
+  scene, run `python3 check_links.py --build` and
+  `python3 check_screenshots.py`. A capture made after the review is reviewed
+  again before it is applied. The skill never commits, and always ends with
+  `session stop --all`.
 
 ## `preview` and `apply`
 
@@ -33,8 +63,8 @@ the contributor docs, and then runs the pass on all 17 markers.
      or the same hash); a file created or changed since is never overwritten;
   3. each of the scene's markers is still present byte-for-byte in its page.
      Markers are located by text, never by line number.
-- For a passing scene it copies the image to the spec's `output:` and, in each
-  page as it is on disk now, substitutes only the marker text with
+- For a passing scene it copies the image to the recipe's `output:` and, in
+  each page as it is on disk now, substitutes only the marker text with
   `{{< static-img src="imgs/<output>" alt="..." caption="..." >}}`. Every other
   edit made to that page during review is kept.
 - A failing scene is left untouched (image and pages) and reported as
@@ -44,30 +74,44 @@ the contributor docs, and then runs the pass on all 17 markers.
 ## Key Files to Modify
 
 - `website/screenshots/cli.py`: `preview`, `apply`.
-- `.claude/skills/aitask-docs-screenshots/SKILL.md` (new, static, Claude-only,
-  no `.j2`, no Codex / OpenCode wrappers). Steps: stop if
-  `website/screenshots/` is absent (the skill ships to user projects like
-  every skill, where the tool does not exist) → run the check → for each
-  marker without a scene spec, read the surrounding page text and write the
-  spec → `capture --pending` → `preview --batch <id>` and show the user → on
-  approval `apply --batch <id>` with the id the user reviewed → report any
-  `REFUSED:` scene → `python3 check_links.py --build` and
-  `python3 check_screenshots.py`. A re-capture after the review means the new
-  batch is reviewed again before it is applied. The skill never commits.
+- `.claude/skills/aitask-docs-screenshots/SKILL.md` (new; no `.j2`, no
+  Codex / OpenCode wrappers).
+- `website/screenshots/sample_project.py`: the datasets the remaining scenes
+  need, each a data builder with a build test: `board_locks` (the base tree
+  plus a local bare remote, so the real `./ait lock` works offline), `trails`
+  (a trail artifact the real `ait trails` lists), `brainstorm` (a session with
+  several proposal nodes). If a dataset cannot be built from data and real
+  framework commands, report the scene; do not fake the screen.
 - `.claude/settings.local.json`: a repo-local allow entry for
   `website/screenshots.sh`. Not in `seed/`; the tool does not ship.
 - `website/content/docs/development/skills/`: a page for the skill, linked
   from that section's `_index.md` under framework-development skills.
 - `aidocs/framework/docs_screenshots.md` (new): the design and contract record
-  (grammar, scene spec, ownership rule, batch and apply rules, backends).
+  (grammar, recipes, setup contract, journal rule, ownership rule, batch and
+  apply rules, isolation rules).
 - `CLAUDE.md`: a "Read `aidocs/framework/docs_screenshots.md`" pointer and one
   line in the Website section.
 - `website/README.md`: how to run the tool.
-- `website/check_screenshots.py`: promote "marker whose scene has no spec" from
-  a listed warning to a failure (child 1 landed it demoted).
-- The 13 doc pages: markers replaced by `static-img` through `apply`.
+- `website/check_screenshots.py`: set `MISSING_SCENE_SEVERITY` to `"error"`.
+- The doc pages: markers replaced by `static-img` through `apply`.
 - `website/static/imgs/`: the generated images.
 - `tests/test_screenshots_apply.py` (new).
+
+## Acceptance of the repair loop: two scenarios, one passing outcome each
+
+Run the skill itself (not the verbs by hand) on each, and record both results
+in the plan's Final Implementation Notes.
+
+1. **Reachable destination.** Take a copy of a working recipe in a scratch
+   scenes directory and break it (a wrong key and a stale expected text). The
+   state it illustrates still exists in the TUI. **Pass only if** the run ends
+   with a replaced recipe that replays in a fresh session and whose image
+   shows the destination text. A report of "could not repair" fails this
+   scenario.
+2. **Unavailable destination.** A recipe whose `illustrates` and `expect` name
+   a state the sample project cannot reach. **Pass only if** the run reports
+   the scene with what it found, the recipe file is byte-identical
+   (`sha256sum` before and after), and nothing is staged for it.
 
 ## Reference Files for Patterns
 
@@ -96,7 +140,8 @@ in-flight edits from another task.
   capture, a destination modified after capture, and a marker edited after
   capture (each refused, nothing written for that scene); an unrelated edit
   elsewhere in the same page survives a successful apply; two captures produce
-  two batches.
+  two batches; each new dataset builds.
+- Both repair scenarios above end in their one passing outcome.
 - `./.aitask-scripts/aitask_skill_verify.sh` passes.
 - `bash tests/test_helper_whitelist_coverage.sh` and
   `bash tests/test_release_tarball.sh` pass.

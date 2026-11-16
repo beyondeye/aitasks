@@ -13,13 +13,20 @@ updated_at: 2026-11-15 18:12
 
 ## Context
 
-Child 3 of t2278 (docs TUI screenshot generator). The full design is in the
-parent plan `aiplans/p2278_docs_tui_screenshot_generator.md`. Child 2 delivered
-the scene spec (`website/screenshots/scene.py`), the registry, backend A
-(`website/screenshots/backends/textual_backend.py`) and `capture`.
+Child 3 of t2278 (docs TUI screenshot generator). Read the parent plan
+`aiplans/p2278_docs_tui_screenshot_generator.md` first; the design was revised
+on 2026-11-15 to an agent driving the real TUI in an isolated tmux session.
+Child 2 delivered the sample project, the session primitives
+(`website/screenshots/session.py`), the SVG export, recipes and the batch
+manifest. Read child 2's archived plan for the primitives and schemas as
+implemented.
 
-This child adds partial screenshots (crop) and highlight / annotation overlays,
-and delivers the three annotated scenes.
+This child adds partial screenshots (crop) and highlight / annotation
+overlays, and delivers two annotated scenes.
+
+There are no widget selectors in this design: the TUI runs in a real pane, so
+crops and overlays are **cell rectangles**. The agent finds them on the
+screen with the `find` verb and by reading `screen` output.
 
 ## Key Files to Modify
 
@@ -28,17 +35,18 @@ and delivers the three annotated scenes.
     window chrome (rounded rect, title, the three dots).
   - `overlay(svg, items)`: append `<rect>` (box or tint) and `<text>` (numbered
     callout, label) elements. Output stays vector.
-- `website/screenshots/backends/textual_backend.py`: while the app is still
-  mounted, resolve every `crop` and `overlays[].target` selector to a cell
-  rectangle from `widget.region`, and pass the rectangles to `svgpost`. A
-  selector that matches nothing, or more than one widget, is a capture failure.
-- `website/screenshots/scene.py`: validate `crop` (`{selector}` or
-  `{cells: [x, y, w, h]}`) and `overlays` (`type: box | tint`, `target`,
-  optional `callout: <n>`, optional `label`).
-- `website/screenshots/registry.py`: add the `monitor` adapter.
+- `website/screenshots/session.py` / `cli.py`: `find` gains what the two
+  scenes need (for example `--box` to return the rectangle of the bordered
+  box around a text). `shot` takes `--crop x,y,w,h` and `--overlay` items and
+  journals them, so `recipe save` records them.
+- `website/screenshots/recipe.py`: validate `crop: {cells: [x, y, w, h]}` and
+  `overlays` (`type: box | tint`, `target: {cells: [...]}`, optional
+  `callout: <n>`, optional `label`). Optionally a target may be
+  `{text: "...", box: true}`, resolved at replay time with `find`, so a recipe
+  survives a layout shift; decide this from what the two scenes need.
 - `website/screenshots/scenes/`: `board_layout_annotated`,
-  `board_card_annotated` (crop to one card plus callouts),
-  `monitor_layout_annotated`.
+  `board_card_annotated` (crop to one card plus callouts), recorded through
+  the tool.
 - `tests/test_screenshots_svgpost.py` (new).
 
 ## Geometry (Rich 15.0.0, fixed)
@@ -52,17 +60,12 @@ inside its clip path.
 
 ## Reference Files for Patterns
 
-- `tests/test_monitor_focus_switch.py:24-25, 36-165`: monitor refuses to mount
-  without `$TMUX`. The test pops `TMUX` and `TMUX_PANE`, then after mount sets
-  `app._monitor = _FakeMonitor(snapshots)`, `app._snapshots`,
-  `app._focused_pane_id`, and calls `app._rebuild_pane_list()`. The monitor
-  layout scene must show a pane with a shadow so the preview splits into the
-  preview and shadow columns, as the page text describes.
-- `tests/lib/monitor_status_scenarios.py`: deterministic `PaneSnapshot` frames.
-- Page text the annotations must match: `website/content/docs/tuis/board/_index.md`
-  (zones Header, Filter area, Board area, Footer; "Reading a Task Card") and
-  `website/content/docs/tuis/monitor/_index.md` (header, session bar, pane
-  list, preview / shadow columns, footer).
+- Page text the annotations must match:
+  `website/content/docs/tuis/board/_index.md` (zones Header, Filter area,
+  Board area, Footer; "Reading a Task Card").
+- `rich/_export_format.py`: the SVG template whose fixed structure `crop`
+  relies on.
+- `website/screenshots/svg_export.py` (child 2): how the SVG is produced.
 
 ## Implementation Plan
 
@@ -72,8 +75,8 @@ See `aiplans/p2278/p2278_3_crop_and_overlays.md`.
 
 - `bash tests/run_all_python_tests.sh --test-dir tests` passes. The svgpost
   tests assert the exact `viewBox` and overlay coordinates for a known cell
-  rectangle, that a cropped SVG has no chrome elements, and that an unmatched
-  selector fails the capture.
-- A double capture of each annotated scene is byte-identical.
-- Open the three staged SVGs: callout numbers sit on the zones the page text
+  rectangle, and that a cropped SVG has no chrome elements.
+- `website/screenshots.sh replay --scene board_layout_annotated --scene
+  board_card_annotated` passes in fresh sessions.
+- Open the two staged images: callout numbers sit on the zones the page text
   names, and the cropped card has no window chrome.

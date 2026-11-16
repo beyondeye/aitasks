@@ -7,10 +7,11 @@ Base branch: main
 Output branch: main
 ---
 
-# Plan: t2278_3 — crop and overlays
+# Plan: t2278_3: crop and overlays
 
-Design source: `aiplans/p2278_docs_tui_screenshot_generator.md`. Read child 2's
-archived plan for the adapter interface and the pinned look.
+Design source: `aiplans/p2278_docs_tui_screenshot_generator.md` (revised
+2026-11-15: real TUI in tmux, recipes recorded from captures). Read child 2's
+archived plan for the primitives, the recipe schema and the manifest.
 
 ## Steps
 
@@ -26,52 +27,44 @@ archived plan for the adapter interface and the pinned look.
      content group. `box` → stroked `<rect>`; `tint` → semi-transparent filled
      `<rect>`; `callout: n` → a filled circle with the number at the rect's
      top-left corner; `label` → text beside the callout. Colours and stroke
-     widths come from `registry.LOOK`. Overlay coordinates are in the full
+     widths are constants in `svgpost.py`. Overlay coordinates are in the full
      image's pixel space, so a crop applied afterwards still lines up.
    - Order is always overlay, then crop.
 
-2. **Region resolution in backend A.** After settle and before export, for each
-   `crop.selector` and `overlays[].target.selector`, `app.screen.query(selector)`
-   must match exactly one widget; take `widget.region` (x, y, width, height in
-   cells, screen coordinates). Zero or several matches raise a capture error
-   naming the selector. `{cells: [...]}` targets pass through. Return the
-   rectangles in `CaptureResult.regions`; `cli capture` calls `svgpost`.
+2. **Finding rectangles on a live screen.** Extend `find` with what the scenes
+   need: the cell of a text, and `--box`, the rectangle of the box-drawing
+   border that encloses it. Wide glyphs count as two cells (use
+   `rich.cells.cell_len`, the same measure the exporter uses). A text that
+   occurs zero times or more than once is an error naming the count.
 
-3. **`scene.py` validation** for `crop` and `overlays` (see the task file).
-   Callout numbers within a scene must be unique.
+3. **`shot --crop` / `--overlay`, journal and recipe.** `shot` applies
+   `svgpost` after the export. The crop and overlays are journaled with the
+   shot, `recipe save` records them, and `recipe.py` validates them (callout
+   numbers unique within a scene; rectangles inside the pane).
 
-4. **`monitor` adapter.** Pop `TMUX` / `TMUX_PANE` for the duration, build
-   `MonitorApp` with `rename_window=False, mark_pane=False`, and after mount
-   inject fake snapshots the way `tests/test_monitor_focus_switch.py:148-165`
-   does. Use deterministic snapshots (see `tests/lib/monitor_status_scenarios.py`),
-   including one agent with a shadow so the preview splits into two columns.
-   Restore the environment on exit.
+4. **Scenes, through the discovery workflow.** For each of
+   `board_layout_annotated` and `board_card_annotated`: read the page section,
+   drive the real board on the sample project, find the rectangles, shot with
+   overlays, look at the PNG, then walk it cleanly and `recipe save`. Numbers
+   must match the page's own numbered list.
 
-5. **Scenes.** `board_layout_annotated` (four callouts: header, filter area,
-   board area, footer), `board_card_annotated` (crop to one card; callouts for
-   the card parts the page's "Reading a Task Card" section names),
-   `monitor_layout_annotated` (header, session bar, pane list, preview column,
-   shadow column, footer). The callout numbers must match the numbered lists in
-   the page text; if the page has no numbering, note it for child 5, which
-   edits those pages.
-
-6. **Tests, `tests/test_screenshots_svgpost.py`.** Exact `viewBox` for a known
-   rect; exact overlay `x` / `y` / `width` / `height`; cropped output has no
-   chrome elements and is still well-formed XML (`xml.etree`); overlay-then-crop
-   keeps overlays aligned; an unmatched selector and a multi-match selector both
-   fail the capture; a monitor adapter capture contains expected text; double
-   capture is byte-identical.
+5. **Tests, `tests/test_screenshots_svgpost.py`.** Exact `viewBox` for a known
+   rectangle; chrome elements absent after a crop; exact overlay element
+   coordinates; overlay-then-crop keeps alignment; an SVG without the expected
+   structure raises; `find --box` on a canned screen text (no tmux needed)
+   returns the expected rectangle, including a row with a wide glyph before
+   the box.
 
 ## Verification
 
 - `bash tests/run_all_python_tests.sh --test-dir tests`.
-- `website/screenshots.sh capture --scene board_layout_annotated --scene board_card_annotated --scene monitor_layout_annotated`,
-  then view the three SVGs in a browser at page width and zoomed.
+- `website/screenshots.sh replay --scene board_layout_annotated --scene board_card_annotated`,
+  then view the two images in a browser at page width and zoomed.
 
 ## Notes for sibling tasks
 
-Record: the `regions` contract (child 4 fills it with pane rectangles, child 7
-maps it to pixels); the overlay style values; any page whose text needs
-numbering to match the callouts.
+Record: the rectangle contract (child 4 passes pane rectangles, child 7 maps
+them to pixels); the overlay style values; whether text-anchored targets were
+added; any page whose text needs numbering to match the callouts.
 
 Post-implementation: Step 9 of the task workflow.

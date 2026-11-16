@@ -410,6 +410,28 @@ had to be pinned in the pane environment; what B1 found about export fidelity.
 
 Post-implementation: Step 9 of the task workflow (review, commit, archival).
 
+## Implementation log
+
+- **B1 done (2026-11-16), before Part A.** Deviation from the stated order: the
+  hand-driven example ran first, because its stop rule decides whether the
+  design Part A writes into six sibling plans is sound. It passed.
+  - The real `./ait board` boots on a standalone sample project under a
+    scratch `HOME` / `XDG_CONFIG_HOME` with `AIT_PYTHON` pinned; nothing else
+    had to be pinned. Pane shell: `bash --noprofile --norc`.
+  - `x` on the parent card expands the children with `↳` connectors.
+  - Export defects found and fixed: tmux carries SGR state across lines, so
+    the whole capture goes through one `AnsiDecoder`; `capture-pane` needs
+    `-N` or trailing cells lose their background.
+  - `rsvg-convert` is not a faithful preview (drops leading no-break spaces,
+    no emoji). Headless Chromium is. `shot --png` uses Chromium first.
+  - A parent with an `Implementing` child shows `⚡ t12_1 …` and
+    `👶 2 more children`, not the `👶 N children` line the page names. The
+    `base` dataset keeps all children of the example parent `Ready`.
+- **Part A done (2026-11-16).** Parent plan rebuilt (design revision note,
+  revised design, B1 findings in "Image export"); parent task requirements 2
+  and 3 and the backends section revised; task bodies and plans of children
+  3-8 and this task's body rewritten. Inbox and Gate Runs sections untouched.
+
 ## Risk
 
 ### Code-health risk: low

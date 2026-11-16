@@ -7,93 +7,63 @@ Base branch: main
 Output branch: main
 ---
 
-# Plan: t2278_4 — backend B, tmux composites
+# Plan: t2278_4: multi-pane windows and the monitor-family scenes
 
-Design source: `aiplans/p2278_docs_tui_screenshot_generator.md` ("Backends" B).
-Read `aidocs/framework/tmux_gateway.md` (policy 5 in particular) before writing
-any code, and the archived plans of children 2 and 3.
+Design source: `aiplans/p2278_docs_tui_screenshot_generator.md` (revised
+2026-11-15). Read `aidocs/framework/tmux_gateway.md` (policy 5) and the
+archived plans of children 2 and 3 before writing code. The isolated server,
+its `-f /dev/null` start, the pinned environment and their tests belong to
+child 2; this child only adds panes and windows to a running session.
 
 ## Steps
 
-1. **One composite end to end first: minimonitor beside a stand-in agent.**
-   In a scratchpad script:
-   - `client = TmuxClient(socket_args=["-L", f"ait_shots_{os.getpid()}"])`;
-   - register `client.run(["kill-server"])` as cleanup **before** anything else;
-   - assert no server exists on the socket (`client.run(["list-sessions"])`
-     returns non-zero);
-   - `client.run(["-f", "/dev/null", "new-session", "-d", "-s", S, "-x", "160", "-y", "45", "-c", fixture, agent_cmd])`
-     and print `client._argv([...])` once to confirm the argv is
-     `tmux -u -L ait_shots_<pid> -f /dev/null new-session ...`;
-   - `set-environment -t S AITASKS_TMUX_SOCKET ait_shots_<pid>`;
-   - `split-window -h -l 40 -P -F "#{pane_id}" -t <agent pane> "env -u COLUMNS -u LINES ... <minimonitor harness>"`;
-   - poll `capture-pane -p` per pane for its settle text;
-   - `list-panes -F "#{pane_id} #{pane_left} #{pane_top} #{pane_width} #{pane_height}"`;
-   - `capture-pane -e -p -t <pane>` per pane.
-   The agent stand-in is `tests/lib/fake_composer_agent.py`; the minimonitor is
-   a harness subclass with stubbed data (see `tests/lib/minimonitor_live_harness.py`).
-   **Stop rule:** if the panes cannot be given content that looks like the real
-   TUI, stop here and report to the user before building the general engine.
+1. **One multi-pane scene end to end first: minimonitor beside a stand-in
+   agent.** Using child 2's verbs plus a scratchpad helper for the split:
+   start a session, launch a stand-in agent in the first pane
+   (`tests/lib/fake_composer_agent.py`), split a 40-column right pane running
+   the real `ait minimonitor`, wait on each pane's text, read the screens.
+   **Stop rule:** if the minimonitor does not list the stand-in as an agent,
+   or the result does not look like real use, stop and report to the user
+   before building anything else. Record what the real TUI needed in order to
+   recognise the pane (window name prefix, pane options, task files).
 
-2. **Stitching.** Build a cell grid of the window size. Blit each pane's
-   captured lines at its `(left, top)`; draw the borders tmux draws between
-   panes (the one-cell gaps in the geometry) with box-drawing characters.
-   Convert each row to `rich.text.Text` with `Text.from_ansi`, print the rows
-   into a recording `Console(width, height, record=True, force_terminal=True,
-   color_system="truecolor", legacy_windows=False, safe_box=False)`, then
-   `export_svg(title=, theme=, unique_id="terminal-" + scene id)`. A pane line
-   shorter than the pane width is padded; a longer one is a capture error.
+2. **`agents` dataset and setup.** Put what step 1 needed into
+   `sample_project.DATASETS["agents"]` (data and the stand-in script only) and
+   express the rest as `setup` / pane commands, under the setup contract.
+   A build test asserts the dataset builds and the real minimonitor shows its
+   agent.
 
-3. **`backends/tmux_backend.py`.** `start_server()` (the only function that can
-   bring a server into existence; asserts none exists first), `build_layout`,
-   `wait_ready` (bounded poll, timeout raises), `geometry`, `capture_panes`,
-   `stitch`, `teardown`. `capture(scene)` returns `CaptureResult(svg, regions)`
-   with `regions` keyed by pane name, so `crop` and `overlays` targets can be
-   `{pane: <name>}`. Extend `scene.py` for the `layout` block and the `pane`
-   target.
+3. **Pane and window verbs.** `pane split`, `window new`, `--pane` on the
+   read and input verbs, all journaled with the pane's role name so a recipe
+   refers to panes by name, never by tmux id.
 
-4. **Stand-ins and harnesses in `registry.py`.** Agent stand-in, minimonitor
-   harness, monitor harness (replay of deterministic frames), sitrep TUI on a
-   fixture store (`tests/test_sitrep_tui_app.py:107` `build_fixture`).
+4. **`stitch.py`.** Build a cell grid of the window size. Blit each pane's
+   decoded rows at its `(left, top)`; draw the one-cell borders between panes
+   with box-drawing characters. A pane row longer than the pane width is a
+   capture error. `shot --window` exports the grid through `svg_export`.
 
-5. **Scenes.**
-   - `minimonitor_main_view`: agent pane plus a 40-column right split.
-   - `ait_ide_startup`: one `monitor` window as `ait ide` creates it
-     (`.aitask-scripts/aitask_ide.sh`), with a few agent windows listed.
-   - `sitrep_window`: agent above, sitrep TUI below at 40%, full-height
-     minimonitor on the right (`tests/test_sitrep_window_live.sh:113-222`).
+5. **Scenes, through the discovery workflow**, each read from its page first:
+   `minimonitor_main_view`, `sitrep_window`, `ait_ide_startup`,
+   `monitor_layout_annotated` (overlays from child 3, numbered as the page's
+   list), `tui_switcher_from_monitor`, `tui_switcher_from_minimonitor`.
+   Walk each cleanly and `recipe save`.
 
-6. **Tests, `tests/test_screenshots_tmux_backend.py`.**
-   - Skip gate: `shutil.which("tmux")` only. It must not call the backend.
-   - Capture: a two-pane layout of `printf` stand-ins yields an SVG containing
-     both panes' text; a settle timeout fails; after the run no server answers
-     on the private socket.
-   - Locale: run the backend in a subprocess with
-     `LC_ALL=C PYTHONUTF8=0 PYTHONCOERCECLOCALE=0`, a pane printing
-     `┌─┐ prój`; assert the characters are in the SVG. Control: the same
-     capture through a client whose flags exclude `-u` must show `_`. Classify
-     the control as the pre-fix expectation, so the assertion is known to fail
-     without `-u`.
-   - Config: `HOME` and `XDG_CONFIG_HOME` set to a scratch directory containing
-     `.tmux.conf` and `tmux/tmux.conf`, each running
-     `run-shell 'touch <sentinel>'`; start the server through `start_server()`;
-     assert the sentinel does not exist. Control: the same start without
-     `-f /dev/null` creates it.
-   - Keep the socket directory short (see `tests/lib/tmux_isolation.sh`); do not
-     put it under a long `$TMPDIR`.
-   - Check whether the module must join the serial carve-out in
-     `tests/run_all_python_tests.sh` (a real pane under a wall-clock budget).
+6. **Tests.** `tests/test_screenshots_stitch.py`: canned captures for a
+   two-pane and a three-pane layout give the expected grid and borders; an
+   over-wide row raises. Live module: a two-pane session captures both panes'
+   text in one image; a recipe with a pane step replays; `stop` leaves no
+   server.
 
 ## Verification
 
 - `bash tests/run_all_python_tests.sh --test-dir tests`.
-- `website/screenshots.sh capture --scene minimonitor_main_view --scene ait_ide_startup --scene sitrep_window`
-  twice; `cmp` the images; view them in a browser.
-- `tmux -L ait list-sessions` and the user's default server are unchanged
-  before and after; no `ait_shots_*` socket has a live server.
+- `website/screenshots.sh replay` of the six scenes; view each in a browser.
+- `website/screenshots.sh session list` is empty; `tmux -L ait list-sessions`
+  and the user's default server are unchanged before and after.
 
 ## Notes for sibling tasks
 
-Record: how each harness was given realistic content; any pane whose content
-could not be made byte-stable; whether the module joined the serial carve-out.
+Record: how the stand-in agents were made to look real; what the monitor
+family needed to recognise them; any scene reported instead of captured.
 
 Post-implementation: Step 9 of the task workflow.

@@ -53,13 +53,16 @@ go to the user for review before anything is committed.
    output file, carry the alt/caption text and reference a scene. All 17
    existing markers migrate to it. Ship a check that lists any marker still
    unresolved, and any marker that does not parse.
-2. **Scene specs.** One declarative spec per scene: which TUI or composite
-   layout, fixture, terminal size (cols×rows), key or Pilot sequence, settle
-   condition (text or widget present, not a sleep), backend, crop and overlays.
-   Several markers can share one scene (the TUI-switcher dialog appears 6
-   times).
-3. **Partial screenshots.** Crop to a widget (CSS selector / id) or to an
-   explicit cell rectangle.
+2. **Recipes recorded from a successful capture** (revised 2026-11-15). The
+   agent reaches a state by driving the real TUI; the tool then records the
+   route as a recipe: sample dataset, setup commands, terminal size
+   (cols×rows), launch command, keys, waits on screen text (never a sleep),
+   the texts expected at capture time, and what the image is meant to show.
+   Recipes are not authored up front. When one fails or no longer matches the
+   page, the agent re-discovers a route and replaces it. Several markers can
+   share one scene.
+3. **Partial screenshots.** Crop to an explicit cell rectangle, which the
+   agent finds on the live screen.
 4. **Highlight and annotation overlays.** Boxes or tinted highlights over a
    widget or region, plus numbered callouts and labels. These explain the
    various panes and cover the "annotated layout" placeholders.
@@ -71,7 +74,12 @@ go to the user for review before anything is committed.
 
 ## Capture backends (all buildable with tools already installed)
 
-- **A. Textual vector (default, portable, CI-able):** boot the app headless with
+**Revised 2026-11-15:** backend A is dropped. Every capture runs the real TUI
+in an isolated tmux session (B, now the default and only vector path), on a
+sample project, driven by the agent. The design is in the parent plan
+`aiplans/p2278_docs_tui_screenshot_generator.md`.
+
+- **A. Textual vector (dropped):** boot the app headless with
   `App.run_test(size=(cols, rows))`, drive it with Pilot, then
   `app.export_screenshot()` produces SVG. Proven in
   `tests/test_logview_search_box.py`, `tests/test_frozenagent_app.py` and
@@ -79,7 +87,7 @@ go to the user for review before anything is committed.
   `tests/lib/board_fixture.py` boots `KanbanApp` on a temp task tree (mind its
   relative-`TASK_DIR` + cwd invariant). Never screenshot the real repo; it
   leaks live task data and is non-deterministic.
-- **B. tmux composite → SVG:** for multi-pane scenes (minimonitor beside an
+- **B. Real TUI in tmux → SVG (the default):** for every scene, single-pane or multi-pane (minimonitor beside an
   agent pane, sitrep window, `ait ide` startup, monitor with agents). Use an
   isolated tmux socket (pattern: `tests/test_board_startup_focus_live.py`,
   `tests/lib/tmux_isolation.sh`). Read the geometry from `list-panes`, take
@@ -102,7 +110,7 @@ go to the user for review before anything is committed.
 The cell geometry of a Rich SVG is fixed: `char_height=20`,
 `char_width=20*font_aspect_ratio` (12.2 at the default 0.61),
 `line_height=24.4`, `padding_top=40`, `padding_left=8`, `margin=1` (see
-`rich/console.py` `export_svg`, ~line 2420). Textual widgets expose `region` in
+`rich/console.py` `export_svg`, ~line 2420). A captured pane is a grid of
 cells. Crops are therefore viewBox rewrites, and overlays are injected
 `<rect>`/`<text>` elements; both are exact and stay vector. Backend C maps the
 same cell coordinates through the window's pixel size divided by cols×rows.
