@@ -31,6 +31,7 @@ import tempfile
 import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".aitask-scripts" / "lib"))
 sys.path.insert(0, str(Path(__file__).resolve().parent / "lib"))
@@ -289,6 +290,73 @@ class OwnCommandRungTest(unittest.TestCase):
     def test_own_comm_no_pid_returns_empty(self):
         self.assertEqual(ak._own_command(0), "")
         self.assertEqual(ak._own_command(-1), "")
+
+
+class FullWidthCommTest(unittest.TestCase):
+    """Both `comm=` readers ask `ps` for full width (t2311).
+
+    On a platform where `comm` is the full executable path (macOS), a `ps`
+    that cuts its line at an inherited `COLUMNS` could drop the trailing
+    `claude`/`codex`, and `agent_key_from_command` matches the last path
+    component exactly. Linux caps `comm` at 15 chars, so a real-`ps` long
+    path cannot be produced here. The stub `ps` below emulates a
+    width-limited `ps`: it prints a long path and cuts it to `COLUMNS` unless
+    `-ww` is in its argv. That pins the contract (the helpers request full
+    width, and the long path survives their parsing). It does NOT show that
+    BSD ps truncates on a pipe; that remains unverified.
+    """
+
+    LONG = "/opt/" + "p" * 120 + "/claude"
+
+    def setUp(self):
+        ak._PANE_KEY_CACHE.clear()
+        ak._PANE_MISS_CACHE.clear()
+        self.tmp = tempfile.mkdtemp(prefix="t2311-comm-")
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self._write("ps", (
+            '#!/bin/sh\n'
+            'ww=0; pids=""; prev=""\n'
+            'for a in "$@"; do\n'
+            '  [ "$a" = "-ww" ] && ww=1\n'
+            '  [ "$prev" = "-p" ] && pids="$a"\n'
+            '  prev="$a"\n'
+            'done\n'
+            'for _ in $(printf "%s" "$pids" | tr "," " "); do\n'
+            f'  line="{self.LONG}"\n'
+            '  if [ "$ww" = 1 ]; then printf "%s\\n" "$line"\n'
+            '  else printf "%s\\n" "$line" | cut -c "1-${COLUMNS:-80}"; fi\n'
+            'done\n'))
+        self._write("pgrep", '#!/bin/sh\necho 4243\n')
+        # Stub dir first so shutil.which finds the stubs; the real PATH after
+        # it so the stub's own tr/cut resolve.
+        env = patch.dict(os.environ, {
+            "PATH": self.tmp + os.pathsep + os.environ.get("PATH", ""),
+            "COLUMNS": "80"})
+        env.start()
+        self.addCleanup(env.stop)
+
+    def _write(self, name: str, body: str) -> None:
+        path = os.path.join(self.tmp, name)
+        with open(path, "w") as fh:
+            fh.write(body)
+        os.chmod(path, 0o755)
+
+    def test_stub_truncates_without_ww(self):
+        """Positive control: the stub really truncates, so the tests below
+        are not vacuous."""
+        out = subprocess.run([os.path.join(self.tmp, "ps"), "-o", "comm=", "-p", "1"],
+                             capture_output=True, text=True).stdout.strip()
+        self.assertTrue(out.startswith("/opt/p"), f"stub printed {out!r}")
+        self.assertLessEqual(len(out), 80)
+        self.assertNotIn("/claude", out)
+
+    def test_own_command_keeps_long_path(self):
+        comm = ak._own_command(4242)
+        self.assertEqual(comm, self.LONG)
+        self.assertEqual(ak.agent_key_from_command(comm), "claude")
+
+    def test_child_commands_keep_long_path(self):
+        self.assertEqual(ak._child_commands(4242), [self.LONG])
 
 
 class CacheTest(unittest.TestCase):

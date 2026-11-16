@@ -85,7 +85,7 @@ def _is_companion_test(pid):
     except OSError:
         pass
     try:
-        r = subprocess.run(["ps", "-p", str(pid), "-o", "args="],
+        r = subprocess.run(["ps", "-ww", "-p", str(pid), "-o", "args="],
                            capture_output=True, text=True, timeout=2)
         return r.returncode == 0 and COMPANION_SENTINEL in r.stdout
     except Exception:

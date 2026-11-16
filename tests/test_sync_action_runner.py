@@ -696,7 +696,7 @@ class TimeoutContainmentTests(unittest.TestCase):
             pid = int(pid_file.read_text().split()[0])
         except (OSError, IndexError, ValueError):
             return
-        cmd = subprocess.run(["ps", "-o", "command=", "-p", str(pid)],
+        cmd = subprocess.run(["ps", "-ww", "-o", "command=", "-p", str(pid)],
                              capture_output=True, text=True).stdout
         if str(self.root) in cmd:
             try:

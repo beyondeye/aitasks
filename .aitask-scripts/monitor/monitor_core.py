@@ -496,10 +496,11 @@ def _is_companion_process(pid: int) -> bool:
         return any(kw in cmdline for kw in _COMPANION_KEYWORDS)
     except (OSError, PermissionError):
         pass
-    # Fallback for non-Linux (macOS)
+    # Fallback for non-Linux (macOS). -ww: an inherited COLUMNS would cut the
+    # line and hide a keyword past that column (t2311).
     try:
         result = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "args="],
+            ["ps", "-ww", "-p", str(pid), "-o", "args="],
             capture_output=True, text=True, timeout=2,
         )
         if result.returncode == 0:

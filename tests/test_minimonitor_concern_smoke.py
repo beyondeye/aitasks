@@ -232,7 +232,7 @@ def _process_command(pid: int) -> str:
     this, so a missing or unhelpful `ps` costs a label and nothing else.
     """
     try:
-        out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)],
+        out = subprocess.run(["ps", "-ww", "-o", "command=", "-p", str(pid)],
                              capture_output=True, text=True, timeout=10)
     except (OSError, subprocess.SubprocessError):
         return "?"

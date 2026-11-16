@@ -34,8 +34,10 @@ def _argv(pid):
             return [os.fsdecode(part) for part in handle.read().split(b"\0") if part]
     except OSError:
         pass
-    try:  # no procfs: element boundaries are a guess, good enough for argv[1]
-        done = subprocess.run(["ps", "-o", "args=", "-p", str(int(pid))],
+    # No procfs: element boundaries are a guess, good enough for argv[1].
+    # -ww: an inherited COLUMNS (readline exports 80) truncates the line (t2311).
+    try:
+        done = subprocess.run(["ps", "-ww", "-o", "args=", "-p", str(int(pid))],
                               capture_output=True, text=True, timeout=5, check=False)
         return done.stdout.split()
     except (OSError, subprocess.SubprocessError, ValueError):

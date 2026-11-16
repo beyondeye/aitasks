@@ -108,6 +108,8 @@ def _own_command(pane_pid: int) -> str:
     ``claude`` even though tmux reports the target's basename. Every failure
     (missing binary, non-zero exit — e.g. the pid is gone — timeout, empty
     output) returns ``""``, which the caller treats as "try the next rung".
+    ``-ww``: where ``comm`` is a full path (macOS), an inherited ``COLUMNS``
+    must not cut the trailing agent name (t2311; BSD behaviour unmeasured).
 
     Module-level so tests can substitute it and count invocations.
     """
@@ -117,7 +119,7 @@ def _own_command(pane_pid: int) -> str:
     if not ps:
         return ""
     try:
-        named = subprocess.run([ps, "-o", "comm=", "-p", str(pane_pid)],
+        named = subprocess.run([ps, "-ww", "-o", "comm=", "-p", str(pane_pid)],
                                capture_output=True, text=True,
                                timeout=_LOOKUP_TIMEOUT)
     except (OSError, subprocess.SubprocessError):
@@ -136,7 +138,8 @@ def _child_commands(pane_pid: int) -> list[str]:
     ``pgrep -P`` + ``ps -o comm= -p`` is the pair that works on both Linux and
     BSD/macOS — GNU's ``ps --ppid`` does not exist on BSD. Every failure (missing
     binary, non-zero exit, timeout, unparseable output) returns ``[]``, which the
-    caller renders as "unresolved", i.e. the pre-t1467 answer.
+    caller renders as "unresolved", i.e. the pre-t1467 answer. ``-ww`` as in
+    :func:`_own_command` (t2311).
 
     Module-level so tests can substitute it and count invocations.
     """
@@ -160,7 +163,7 @@ def _child_commands(pane_pid: int) -> list[str]:
     if not kids:
         return []
     try:
-        named = subprocess.run([ps, "-o", "comm=", "-p", ",".join(kids)],
+        named = subprocess.run([ps, "-ww", "-o", "comm=", "-p", ",".join(kids)],
                                capture_output=True, text=True,
                                timeout=_LOOKUP_TIMEOUT)
     except (OSError, subprocess.SubprocessError):

@@ -69,7 +69,7 @@ def _cmdline(pid: int) -> str:
     try:
         return Path(f"/proc/{pid}/cmdline").read_bytes().replace(b"\0", b" ").decode()
     except OSError:
-        out = subprocess.run(["ps", "-o", "command=", "-p", str(pid)],
+        out = subprocess.run(["ps", "-ww", "-o", "command=", "-p", str(pid)],
                              capture_output=True, text=True)
         return out.stdout
 

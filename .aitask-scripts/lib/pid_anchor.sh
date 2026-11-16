@@ -230,6 +230,7 @@ pid_chain_to() {
 
 # get_pid_exe <pid> — the executable path: /proc/<pid>/exe, else `ps -o comm=`
 # (a full path on macOS, only the short name on Linux, which always has /proc).
+# -ww: an inherited COLUMNS must not cut that path (t2311).
 # Returns 1 when neither can be read.
 get_pid_exe() {
     local pid="${1:-}" out
@@ -237,7 +238,7 @@ get_pid_exe() {
     if out="$(readlink "/proc/$pid/exe" 2>/dev/null)" && [[ -n "$out" ]]; then
         printf '%s\n' "$out"; return 0
     fi
-    out="$(ps -o comm= -p "$pid" 2>/dev/null)" || return 1
+    out="$(ps -ww -o comm= -p "$pid" 2>/dev/null)" || return 1
     [[ -n "$out" ]] || return 1
     printf '%s\n' "$out"
 }

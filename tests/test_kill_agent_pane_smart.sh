@@ -101,7 +101,7 @@ def _is_companion_test(pid):
     # macOS fallback path
     try:
         r = subprocess.run(
-            ["ps", "-p", str(pid), "-o", "args="],
+            ["ps", "-ww", "-p", str(pid), "-o", "args="],
             capture_output=True, text=True, timeout=2,
         )
         return r.returncode == 0 and COMPANION_SENTINEL in r.stdout
