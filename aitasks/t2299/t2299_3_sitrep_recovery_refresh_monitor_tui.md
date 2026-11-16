@@ -133,3 +133,5 @@ Never `git restore` / `git stash` / checkout: the shared tree holds other tasks'
 > | 6. Outcome text is `<label> · <evidence>` via `format_outcome` / `parse_outcome`. The labels are: unreadable, other_host, alive, unknown, stale_lock, crashed, orphan, recovered.
 > | 
 > | The details are in lib/sitrep_crash.py's header and in the archived plan's "Notes for sibling tasks".
+
+> **👁 note:read** id=2026-11-16T07:05:18Z.33b6af8e63567cd26cfe77ff by=t2299_3 at=2026-11-16T07:05:18Z mode=explicit ids=2026-11-15T19:52:36Z.4eaa83e815f2e2aaf87f7ec1
