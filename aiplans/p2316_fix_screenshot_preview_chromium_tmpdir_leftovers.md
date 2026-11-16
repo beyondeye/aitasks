@@ -202,3 +202,122 @@ Commit code (`bug: … (t2316)`), plan via `./ait git`, archive per the workflow
 - The pre-fix leak is intermittent, so the leftover test alone is a weak red.
   · severity: low · → mitigation: none needed (three renders per test + the
   deterministic long-TMPDIR red + the scratch pre-fix control above)
+
+## Implementation progress
+
+- [x] Step 1 `svg_export.py`: `_socket_fits` (byte-measured), `_chrome_scratch_dir`
+  (raises before launch, cleans up on every failure exit), `_last_line`, and the
+  `render_png` Chromium branch with `TMPDIR=<scratch>`.
+- [x] Step 2 tests: new `ChromiumScratchTests` class (7 tests) instead of
+  extending `PreviewTests`, so the shared fixtures (`private_dir`, `long_dir`,
+  `temp_root`) sit with the tests that use them. Deviation from the plan's test
+  list: `test_scratch_dir_choice` is split into
+  `test_a_short_temp_dir_is_used_as_is` and
+  `test_a_long_temp_dir_falls_back_to_the_short_base`.
+- [x] Extra (found in verification): the full suite still reported 3
+  `chromium_chrome_url_fetcher_` leftovers. Source: the test-side helper
+  `rendered_label_bounds` in the same test file (launches Chromium directly,
+  3 calls in one test). Routed it through `sx._chrome_scratch_dir()` with
+  `TMPDIR=<scratch>`. `tests/test_screen_recording_cli.py` (the other test-side
+  Chromium launcher) was checked under a private TMPDIR: 133 passed, no
+  leftovers, so it is left unchanged.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-16 16:20)
+- **Requested by user:** (1) `rmtree(..., ignore_errors=True)` hid cleanup
+  failures, so `render_png` could report success with the scratch dir still
+  present (late-writer simulation); retry transient failures and surface an
+  unresolved one, with a failure-path test. (2) `os.mkdir(profile)` raised a raw
+  `OSError` outside the `ExportError` conversion that `preview_png` / the CLI
+  catch; convert it and cover it.
+- **Changes made:** `_remove_scratch()` retries `rmtree` with backoff
+  (`_CLEANUP_DELAYS` = 0.05…0.8 s, ~1.55 s worst case) and returns the last
+  error if the dir survives. On success a leftover raises `ExportError`. On a
+  render error the render error stays primary and the leftover is attached as an
+  exception note (`add_note`; the venv minimum is Python 3.11). Profile `mkdir`
+  failures, and (same gap, found while fixing) the first `mkdtemp` in
+  `_chrome_scratch_dir`, now raise `ExportError`. 4 new tests: transient cleanup
+  failure retried, persistent cleanup failure reported (dir left visible, not
+  hidden), profile setup failure, scratch-dir creation failure. All use a fake
+  `chromium` (`which` + `subprocess.run` patched, `time.sleep` patched): no
+  browser, no real waits.
+  Mutants (isolated copies): dropping the success-path leftover raise fails the
+  persistent-cleanup test; removing the mkdir conversion fails the profile test.
+- **Files affected:** `website/screenshots/svg_export.py`,
+  `tests/test_screenshots_svgpost.py`
+
+### Change Request 2 (2026-11-16 16:45)
+- **Requested by user:** (1) `rendered_label_bounds` still used
+  `rmtree(ignore_errors=True)`; reuse `sx._remove_scratch` and report a
+  persistent cleanup failure. (2) The render-failure + cleanup-failure case
+  attached the cleanup warning via `add_note`, which `cli._one_line` (`str()`)
+  never prints; include it in the user-visible diagnostic and test the CLI
+  output.
+- **Changes made:** `render_png` now records a failed run as (head, stderr tail,
+  cause), cleans up, then raises ONE `ExportError`
+  `"<head>[; its scratch dir … could not be removed either (<strerror>)]<tail>"`.
+  The cleanup clause sits before the stderr tail because the CLI truncates to
+  300 chars. The head is now short: `_exit_reason()` gives
+  `killed by SIGABRT` / `exit status N` instead of the CalledProcessError argv
+  dump, and a timeout says `timed out after Ns`. `add_note` stays only for
+  interrupts (non-Exception `BaseException`). `rendered_label_bounds` uses
+  `_remove_scratch`, attaches a note on its own errors and raises
+  `AssertionError` on a leftover. New tests:
+  `test_the_cli_shows_both_a_render_failure_and_a_leftover` (through
+  `cli.preview_png`, 300-char pressure, both parts asserted) and
+  `test_the_bounds_helper_fails_on_a_leftover`.
+  Mutants: helper back to `ignore_errors` fails the helper test; cleanup clause
+  after the tail fails the CLI test (truncated away).
+- **Files affected:** `website/screenshots/svg_export.py`,
+  `tests/test_screenshots_svgpost.py`
+
+### Change Request 3 (2026-11-16 17:05)
+- **Requested by user:** the combined-failure head still carried the full
+  `svg_path` before the cleanup clause; with a 225-char image path the CLI's
+  300-char cut removed the cleanup indication. Put both summaries before
+  unbounded path details (or budget them) and test the long path.
+- **Changes made:** a failure is now (summary, detail, tail, cause). Summaries
+  carry no paths (`chromium could not render the SVG: killed by SIGABRT`,
+  `could not set up a Chromium profile`, `chromium could not be started: …`,
+  `… timed out after Ns`), so their length is bounded. Message order:
+  `<summary>[; its scratch dir could not be removed either] (<svg/profile
+  path>[; scratch dir <path>: <strerror>])<stderr tail>`. The success-path
+  leftover reads `<browser> ran, but its scratch dir could not be removed
+  (<path>: <strerror>)`. The CLI test now uses an image path > 300 chars
+  (asserted) and still requires both summaries in the printed line.
+  Mutant: putting `svg_path` back into the summary fails that test.
+- **Files affected:** `website/screenshots/svg_export.py`,
+  `tests/test_screenshots_svgpost.py`
+
+## Final Implementation Notes
+- **Actual work done:** `render_png` runs Chromium in one private scratch dir
+  per render (`_chrome_scratch_dir`), with `TMPDIR` pointed at it, so the
+  url-fetcher dirs and the `SingletonSocket` dir land inside it and go away with
+  it. The scratch dir is checked against the 107-byte socket budget, measured in
+  bytes via `os.fsencode`. When the caller's temp dir is too long it falls back
+  to `_SHORT_TMP_FALLBACK` (`/tmp`); when neither fits it raises `ExportError`
+  before any launch. Cleanup (`_remove_scratch`) retries with backoff and
+  reports a surviving dir instead of hiding it. Every setup / render / cleanup
+  failure is one `ExportError` whose path-free summaries come first, so the
+  CLI's 300-char line always shows them. The test-side launcher
+  `rendered_label_bounds` uses the same scratch dir and cleanup. 15 new tests in
+  `ChromiumScratchTests`.
+- **Deviations from plan:** the plan said `shutil.rmtree(ignore_errors=True)`;
+  review replaced it with bounded retries plus reporting. Error messages were
+  restructured (summary / detail / tail) across review rounds 2-3. The
+  `rendered_label_bounds` fix was added when the full suite still showed 3
+  url-fetcher leftovers. Tests went into a new class rather than `PreviewTests`.
+- **Issues encountered:** the pre-fix leak is intermittent (about 4 of 5
+  renders), so the leftover test renders 3 times. The long-TMPDIR abort is
+  deterministic: `FATAL:process_singleton_posix.cc:315 Socket path too long`,
+  the same line as the user's repeated Chromium core dumps, which this task
+  fixes. Pre-fix control and every mutant ran in isolated scratch copies (no
+  stash, no edits to the live tree). No new core dumps after the fix.
+- **Key decisions:** measure the created path, not the base, so no mkdtemp
+  suffix length is assumed. A leftover after a successful render is an error,
+  not a warning. The render error stays primary and the cleanup failure is
+  appended after it, while the stderr tail is the part truncation may drop.
+  `add_note` is used only for interrupts (venv minimum Python is 3.11).
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_model_stats_strip.sh:96 — mktemp -d "${TMPDIR:-/tmp}/ait_stats_strip.XXXXXX" work dir leaked into the Python suite's per-run TMPDIR (guard reported "TMPDIR LEFTOVERS (1): ait_stats_strip.r9J2h3" on the final full-suite run); cleanup at :64/:146 apparently misses some exit path — leaking path not yet identified`
