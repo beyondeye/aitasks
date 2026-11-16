@@ -433,3 +433,100 @@ t2299_4 owns the docs that describe them.
 Post-implementation: commit only this task's paths (`feature: … (t2299_3)`), then
 archive through Step 9. Never `git restore` / `git stash` / checkout: the shared
 tree holds other tasks' uncommitted work.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-16 12:45)
+- **Requested by user:** three review findings, all verified as real:
+  1. `read_attempts` ran `int(k)` outside its handler. A 4500-digit key exceeds Python's integer-string limit, so the refresh died with `REFRESH_FAILED:worker:1` before it checked anything.
+  2. The stale-lock How text promised "done once the lock is gone". That is wrong for an Implementing task under an unanchored lock: row 5 becomes row 8, an orphan.
+  3. `write_attempts` duplicated `lib/atomic_write.py`.
+- **Also found while verifying (1):** a deeply nested JSON ledger raised `RecursionError`, which escaped the `(OSError, ValueError, UnicodeDecodeError)` handler as well.
+- **Changes made:**
+  - `read_attempts`:
+    - keys are bounded (`_ATTEMPT_KEY_RE`, at most 18 digits);
+    - each `int()` conversion is guarded on its own;
+    - the load catches any exception, because a scheduling hint must never stop a refresh.
+  - `write_attempts` now routes through `atomic_write.atomic_write_text`. As a side effect the file gets the umask mode instead of mkstemp's 0600; the 0600 was not intentional.
+  - The stale-lock How text now says refresh re-checks the item once the lock is gone: done when the task is no longer Implementing, otherwise it becomes an orphan to resume.
+- **Files affected:** `.aitask-scripts/lib/sitrep_refresh.py`, `.aitask-scripts/sitrep_tui/sitrep_tui_model.py`, `tests/test_sitrep_refresh.py`, `tests/test_sitrep_refresh.sh`, `tests/test_sitrep_tui_app.py`
+- **Tests added:**
+  - unit: a 4500-digit key and 200000-deep nesting are dropped;
+  - e2e (Test 15a): both malformed ledgers still give exit 0, check both the ordinary reminder and the recovery item, and leave a valid ledger behind;
+  - the orphan wording in the stale-lock How text.
+- **Pre-fix control** (old `read_attempts`, isolated worktree): 11 e2e assertions fail (refresh exits 1) and 1 unit fails. With the fix, everything passes.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **Refresh** (`lib/sitrep_refresh.py`):
+    - `recover:` items are `check="recovery"` targets that carry their recorded incarnation.
+    - The pure `recovery_refresh_verdict` maps the shared `sitrep_crash.recovery_verdict` onto refresh verdicts: stored rows → `open`, rows 2/4 → `unknown`, rows 3/9 → `done`. Row 1, no recorded incarnation, or a new episode → `unverified`. An equal verdict → `unchanged`.
+    - `Checker.check_recovery` reads `read_locks` / `read_active_tasks` lazily, once per run, and uses `read_inactive_task` for ids with no active file.
+    - The worker emits START kind `recovery`, and `ATTEMPTS:<ledger>` before `TARGETS`.
+    - `Stream` accepts `unchanged` / `unverified` only after a recovery START, and an interrupted recovery target becomes `unverified`.
+    - `cmd_run` leaves the skip lines out of the batch (an empty batch never spawns the writer) and prints `REFRESH_WARN:unverified|<n> not verified`.
+    - The attempt ledger (`read_attempts` / `merge_attempts` / `write_attempts` / `attempts_path`, under `<git common dir>/aitask-sitrep/refresh_attempts.json`) drives the recovery targets' order in `order_targets`.
+    - Test seam: `AITASK_SITREP_REFRESH_STALL_REF`.
+    - The wrapper header documents the new kind, the result words, the warnings and the ledger.
+  - **Monitor:**
+    - `sitrep_close.HARVEST_CRASHED_TIMEOUT = 120`.
+    - `_maybe_detect_sitrep_crashes` runs once per store root through `_run_sitrep_harvest` (`run_owned_group`).
+    - Maintenance order: harvest → detect → refresh.
+  - **TUI model:**
+    - `classify` → `recover`;
+    - the `RECOVER_STEPS` texts per category, plus a generic `NEXT_STEPS["recover"]`;
+    - `recover_category` (lazy `parse_outcome`) and `RECOVER_PICKABLE`;
+    - `task_ref_id` / `_fields` accept recover refs;
+    - `RefreshReport.partial`, and a verdict that names the "not verified" and "not reached" counts.
+  - **TUI actions:**
+    - `summarize_crashed`;
+    - `r` runs harvest → crashed → refresh, each step independent;
+    - a partial refresh toasts as a warning;
+    - the pick gate admits `recover` items in the crashed and orphan categories only.
+- **Deviations from plan:**
+  - A dismissal while refresh is parked before its write comes back `stale`, not `kept`: the writer checks the rev first, as the existing Test 6 documents. The dismissal still stands, and that is asserted.
+  - The ledger path is resolved with the same relative-common-dir join as `_fetched` (not `--path-format=absolute`), and is skipped for a non-git root.
+  - The test `Runner` matches canned answers by `"<script> <verb>"` first, because `harvest all` and `crashed` share one script.
+  - Review CR1 is above: the malformed-ledger hardening, the stale-lock wording, and `atomic_write` reuse.
+- **Issues encountered:**
+  - Mid-session, the live store already held 15 recover items (a real `crashed` run at 09:51 UTC), and a real refresh, probably the monitor tick, ran the new code at 09:57 UTC. It stamped the ledger and wrote nothing to the items, which matches the design.
+  - The live dry run checked 43 targets; every recovery item was `unchanged`.
+- **Key decisions:**
+  - The user chose the detector's rule (2026-11-16): a recovery item is written only on change, so `checked_at` means "evidence last changed".
+  - Fairness comes from the attempt ledger (user review, blocking).
+  - Partial verification is surfaced through `REFRESH_WARN:unverified` with no new final-line field, so the exact-string `REFRESHED:` assertions hold.
+  - Expected fairness rhythm: stamps tie per run and ties sort by item number, so passes alternate between A-only and full. No target waits more than one pass.
+- **Verification:**
+  - Python: 701 sitrep tests passed (534 + 167, `-n 4`), plus 375 after CR1.
+  - Shell:
+    - `test_sitrep_refresh.sh`: 197/197;
+    - `test_sitrep_crash.sh`: 119;
+    - `test_sitrep_harvest.sh`: 139;
+    - `test_sitrep_todo.sh`: 367;
+    - `test_sitrep_skill_contract.sh`: 70;
+    - `test_sitrep_corpus.sh`: 222;
+    - `test_no_lib_to_tui_import.sh`: 13.
+  - `shellcheck -x aitask_sitrep_refresh.sh`: clean.
+  - Not done: the live `ait sitrep tui` keypress check needs a human.
+- **Post-phase refresh_recovery_mutants** (an isolated `git worktree --detach`, removed afterwards). Failing assertions per mutant, unit / e2e:
+  - (a) row 1 writes `unknown`: 2 / 5;
+  - (b) unchanged lines stamped: 0 / 7;
+  - (c) raw evidence outcome: 3 / 12;
+  - (d) no new-episode guard: 2 / 3;
+  - (e) kind-agnostic `Stream`: 1 / 0;
+  - (f) the ledger ignored in ordering: 1 / 6;
+  - (g) finished-only stamps: 0 / 7;
+  - (h) no unverified warn: 0 / 7.
+
+  Each was caught by its guard-specific test.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t2299_4 (skill / docs)** should document:
+    - the `recovery` REFRESH_ITEM kind and the `unchanged` / `unverified` result words;
+    - `REFRESH_WARN:unverified|<n> not verified` and `REFRESH_WARN:attempts_unwritable`;
+    - recovery items written only on change, and the new-episode guard (the detector owns new claims);
+    - the advisory attempt ledger at `<git common dir>/aitask-sitrep/refresh_attempts.json`;
+    - the monitor tick order (harvest → crashed → refresh) and the TUI `r` order;
+    - pick allowed only for crashed and orphan items, with the stale-lock unlock command shown and never run;
+    - the TUI's partial-refresh verdict.
+  - The aidocs "Tests" table should name Tests 15/16 of `test_sitrep_refresh.sh`, plus `CrashDetectJobTests`, `CrashDetectorStepTests` and `RecoverPickTests`.
