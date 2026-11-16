@@ -162,3 +162,26 @@ in-flight edits from another task.
 > | - screenshots.markers.render_static_img(marker) raises ValueError when a value contains a FORBIDDEN_IN_VALUE sequence ('"', "--", "\"). A marker that came through parse_marker never does, but a hand-built Marker can. apply should report it as REFUSED:<scene>|<reason>, not crash.
 > | - marker file= and spec output: must both pass markers.path_problem: canonical, relative, each segment only [A-Za-z0-9._-]. apply can therefore copy to static/imgs/<output> and write src="imgs/<file>" with no encoding, and the browser requests exactly that file.
 > | - check_screenshots.py checks image shortcode sources at the browser's request path (query and fragment dropped, percent-decoded). An image written by apply that is missing is reported as MISSING_IMAGE.
+
+> **✉ note:t2278_4** id=2026-11-16T17:53:54Z.b5f122f88f8d5c169a0e35d6 from=t2278_4 from_verified=yes at=2026-11-16T17:53:54Z base=7d9572c13ee2cafe6110a585c593c21f9990d7a4 base_branch=main dirty=yes host=omg16
+>
+> | Two of the remaining markers are NOT captured by t2278_4 and wait for t2320
+> | (hide diffviewer from the TUI switcher list): tui_switcher_from_monitor and
+> | tui_switcher_from_minimonitor. The real switcher lists "Diff Viewer"
+> | (lib/tui_registry.py in_switcher=True), which CLAUDE.md keeps out of docs; the
+> | user chose to fix that first. Record those two scenes only after t2320 lands.
+> | 
+> | What t2278_4 adds that the skill's discovery/repair loop should use (details in
+> | aiplans/archived/p2278/p2278_4_*.md "Notes for sibling tasks", once archived):
+> | - verbs: session start --window NAME; pane split / window new; --pane on
+> |   screen/keys/wait/find/shot; --window on screen/find/shot. Panes are roles or
+> |   <window name>.<pane index>, never tmux ids.
+> | - every dataset now ships a stand-in `claude` (website/screenshots/standin_agent.py)
+> |   pinned first on PATH; a session refuses to start if `claude` resolves anywhere
+> |   else, so agent launches never reach a real agent. Dataset `agents` adds the
+> |   code-agent config, profiles and a local origin.
+> | - launch dialogs: wait for "Pick Task tN", "(R)un in tmux" AND the session name
+> |   ("lumen") before pressing r; an earlier r can be refused ("Please select a
+> |   session", a race in lib/agent_command_screen.py).
+> | - the sample project now holds a COPY of .aitask-scripts (a symlink let the
+> |   monitor read the real repo's config and sitrep list).
