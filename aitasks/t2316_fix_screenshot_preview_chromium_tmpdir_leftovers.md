@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2278
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-16 15:30
-updated_at: 2026-11-16 15:33
+updated_at: 2026-11-16 15:50
 ---
 
 ## Origin
@@ -51,3 +52,8 @@ Give the Chromium subprocess a SHORT dedicated `TMPDIR` (e.g. a
 afterwards), and add a test that runs `render_png` under a private `TMPDIR`
 and asserts nothing is left in it. Also check whether a long `$TMPDIR` should
 make `render_png` fall back to a short one rather than abort.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-16T13:50:52Z status=pass attempt=1 type=human
