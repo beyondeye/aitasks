@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [testmap, bash_scripts]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2304
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 23:14
-updated_at: 2026-11-16 11:40
+updated_at: 2026-11-16 13:24
+completed_at: 2026-11-16 13:24
 ---
 
 ## Origin
@@ -58,3 +59,14 @@ whether to refuse/escape it rather than leave it C-quoted.
 > **✅ gate:plan_approved** run=2026-11-16T09:40:21Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-16T10:57:08Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-16T11:24:08Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:63318a37840e6aa6
+
+> **✅ gate:risk_evaluated** run=2026-11-16T11:24:08Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2310/risk_evaluated_2026-11-16T11:24:08Z-risk_evaluated-a1.log`
