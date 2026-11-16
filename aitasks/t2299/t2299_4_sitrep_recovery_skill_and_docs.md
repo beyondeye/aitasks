@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2299
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 12:55
-updated_at: 2026-11-16 13:27
+updated_at: 2026-11-16 15:31
 ---
 
 ## Context
@@ -144,3 +145,8 @@ Never `git restore` / `git stash` / checkout in this repo. Commit only this task
 > | - test_recovery_guidance_per_category in test_sitrep_tui_app.py.
 
 > **👁 note:read** id=2026-11-16T11:26:54Z.c9d3f3c2af102ec342e1e656 by=t2299_4 at=2026-11-16T11:26:54Z mode=explicit ids=2026-11-16T10:57:03Z.51a1f58e01114761a41e1ddc
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-16T13:31:40Z status=pass attempt=1 type=human
