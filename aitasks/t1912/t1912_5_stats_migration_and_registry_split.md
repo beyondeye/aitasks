@@ -186,3 +186,5 @@ Step 9 (Post-Implementation) applies.
 > | - registry_cas.sh stays (aitask_opencode_models.sh and your strip). Its header comment now names the strip.
 > | - tests/golden/model_stats_parity/steps.tsv freezes the former jq writers' per-step buckets (22 rows). tests/test_model_stats_parity.sh checks the Python ports against it, and merge_buckets builds on those ports.
 > | - The CLI now accepts any non-empty skill without control characters. The writer bridge forwards `--opt=value` tokens, so a skill like `-custom` is safe.
+
+> **👁 note:read** id=2026-11-16T11:43:08Z.b9341ed4afacb724243645fc by=t1912_5 at=2026-11-16T11:43:08Z mode=explicit ids=2026-11-16T09:45:36Z.9121ebab52cdf3585d464cb1
