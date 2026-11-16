@@ -14,9 +14,12 @@ Two rules found on the first real capture (t2278_2):
 from __future__ import annotations
 
 import io
+import os
 import re
 import shutil
+import signal
 import subprocess
+import time
 from pathlib import Path
 
 from rich.ansi import AnsiDecoder
@@ -92,6 +95,93 @@ CHAR_WIDTH = 12.2
 
 _BROWSERS = ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable")
 
+#: Chromium binds ``$TMPDIR/org.chromium.Chromium.XXXXXX/SingletonSocket`` and
+#: aborts at startup when that path does not fit a Unix socket address:
+#: ``sun_path`` holds 108 bytes, the terminating NUL included (t2316).
+_SOCKET_TAIL = len("/org.chromium.Chromium.XXXXXX/SingletonSocket")
+_SUN_PATH_MAX = 107
+#: Short base used when the caller's temp dir is too long for that socket.
+_SHORT_TMP_FALLBACK = "/tmp"
+
+
+def _socket_fits(scratch: str) -> bool:
+    # sun_path is a BYTE limit: measure the encoded path, not its characters.
+    return len(os.fsencode(scratch)) + _SOCKET_TAIL <= _SUN_PATH_MAX
+
+
+def _chrome_scratch_dir() -> str:
+    """A fresh private dir for one Chromium run, short enough for its socket.
+
+    Made under ``tempfile.gettempdir()`` when the resulting socket path fits,
+    else under ``_SHORT_TMP_FALLBACK``. Raises :class:`ExportError`, leaving
+    nothing behind, when neither fits: Chromium would only abort on it. The
+    caller removes the returned dir.
+    """
+    import tempfile
+
+    try:
+        # Measure the created path itself, so no suffix length is assumed.
+        scratch = tempfile.mkdtemp(prefix="ait_shots_chrome_")
+        if _socket_fits(scratch):
+            return scratch
+        os.rmdir(scratch)
+    except OSError as exc:
+        raise ExportError(f"no scratch dir for Chromium could be made in "
+                          f"{tempfile.gettempdir()}: {exc}") from exc
+    try:
+        short = tempfile.mkdtemp(prefix="ait_shots_chrome_", dir=_SHORT_TMP_FALLBACK)
+    except OSError as exc:
+        raise ExportError(
+            f"temp dir {scratch!r} is too long for Chromium's socket and no "
+            f"scratch dir could be made in {_SHORT_TMP_FALLBACK}: {exc}") from exc
+    if not _socket_fits(short):
+        os.rmdir(short)
+        raise ExportError("no temp dir short enough for Chromium's socket "
+                          f"(tried {scratch!r} and {short!r})")
+    return short
+
+
+#: Waits between attempts to remove a scratch dir: a Chromium helper process
+#: can outlive the browser and still be writing in it.
+_CLEANUP_DELAYS = (0.05, 0.1, 0.2, 0.4, 0.8)
+
+
+def _remove_scratch(scratch: str) -> OSError | None:
+    """Remove a Chromium scratch dir, retrying while something may still be
+    writing in it. Returns the last error when the dir is still there."""
+    error: OSError | None = None
+    for delay in (0, *_CLEANUP_DELAYS):
+        if delay:
+            time.sleep(delay)
+        try:
+            shutil.rmtree(scratch)
+        except FileNotFoundError:
+            pass                    # an entry vanished mid-walk; check below
+        except OSError as exc:
+            error = exc
+        if not os.path.lexists(scratch):
+            return None
+    return error or OSError(f"{scratch} still exists")
+
+
+def _last_line(stderr: bytes | str | None) -> str:
+    """The last non-empty line of a process's stderr, as an error-message tail."""
+    if isinstance(stderr, bytes):
+        stderr = stderr.decode(errors="replace")
+    lines = [line.strip() for line in (stderr or "").splitlines()]
+    lines = [line for line in lines if line]
+    return f" — {lines[-1]}" if lines else ""
+
+
+def _exit_reason(returncode: int) -> str:
+    """How a process ended, briefly (its full argv is not worth a line)."""
+    if returncode < 0:
+        try:
+            return f"killed by {signal.Signals(-returncode).name}"
+        except ValueError:
+            return f"killed by signal {-returncode}"
+    return f"exit status {returncode}"
+
 
 def render_png(svg_path: Path, png_path: Path, *, timeout: float = 90.0) -> str:
     """Render a PNG *preview* of the SVG and return the renderer's name.
@@ -110,16 +200,61 @@ def render_png(svg_path: Path, png_path: Path, *, timeout: float = 90.0) -> str:
     width, height = int(width + 0.999), int(height + 0.999)
     browser = next((b for b in _BROWSERS if shutil.which(b)), None)
     if browser:
-        import tempfile
-
-        with tempfile.TemporaryDirectory(prefix="ait_shots_chrome_") as profile:
-            argv = [browser, "--headless", "--disable-gpu", "--hide-scrollbars",
-                    f"--user-data-dir={profile}", f"--window-size={width},{height}",
-                    f"--screenshot={png_path}", svg_path.as_uri()]
+        scratch = _chrome_scratch_dir()
+        # A failed run as (summary, detail, stderr tail, cause), reported after
+        # cleanup. Callers print one line truncated to a few hundred characters,
+        # so the message is ordered by importance and only its summaries are
+        # guaranteed to survive: summaries carry NO paths (their length is
+        # bounded), every path goes in the details after them.
+        failure: tuple[str, str, str, BaseException] | None = None
+        try:
+            profile = os.path.join(scratch, "profile")
             try:
-                subprocess.run(argv, capture_output=True, timeout=timeout, check=True)
-            except (OSError, subprocess.SubprocessError) as exc:
-                raise ExportError(f"{browser} could not render {svg_path}: {exc}") from exc
+                os.mkdir(profile)
+            except OSError as exc:
+                failure = ("could not set up a Chromium profile",
+                           f"{profile}: {exc.strerror or exc}", "", exc)
+            else:
+                # Chromium puts its own temp files (url-fetcher dirs, the
+                # singleton socket) in $TMPDIR, outside the profile. Point it at
+                # the scratch dir: they are removed with it, and the socket path
+                # stays short.
+                env = {**os.environ, "TMPDIR": scratch}
+                argv = [browser, "--headless", "--disable-gpu", "--hide-scrollbars",
+                        f"--user-data-dir={profile}", f"--window-size={width},{height}",
+                        f"--screenshot={png_path}", svg_path.as_uri()]
+                head = f"{browser} could not render the SVG"
+                try:
+                    subprocess.run(argv, capture_output=True, timeout=timeout, check=True,
+                                   env=env)
+                except subprocess.CalledProcessError as exc:
+                    failure = (f"{head}: {_exit_reason(exc.returncode)}", str(svg_path),
+                               _last_line(exc.stderr), exc)
+                except subprocess.TimeoutExpired as exc:
+                    failure = (f"{head}: timed out after {timeout:g}s", str(svg_path),
+                               _last_line(exc.stderr), exc)
+                except OSError as exc:
+                    failure = (f"{browser} could not be started: {exc.strerror or 'error'}",
+                               str(exc), "", exc)
+                except subprocess.SubprocessError as exc:
+                    failure = (head, f"{svg_path}: {exc}", "", exc)
+        except BaseException as exc:
+            # Interrupted: the interrupt is the error; a leftover rides along.
+            leftover = _remove_scratch(scratch)
+            if leftover is not None:
+                exc.add_note(f"its scratch dir {scratch} could not be removed: {leftover}")
+            raise
+        leftover = _remove_scratch(scratch)
+        left = "" if leftover is None else \
+            f"; scratch dir {scratch}: {leftover.strerror or leftover}"
+        if failure:
+            summary, detail, tail, cause = failure
+            also = "" if leftover is None else \
+                "; its scratch dir could not be removed either"
+            raise ExportError(f"{summary}{also} ({detail}{left}){tail}") from cause
+        if leftover is not None:
+            raise ExportError(f"{browser} ran, but its scratch dir could not be removed "
+                              f"({left[2:]})")
         if png_path.is_file():
             return browser
         raise ExportError(f"{browser} wrote no PNG for {svg_path}")

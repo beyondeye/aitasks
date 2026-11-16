@@ -9,14 +9,18 @@ the screens are canned rows.
 Run: bash tests/run_all_python_tests.sh
   or: python3 -m pytest tests/test_screenshots_svgpost.py -v
 """
+import contextlib
+import io
 import os
 import re
 import shutil
 import struct
+import subprocess
 import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "website"))
 
@@ -254,13 +258,26 @@ def rendered_label_bounds(svg):
               "document.body.setAttribute('data-out',JSON.stringify({vb:[v.x,v.y,v.width,"
               "v.height],labels:[...document.querySelectorAll('.shot-label')].map(t=>{"
               "const b=t.getBBox();return [b.x,b.x+b.width]})}));</script>")
-    with tempfile.TemporaryDirectory(prefix="ait_shots_bbox_") as tmp:
+    # The same short private TMPDIR as render_png: Chromium's url-fetcher dirs
+    # land in it, and a long $TMPDIR cannot abort it on its socket path.
+    tmp = sx._chrome_scratch_dir()
+    try:
         page = Path(tmp) / "page.html"
         page.write_text(f"<!doctype html><html><body>{svg}{script}</body></html>",
                         encoding="utf-8")
         out = subprocess.run([browser, "--headless", "--disable-gpu", "--dump-dom",
                               f"--user-data-dir={tmp}/profile", page.as_uri()],
-                             capture_output=True, text=True, timeout=90).stdout
+                             capture_output=True, text=True, timeout=90,
+                             env={**os.environ, "TMPDIR": tmp}).stdout
+    except BaseException as exc:
+        leftover = sx._remove_scratch(tmp)
+        if leftover is not None:
+            exc.add_note(f"its scratch dir {tmp} could not be removed: {leftover}")
+        raise
+    # A leftover is the defect these dirs exist to prevent: fail, never accept.
+    leftover = sx._remove_scratch(tmp)
+    if leftover is not None:
+        raise AssertionError(f"Chromium scratch dir {tmp} could not be removed: {leftover}")
     import html as html_mod
 
     data = json.loads(html_mod.unescape(re.search(r'data-out="([^"]*)"', out).group(1)))
@@ -317,6 +334,228 @@ class PreviewTests(unittest.TestCase):
             self.assertEqual((width, height), (int(w + 0.999), int(h + 0.999)))
         else:
             self.assertGreater(width, 0)
+
+
+def private_dir(test, parent="/tmp"):
+    """A fresh dir removed when ``test`` ends. Under the short ``/tmp`` by
+    default, so a test controls which side of Chromium's socket limit it is on
+    whatever ``$TMPDIR`` the run has."""
+    path = tempfile.mkdtemp(prefix="shots_", dir=parent)
+    test.addCleanup(shutil.rmtree, path, True)
+    return path
+
+
+def long_dir(test):
+    path = os.path.join(private_dir(test), "d" * 100)
+    os.mkdir(path)
+    return path
+
+
+@contextlib.contextmanager
+def temp_root(path):
+    """``path`` as the temp dir for both Python (``tempfile``) and Chromium."""
+    with mock.patch.dict(os.environ, {"TMPDIR": path}), \
+            mock.patch.object(tempfile, "tempdir", path):
+        yield
+
+
+class ChromiumScratchTests(unittest.TestCase):
+    """Chromium's temp files and its singleton socket (t2316)."""
+
+    def cropped_svg(self):
+        out = sp.postprocess(export(), {"cells": [1, 1, 6, 3], "gutter": 5},
+                             overlays([BOX, LABEL]))
+        work = Path(private_dir(self))
+        (work / "a.svg").write_text(out, encoding="utf-8")
+        return out, work / "a.svg", work / "a.png"
+
+    def test_a_short_temp_dir_is_used_as_is(self):
+        root = private_dir(self)
+        with temp_root(root):
+            scratch = sx._chrome_scratch_dir()
+        self.addCleanup(shutil.rmtree, scratch, True)
+        self.assertEqual(os.path.dirname(scratch), root)
+
+    def test_a_long_temp_dir_falls_back_to_the_short_base(self):
+        root, fallback = long_dir(self), private_dir(self)
+        with temp_root(root), mock.patch.object(sx, "_SHORT_TMP_FALLBACK", fallback):
+            scratch = sx._chrome_scratch_dir()
+        self.addCleanup(shutil.rmtree, scratch, True)
+        self.assertEqual(os.path.dirname(scratch), fallback)
+        self.assertEqual(os.listdir(root), [])
+
+    def test_a_non_ascii_temp_dir_is_measured_in_bytes(self):
+        base, fallback = private_dir(self), private_dir(self)
+        budget = sx._SUN_PATH_MAX - sx._SOCKET_TAIL
+        # Longest run of "é" (2 bytes each) whose scratch path still fits in
+        # CHARACTERS; it then overflows in bytes.
+        tail = len("/ait_shots_chrome_") + 8          # mkdtemp's 8-char suffix
+        n = budget - len(base) - 1 - tail
+        root = os.path.join(base, "é" * n)
+        os.mkdir(root)
+        probe = os.path.join(root, "ait_shots_chrome_" + "x" * 8)
+        self.assertLessEqual(len(probe), budget)               # fits as characters
+        self.assertGreater(len(os.fsencode(probe)), budget)    # not as bytes
+        with temp_root(root), mock.patch.object(sx, "_SHORT_TMP_FALLBACK", fallback):
+            scratch = sx._chrome_scratch_dir()
+        self.addCleanup(shutil.rmtree, scratch, True)
+        self.assertEqual(os.path.dirname(scratch), fallback)
+        self.assertEqual(os.listdir(root), [])
+
+    def test_no_short_dir_raises_before_launching_chromium(self):
+        _, svg_path, png_path = self.cropped_svg()
+        root = long_dir(self)
+        missing = os.path.join(private_dir(self), "missing")
+        which = lambda name: "/usr/bin/chromium" if name == "chromium" else None  # noqa: E731
+        with temp_root(root), mock.patch.object(sx, "_SHORT_TMP_FALLBACK", missing), \
+                mock.patch.object(sx.shutil, "which", which), \
+                mock.patch.object(sx.subprocess, "run") as run:
+            with self.assertRaisesRegex(sx.ExportError, "too long for Chromium's socket"):
+                sx.render_png(svg_path, png_path)
+        run.assert_not_called()
+        self.assertEqual(os.listdir(root), [])
+        self.assertFalse(os.path.exists(missing))
+
+    @contextlib.contextmanager
+    def fake_chromium(self, root):
+        """A ``chromium`` on PATH whose run writes the PNG, under temp dir
+        ``root``; no real browser and no real waits."""
+        def run(argv, **kwargs):
+            png = next(a for a in argv if a.startswith("--screenshot="))
+            Path(png.split("=", 1)[1]).write_bytes(b"\x89PNG\r\n\x1a\n")
+        which = lambda name: "/usr/bin/chromium" if name == "chromium" else None  # noqa: E731
+        with temp_root(root), mock.patch.object(sx.shutil, "which", which), \
+                mock.patch.object(sx.subprocess, "run", side_effect=run) as fake_run, \
+                mock.patch.object(sx.time, "sleep"):
+            yield fake_run
+
+    def flaky_rmtree(self, failures):
+        """``shutil.rmtree`` that leaves the dir in place, as a late writer
+        would, on its first ``failures`` calls."""
+        real, calls = shutil.rmtree, []
+
+        def rmtree(path, *args, **kwargs):
+            calls.append(path)
+            if len(calls) <= failures:
+                raise OSError(39, "Directory not empty", path)
+            return real(path, *args, **kwargs)
+        return rmtree, calls
+
+    def test_a_transient_cleanup_failure_is_retried(self):
+        _, svg_path, png_path = self.cropped_svg()
+        root = private_dir(self)
+        rmtree, calls = self.flaky_rmtree(failures=2)
+        with self.fake_chromium(root), mock.patch.object(sx.shutil, "rmtree", rmtree):
+            self.assertEqual(sx.render_png(svg_path, png_path), "chromium")
+        self.assertEqual(len(calls), 3)
+        self.assertEqual(os.listdir(root), [])
+
+    def test_a_scratch_dir_that_cannot_be_removed_is_an_error(self):
+        _, svg_path, png_path = self.cropped_svg()
+        root = private_dir(self)
+        rmtree, calls = self.flaky_rmtree(failures=99)
+        with self.fake_chromium(root), mock.patch.object(sx.shutil, "rmtree", rmtree):
+            with self.assertRaisesRegex(sx.ExportError, "could not be removed"):
+                sx.render_png(svg_path, png_path)
+        self.assertEqual(len(calls), 1 + len(sx._CLEANUP_DELAYS))
+        self.assertEqual(len(os.listdir(root)), 1)     # reported, not hidden
+
+    def test_the_cli_shows_both_a_render_failure_and_a_leftover(self):
+        from screenshots import cli
+
+        out_svg, _, _ = self.cropped_svg()
+        root = private_dir(self)
+        # A staging path longer than the CLI's whole 300-character line: no
+        # path length may push either failure out of what it prints.
+        batch = Path(private_dir(self)) / ("staging_" + "b" * 200) / ("c" * 100)
+        batch.mkdir(parents=True)
+        image = batch / "scene_a.svg"
+        self.assertGreater(len(str(image)), 300)
+        image.write_text(out_svg, encoding="utf-8")
+        rmtree, _ = self.flaky_rmtree(failures=99)
+        fatal = ("[1:1:1116/153339.358377:FATAL:chrome/browser/process_singleton_posix.cc"
+                 ":315] Socket path too long: /" + "p" * 150 + "/SingletonSocket")
+        crash = subprocess.CalledProcessError(-6, ["chromium"], stderr=fatal.encode())
+        with self.fake_chromium(root) as run, \
+                mock.patch.object(sx.shutil, "rmtree", rmtree), \
+                contextlib.redirect_stdout(io.StringIO()) as printed:
+            run.side_effect = crash
+            self.assertFalse(cli.preview_png(batch, "scene_a", image))
+        line = printed.getvalue()
+        self.assertIn("PNG_UNAVAILABLE:chromium could not render", line)
+        self.assertIn("killed by SIGABRT", line)                  # the primary error
+        self.assertIn("could not be removed either", line)        # and the leftover
+        self.assertEqual(len(os.listdir(root)), 1)
+
+    def test_the_bounds_helper_fails_on_a_leftover(self):
+        root = private_dir(self)
+        rmtree, _ = self.flaky_rmtree(failures=99)
+        dom = subprocess.CompletedProcess(
+            [], 0, stdout='<body data-out="{&quot;vb&quot;:[0,0,1,1],&quot;labels&quot;:[]}">')
+        which = lambda name: "/usr/bin/chromium" if name == "chromium" else None  # noqa: E731
+        with temp_root(root), mock.patch.object(sx.shutil, "which", which), \
+                mock.patch.object(sx.subprocess, "run", return_value=dom), \
+                mock.patch.object(sx.shutil, "rmtree", rmtree), \
+                mock.patch.object(sx.time, "sleep"):
+            with self.assertRaisesRegex(AssertionError, "could not be removed"):
+                rendered_label_bounds(export())
+        self.assertEqual(len(os.listdir(root)), 1)
+
+    def test_a_profile_setup_failure_is_an_export_error(self):
+        _, svg_path, png_path = self.cropped_svg()
+        root = private_dir(self)
+        real_mkdir = os.mkdir
+
+        def mkdir(path, *args, **kwargs):
+            if os.path.basename(path) == "profile":
+                raise OSError(28, "No space left on device", path)
+            return real_mkdir(path, *args, **kwargs)
+        with self.fake_chromium(root) as run, mock.patch.object(sx.os, "mkdir", mkdir):
+            with self.assertRaisesRegex(sx.ExportError, "Chromium profile"):
+                sx.render_png(svg_path, png_path)
+        run.assert_not_called()
+        self.assertEqual(os.listdir(root), [])
+
+    def test_a_scratch_dir_creation_failure_is_an_export_error(self):
+        _, svg_path, png_path = self.cropped_svg()
+        root = private_dir(self)
+        with self.fake_chromium(root) as run, mock.patch.object(
+                tempfile, "mkdtemp", side_effect=OSError(28, "No space left on device")):
+            with self.assertRaisesRegex(sx.ExportError, "no scratch dir for Chromium"):
+                sx.render_png(svg_path, png_path)
+        run.assert_not_called()
+
+    def test_a_too_long_fallback_raises_and_cleans_up(self):
+        root, fallback = long_dir(self), long_dir(self)
+        with temp_root(root), mock.patch.object(sx, "_SHORT_TMP_FALLBACK", fallback):
+            with self.assertRaisesRegex(sx.ExportError, "no temp dir short enough"):
+                sx._chrome_scratch_dir()
+        self.assertEqual(os.listdir(root), [])
+        self.assertEqual(os.listdir(fallback), [])
+
+    @unittest.skipUnless(any(shutil.which(b) for b in BROWSERS), "no Chromium installed")
+    def test_a_preview_leaves_nothing_in_the_temp_dir(self):
+        _, svg_path, png_path = self.cropped_svg()
+        root = private_dir(self)
+        with temp_root(root):
+            # Chromium leaks its url-fetcher dir on most runs, not all.
+            for _ in range(3):
+                self.assertNotEqual(sx.render_png(svg_path, png_path), "rsvg-convert")
+                self.assertEqual(os.listdir(root), [])
+
+    @unittest.skipUnless(any(shutil.which(b) for b in BROWSERS), "no Chromium installed")
+    def test_a_long_temp_dir_still_renders(self):
+        out, svg_path, png_path = self.cropped_svg()
+        root, fallback = long_dir(self), private_dir(self)
+        with temp_root(root), mock.patch.object(sx, "_SHORT_TMP_FALLBACK", fallback):
+            sx.render_png(svg_path, png_path)
+        data = png_path.read_bytes()
+        self.assertEqual(data[:8], b"\x89PNG\r\n\x1a\n")
+        _, _, w, h = vb(out)
+        self.assertEqual(struct.unpack(">II", data[16:24]),
+                         (int(w + 0.999), int(h + 0.999)))
+        self.assertEqual(os.listdir(root), [])
+        self.assertEqual(os.listdir(fallback), [])
 
 
 class ScreenRectTests(unittest.TestCase):
