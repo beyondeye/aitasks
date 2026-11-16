@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2278
+implemented_with: claudecode/fable5_2
 created_at: 2026-11-15 18:12
-updated_at: 2026-11-15 23:01
+updated_at: 2026-11-16 08:22
 ---
 
 ## Context
@@ -134,3 +135,8 @@ is one scene end to end (`board_child_tasks`) before the format is generalised.
 > | - Final scene/file table for the 17 migrated markers: 13 scenes, including a third switcher scene, tui_switcher_from_minimonitor. See "Notes for sibling tasks" in aiplans/p2278/p2278_1_marker_grammar_check_and_migration.md (archived under aiplans/archived/p2278/ after t2278_1 closes).
 
 > **👁 note:read** id=2026-11-15T21:01:23Z.6fa3f62ec63687eb19d35f21 by=t2278_2 at=2026-11-15T21:01:23Z mode=explicit ids=2026-11-15T20:16:55Z.3b93d72e75ca0bfe3c915d24
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-16T06:22:58Z status=pass attempt=1 type=human
