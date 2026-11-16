@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [website, screenshots]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2278
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-16 15:30
-updated_at: 2026-11-16 15:50
+updated_at: 2026-11-16 18:10
+completed_at: 2026-11-16 18:10
 ---
 
 ## Origin
@@ -61,3 +62,14 @@ make `render_png` fall back to a short one rather than abort.
 > **✅ gate:plan_approved** run=2026-11-16T13:50:52Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-16T16:00:52Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-16T16:10:33Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:6b92d901b52961cd
+
+> **✅ gate:risk_evaluated** run=2026-11-16T16:10:33Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2316/risk_evaluated_2026-11-16T16:10:33Z-risk_evaluated-a1.log`
