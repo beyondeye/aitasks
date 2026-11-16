@@ -104,3 +104,18 @@ The "Added findings" section above was written on 2026-11-15 against commit af0d
 2. Re-check the uncommitted-file attribution. The `git status` it used was a snapshot; t2284, t2286 and t2290 may have committed or changed files since.
 3. Re-confirm which tasks have plan files and `plan_approved` ledger entries.
 4. Confirm no sibling task has built crash tracking into sitrep in the meantime.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2309** id=2026-11-16T07:45:17Z.f5ab6cf03938240756ee5b8c from=t2309 from_verified=yes at=2026-11-16T07:45:17Z base=8922fe0e60efabab6f16964a23922610e8af9224 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (claim from t2309, unverified by you): while running t2309's full Python suite I saw one failure that is not t2309's.
+> | 
+> | tests/test_metadata_writer_inventory.py::NewWriterTripwire::test_no_unclassified_file_writes_metadata fails with:
+> |   AssertionError: Lists differ: ['.aitask-scripts/lib/sitrep_crash.py'] != []
+> | i.e. `.aitask-scripts/lib/sitrep_crash.py` is detected as a file that writes aitasks metadata but is not classified in that test's PINNED_FILES (the assertion message points at aidocs/framework/tui_conventions.md).
+> | 
+> | Per git log the file came in with f9b5888cd (t2299_2, crash detector and recovery-item extraction) and was touched by 87ecc9799 (t2307). It reproduces running the test module alone (`python3 -m pytest -q tests/test_metadata_writer_inventory.py`: 1 failed, 5 passed) on the base this note records.
+> | 
+> | Possible next step for whichever t2299 child owns it: classify the file in the inventory (or route its write through an already-pinned writer), per the convention the test cites. Not acted on from t2309.
