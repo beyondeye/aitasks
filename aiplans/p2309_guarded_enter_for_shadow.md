@@ -282,7 +282,7 @@ stays documented.
   the post-read gap: the minimonitor smoke is caught by the pre-write read, and
   the sitrep live suite's conjunct-only mutant is declared green on (h).
   Step 9's baseline red proof covers the fake only. · severity: medium ·
-  → mitigation: live_dispatch_race_test_for_shadow
+  → mitigation: t2313
 - The guarded dispatch runs synchronously on the Textual event loop. That is
   deliberate: it keeps the no-await checkpoint→key and dispatch→outcome
   invariants. But it makes 3 blocking `tmux_run` calls (plus a 4th on a skip),
@@ -290,12 +290,12 @@ stays documented.
   ack. A tmux stall can freeze the minimonitor for about 15–20s, up from about
   5s with today's single `send_keys`. This plan has no responsiveness
   acceptance criterion. · severity: medium ·
-  → mitigation: bounded_guarded_dispatch_budget
+  → mitigation: t2314
 
 ### Goal-achievement risk: low
 - The write-side one-round-trip mode residual stays open by scope decision.
   Closing it needs the paste transport plus t1525's live drain sweep.
-  · severity: low · → mitigation: guarded_prompt_write_for_shadow
+  · severity: low · → mitigation: t2312
 
 ### Planned mitigations
 - timing: after | name: guarded_prompt_write_for_shadow | type: enhancement | priority: low | effort: medium | inline_risk: high | added_complexity: medium | addresses: goal-achievement — write-side one-round-trip mode residual left open by scope | desc: Move the minimonitor shadow recheck's literal prompt write (`_fire_shadow_recheck`) from `send_keys -l` to `monitor_core.guarded_paste_text` (identity + not-in-mode guarded, nonce-acked) and re-run t1525's live drain sweep over claude/codex/opencode, since the write transport changes | created: t2312
