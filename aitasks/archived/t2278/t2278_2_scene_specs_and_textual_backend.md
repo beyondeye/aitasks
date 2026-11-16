@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: high
 depends: [t2278_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [website, documentation, tui, screenshots]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2278
 implemented_with: claudecode/fable5_2
 created_at: 2026-11-15 18:12
-updated_at: 2026-11-16 08:23
+updated_at: 2026-11-16 09:31
+completed_at: 2026-11-16 09:31
 ---
 
 ## Context
@@ -132,3 +133,14 @@ implementation step is the example done by hand before any tooling.
 > **✅ gate:plan_approved** run=2026-11-16T06:22:58Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-16T07:31:18Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-16T07:31:39Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:477fcdf5548afc0c
+
+> **✅ gate:risk_evaluated** run=2026-11-16T07:31:39Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2278_2/risk_evaluated_2026-11-16T07:31:39Z-risk_evaluated-a1.log`
