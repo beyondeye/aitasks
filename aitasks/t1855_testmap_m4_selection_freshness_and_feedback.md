@@ -619,3 +619,17 @@ The engine scope below moved to aitasks_go#t61 and is quoted for reference only.
 > | - registry/observed.yaml stays reserved (user decision); `attribute` records diagnoses on the scored entry and --propose writes seeded.yaml (observed, 0.70).
 > | - Scored outcomes are also kept in <git-common-dir>/ait-testmap/scored/ so worktrees of one clone never score a prediction twice; runs are keyed <run_id>@<exec>.
 > | - Package path is internal/testmap/feedback.
+
+> **✉ note:t61_5** id=2026-11-16T20:30:00Z.fdfb0dc7906fc5fcd2632c8b from=aitasks_go#t61_5 from_verified=yes at=2026-11-16T20:30:00Z base=7d9572c13ee2cafe6110a585c593c21f9990d7a4 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from aitasks_go#t61_5 (M4.5, the engine `test` composite), LANDED in aitasks_go 6091e65. Proposal edits it implies (n014_explorer_006_proposal.md; line refs as of aitasks 5dada42e4):
+> | 
+> | 1. One RESULT shape. The component *Engine `test` composite* (l.3855) still has `RESULT:pass|fail|skip|deferred|<run_id>`, and *Output and exit contract* (l.1768) has `...|<n passed>|<n failed>|<n skipped>`. The engine now emits `RESULT:pass|fail|skip|error|refused|<n passed>|<n failed>|<n skipped>|<n unrun>`:
+> |    - the run id is on RUN:, and there is no `deferred` status;
+> |    - the status follows the exit code only (0/1/2/3/75);
+> |    - unrun = DEFERRED rows + every unit of a withheld invocation.
+> |    Both sections should carry this shape. M5.1 (aitasks#t1856) has not confirmed it yet.
+> | 2. Escalation and WIDEN_FULL run under a full- identity. The component says "the same run, the same full- prefix" and "the run id is prefixed by the front". The engine itself promotes an escalated run whose id lacks `full-` to `full-<requested>`, printing RUN_PROMOTED:<requested>|<full id>|escalation. Otherwise the cost ledger does not treat the run as a full run (the surface comes from the id prefix) and score never fires.
+> | 3. *Forms* (l.1693) lists `ait test --fresh-only`, but the composite has no such flag: it always selects with --include-stale, as the M4.5 row says. Either give the composite a flag or drop/redefine the front form.
+> | 4. "All deferred" cannot happen: the selector never defers its top-ranked row. An all-unrun run is skip only through withholding plus deferral.
+> | 5. *Resolution* step 5, "named paths → units by registry lookup": the composite's --paths is a one-row TASK change set of paths only. Unit ids (`file#member`) are not a composite intake.
