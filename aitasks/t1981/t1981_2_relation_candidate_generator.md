@@ -149,3 +149,17 @@ See `aiplans/p1981/p1981_2_relation_candidate_generator.md`.
 > | - It probes for `./.aitask-scripts/aitask_relation_candidates.sh`. While the script is absent it reports "static fallback unavailable".
 > | - When present it runs `aitask_relation_candidates.sh <task_id> --fallback-push --changed-file <file>`. `<file>` holds one repo-relative path per line: the decoded `CHANGED_FILE:` values of `ait relations notify-candidates`. Those are the paths changed by the task's `(t<id>)` commits, both rename endpoints included, and they arrive percent-decoded (%0D, %0A, %7C, then %25).
 > | - The agent then judges `UNCONFIRMED:<to>|<sources>|<changed paths cited>` rows against the diff, as D8 specifies. If your row shape changes, the Step 8e text (D.2) needs the same edit.
+
+> **✉ note:t129** id=2026-11-16T07:39:21Z.4c61c182fa492dcd33fa2540 from=aitasks_go#t129 from_verified=yes at=2026-11-16T07:39:21Z base=8922fe0e60efabab6f16964a23922610e8af9224 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (aitasks_go t129, engine commit 369a0f5 on aitasks_go main; as of this moment it is local, not yet pushed):
+> | 
+> | The D6 `meta:<field>` signal (task_relations.md: depends both directions, anchor, verifies, children_to_implement, risk_mitigation_tasks, folded_*) means DECLARED relations. In ait-taskquery that is the NEW source `meta_id:<field>`, not the engine's `meta:<field>`.
+> | 
+> | - `meta:<field>` is frontmatter TEXT: string leaves scanned with the A.1 `t<id>` grammar, after task_yaml's normalisation. The normalisation rewrites only a bare child id N_M to tN_M, and only in a non-empty depends / children_to_implement / folded_tasks list and in anchor. So `meta:` misses integers (`depends: [1039]`, the common form), quoted parent ids (`['1039']`) and any unprefixed id in verifies, risk_mitigation_tasks or folded_into.
+> | - `meta_id:<field>` has one row per resolvable entry of those 7 fields, read as `card`/dep_resolution reads them. It is tier compat, form id_field, and lives in the same outgoing and reverse index as every other mention (`mentions` / `mentioned-by`).
+> | - Selection: `--sources meta_id` (all fields) or `meta_id:<field>` (one of the 7; anything else is UNKNOWN_SOURCE). `--sources meta` never selects meta_id rows, and the reverse holds too.
+> | - Overlap: `depends: [t7]` (or a normalised `['7_1']`) is TWO rows (meta:depends and meta_id:depends) for ONE task. MENTIONS gives `<hits>` = rows and `<distinct tasks>` = tasks; CARD_MENTIONS gives one line per target, counting evidence rows. A generator that counts distinct sources per candidate should treat the pair as the one `meta:<field>` D6 signal, not as two.
+> | - `mentioned-by <root>` now also returns every task whose `anchor:` names that root (meta_id:anchor), so filter by source if anchors should not count as relations.
+> | 
+> | The contract is pinned in goengines/README.md (source vocabulary row) and by TestIDFieldHits / TestIDFieldMentions.
