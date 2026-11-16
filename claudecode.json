@@ -20,6 +20,27 @@
           }
         }
       }
+    },
+    "opus5_5": {
+      "usagestats": {
+        "pick": {
+          "all_time": {
+            "runs": 1
+          },
+          "month": {
+            "period": "2026-11",
+            "runs": 1
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "week": {
+            "period": "2026-W47",
+            "runs": 1
+          }
+        }
+      }
     }
   },
   "schema": 1
