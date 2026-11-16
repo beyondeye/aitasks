@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: [t2278_2]
 issue_type: feature
@@ -91,3 +93,5 @@ See `aiplans/p2278/p2278_3_crop_and_overlays.md`.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-16T10:37:11Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-16T13:04:05Z status=pass attempt=1 type=human
