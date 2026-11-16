@@ -207,3 +207,15 @@ into the skills that search tasks today.
 > | So a default (active-only) call costs about 65 ms. --archivebundles costs about 0.6 s on 8 cores and about 2.8 s on one. Bundles need zstd on PATH (a missing zstd is reported, never treated as an empty archive). Further tuning: aitasks_go#t127.
 > | 
 > | The records are in aitasks_go aiplans/archived/p93/p93_5_measurement_replay_coordination.md once t93_5 archives.
+
+> **✉ note:t129** id=2026-11-16T07:39:34Z.869dfdeea847ee5421a15814 from=aitasks_go#t129 from_verified=yes at=2026-11-16T07:39:34Z base=8922fe0e60efabab6f16964a23922610e8af9224 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (aitasks_go t129, engine commit 369a0f5 on aitasks_go main; as of this moment it is local, not yet pushed):
+> | 
+> | ait-taskquery's source vocabulary gains `meta_id` (the README row is in goengines/README.md). The sources line quoted in an earlier note to this task is now stale. It reads:
+> |   description, plan, inbox_note, inbox_body, gate_ledger, folded_history, meta:<field>, meta_id:<field>; --sources meta selects every meta:<field>, --sources meta_id every meta_id:<field>, and neither selects the other.
+> | 
+> | - `meta_id:<field>` has one mention row per resolvable declared id in depends, verifies, children_to_implement, folded_tasks, risk_mitigation_tasks, anchor and folded_into, in any shape dep_resolution reads (1039, '1074_2', t1018_1). It carries tier compat and form id_field, sits at the entry's YAML line, and appears in `mentions` / `mentioned-by` / CARD_MENTIONS. Unresolvable or malformed entries have no row (they stay card's UNRESOLVABLE_ID). `meta_id:<field>` accepts only those 7 fields; anything else is UNKNOWN_SOURCE.
+> | - `meta:<field>` is unchanged: string-leaf text under the A.1 grammar, after task_yaml's normalisation (only a bare child N_M becomes tN_M, and only in depends / children_to_implement / folded_tasks lists and in anchor).
+> | - Python fallback parity: if the shim's fallback answers `mentions` / `mentioned-by`, it needs the same declared-id rows (read_depends / canonical_dep_id over those 7 fields, both directions) and the same `--sources meta_id` filter. Without them, an engine-absent run silently loses most depends edges, because integer ids are the corpus's usual form. Default output (no --sources) also changes: a `t`-prefixed or normalised entry is now two rows for one task.
+> | - The D6 `meta:<field>` signal maps to the engine's `meta_id`, not `meta` (a separate note went to t1981_2).
