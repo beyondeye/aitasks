@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2304
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 23:14
-updated_at: 2026-11-15 23:37
+updated_at: 2026-11-16 11:40
 ---
 
 ## Origin
@@ -48,3 +49,8 @@ whether to refuse/escape it rather than leave it C-quoted.
 
 - shadow_scope: add `--no-renames` to the two `diff` sources in `dirty_channels()`, with a staged-rename test in `tests/test_shadow_scope.sh`.
 - change_surface: read with `-z` (or `-c core.quotePath=false`) so paths arrive raw, and widen the plan-token class (or tokenize plans by backtick-delimited spans) so `|` and non-ASCII names can match; test through the real script with a pre-fix control, as t2304 §10 does.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-16T09:40:21Z status=pass attempt=1 type=human
