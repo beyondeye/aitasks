@@ -1,0 +1,427 @@
+{
+  "schema": 1,
+  "models": {
+    "openai_codex_mini_latest": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_1_codex": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_1_codex_max": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_1_codex_mini": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_2": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_2_codex": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_3_codex": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_3_codex_spark": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_4": {
+      "verifiedstats": {
+        "pick": {
+          "runs": 4,
+          "score_sum": 380
+        }
+      }
+    },
+    "openai_gpt_5_4_fast": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_4_mini": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_4_mini_fast": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_4_mini_flex": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_5": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_5_fast": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_5_pro": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_6_luna": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_6_luna_fast": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_6_sol": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_6_sol_fast": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_6_terra": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_6_terra_fast": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_5_codex": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_6_1_sol": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_6_1_sol_fast": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_6_1_sol_ultrafast": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_6_1_terra": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_6_1_terra_fast": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_6_astra": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_6_astra_fast": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_6_astra_ultrafast": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_6_luna": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_6_luna_fast": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_6_sol": {
+      "verifiedstats": {}
+    },
+    "openai_gpt_6_sol_fast": {
+      "verifiedstats": {}
+    },
+    "opencode_beam_free": {
+      "verifiedstats": {}
+    },
+    "opencode_big_pickle": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_3_5_haiku": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_fable_5": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_fable_5_1": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_haiku_4_5": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_haiku_5_5": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_opus_4_1": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_opus_4_5": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_opus_4_6": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_opus_4_7": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_opus_4_8": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_opus_5": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_opus_5_5": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_sonnet_4": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_sonnet_4_5": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_sonnet_4_6": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_sonnet_5": {
+      "verifiedstats": {}
+    },
+    "opencode_claude_sonnet_5_5": {
+      "verifiedstats": {}
+    },
+    "opencode_deepseek_v4_1_flash": {
+      "verifiedstats": {}
+    },
+    "opencode_deepseek_v4_1_flash_free": {
+      "verifiedstats": {}
+    },
+    "opencode_deepseek_v4_flash": {
+      "verifiedstats": {}
+    },
+    "opencode_deepseek_v4_flash_free": {
+      "verifiedstats": {}
+    },
+    "opencode_deepseek_v4_flash_vision_exp": {
+      "verifiedstats": {}
+    },
+    "opencode_deepseek_v4_pro": {
+      "verifiedstats": {}
+    },
+    "opencode_exo_free": {
+      "verifiedstats": {}
+    },
+    "opencode_fledge_alpha_free": {
+      "verifiedstats": {}
+    },
+    "opencode_flint_40b_free": {
+      "verifiedstats": {}
+    },
+    "opencode_gemini_3_1_pro": {
+      "verifiedstats": {}
+    },
+    "opencode_gemini_3_5_flash": {
+      "verifiedstats": {}
+    },
+    "opencode_gemini_3_5_flash_lite": {
+      "verifiedstats": {}
+    },
+    "opencode_gemini_3_6_flash": {
+      "verifiedstats": {}
+    },
+    "opencode_gemini_3_7_flash": {
+      "verifiedstats": {}
+    },
+    "opencode_gemini_3_8_flash": {
+      "verifiedstats": {}
+    },
+    "opencode_gemini_3_flash": {
+      "verifiedstats": {}
+    },
+    "opencode_gemini_3_pro": {
+      "verifiedstats": {}
+    },
+    "opencode_gemini_4_argon": {
+      "verifiedstats": {}
+    },
+    "opencode_glm_4_6": {
+      "verifiedstats": {}
+    },
+    "opencode_glm_4_7": {
+      "verifiedstats": {}
+    },
+    "opencode_glm_5": {
+      "verifiedstats": {}
+    },
+    "opencode_glm_5_1": {
+      "verifiedstats": {}
+    },
+    "opencode_glm_5_2": {
+      "verifiedstats": {}
+    },
+    "opencode_glm_5_3": {
+      "verifiedstats": {}
+    },
+    "opencode_glm_5_3_flash": {
+      "verifiedstats": {}
+    },
+    "opencode_glm_5_3_flash_free": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_1": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_1_codex": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_1_codex_max": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_1_codex_mini": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_2": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_2_codex": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_3_codex": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_3_codex_spark": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_4": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_4_mini": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_4_nano": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_4_pro": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_5": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_5_pro": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_6_luna": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_6_sol": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_6_terra": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_codex": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_5_nano": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_6_1_sol": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_6_astra": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_6_luna": {
+      "verifiedstats": {}
+    },
+    "opencode_gpt_6_sol": {
+      "verifiedstats": {}
+    },
+    "opencode_grok_4_5": {
+      "verifiedstats": {}
+    },
+    "opencode_grok_4_6": {
+      "verifiedstats": {}
+    },
+    "opencode_grok_4_7": {
+      "verifiedstats": {}
+    },
+    "opencode_grok_build_0_1": {
+      "verifiedstats": {}
+    },
+    "opencode_kimi_k2_5": {
+      "verifiedstats": {}
+    },
+    "opencode_kimi_k2_6": {
+      "verifiedstats": {}
+    },
+    "opencode_kimi_k2_7_code": {
+      "verifiedstats": {}
+    },
+    "opencode_kimi_k3": {
+      "verifiedstats": {}
+    },
+    "opencode_ling_3_0_flash_fin_free": {
+      "verifiedstats": {}
+    },
+    "opencode_ling_3_1_flash_free": {
+      "verifiedstats": {}
+    },
+    "opencode_longcat_2_5_preview_free": {
+      "verifiedstats": {}
+    },
+    "opencode_mimo_v2_5_free": {
+      "verifiedstats": {}
+    },
+    "opencode_mimo_v2_6_flash_free": {
+      "verifiedstats": {}
+    },
+    "opencode_minimax_m2_1": {
+      "verifiedstats": {}
+    },
+    "opencode_minimax_m2_5": {
+      "verifiedstats": {}
+    },
+    "opencode_minimax_m2_5_free": {
+      "verifiedstats": {}
+    },
+    "opencode_minimax_m2_7": {
+      "verifiedstats": {}
+    },
+    "opencode_minimax_m3": {
+      "verifiedstats": {}
+    },
+    "opencode_mistral_large_4": {
+      "verifiedstats": {}
+    },
+    "opencode_muse_spark_1_2": {
+      "verifiedstats": {}
+    },
+    "opencode_muse_spark_1_2_contributor_free": {
+      "verifiedstats": {}
+    },
+    "opencode_muse_spark_1_3": {
+      "verifiedstats": {}
+    },
+    "opencode_muse_spark_1_3_contributor_free": {
+      "verifiedstats": {}
+    },
+    "opencode_muse_wonder_1_0": {
+      "verifiedstats": {}
+    },
+    "opencode_nemotron_3_5_lightning_free": {
+      "verifiedstats": {}
+    },
+    "opencode_nemotron_3_5_super_vl_free": {
+      "verifiedstats": {}
+    },
+    "opencode_nemotron_3_super_free": {
+      "verifiedstats": {}
+    },
+    "opencode_nemotron_3_ultra_free": {
+      "verifiedstats": {}
+    },
+    "opencode_qwen3_5_plus": {
+      "verifiedstats": {}
+    },
+    "opencode_qwen3_6_plus": {
+      "verifiedstats": {}
+    },
+    "opencode_qwen3_8_flash": {
+      "verifiedstats": {}
+    },
+    "opencode_qwen3_8_max": {
+      "verifiedstats": {}
+    },
+    "opencode_ring_2_6_1t_free": {
+      "verifiedstats": {}
+    },
+    "opencode_space_bunny_free": {
+      "verifiedstats": {}
+    },
+    "opencode_union_alpha": {
+      "verifiedstats": {}
+    }
+  }
+}

@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "agent": "opencode",
+  "migration_id": "14f22e8b3e104d9ca16d601d267b5711",
+  "strip_commit": "785e8d75e6fb950f2850c310e6261d4bed2a3489",
+  "source_commit": "65cb169f820c3a3f847b519b526426a679051cc4",
+  "source_blob": "2151cb961921dc4783bab1e8104f0f0283a12020",
+  "absorbed_runs": 4,
+  "absorbed_at": "2026-11-16T15:58:20Z"
+}
