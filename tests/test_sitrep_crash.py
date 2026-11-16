@@ -696,6 +696,26 @@ class Rendering(unittest.TestCase):
         self.assertIn("commits: unknown", sc.Pass.survey_text(s).decode())
         self.assertEqual(self.survey().warning(), "none")
 
+    def test_stale_lock_background_never_claims_the_holder_is_gone(self):
+        # Row 5 (no PID anchor) reaches stale_lock with the holder's liveness
+        # unknown, so the stored background must not say nobody holds the lock
+        # (t2317). Both routes into the category are named.
+        text = sc.BACKGROUND["stale_lock"]
+        self.assertNotIn("no live session holds", text)
+        self.assertIn("no PID anchor", text)
+        self.assertIn("cannot be checked", text)
+        self.assertIn("no longer Implementing", text)
+        for cat, bg in sc.BACKGROUND.items():
+            with self.subTest(category=cat):
+                self.assertLessEqual(len(bg), sc.st.MAX_BACKGROUND)
+        with tempfile.TemporaryDirectory() as root:
+            p = sc.Pass(root, dry_run=True)
+            for row in (5, 7):
+                with self.subTest(row=row):
+                    s = self.survey(verdict=sc.Verdict(row, "stale_lock", True, "open", "x"))
+                    entry = p.context_entry(s, "survey-ptr", "")
+                    self.assertEqual(entry.background, text)
+
     def test_title_and_group(self):
         s = self.survey(phase="implementing", plan="approved", plan_signature="valid",
                         plan_fresh="stale:dirty_referenced:2",

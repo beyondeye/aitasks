@@ -136,8 +136,10 @@ BACKGROUND = {
                 "survive in the tree."),
     "orphan": ("This task is Implementing but no lock holds it; the session that "
                "claimed it left no lock behind."),
-    "stale_lock": ("A lock remains for this task but no live session holds it (no "
-                   "PID anchor, or the task is no longer Implementing)."),
+    "stale_lock": ("A lock remains for this task: either it records no PID "
+                   "anchor, so whether its holder still runs cannot be checked, "
+                   "or its holder is gone and the task is no longer "
+                   "Implementing. Check who holds it before releasing it."),
 }
 
 # Test hooks (module level so the unit tests can drive the table directly).
