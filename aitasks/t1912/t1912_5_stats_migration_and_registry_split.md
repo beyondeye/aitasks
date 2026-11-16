@@ -3,12 +3,13 @@ priority: high
 effort: high
 depends: [t1912_4]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [git, concurrency, verifiedstats, models, robustness]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 created_at: 2026-11-12 19:43
-updated_at: 2026-11-12 19:43
+updated_at: 2026-11-16 13:43
 ---
 
 ## Context
