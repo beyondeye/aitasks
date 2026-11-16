@@ -364,3 +364,119 @@ one owns the intake, send it a `./ait note --project aitasks_go` instead.
 Post-implementation: commit code (`bug: … (t2310)`) and the plan separately via
 `./ait git`, then archive per task-workflow Step 9 (current-branch mode, no
 merge).
+
+## Final Implementation Notes
+
+- **Actual work done:** Implemented as planned:
+  - `aitask_change_surface.sh`:
+    - `-z` reads plus `_z_to_lines` (raw paths, git C-quote escape for any
+      control byte or a leading `"`);
+    - `export LC_ALL=C`;
+    - baseline `version=2`, with v1 decode via `codecs.escape_decode`;
+    - P2 through `plan_paths_references` (only `full` attributes; fail-closed
+      → `PLANSCOPE:missing`);
+    - Pass A with `-z` plus pathspec excludes;
+    - help text gains the PATH ENCODING contract (LF-only records,
+      decode-before-lookup).
+  - `shadow_scope.py`:
+    - `--no-renames` on both `dirty_channels` diffs;
+    - `_run_lines` splits on LF only;
+    - `_surface_path` decodes escaped `DIRTY_AT_CLAIM:` values.
+  - The consolidation is recorded in `test_plan_paths_seam.sh`, the
+    `plan_paths.py` docstring, the `plan_paths_sh.sh` header, and the findings
+    doc intro and §7 ("Change surface (switched, t2310)", with the differential
+    script verbatim).
+- **Deviations from plan:**
+  - `lib/plan_paths_sh.sh` is sourced **lazily** inside `read_plan_scope`,
+    not at startup. A `source` that fails also fails closed to
+    `PLANSCOPE:missing`. Reason: the first run of section 9 failed. That
+    section scaffolds a fake repo (`setup_fake_aitask_repo`) with no
+    plan-paths module, and `aitask_pick_own.sh` runs `capture` there, so an
+    eager `source` killed the capture. `capture` must not gain a dependency it
+    never uses.
+  - Test 11l: the round trip is checked against the fixture names, plus an
+    on-disk existence check per name, rather than `git ls-files -z`.
+- **Issues encountered:**
+  - Two review rounds during planning, both folded into the plan before
+    approval: (1) `str.splitlines` splitting raw records, and (2) the trailing
+    CR dropped by Go's `bufio.ScanLines`, which led to escaping every control
+    byte, not only LF.
+  - The local `go` 1.27.4 toolchain fails with a GOEXPERIMENT `nodwarf5`
+    mismatch. The scratch Go harness was built with the installed 1.27.3
+    instead.
+- **Key decisions:**
+  - P2 moves to the shared inverted search (user choice).
+  - The differential found 5 old-only real references, all prefix forms
+    (`/path`, `@path`, `\.path`, `<tree>/path`). The user accepted them as a
+    recorded narrowing, since UNKNOWN is the recoverable direction.
+- **Upstream defects identified:**
+  - `aitasks_go:goengines/internal/testmap/changesurface/changesurface.go:101`
+    — `bufio.NewScanner` with the default `ScanLines` drops a trailing CR, so
+    a raw `COMMITTED:src/a.md<CR>` record parses as committed `src/a.md` with
+    no error. The package comment ("git C-quoted when it carries bytes git
+    quotes"; "until then a rename's old path is absent") is also stale. This
+    is carried to aitasks_go as the planned selector follow-up.
+  - `tests/test_metadata_writer_inventory.py:346` — the
+    `NewWriterTripwire` test fails on main. It names
+    `.aitask-scripts/lib/sitrep_crash.py` (from t2299_2) as a writer under
+    `aitasks/metadata` that is unclassified (not in WIRED, KNOWN_UNCOMMITTED
+    or PINNED_FILES).
+- **Differential (post-phase p2_attribution_differential), 2026-11-16:** 2159
+  archived plans (loose plus the `_b*` bundles) with `(t<id>)` commits.
+  Results: same 9549, new-only 0, old-only 5:
+  - t361 and t793: repo-rooted `/`;
+  - t812_2: `@`-mention;
+  - t1449: markdown `\.`;
+  - t2246: `<tree>/`.
+
+  The script is reproduced verbatim in findings §7.
+- **Pre-fix control (`AIT_TEST_CHANGE_SURFACE=<HEAD copy + lib symlink>`):**
+  136 assertions, 18 fail pre-fix.
+  - **D** (detects the defect):
+    - 11a: TASK raw, UNKNOWN raw, no escaped non-ASCII record;
+    - 11b: `|`;
+    - 11c: NFD;
+    - 11d: DIRTY_AT_CLAIM raw, OTHER, UNKNOWN on conflict;
+    - 11e: v1 decode, three assertions;
+    - 11f: COMMITTED raw;
+    - 11h: missing, no TASK, UNKNOWN (the pre-fix script had no matcher to
+      break);
+    - 11i: `@v2`;
+    - 11j: the U+2028 baseline record, and OTHER for it.
+  - **C** (controls): every `control:` line, plus the 11h positive controls.
+  - **S** (already passing pre-fix, because git's own quoting coincided):
+    every LF, CR, VT, trailing-CR and leading-quote record, and the NEG lines.
+    These are **not** vacuous. A mutant of the new script with escaping
+    disabled (`if false; then` in `_z_to_lines`) fails 13 of them:
+    - the LF record, its single-record count, its first-half NEG, its
+      never-TASK NEG, and its pre-claim OTHER;
+    - the CR and VT baseline records, and OTHER for each;
+    - both trailing-CR records, the no-raw-CR check, and the leading-quote
+      escape.
+- **Shadow pre-fix controls (scratch mirror):**
+  - (a) Everything at HEAD: 5 fail, namely the U+2028, trailing-CR and
+    non-ASCII `baseline_dirty` cases, the `_run_lines` unit check, and the
+    staged-rename old half.
+  - (b) The new change_surface with HEAD's shadow_scope: 5 fail. This one
+    includes `NEG: innocent.md gets no invented baseline evidence`, which is
+    the reviewer's repro reproduced end to end.
+- **Consumer interpretation (scratch harness around aitasks_go's real
+  `changesurface.go`):**
+  - The producer's `UNKNOWN:"a\nb.md"`, `UNKNOWN:"x\ry.md"`,
+    `UNKNOWN:"v\vw.md"` and `COMMITTED:"src/a.md\r"` are each refused as
+    `control-character`.
+  - The U+2028 record parses as one UNKNOWN path, untruncated.
+  - A hand-made raw `COMMITTED:src/a.md<CR>` parses as committed `src/a.md`
+    with no error. That is the hazard the escape removes, and it is carried to
+    the aitasks_go follow-up.
+- **Verification:**
+  - Passing: `test_change_surface.sh` 136/136, `test_shadow_scope.sh` 60/60,
+    `test_plan_paths_seam.sh` 22/22, `test_remote_drift_check.sh` 70/70, all
+    `test_shadow_*.sh` and both `test_pick_own_*.sh`, and
+    `shellcheck -S warning` clean.
+  - Python suite: `PYTHON SUITE: FAILED (runner=pytest, exit=1)`, with 12379
+    passed and 1 failed. The one failure is
+    `test_metadata_writer_inventory.py::test_no_unclassified_file_writes_metadata`,
+    which names `.aitask-scripts/lib/sitrep_crash.py`. That file was added by
+    t2299_2 and t2307, which are already on main, and t2310 does not touch it,
+    so the failure is pre-existing and unrelated.
