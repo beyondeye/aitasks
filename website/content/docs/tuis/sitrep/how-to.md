@@ -66,7 +66,7 @@ After a tmux or machine crash, the list holds one "Recover t42 …" item per tas
 4. For a stale lock, check who holds the lock, then run the `ait lock --unlock <N>` command its **How** line shows. The TUI never runs it. After the next **r**, the item closes when the task is no longer `Implementing`, or becomes an orphan to resume.
 5. To dismiss an item you will not resume, press **x**. It stays dismissed until the task is claimed again and that claim crashes too.
 
-The **w** key does not apply to crashed-agent items. For a summary of all of them, type `>w crashed-agents` to the agent.
+For a summary of all the crashed-agent items, press **w** on any of them. It types `>w crashed-agents` to the agent.
 
 ### How to Hand Work to the Sitrep Agent
 

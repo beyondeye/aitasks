@@ -40,6 +40,11 @@ REQUESTS_BY_ACTION = {r.action: r for r in AGENT_REQUESTS}
 ITEM_REQUESTS = frozenset({"request_triage", "request_ask", "request_situation",
                            "request_trail_refresh"})
 
+#: The sitrep skill's virtual theme of every crash-recovery item (``recover:``
+#: ref): recovery contexts name no theme, so `w` on one types ``>w crashed-agents``.
+#: Pinned against the skill text by tests/test_sitrep_tui_requests.py.
+RECOVERY_THEME = "crashed-agents"
+
 #: Longest question the ask dialog accepts (a 300-char line was measured to land
 #: in all three agents' composers as typed text, no paste placeholder).
 ASK_MAX_CHARS = 300
@@ -78,12 +83,20 @@ def ask_text_error(text: str) -> str:
 
 
 def item_theme(store: "st.TodoStore | None", item: "st.Item | None") -> str:
-    """The item's context theme when it is a valid theme token, else ``""``."""
-    if store is None or item is None:
+    """The theme ``>w`` names for ``item``, or ``""``.
+
+    An explicit context theme always wins (when it is a valid theme token);
+    otherwise a crash-recovery item (a ``recover:`` ref) maps to the skill's
+    virtual :data:`RECOVERY_THEME`. The mapping is read-side only: the crash
+    detector owns recovery contexts and nothing writes a theme into them.
+    """
+    if item is None:
         return ""
-    ctx = store.contexts.get(item.num)
+    ctx = store.contexts.get(item.num) if store is not None else None
     theme = getattr(ctx, "theme", "") if ctx is not None else ""
-    return theme if theme and st.THEME_RE.match(theme) else ""
+    if theme and st.THEME_RE.match(theme):
+        return theme
+    return RECOVERY_THEME if st.parse_recover_ref(item.ref or "") else ""
 
 
 def build_request(req: AgentRequest, item: "st.Item | None" = None,

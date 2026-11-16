@@ -57,7 +57,7 @@ Each item records what is known about the work: the phase the agent died in (pla
 1. **Resume.** Press `p` on a crashed or orphan item. It launches [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}) for the task, which asks whether to reclaim it and resumes from the last checkpoint the task recorded. Ask the agent `>p` for the order to resume several in: tasks with an approved, up-to-date plan and surviving work first, then other approved plans (re-check the plan first), then draft plans, then tasks that were still planning.
 2. **Keep the leftover files.** When an item says work survives in the tree, or that uncommitted files have no known owner, do not run `git restore`, `git stash` or a checkout there: those files may be the crashed agent's only copy of its work. When two items list the same file, resume one at a time.
 3. **Clean up stale locks and orphans.** For a stale lock, check who holds it, then run `ait lock --unlock <N>` yourself; the TUI shows the command and never runs it. An orphan is resumed with `p`, or opened in the board with `b` to decide what to do with it.
-4. **Read the summary.** Type `>w` to the agent, or `>w crashed-agents`, for a short summary of all the crashed work. The TUI's `w` key does not apply to these items.
+4. **Read the summary.** Press `w` on any of these items in the TUI, or type `>w` or `>w crashed-agents` to the agent, for a short summary of all the crashed work.
 
 An item closes by itself once a running agent on this machine holds the task again, or once no lock is left and the task is no longer `Implementing`. Press `x` to dismiss one you will not resume: it stays dismissed until the task is claimed again and that new claim crashes too.
 

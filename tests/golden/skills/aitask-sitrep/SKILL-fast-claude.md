@@ -426,8 +426,8 @@ Then check the request on that fresh read:
 - `>w <theme>` — a theme some item's context names (`- theme: <theme>`) or
   whose situation block Part 1 already has; one without a block yet is fine,
   `>w` writes its first text. `crashed-agents` is also valid whenever `list`
-  shows a `recover:` item, in any state (see `>w`). The TUI never types it
-  itself, since recovery contexts name no theme: the user types it.
+  shows a `recover:` item, in any state (see `>w`). The TUI's `w` key types
+  `>w crashed-agents` for a recovery item.
 
 On a failed check (an id `list` does not show, the wrong kind or state, an
 unknown theme), say what the fresh read shows and write nothing. A write to an

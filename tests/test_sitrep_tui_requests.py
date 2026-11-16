@@ -113,9 +113,10 @@ class TableTests(unittest.TestCase):
 
 
 class BuildRequestTests(unittest.TestCase):
-    def item(self, num=12):
+    def item(self, num=12, ref=""):
         from sitrep_todo import Item
-        return Item(num, 1, "question", "open", "now", "", "", "", "", "t")
+        kind = "task" if ref else "question"
+        return Item(num, 1, kind, "open", "now", "", ref, "", "", "t")
 
     def test_the_lines(self):
         it = self.item()
@@ -135,6 +136,42 @@ class BuildRequestTests(unittest.TestCase):
             with self.subTest(repr(bad)):
                 self.assertEqual(reqs.build_request(by["request_ask"], self.item(), text=bad),
                                  "")
+
+    def theme_store(self, num: int, theme: str):
+        from sitrep_todo import ContextEntry, TodoStore
+        return TodoStore(contexts={num: ContextEntry(background="b", theme=theme)})
+
+    def test_a_recovery_item_names_the_virtual_theme(self):
+        # t2318: a recovery context names no theme (the detector owns it), so
+        # `w` maps the item to the skill's virtual `crashed-agents` theme.
+        sit = reqs.REQUESTS_BY_ACTION["request_situation"]
+        rec = self.item(ref="recover:t42")
+        for store in (None, self.theme_store(rec.num, "")):
+            with self.subTest(store=store is not None):
+                self.assertEqual(reqs.item_theme(store, rec), "crashed-agents")
+                self.assertEqual(reqs.build_request(sit, rec, store), ">w crashed-agents")
+        with self.subTest("an invalid context theme falls back"):
+            store = self.theme_store(rec.num, "Not A Theme")
+            self.assertEqual(reqs.item_theme(store, rec), "crashed-agents")
+
+    def test_an_explicit_theme_wins_and_other_items_get_none(self):
+        sit = reqs.REQUESTS_BY_ACTION["request_situation"]
+        rec = self.item(ref="recover:t42")
+        self.assertEqual(reqs.build_request(sit, rec, self.theme_store(rec.num, "sitrep")),
+                         ">w sitrep")
+        # Negative control: a plain task item with no theme still names none.
+        for ref in ("t42", "", "push:main@0123456"):
+            with self.subTest(ref=ref):
+                plain = self.item(ref=ref)
+                self.assertEqual(reqs.item_theme(self.theme_store(plain.num, ""), plain), "")
+                self.assertEqual(reqs.build_request(sit, plain, None), "")
+        self.assertEqual(reqs.item_theme(None, None), "")
+
+    def test_the_virtual_theme_is_the_skills(self):
+        skill = (HERE.parent / ".claude" / "skills" / "aitask-sitrep"
+                 / "SKILL.md.j2").read_text(encoding="utf-8")
+        self.assertIn(f"**`{reqs.RECOVERY_THEME}` is the theme of every crash-recovery item**",
+                      skill)
 
     def test_a_question_may_start_with_any_character(self):
         by = reqs.REQUESTS_BY_ACTION
@@ -219,6 +256,37 @@ class BindingTests(_ReqCase):
             active = app.screen.active_bindings
             for key in ("t", "a", "n"):
                 self.assertIn(key, active)
+
+
+class RecoverySituationTests(_ReqCase):
+    """t2318: `w` on a crash-recovery item (no context theme) types
+    `>w crashed-agents`, from the list and from details."""
+
+    # The real-writer fixture of the `p` tests: a `recover:` item whose context
+    # names no theme, exactly as the crash detector writes it.
+    recover_item = ta.RecoverPickTests.recover_item
+
+    async def test_w_on_a_recovery_item(self):
+        num = self.recover_item("42", "crashed", "0123456789ab")
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await self.started(app, pilot)
+            self.assertEqual(app.store.contexts[num].theme, "", "the detector writes no theme")
+            self.select(app, num)
+            self.assertTrue(self.shown(app, "request_situation"), "main list")
+            await self.open_details(app, pilot, num)
+            self.assertTrue(self.shown(app, "request_situation"), "details")
+            await pilot.press("w")
+            await self.until(pilot, lambda: self.deliver.lines, "sent")
+        self.assertEqual(self.deliver.lines, [">w crashed-agents"])
+
+    async def test_hidden_while_the_agent_does_not_run(self):
+        num = self.recover_item("42", "crashed", "0123456789ab")
+        app = self.make_app(probe=(False, None, None))
+        async with app.run_test(size=SIZE) as pilot:
+            await self.until(pilot, lambda: app.agent_state == "unknown", "unknown")
+            self.select(app, num)
+            self.assertFalse(self.shown(app, "request_situation"))
 
 
 # -- sending ------------------------------------------------------------------------------

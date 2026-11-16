@@ -294,7 +294,7 @@ How-text keys and the re-export the skill-parity test imports all come from it.
 |---|---|---|
 | `t` | `>t c<N>` | `classify` → `triage` / `review` |
 | `a` | `>q c<N> <text>` | any item (ask dialog: one line, ≤ 300 chars, no control characters, no trailing `@mention`) |
-| `w` | `>w <theme>` | the item's context names a theme (never a recovery item: the detector writes no theme; the skill's virtual `crashed-agents` theme is typed by the user) |
+| `w` | `>w <theme>` | the item's context names a theme, or the item is a crash-recovery item (`recover:` ref), which maps to the skill's virtual `crashed-agents` theme (`RECOVERY_THEME`; a read-side mapping only, the detector still writes no theme, and an explicit context theme wins) |
 | `T` | `>tr c<N>` | `classify` → `watch` (a trail-checked watch) |
 | `n` | `>p` | store-wide |
 
@@ -694,7 +694,8 @@ TUI's `R` and writes nothing until `list` reads again.
   situation text is the **virtual theme** `crashed-agents`: no recovery context
   names a theme, so the skill treats every `recover:` item as belonging to it
   (it needs text while one is open or unknown, `>w crashed-agents` is accepted
-  whenever `list` shows one, and the block is removed when none is left). `>p`
+  whenever `list` shows one, which is what the TUI's `w` types on a recovery
+  item, and the block is removed when none is left). `>p`
   first advises a resume order from the survey (the detector's four rank
   tiers), names `/aitask-pick <N>` and the cleanup commands
   (`ait lock --unlock <N>` for stale locks), and never reclaims, unlocks or

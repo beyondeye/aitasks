@@ -38,7 +38,7 @@ keys below apply.
 | `A` | Respawn agent | Start the sitrep agent again beside the TUI | The agent is not running |
 | `t` | Triage | Request: `>t c<N>` | The agent runs, and the item is an open triage or unparsed-output review item |
 | `a` | Ask agent | Request: `>q c<N> <question>` (asks for the question first) | The agent runs, and an item is highlighted |
-| `w` | Situation text | Request: `>w <theme>` | The agent runs, and the item's context names a work area (theme). Never on a crash-recovery item, whose context names none: type `>w crashed-agents` to the agent instead |
+| `w` | Situation text | Request: `>w <theme>` | The agent runs, and the item's context names a work area (theme), or the item is a crash-recovery item: then it types `>w crashed-agents` |
 | `T` | Trail refresh | Request: `>tr c<N>` | The agent runs, and the item is an open watch that refresh checks through its trail |
 | `n` | Pick advice | Request: `>p` | The agent runs |
 | `j` | (hidden) | TUI switcher | Always |
