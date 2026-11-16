@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: [t2299_2]
 issue_type: feature
@@ -146,3 +148,5 @@ Never `git restore` / `git stash` / checkout: the shared tree holds other tasks'
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-16T09:35:49Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-16T10:47:39Z status=pass attempt=1 type=human
