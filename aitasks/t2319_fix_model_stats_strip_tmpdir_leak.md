@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2278
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-16 18:06
-updated_at: 2026-11-16 18:17
+updated_at: 2026-11-16 18:41
 ---
 
 ## Origin
@@ -45,3 +46,8 @@ Install `trap 'rm -rf "$WORK_DIR"' EXIT` right after the `mktemp -d` (or route
 every exit through one cleanup), then add a test that runs each exit route
 under a private TMPDIR and asserts it is empty
 (`bash tests/run_shell_test.sh` shows leftovers for shell tests).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-16T16:41:03Z status=pass attempt=1 type=human
