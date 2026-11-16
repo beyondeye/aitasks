@@ -137,3 +137,5 @@ Never `git restore` / `git stash` / checkout in this repo. Commit only this task
 > | - CrashDetectJobTests in test_monitor_sitrep_refresh.py;
 > | - CrashDetectorStepTests and RecoverPickTests in test_sitrep_tui_actions.py;
 > | - test_recovery_guidance_per_category in test_sitrep_tui_app.py.
+
+> **👁 note:read** id=2026-11-16T11:26:54Z.c9d3f3c2af102ec342e1e656 by=t2299_4 at=2026-11-16T11:26:54Z mode=explicit ids=2026-11-16T10:57:03Z.51a1f58e01114761a41e1ddc
