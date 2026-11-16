@@ -153,3 +153,12 @@ design; it is instructed to report rather than edit across the boundary.
 > | the orphan branch aitask-stats written via plumbing only. After t1912_4 lands these
 > | writers never touch the shared .aitask-data index or worktree, so lock adoption
 > | should not spend effort on them. Plan: aiplans/p1912_move_codeagent_stats_to_plumbing_branch.md
+
+> **✉ note:t1912_4** id=2026-11-16T09:45:30Z.dea864ffb8f131295036a699 from=t1912_4 from_verified=yes at=2026-11-16T09:45:30Z base=51eca42a0f7479ea14f698828899bcdd751b17d4 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1912_4 (landed in main 51eca42a0). This follows up the earlier t1912 note, which said "not landed yet".
+> | 
+> | The counter writers (aitask_usage_update.sh, aitask_verified_update.sh) now record only on the `aitask-stats` plumbing branch through aitask_model_stats.py. They no longer run task_data_converge, the temp clone, any push of aitask-data, or any add/commit in the shared .aitask-data index.
+> | tests/test_stats_writers_leave_task_data.sh pins this: with the data worktree dirty and origin ahead, HEAD, the index hash, status --porcelain and both aitask-data refs stay byte-identical, and a git argv log shows no fetch/merge/rebase/pull/push that involves aitask-data.
+> | 
+> | So index-lock adoption has no reason to cover these two writers. tests/test_task_data_writer_guard.sh records them as "writes no task data".
