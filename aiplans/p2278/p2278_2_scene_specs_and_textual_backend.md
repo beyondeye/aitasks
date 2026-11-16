@@ -432,6 +432,10 @@ Post-implementation: Step 9 of the task workflow (review, commit, archival).
   and 3 and the backends section revised; task bodies and plans of children
   3-8 and this task's body rewritten. Inbox and Gate Runs sections untouched.
 
+- **B2-B8 done (2026-11-16).** Tool written, the example re-done through
+  the verbs, the repair loop and the setup contract exercised by hand, tests
+  and mutants run. Details in "Final Implementation Notes".
+
 ## Risk
 
 ### Code-health risk: low
@@ -480,3 +484,136 @@ Post-implementation: Step 9 of the task workflow (review, commit, archival).
 
 No separate mitigation is proposed: each risk is covered by a step of this
 plan.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-16 08:25)
+- **Requested by user:** five review findings, all verified as valid:
+  (1) a second `shot` of a scene in one session overwrote the image and its
+  manifest hash under the same batch id, so `apply` could not tell which image
+  had been reviewed; (2) `replay` checked each `expect` text separately on the
+  live screen and exported afterwards, so texts that were never on screen
+  together passed and the image showed only the last; (3) `setup` / `run`
+  joined their arguments with spaces and lost argument boundaries; (4) a
+  wait's timeout was not journaled, so a discovery wait given 120 s replayed
+  with the 30 s default; (5) `dataset: []` raised `TypeError` instead of
+  `RecipeError`.
+- **Changes made:** (1) `stage` refuses to write a scene or output a batch
+  already holds, and `shot` opens a new batch for a recapture; the earlier
+  image and manifest stay byte-identical. (2) `export` takes the expected
+  texts and checks them together on the settled frame it then exports,
+  retrying within `EXPECT_TIMEOUT`; a miss is `FAILED:<scene>|expect|…` and
+  stages nothing. (3) one argument after `--` is a shell command string,
+  several are an argv quoted back with `shlex.join`. (4) every wait journals
+  its timeout; `from_session` records one above the default as
+  `- wait: {text: …, timeout: N}`, the loader accepts both forms, and replay
+  uses the step's own budget. (5) the dataset's type is checked first.
+  Tests added for each, with a control where the property needs one; seven
+  further mutants on an isolated copy, all killed.
+- **Files affected:** `website/screenshots/cli.py`, `session.py`, `recipe.py`,
+  `svg_export.py`, `tests/test_screenshots_recipe.py`,
+  `tests/test_screenshots_session_live.py`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - Part A: parent plan rebuilt around the agent-driven design; parent task
+    revised; task bodies and plans of children 3-8 and this task's body
+    rewritten (one `ait:` commit, 16 files).
+  - `website/screenshots/sample_project.py` (`DATASETS`, `build`; dataset
+    `base`), `session.py` (isolated tmux session and journal), `svg_export.py`
+    (ANSI capture to Rich SVG, PNG preview, text read-back), `recipe.py`
+    (load / validate / write, `from_session`), `cli.py` (verbs),
+    `website/screenshots.sh` (launcher), `scenes/board_child_tasks.yaml`
+    (recorded by the tool), `.gitignore` entry for `.staging/`.
+  - Tests: `tests/test_screenshots_sample_project.py` (9),
+    `test_screenshots_svg_export.py` (10), `test_screenshots_recipe.py` (30),
+    `test_screenshots_session_live.py` (19, real board in tmux, ~70 s). The
+    live module is in the serial carve-out (`tests/run_all_python_tests.sh`,
+    CLAUDE.md block, and the two pinned counts in
+    `tests/test_serial_carveout_doc_drift.sh`, 5 → 6).
+- **Deviations from plan:**
+  - B1 ran before Part A (see the log above).
+  - `setup` runs its command as a subprocess with the pane's pinned
+    environment and the project as cwd, not typed into the pane. Same
+    environment, a real exit status, no marker parsing and no setup noise on
+    the screen. Consequence for child 4: `$TMUX` is unset in a setup command,
+    so anything that must run *inside* tmux needs the pane / window verbs.
+  - `svg_export.ansi_to_svg` takes the whole capture, not a list of rows,
+    because of the SGR carry-over.
+  - The planned `LC_ALL=C` control ("a client without `-u` shows `_`") does
+    not hold for `capture-pane` on tmux 3.8: the `_` rewrite applies to tmux
+    *format* output, which `tests/test_tmux_utf8_client_live.sh` already
+    covers. The test here keeps the positive assertion (box-drawing and
+    accented text reach the SVG under `LC_ALL=C PYTHONUTF8=0`) and its control
+    is that the subprocess really ran without a UTF-8 locale.
+  - Added beyond the plan: `shot` waits until two consecutive captures agree
+    (a half-painted frame is a failure, never an image); `stop` removes the
+    dead tmux socket file, which tmux leaves behind; `replay --png`;
+    `shot` / `recipe save` refuse an `output` another scene owns.
+- **Issues encountered:**
+  - First export had dark bands and lost backgrounds: SGR state carries across
+    lines, and trailing cells need `-N`. Both fixed and tested.
+  - `rsvg-convert` is not a faithful preview; `shot --png` uses headless
+    Chromium and labels an rsvg fallback as unfaithful.
+  - A parent with an `Implementing` child reads `2 more children`, not the
+    `N children` the page names; the `base` dataset keeps the example parent's
+    children `Ready`.
+  - Pressing `x` before a card holds focus does nothing. The recipe waits for
+    `╔` (the focused card's border) first.
+- **Key decisions:**
+  - Recipe size for the example is 126x44: three board columns fill the width
+    and the first column shows all cards without scrolling.
+  - A recipe file is written only after it reads back through both readers
+    (`markers.read_spec_owner` and YAML), so a bad write never replaces a
+    working recipe.
+  - Mutants (run on an isolated copy, 16 + 7 after review): the first round had 15 killed for the intended reason.
+    The survivor removes the loader's first owner-reader check; the loader's
+    second check (both readers must return the same id / output) still
+    refuses the same lines, so it is redundant cover, not a gap.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **Verbs** (`website/screenshots.sh`, global flags `--content --static
+    --scenes --staging` before the verb): `session start [--size CxR]
+    [--dataset N]`, `setup <id> -- cmd`, `run <id> -- cmd`, `screen <id>`,
+    `keys <id> k...` (tmux key names), `wait <id> --text|--gone T [--timeout]`,
+    `find <id> --text T` (`CELL:<col>,<row>`), `shot <id> --scene --output
+    [--title] [--png]`, `recipe save <id> --scene --expect... --illustrates
+    [--replace]`, `replay --scene...|--all|--pending [--no-keep] [--png]`,
+    `session stop <id>|--all`, `session list`, `list`. Result lines are
+    `KEY:value`; exit 1 on a failure or refusal.
+  - **Recipe schema** (`recipe.py` docstring): `id`, `output`, optional
+    `title`, `size`, `dataset`, `setup` (list), `launch`, `steps` (`keys` /
+    `wait` / `wait_gone`; a wait is a text, or `{text, timeout}` when it was
+    given more than the 30 s default), `expect`, `illustrates`; in code a step
+    is `(kind, value, timeout)`; `crop` and `overlays` are
+    accepted and passed through unvalidated for child 3. Unknown keys are
+    errors, so child 3 and 4 add their fields to `REQUIRED` / `OPTIONAL`.
+  - **Manifest** (`<staging>/<batch>/manifest.json`, schema 1): `batch`,
+    `created_at`, `scenes: [{id, output, sha256, destination: "absent" |
+    {sha256}, markers: [{page, text}]}]`, `failed: [{id, reason}]`. Images are
+    at `<batch>/<output>`; PNG previews at `<batch>/_preview/<scene>.png`
+    (not in the manifest). A batch is never rewritten: a discovery session
+    puts its shots into one batch, a second shot of the same scene opens a
+    new one, and every `replay` call creates a new one.
+  - **Journal** (`<staging>/sessions/<id>/session.json`): entries
+    `{kind, ok, ...}` with kinds `setup`, `launch`, `keys`, `wait`,
+    `wait_gone`, `shot`. Child 4's pane and window verbs add kinds there and
+    in `recipe.from_session`.
+  - **Pinned in the pane:** `AITASKS_TMUX_SOCKET`, `AIT_PYTHON`, `COLORTERM`,
+    scratch `HOME` / `XDG_CONFIG_HOME` (with a `.gitconfig` for the sample
+    person), `TERM`, `LANG` / `LC_ALL=C.UTF-8`. Under the scratch `HOME` the
+    `python3` on `PATH` (the framework wrapper) does not work; a setup command
+    that needs Python uses `"$AIT_PYTHON"`; shell `bash --noprofile
+    --norc` under `env -u COLUMNS -u LINES`. Nothing else was needed for the
+    board.
+  - **Datasets:** add a builder to `sample_project.DATASETS`; reuse
+    `write_project_shell`, `write_tasks` and `_git_commit_all`.
+    `tests/test_screenshots_sample_project.py` asserts the module imports no
+    TUI code.
+  - **Test helpers:** `svg_export.svg_plain_text(svg)` rebuilds the screen
+    rows from an exported SVG; the live module's `LiveCase` drives
+    `cli.main` with scratch directories and shortens the replay timeouts
+    through `cli.STEP_TIMEOUT` / `cli.EXPECT_TIMEOUT`.
+  - **Not done here, by design:** the other single-pane scenes (board lock,
+    trails, brainstorm, switcher dialog) and `website/README.md` usage text
+    belong to child 5.
