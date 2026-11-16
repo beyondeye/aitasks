@@ -11,7 +11,8 @@
 # reference detection, reached at runtime by shelling out to lib/plan_paths.py so
 # it has exactly one definition and shell consumers stay in sync with the Python
 # ones (lib/shadow_scope.py). Same pattern as launch_modes_sh.sh /
-# followup_kinds_sh.sh. Its only caller is aitask_remote_drift_check.sh.
+# followup_kinds_sh.sh. Its callers are aitask_remote_drift_check.sh and
+# aitask_change_surface.sh (the plan-scope signal, since t2310).
 #
 # Unlike followup_kinds_sh.sh this bridge does NOT memoise a vocabulary: the
 # result depends on the plan file argument, so there is nothing constant to

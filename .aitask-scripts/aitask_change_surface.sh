@@ -58,6 +58,23 @@ source "$SCRIPT_DIR/lib/terminal_compat.sh"
 source "$SCRIPT_DIR/lib/task_utils.sh"
 # shellcheck source=lib/atomic_write.sh
 source "$SCRIPT_DIR/lib/atomic_write.sh"
+# shellcheck source=lib/python_resolve.sh
+source "$SCRIPT_DIR/lib/python_resolve.sh"
+# lib/plan_paths_sh.sh is sourced LAZILY, by read_plan_scope: only `list` needs
+# it, and `capture` -- run on every claim by aitask_pick_own.sh, including in
+# scaffolded test repos that carry no plan-paths module -- must not grow a
+# dependency it never uses.
+
+# PATHS ARE BYTES (t2310). Every path this script handles is a raw filename as
+# git reports it under -z, compared byte for byte: under a UTF-8 locale GNU
+# `sort -u` may fold distinct names that collate equal, and grep may mis-handle
+# a name that is not valid UTF-8. Set once, here, so no comparison below can
+# forget it.
+export LC_ALL=C
+
+# Resolve the interpreter in THIS shell (not in a $(...) subshell) so the cache
+# variable reaches both the plan-paths bridge and the v1 baseline decoder.
+resolve_python >/dev/null 2>&1 || true
 
 # Task/plan data paths are never part of a CODE change surface. Canonical site
 # for this value set is `_DIGEST_EXCLUDES` in lib/gate_ledger.py (the code-state
@@ -102,9 +119,23 @@ Subcommands:
 
 Both headers are always printed: a missing signal is its own state, not a
 silent negative. Do NOT read PLANSCOPE:missing as "nothing is this task's".
+PLANSCOPE:missing covers both "no plan file" and "the plan could not be
+scanned" (the plan-reference search failed to run).
 
 A rename is reported as two ordinary path lines -- its old path and its new
 path -- each classified on its own (the same holds for `baseline`).
+
+PATH ENCODING (both `list` and `baseline`):
+  - Records are terminated by LF ALONE. Split on LF only -- never on a
+    "universal newline" set: CR, VT and U+2028 are legal filename bytes.
+  - A path is printed RAW (non-ASCII bytes as-is), split at the first `:`
+    after the prefix.
+  - A path that contains a control byte (LF, CR, TAB, ...) or begins with `"`
+    is printed in git's C-quote form instead ("a\nb.md"). Such a path is never
+    attributed TASK.
+  - A path field that begins with `"` MUST be decoded with git's C-quote
+    grammar BEFORE any filesystem lookup. Its wire spelling names no file -- a
+    tracked file may literally be called `"a\nb.md"`.
 
 `baseline` output -- one header line, then one line per recorded path:
   BASELINE:ok|missing|foreign
@@ -123,6 +154,57 @@ baseline_file() {
 
 # --- git helpers -------------------------------------------------------------
 
+# _z_to_lines: NUL-delimited paths on stdin -> one record per line on stdout.
+#
+# RAW, EXCEPT WHERE A RAW PATH WOULD BREAK THE LINE GRAMMAR (t2310). Every path
+# is printed as git reported it under -z (non-ASCII bytes included), EXCEPT a
+# path that contains a control byte (0x01-0x1f, 0x7f) or begins with `"`, which
+# is printed in git's C-quote form: wrapped in `"..."`, `\` -> `\\`, `"` -> `\"`,
+# `\a \b \t \n \v \f \r` by name, any other control byte as 3-digit octal.
+#
+#   - LF cannot be carried by a line at all.
+#   - CR is unsafe raw too: a reader whose scanner drops one trailing CR (Go's
+#     bufio.ScanLines, used by the testmap intake) would read
+#     `COMMITTED:src/a.md<CR>` as `src/a.md` -- a different, possibly existing
+#     file -- with no error. The same holds for any "universal newline" reader.
+#   - Quoting a leading `"` too keeps the encoding INJECTIVE: every record whose
+#     path field begins with `"` is an escaped form, and nothing else is.
+#
+# The escape is the subset of git's grammar that Python's codecs.escape_decode
+# and the testmap intake's unquote both accept. An escaped record's wire
+# spelling names no file: a consumer must decode it before any lookup.
+_z_to_lines() {
+    local p out c i code
+    while IFS= read -r -d '' p; do
+        [[ -n "$p" ]] || continue
+        if [[ "$p" == *[[:cntrl:]]* || "$p" == \"* ]]; then
+            out=""
+            # shellcheck disable=SC1003  # '\\' is two literal backslashes, intended
+            for (( i = 0; i < ${#p}; i++ )); do
+                c="${p:i:1}"
+                case "$c" in
+                    \\) out+='\\' ;;
+                    \") out+='\"' ;;
+                    $'\a') out+='\a' ;;
+                    $'\b') out+='\b' ;;
+                    $'\t') out+='\t' ;;
+                    $'\n') out+='\n' ;;
+                    $'\v') out+='\v' ;;
+                    $'\f') out+='\f' ;;
+                    $'\r') out+='\r' ;;
+                    [[:cntrl:]])
+                        printf -v code '%d' "'$c"
+                        printf -v c '\\%03o' "$code"
+                        out+="$c" ;;
+                    *) out+="$c" ;;
+                esac
+            done
+            p="\"${out}\""
+        fi
+        printf '%s\n' "$p"
+    done
+}
+
 # Dirty ∪ untracked, repo-relative, excluding task/plan data. Prints nothing
 # when git is unavailable or the tree is clean.
 #
@@ -140,11 +222,15 @@ baseline_file() {
 # `baseline` and `list` see the same path set. It also overrides a user's
 # `diff.renames` config (including `copies`). No new line prefix: each half is
 # an ordinary path, classified by the ordinary rules.
+#
+# `-z` on both reads (t2310): without it git C-quotes any non-ASCII or special
+# path under the default core.quotePath, and that quoted spelling can never
+# equal a plan reference or the raw path another consumer compares against.
 current_dirty_set() {
     {
-        git diff --no-renames --name-only HEAD -- . "${EXCLUDES[@]}" "${SELF_EXCLUDES[@]}" 2>/dev/null || true
-        git ls-files --others --exclude-standard -- . "${EXCLUDES[@]}" "${SELF_EXCLUDES[@]}" 2>/dev/null || true
-    } | sed 's|^\./||' | grep -v '^$' | sort -u || true
+        git diff --no-renames --name-only -z HEAD -- . "${EXCLUDES[@]}" "${SELF_EXCLUDES[@]}" 2>/dev/null || true
+        git ls-files --others --exclude-standard -z -- . "${EXCLUDES[@]}" "${SELF_EXCLUDES[@]}" 2>/dev/null || true
+    } | _z_to_lines | sed 's|^\./||' | grep -v '^$' | sort -u || true
 }
 
 # --- capture -----------------------------------------------------------------
@@ -174,7 +260,10 @@ cmd_capture() {
     dest="$(baseline_file "$task_id")"
     mkdir -p "$(dirname "$dest")"
 
-    content="version=1
+    # version=2: paths are recorded in _z_to_lines' encoding (raw, escaped only
+    # where a raw path would break a line). A version=1 file recorded git's
+    # default C-quoting instead; read_baseline converts it.
+    content="version=2
 task=${task_id}
 toplevel=${toplevel}
 head=${head}
@@ -211,20 +300,67 @@ read_baseline() {
 
     BASELINE_STATE="ok"
     BASELINE_PATHS="$(sed -n '/^paths:$/,$p' "$file" | tail -n +2 | grep -v '^$' || true)"
+
+    # A version=1 baseline (written before t2310) recorded git's default
+    # C-quoting: `"d\303\251.md"` for a path the current dirty set now reports
+    # raw. Left as is, the two never match -- N1 is silently lost for that path,
+    # and a plan-named, pre-claim-dirty path flips from UNKNOWN to a false TASK.
+    # Decode each quoted record to its bytes and re-encode it through the same
+    # _z_to_lines the dirty set uses. On a decode failure keep the records as
+    # they are (the pre-t2310 behaviour) and say so.
+    local version converted
+    version="$(sed -n 's/^version=//p' "$file" | head -n1)"
+    if [[ "$version" != "2" ]] && grep -q '^"' <<<"$BASELINE_PATHS"; then
+        if converted="$(printf '%s\n' "$BASELINE_PATHS" | "${_AIT_RESOLVED_PYTHON:-python3}" -c '
+import codecs, sys
+out = sys.stdout.buffer
+for line in sys.stdin.buffer.read().split(b"\n"):
+    if not line:
+        continue
+    if len(line) >= 2 and line.startswith(b"\"") and line.endswith(b"\""):
+        line = codecs.escape_decode(line[1:-1])[0]
+    out.write(line + b"\0")
+' 2>/dev/null | _z_to_lines)"; then
+            BASELINE_PATHS="$converted"
+        else
+            warn "change-surface: could not decode the version-1 baseline $file; quoted records kept as recorded" >&2
+        fi
+    fi
 }
 
 # --- plan scope (P2) ---------------------------------------------------------
 # Sets PLANSCOPE_STATE (ok|missing) and PLANSCOPE_PATHS (newline list).
 #
-# EXACT FILE MATCHES ONLY. Directory tokens are discarded: a plan legitimately
-# names broad directories in prose (.aitask-scripts/, tests/, seed/ ...), and
-# treating them as recursive scope prefixes would attribute nearly the whole
-# repo -- reopening the very failure this script exists to close. Recursive
-# ownership is not inferable from prose, so it is not inferred.
+# THE INVERTED SEARCH, NOT A GRAMMAR (t2310). P2 is only ever consulted as a
+# membership test over the DIRTY set (cmd_list pass B), so the question is
+# "which of these git-reported paths does the plan mention?" -- exactly what
+# lib/plan_paths.py's find_references answers, through the lib/plan_paths_sh.sh
+# bridge the remote drift check also uses. The candidates are the dirty paths
+# themselves, byte for byte, so there is no filename grammar to get wrong: `|`,
+# `@`, spaces, non-ASCII and an NFD name the plan writes in NFC all work. (The
+# local `[A-Za-z0-9_./-]` tokenizer this replaces split `docs/a|b.md` and
+# dropped every non-ASCII name.) Delimiter rules, NFC mapping and
+# undecodable-byte handling: aidocs/framework/plan_path_reference_extraction_findings.md
+# sections 3-5, and section 7 for this consumer's switch.
 #
-# Tokens are only ever COMPARED as fixed strings, never used as patterns and
-# never evaluated: plan text is agent/user-authored and may contain `.*` or
-# `$(id)`.
+# EXACT FILE MATCHES ONLY. A reference must be the whole candidate path bounded
+# by delimiters, so a directory the plan names in prose (.aitask-scripts/,
+# tests/ ...) never attributes the files beneath it -- treating it as a
+# recursive scope prefix would attribute nearly the whole repo, reopening the
+# very failure this script exists to close.
+#
+# Only `full` hits attribute. `bare` (a single component with no `.`: `ait`,
+# `Makefile`) is the same word as ordinary prose ("run `ait setup`"), and
+# `suffix` (a module-relative trailing sub-path) is ambiguous across modules;
+# both are evidence elsewhere, never a positive here. An escaped record (see
+# _z_to_lines) is never a candidate: its spelling is not the path.
+#
+# Plan text is DATA: the search escapes every candidate and never evaluates the
+# plan, which is agent/user-authored and may contain `.*` or `$(id)`.
+#
+# FAILS CLOSED. When the search cannot run (no interpreter, module missing, plan
+# unreadable) the signal is unavailable: PLANSCOPE:missing, never an "ok" with
+# nothing attributed -- the two would otherwise look identical.
 read_plan_scope() {
     local task_id="$1" plan_file="" dirty="$2"
     PLANSCOPE_STATE="missing"
@@ -234,36 +370,27 @@ read_plan_scope() {
     if [[ -z "$plan_file" || ! -f "$plan_file" ]]; then
         return 0
     fi
+    if [[ -z "$dirty" ]]; then
+        # Nothing to attribute; the plan was found, so the signal is available.
+        PLANSCOPE_STATE="ok"
+        return 0
+    fi
+
+    local refs line keep=""
+    # shellcheck source=lib/plan_paths_sh.sh
+    if ! source "$SCRIPT_DIR/lib/plan_paths_sh.sh" 2>/dev/null \
+        || ! refs="$( { grep -v '^"' <<<"$dirty" || true; } | tr '\n' '\0' \
+            | plan_paths_references "$plan_file")"; then
+        warn "change-surface: the plan-scope search could not run for $plan_file; reporting PLANSCOPE:missing" >&2
+        return 0
+    fi
     PLANSCOPE_STATE="ok"
 
-    local tokens
-    # Portable ERE (no grep -P: unavailable on macOS). Candidate = a token made
-    # of path-safe characters that contains at least one `/` or a dot-extension.
-    #
-    # The leading `.` in the character class is load-bearing: without it a token
-    # may not START with a dot, so `.aitask-scripts/foo.sh` is captured as
-    # `aitask-scripts/foo.sh`, which resolves to nothing and is discarded. Every
-    # dot-directory path (.claude/, .codex/, .opencode/, .agents/, .github/ ...)
-    # would then be permanently unattributable — a large share of this framework
-    # and of most repositories.
-    tokens="$(grep -oE '[A-Za-z0-9_.][A-Za-z0-9_./-]*' "$plan_file" 2>/dev/null \
-        | sed -e 's|^\./||' -e 's|[.,:;)]*$||' \
-        | grep -E '/|\.[A-Za-z0-9]+$' \
-        | sort -u || true)"
-    [[ -n "$tokens" ]] || return 0
-
-    local tok keep=""
-    while IFS= read -r tok; do
-        [[ -n "$tok" ]] || continue
-        # Discard directory tokens outright -- they never attribute.
-        [[ -d "$tok" ]] && continue
-        # Keep a token that names an existing regular file, or a path that is
-        # currently dirty/untracked (a file the plan CREATES does not exist
-        # until it does). Fixed-string membership test, never a pattern.
-        if [[ -f "$tok" ]] || printf '%s\n' "$dirty" | grep -qxF -- "$tok"; then
-            keep+="${tok}"$'\n'
-        fi
-    done <<< "$tokens"
+    # `<kind>\t<path>`: the path is everything after the FIRST tab. (A path
+    # holding a tab is a control-byte path, escaped and never a candidate.)
+    while IFS= read -r line; do
+        [[ "${line%%$'\t'*}" == "full" ]] && keep+="${line#*$'\t'}"$'\n'
+    done <<< "$refs"
 
     PLANSCOPE_PATHS="$(printf '%s' "$keep" | grep -v '^$' | sort -u || true)"
 }
@@ -289,11 +416,16 @@ cmd_list() {
                 # PATHSPEC rather than a revision, and Pass A would silently
                 # return nothing for every task (t1263). `--no-renames`: a
                 # renamed file contributes BOTH paths -- see current_dirty_set.
-                committed+="$(git show --no-renames --name-only --format= "$sha" 2>/dev/null || true)"$'\n'
+                # `-z` + _z_to_lines: raw paths, same encoding as the dirty set
+                # (t2310). The pathspec applies the data-path exclusion BEFORE
+                # encoding, so an escaped `aitasks/...` record cannot slip past
+                # the line filter below.
+                committed+="$(git show --no-renames --name-only -z --format= "$sha" \
+                    -- . "${EXCLUDES[@]}" 2>/dev/null | _z_to_lines || true)"$'\n'
             done <<< "$shas"
         fi
     fi
-    # Apply the same data-path exclusion the dirty scan uses.
+    # The same data-path exclusion the dirty scan uses (belt to the pathspec).
     committed="$(printf '%s' "$committed" | sed 's|^\./||' | grep -v '^$' \
         | grep -Ev '^(aitasks/|aiplans/|\.aitask-data/)' | sort -u || true)"
 

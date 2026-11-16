@@ -24,6 +24,11 @@
 #   - A rename is two paths (t2304): staged, unstaged and committed renames list
 #     the OLD half as well as the new, each classified by the ordinary rules;
 #     plain deletions are still listed; `baseline` and `list` agree.
+#   - Paths are RAW bytes (t2310): non-ASCII, `|` and NFD names are attributed
+#     through the shared plan-reference search; a control-byte or leading-`"`
+#     path is one escaped record (never split, never a raw CR); a version-1
+#     (git-quoted) baseline still matches; a broken search fails closed to
+#     PLANSCOPE:missing.
 #
 # Run: bash tests/test_change_surface.sh
 set -u
@@ -36,7 +41,10 @@ enter_scratch_cwd
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
 PASS=0; FAIL=0; TOTAL=0
-CS="$PROJECT_DIR/.aitask-scripts/aitask_change_surface.sh"
+# AIT_TEST_CHANGE_SURFACE: run the same assertions against another copy of the
+# script (a pre-fix control: a scratch copy of an older revision beside a `lib`
+# symlink). Unset in normal runs.
+CS="${AIT_TEST_CHANGE_SURFACE:-$PROJECT_DIR/.aitask-scripts/aitask_change_surface.sh}"
 PY="$( . "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" 2>/dev/null; resolve_python 2>/dev/null || echo python3)"
 
 # ONE parent fixture root, created and registered HERE in the parent shell.
@@ -549,6 +557,250 @@ list_e="$(surface_paths "$(rn_cs "$fx_e" list 24)")"
 assert_eq "baseline path set equals list path set on the same tree" "$list_e" "$base_e"
 assert_eq "...and it is exactly both halves of both renames" \
     "$(printf '%s\n' ea.sh eb.sh ec.sh ed.sh)" "$base_e"
+
+# ---------------------------------------------------------------------------
+# 11. PATHS ARE RAW BYTES (t2310).
+#
+# Without -z git C-quotes a non-ASCII or special path under the default
+# core.quotePath (`"d\303\251.md"`); that spelling never equals a plan reference
+# or the raw path another consumer compares against, so such a path was never
+# TASK. The plan-scope tokenizer also split `docs/a|b.md` and dropped non-ASCII
+# names; P2 now asks the shared inverted search (lib/plan_paths.py).
+#
+# core.quotePath IS PINNED ON for the producer, not only for the controls --
+# under a user's quotePath=false the unpatched script prints non-ASCII raw and
+# every non-ASCII assertion would pass with -z removed. Same pinning mechanism,
+# and the same reason, as RENAMES_ON in section 10.
+#
+# Byte-exact names are built with printf octal escapes, never typed, so an
+# editor's normalization cannot change what the fixture means.
+# ---------------------------------------------------------------------------
+
+QUOTE_ON=(env -u GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT=1
+          GIT_CONFIG_KEY_0=core.quotePath GIT_CONFIG_VALUE_0=true)
+qp_cs()  { local d="$1"; shift; ( cd "$d" && "${QUOTE_ON[@]}" "$CS" "$@" ); }
+qp_git() { local d="$1"; shift; ( cd "$d" && "${QUOTE_ON[@]}" git "$@" ); }
+
+DEJA="$(printf 'd\303\251 j\303\240.md')"        # "dé jà.md", NFC
+UNNAMED="$(printf '\303\274nnamed.md')"          # "ünnamed.md"
+O_UML="$(printf '\303\266.md')"                  # "ö.md"
+A_UML="$(printf '\303\244.md')"                  # "ä.md"
+U_UML="$(printf '\303\274.md')"                  # "ü.md"
+CAFE_NFC="$(printf 'caf\303\251.md')"            # é precomposed
+CAFE_NFD="$(printf 'cafe\314\201.md')"           # e + combining acute
+LS_PATH="$(printf 'docs/a\342\200\250DIRTY_AT_CLAIM:innocent.md')"   # U+2028 inside
+LF_PATH=$'a\nb.md'
+CR_PATH=$'x\ry.md'
+VT_PATH=$'v\vw.md'
+TCR_COMMITTED=$'src/a.md\r'                      # TRAILING CR on purpose
+TCR_DIRTY=$'d.md\r'
+LEAD_Q='"lead.md'
+
+# escaped_count <output> — records whose path field is an escaped form.
+escaped_count() { grep -c '^[A-Z_]*:"' <<<"$1" || true; }
+
+# 11a. Non-ASCII: plan-named -> TASK, unnamed -> UNKNOWN, both raw.
+fx_q="$(new_repo)"
+write_plan "$fx_q" 30 "Edit \`${DEJA}\` here."
+qp_cs "$fx_q" capture 30 >/dev/null
+printf 'n\n' > "$fx_q/$DEJA"
+printf 'n\n' > "$fx_q/$UNNAMED"
+ctl_q="$(qp_git "$fx_q" ls-files --others --exclude-standard)"
+assert_line "11a control: git C-quotes the non-ASCII path in this fixture" \
+    '"d\303\251 j\303\240.md"' "$ctl_q"
+out_q="$(qp_cs "$fx_q" list 30)"
+assert_line "non-ASCII path the plan names is TASK (raw)" "TASK:${DEJA}" "$out_q"
+assert_line "non-ASCII path no plan names is UNKNOWN (raw)" "UNKNOWN:${UNNAMED}" "$out_q"
+assert_eq "no record of an ordinary non-ASCII path is escaped" "0" "$(escaped_count "$out_q")"
+
+# 11b. `|` is a path byte: the plan names `docs/a|b.md` and it is attributed.
+fx_p="$(new_repo)"
+write_plan "$fx_p" 31 'Edit `docs/a|b.md` only.'
+qp_cs "$fx_p" capture 31 >/dev/null
+mkdir -p "$fx_p/docs"; printf 'n\n' > "$fx_p/docs/a|b.md"
+out_p="$(qp_cs "$fx_p" list 31)"
+assert_line "a plan-named path containing | is TASK" "TASK:docs/a|b.md" "$out_p"
+
+# 11c. NFD on disk (the APFS/HFS+ shape), NFC in the plan: TASK, reported as
+# git named it (the NFD bytes), never the plan's NFC spelling.
+fx_n="$(new_repo)"
+write_plan "$fx_n" 32 "Edit \`${CAFE_NFC}\`."
+qp_cs "$fx_n" capture 32 >/dev/null
+printf 'n\n' > "$fx_n/$CAFE_NFD"
+out_n="$(qp_cs "$fx_n" list 32)"
+assert_line "NFD file named in NFC by the plan is TASK, as git named it" "TASK:${CAFE_NFD}" "$out_n"
+assert_no_line "...never under the plan's NFC spelling" "TASK:${CAFE_NFC}" "$out_n"
+
+# 11d. N1 for non-ASCII: pre-claim dirt is OTHER; plan-named + pre-claim stays
+# UNKNOWN (the signal conflict), never TASK.
+new_uml_repo() {   # new_uml_repo -> a repo with ö.md / ä.md committed
+    local d; d="$(new_repo)"
+    printf 'o\n' > "$d/$O_UML"; printf 'a\n' > "$d/$A_UML"
+    ( cd "$d" && git add -A && git commit -qm "umlauts" ) >/dev/null 2>&1
+    echo "$d"
+}
+fx_b="$(new_uml_repo)"
+write_plan "$fx_b" 33 "Edit \`${A_UML}\`."
+printf 'dirty\n' >> "$fx_b/$O_UML"; printf 'dirty\n' >> "$fx_b/$A_UML"    # BEFORE the claim
+ctl_b="$(qp_git "$fx_b" diff --name-only HEAD)"
+assert_line "11d control: git C-quotes the modified non-ASCII path" '"\303\266.md"' "$ctl_b"
+qp_cs "$fx_b" capture 33 >/dev/null
+assert_line "baseline records the non-ASCII path raw" \
+    "DIRTY_AT_CLAIM:${O_UML}" "$(qp_cs "$fx_b" baseline 33)"
+out_b="$(qp_cs "$fx_b" list 33)"
+assert_line "pre-claim non-ASCII dirt is OTHER" "OTHER:${O_UML}" "$out_b"
+assert_line "plan-named AND pre-claim non-ASCII is UNKNOWN" "UNKNOWN:${A_UML}" "$out_b"
+assert_no_line "NEG: plan-named pre-claim non-ASCII is not TASK" "TASK:${A_UML}" "$out_b"
+
+# 11e. A VERSION-1 baseline (written before t2310, git-quoted) still matches:
+# the transitional false-TASK guard for tasks claimed before the upgrade.
+fx_v="$(new_uml_repo)"
+write_plan "$fx_v" 34 "Edit \`${A_UML}\`."
+printf 'dirty\n' >> "$fx_v/$O_UML"; printf 'dirty\n' >> "$fx_v/$A_UML"
+mkdir -p "$fx_v/.aitask-gates/34"
+{
+    printf 'version=1\ntask=34\ntoplevel=%s\nhead=%s\n' \
+        "$(cd "$fx_v" && git rev-parse --show-toplevel)" "$(cd "$fx_v" && git rev-parse HEAD)"
+    printf 'captured_at=2026-01-01T00:00:00Z\npaths:\n'
+    printf '%s\n' '"\303\244.md"' '"\303\266.md"'
+} > "$fx_v/.aitask-gates/34/change_baseline"
+assert_line "v1 baseline: the quoted record is decoded to the raw path" \
+    "DIRTY_AT_CLAIM:${O_UML}" "$(qp_cs "$fx_v" baseline 34)"
+out_v="$(qp_cs "$fx_v" list 34)"
+assert_line "v1 baseline: pre-claim non-ASCII dirt is OTHER" "OTHER:${O_UML}" "$out_v"
+assert_line "v1 baseline: plan-named pre-claim path stays UNKNOWN" "UNKNOWN:${A_UML}" "$out_v"
+assert_no_line "NEG: v1 baseline never turns it into a false TASK" "TASK:${A_UML}" "$out_v"
+
+# 11f. Pass A: a committed non-ASCII path is reported raw.
+fx_f="$(new_repo)"
+printf 'u\n' > "$fx_f/$U_UML"
+( cd "$fx_f" && git add -A && git commit -qm "feature: add (t35)" ) >/dev/null 2>&1
+assert_line "11f control: git C-quotes the committed non-ASCII path" \
+    '"\303\274.md"' "$(qp_git "$fx_f" show --name-only --format= HEAD)"
+assert_line "committed non-ASCII path is COMMITTED (raw)" \
+    "COMMITTED:${U_UML}" "$(qp_cs "$fx_f" list 35)"
+
+# 11g. A LF in a path: exactly ONE escaped record, never split into two paths,
+# never TASK even when the plan names both "halves".
+fx_l="$(new_repo)"
+write_plan "$fx_l" 36 'Edit `a` and `b.md` and `a b.md`.'
+qp_cs "$fx_l" capture 36 >/dev/null
+printf 'n\n' > "$fx_l/$LF_PATH"
+out_l="$(qp_cs "$fx_l" list 36)"
+assert_line "a LF path is one escaped UNKNOWN record" 'UNKNOWN:"a\nb.md"' "$out_l"
+assert_eq "...and the only path record" "1" "$(surface_paths "$out_l" | grep -c . || true)"
+assert_no_line "NEG: no record for the first half" "UNKNOWN:a" "$out_l"
+assert_no_line "NEG: no record for the second half" "UNKNOWN:b.md" "$out_l"
+assert_not_contains "NEG: a LF path is never TASK" "TASK:" "$out_l"
+fx_l2="$(new_repo)"
+printf 'n\n' > "$fx_l2/$LF_PATH"                                  # BEFORE the claim
+qp_cs "$fx_l2" capture 36 >/dev/null
+assert_line "a pre-claim LF path still matches its baseline (OTHER)" \
+    'OTHER:"a\nb.md"' "$(qp_cs "$fx_l2" list 36)"
+
+# 11h. BROKEN MATCHER: when the plan-reference search cannot run, P2 is
+# unavailable (PLANSCOPE:missing) -- never an "ok" that attributes nothing, and
+# never a TASK. The positive control runs the SAME fixture with the search
+# reachable, so the stub is the only difference.
+fx_h="$(new_repo)"
+write_plan "$fx_h" 37 'Edit `sub/mine.md`.'
+qp_cs "$fx_h" capture 37 >/dev/null
+echo edit >> "$fx_h/sub/mine.md"
+mkdir -p "$FIXTURE_ROOT/no_plan_paths"
+out_h_ok="$(qp_cs "$fx_h" list 37)"
+assert_line "11h positive control: with the search, the plan-named file is TASK" \
+    "TASK:sub/mine.md" "$out_h_ok"
+assert_line "11h positive control: PLANSCOPE is ok" "PLANSCOPE:ok" "$out_h_ok"
+out_h="$( cd "$fx_h" && AIT_PLAN_PATHS_DIR="$FIXTURE_ROOT/no_plan_paths" \
+    "${QUOTE_ON[@]}" "$CS" list 37 2>/dev/null )"
+assert_line "broken search: PLANSCOPE is missing" "PLANSCOPE:missing" "$out_h"
+assert_not_contains "broken search: nothing is TASK" "TASK:" "$out_h"
+assert_line "broken search: the file falls to UNKNOWN" "UNKNOWN:sub/mine.md" "$out_h"
+
+# 11i. A grammar edge pinned ON PURPOSE (findings doc section 3): `@` continues
+# a path, so `sub/mine.md@v2` is not a reference to `sub/mine.md`.
+fx_i="$(new_repo)"
+write_plan "$fx_i" 38 'Compare with sub/mine.md@v2 upstream.'
+qp_cs "$fx_i" capture 38 >/dev/null
+echo edit >> "$fx_i/sub/mine.md"
+out_i="$(qp_cs "$fx_i" list 38)"
+assert_line "a path@rev mention does not attribute the bare path" "UNKNOWN:sub/mine.md" "$out_i"
+
+# 11j. Non-LF line breaks stay inside ONE record. U+2028 is not a control byte
+# and stays raw; CR and VT are control bytes and are escaped. The U+2028 name
+# embeds a fake `DIRTY_AT_CLAIM:innocent.md` so a reader that splits on more
+# than LF would invent a record for an unrelated file.
+fx_j="$(new_repo)"
+mkdir -p "$fx_j/docs"
+printf 'i\n' > "$fx_j/innocent.md"
+( cd "$fx_j" && git add -A && git commit -qm "innocent" ) >/dev/null 2>&1
+printf 'n\n' > "$fx_j/$LS_PATH"; printf 'n\n' > "$fx_j/$CR_PATH"; printf 'n\n' > "$fx_j/$VT_PATH"
+qp_cs "$fx_j" capture 39 >/dev/null
+echo edit >> "$fx_j/innocent.md"                                  # AFTER the claim
+base_j="$(qp_cs "$fx_j" baseline 39)"
+assert_line "U+2028 path: one raw baseline record" "DIRTY_AT_CLAIM:${LS_PATH}" "$base_j"
+assert_line "CR path: one escaped baseline record" 'DIRTY_AT_CLAIM:"x\ry.md"' "$base_j"
+assert_line "VT path: one escaped baseline record" 'DIRTY_AT_CLAIM:"v\vw.md"' "$base_j"
+assert_eq "exactly three baseline records" "3" "$(grep -c '^DIRTY_AT_CLAIM:' <<<"$base_j" || true)"
+assert_no_line "NEG: no invented baseline record for innocent.md" \
+    "DIRTY_AT_CLAIM:innocent.md" "$base_j"
+out_j="$(qp_cs "$fx_j" list 39)"
+assert_line "U+2028 path is OTHER" "OTHER:${LS_PATH}" "$out_j"
+assert_line "CR path is OTHER" 'OTHER:"x\ry.md"' "$out_j"
+assert_line "VT path is OTHER" 'OTHER:"v\vw.md"' "$out_j"
+assert_line "innocent.md, dirtied after the claim, is UNKNOWN (not OTHER)" \
+    "UNKNOWN:innocent.md" "$out_j"
+
+# 11k. TRAILING CR in the real producer record. A scanner that drops one
+# trailing CR before LF (Go's bufio.ScanLines in the testmap intake) would read
+# a raw `COMMITTED:src/a.md<CR>` as `src/a.md` -- the tracked neighbour below.
+# An interior CR (11j) cannot expose that truncation; a trailing one can.
+fx_k="$(new_repo)"
+mkdir -p "$fx_k/src"; printf 'a\n' > "$fx_k/src/a.md"
+( cd "$fx_k" && git add -A && git commit -qm "neighbour" ) >/dev/null 2>&1
+printf 'cr\n' > "$fx_k/$TCR_COMMITTED"
+( cd "$fx_k" && git add -A && git commit -qm "feature: trailing cr (t40)" ) >/dev/null 2>&1
+printf 'cr\n' > "$fx_k/$TCR_DIRTY"
+out_k="$(qp_cs "$fx_k" list 40)"
+assert_line "a committed trailing-CR path is one escaped record" 'COMMITTED:"src/a.md\r"' "$out_k"
+assert_line "an untracked trailing-CR path is one escaped record" 'UNKNOWN:"d.md\r"' "$out_k"
+assert_no_line "NEG: the neighbour is not reported as committed" "COMMITTED:src/a.md" "$out_k"
+assert_eq "no raw CR byte anywhere in the output" "0" \
+    "$(printf '%s' "$out_k" | LC_ALL=C tr -cd '\r' | wc -c | tr -d ' ')"
+
+# 11l. ESCAPE ROUND TRIP: every escaped shape decodes, with git's C-quote
+# grammar (Python's codecs.escape_decode), to the exact bytes of the on-disk
+# name -- including a name that itself begins with `"`.
+fx_e2="$(new_repo)"
+printf 'q\n' > "$fx_e2/$LEAD_Q"
+out_e2="$(qp_cs "$fx_e2" list 41)"
+assert_line "a leading-quote name is escaped (keeps the encoding injective)" \
+    'UNKNOWN:"\"lead.md"' "$out_e2"
+# roundtrip <desc> <field> <expected raw name>
+roundtrip() {
+    local got want
+    got="$("$PY" -c 'import codecs, sys
+f = sys.argv[1].encode("utf-8", "surrogateescape")
+sys.stdout.buffer.write(codecs.escape_decode(f[1:-1])[0])' "$2" | od -An -tx1 | tr -d ' \n')"
+    want="$(printf '%s' "$3" | od -An -tx1 | tr -d ' \n')"
+    assert_eq "$1" "$want" "$got"
+}
+roundtrip "round trip: LF"           '"a\nb.md"'      "$LF_PATH"
+roundtrip "round trip: interior CR"  '"x\ry.md"'      "$CR_PATH"
+roundtrip "round trip: VT"           '"v\vw.md"'      "$VT_PATH"
+roundtrip "round trip: trailing CR"  '"src/a.md\r"'   "$TCR_COMMITTED"
+roundtrip "round trip: leading quote" '"\"lead.md"'   "$LEAD_Q"
+# ...and the expected names really are the on-disk names the records came from
+# (otherwise a round trip against a mistyped literal would prove nothing).
+for spec in "$fx_l:$LF_PATH" "$fx_j:$CR_PATH" "$fx_j:$VT_PATH" \
+            "$fx_k:$TCR_COMMITTED" "$fx_e2:$LEAD_Q"; do
+    if [[ -e "${spec%%:*}/${spec#*:}" ]]; then
+        assert_record_pass
+    else
+        assert_record_fail
+        echo "FAIL: round-trip fixture name missing on disk: $(printf '%q' "${spec#*:}")"
+    fi
+done
 
 # --- summary ---------------------------------------------------------------
 echo ""

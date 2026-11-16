@@ -16,11 +16,11 @@ _TOKEN = re.compile(
     r"[A-Za-z0-9_./-]+\.(?:" + "|".join(_EXTENSIONS) + r")")
 ```
 
-**It is not the only extractor in the repository.** `aitask_change_surface.sh`
-carries its own, deliberately broader one (t1263) with no extension allowlist —
-so the findings below are about *this* grammar, not about the framework's every
-notion of "which files does a text mention". The module docstring is the
-authority on that split.
+**It is the only extractor in the repository.** `aitask_change_surface.sh`
+once carried its own broader tokenizer (t1263). It now asks the inverted search
+below instead (§7, "Change surface"), so the findings below are about *this*
+grammar, and the change surface has none. The module docstring is the authority
+on that split.
 
 Its consumers are `lib/parallel_admission.py`,
 `lib/parallel_admission_collect.py` and `lib/trail_gather.py` — which is why the
@@ -34,9 +34,11 @@ delimiter set, the §4 NFC mapping back to the original path and the §5
 `surrogateescape` handling, and reports the section heading each mention sits
 under. It has no extension list, so findings 1 and 2 do not apply to it.
 `reference_kinds()` tiers its hits (full / bare / suffix). Its consumers are the
-shadow's ownership-evidence helper (`lib/shadow_scope.py`) and the remote drift
-check (`plan_paths.py --references`, through the lazy `lib/plan_paths_sh.sh`
-bridge). The three consumers above still use `extract()`, for the reasons in §7.
+shadow's ownership-evidence helper (`lib/shadow_scope.py`), the remote drift
+check and the change surface's plan-scope signal (`aitask_change_surface.sh`).
+The last two reach it as `plan_paths.py --references`, through the lazy
+`lib/plan_paths_sh.sh` bridge. The three consumers above still use `extract()`,
+for the reasons in §7.
 
 The findings below were originally measured against the equivalent shell
 pipeline this module replaced (`grep -oE … | sed 's|^\./||' | sort -u`); the
@@ -621,6 +623,105 @@ for f in plans:
 print(f"plans={len(plans)} changed={changed} distinct_token_removals={removals} "
       f"tokens_added={added} emptied={emptied}")
 print("cut-off occurrences by tail shape:", by_tail.most_common())
+```
+
+**Change surface (switched, t2310).** `aitask_change_surface.sh` consults its
+plan-scope signal (P2) only as a membership test over the task's **dirty** set.
+So its question is "which of these git-reported paths does the plan mention?",
+which is `find_references`' question exactly. It had its own tokenizer,
+`[A-Za-z0-9_.][A-Za-z0-9_./-]*`, whose charset (§2) split `docs/a|b.md` and
+dropped every non-ASCII name. It now sends the dirty paths, NUL-delimited, to
+`plan_paths_references` (`lib/plan_paths_sh.sh`). The rules of the switch:
+
+- **Only `full` hits attribute TASK.** `bare` (e.g. `ait`, `Makefile`) is
+  ordinary prose, and `suffix` is ambiguous across modules. The old
+  "contains `/` or ends in a dot-extension" filter dropped the same bare names.
+- **It fails closed.** When the search cannot run, the script reports
+  `PLANSCOPE:missing`, the existing "signal unavailable" state, and attributes
+  nothing.
+- **An escaped record is never a candidate.** The script prints a path that
+  contains a control byte, or begins with `"`, in git's C-quote form, and that
+  spelling is not the path.
+
+Measured 2026-11-16 on this repository's live corpus. The corpus is every
+archived plan, loose and inside the `_b*/old*.tar.zst` bundles, that has
+`(t<id>)` commits: 2159 plans. Each plan's candidate set is the union of the
+files its own tagged commits touched (`--no-renames`, data paths excluded).
+That set stands in for "the dirty set at review time". The old tokenizer runs
+as the real shell pipeline copied from the pre-switch script, followed by its
+real directory and membership filter. The new side calls
+`plan_paths.reference_kinds()`.
+
+| | attributions |
+|---|---|
+| same | 9549 |
+| new-only | 0 |
+| old-only | 5 |
+
+All 5 old-only hits are **real references written with a prefix**. The old
+tokenizer caught them only because a token could not start with `/`, `@` or
+`\`. Under §3 those characters continue a path:
+
+| task | plan text | cause |
+|---|---|---|
+| t361 | `` `/website/content/docs/installation/known-issues.md` `` | repo-rooted leading `/` |
+| t793 | `` `/.aitask-scripts/brainstorm/brainstorm_dag_display.py` `` | repo-rooted leading `/` |
+| t812_2 | `` `@.gemini/skills/geminicli_tool_mapping.md` `` | `@`-mention prefix |
+| t1449 | `` `\.aitask-scripts/monitor/monitor_app.py` `` | markdown-escaped dot |
+| t2246 | `<tree>/.aitask-scripts/monitor/status_server.py` | tree-relative prefix |
+
+**Accepted narrowing (decided in t2310).** Each loss turns a TASK into
+UNKNOWN, which the consumer escalates. That is the recoverable direction:
+over-escalation can be corrected, false attribution cannot. Teaching the shared
+matcher to accept a leading `/` or `@` would let `src/lib/x.py` reference a
+candidate `lib/x.py`, which is exactly a false attribution. The corpus is
+ASCII-only, so the switch's gains (`|`, non-ASCII, NFD on disk with NFC in the
+plan) appear only in fixtures (`tests/test_change_surface.sh` §11), never in
+this table.
+
+```python
+# Run from the repo root, after extracting every bundle:
+#   for a in $(find aiplans/archived -name '*.tar.zst'); do
+#     d="$X/$(echo "$a" | tr '/' '_')"; mkdir -p "$d"; zstd -dc "$a" | tar -xf - -C "$d"; done
+#   python3 -I p2_differential.py "$X"
+import collections, glob, os, re, subprocess, sys
+sys.path.insert(0, ".aitask-scripts/lib")
+import plan_paths as pp
+OLD_PIPE = (r"""grep -oE '[A-Za-z0-9_.][A-Za-z0-9_./-]*' "$1" 2>/dev/null """
+            r"""| sed -e 's|^\./||' -e 's|[.,:;)]*$||' """
+            r"""| grep -E '/|\.[A-Za-z0-9]+$' | sort -u || true""")
+TAG = re.compile(r"\(t(\d+(?:_\d+)?)\)")
+DATA = ("aitasks/", "aiplans/", ".aitask-data/")
+log = subprocess.run(["git", "-c", "core.quotePath=false", "log", "--no-renames",
+                      "--name-only", "--format=%x01%B%x02"],
+                     capture_output=True, check=True).stdout.decode("utf-8", "surrogateescape")
+files_by_task = collections.defaultdict(set)
+for chunk in log.split("\x01")[1:]:
+    msg, _, names = chunk.partition("\x02")
+    paths = {n for n in names.split("\n") if n and not n.startswith(DATA)}
+    for t in set(TAG.findall(msg)):
+        files_by_task[t] |= paths
+counts, rows = collections.Counter(), []
+plans = glob.glob("aiplans/archived/**/p*.md", recursive=True) + [
+    p for d in sys.argv[1:] for p in glob.glob(d + "/**/p*.md", recursive=True)]
+for plan in sorted(plans):
+    m = re.match(r"p(\d+(?:_\d+)?)_", os.path.basename(plan))
+    if not m or m.group(1) not in files_by_task:
+        continue
+    cands = sorted(files_by_task[m.group(1)])
+    toks = set(subprocess.run(["bash", "-c", OLD_PIPE, "_", plan], capture_output=True,
+                              env={**os.environ, "LC_ALL": "C"}).stdout
+               .decode("utf-8", "surrogateescape").split("\n"))
+    old = {c for c in cands if c in toks and not os.path.isdir(c)}
+    text = open(plan, encoding="utf-8", errors="surrogateescape").read()
+    new = {c for c, k in pp.reference_kinds(text, cands).items() if k == "full"}
+    counts["plans"] += 1; counts["same"] += len(old & new)
+    counts["old_only"] += len(old - new); counts["new_only"] += len(new - old)
+    rows += [("old-only", m.group(1), c) for c in sorted(old - new)]
+    rows += [("new-only", m.group(1), c) for c in sorted(new - old)]
+print(dict(counts))
+for r in rows:
+    print("\t".join(r))
 ```
 
 ## Related

@@ -49,6 +49,7 @@ the repository root that holds the task data (`aitasks/`, `aiplans/`).
 from __future__ import annotations
 
 import argparse
+import codecs
 import glob
 import os
 import re
@@ -98,7 +99,17 @@ def _run_lines(cmd: "list[str]", cwd: str, env=None) -> "list[str]":
                              env=env)
     except (OSError, subprocess.TimeoutExpired):
         return []
-    return _dec(res.stdout).splitlines()
+    # LF ONLY -- never str.splitlines(), which also breaks on CR, VT, FF,
+    # \x1c-\x1e, \x85, U+2028 and U+2029. Every caller speaks an LF-terminated
+    # line protocol, and those other characters are legal inside a record: a
+    # filename in `aitask_change_surface.sh baseline` (which prints raw paths
+    # since t2310), a commit subject, task text. splitlines() would cut
+    # `DIRTY_AT_CLAIM:docs/a<U+2028>DIRTY_AT_CLAIM:innocent.md` into two records,
+    # losing the real path's evidence and inventing some for `innocent.md`.
+    lines = _dec(res.stdout).split("\n")
+    if lines and lines[-1] == "":
+        lines.pop()
+    return lines
 
 
 def _is_data_path(path: str) -> bool:
@@ -202,6 +213,25 @@ def task_commits(task_id: str, repo: str, checkout: str) -> "dict[str, list[str]
     return by_path
 
 
+def _surface_path(field: str) -> str:
+    """A change-surface path field -> the path it names.
+
+    `aitask_change_surface.sh` prints paths raw, except a path that contains a
+    control byte or begins with `"`, which it prints in git's C-quote form
+    (`"docs/b.md\\r"`). Every field beginning with `"` is such an escape, so it
+    is decoded here to compare equal to the raw path `dirty_channels()` reads.
+    A field that fails to decode is kept verbatim: that can only lose evidence,
+    never invent it.
+    """
+    if len(field) >= 2 and field.startswith('"') and field.endswith('"'):
+        try:
+            raw = codecs.escape_decode(field[1:-1].encode("utf-8", "surrogateescape"))[0]
+            return _dec(raw)
+        except (ValueError, UnicodeError):
+            return field
+    return field
+
+
 def claim_baseline(task_id: str, repo: str, checkout: str) -> "tuple[str, set[str]]":
     """(state, already-dirty paths) from the task's claim-time baseline."""
     env = dict(os.environ)
@@ -213,16 +243,24 @@ def claim_baseline(task_id: str, repo: str, checkout: str) -> "tuple[str, set[st
         if line.startswith("BASELINE:"):
             state = line[len("BASELINE:"):]
         elif line.startswith("DIRTY_AT_CLAIM:"):
-            dirty.add(line[len("DIRTY_AT_CLAIM:"):])
+            dirty.add(_surface_path(line[len("DIRTY_AT_CLAIM:"):]))
     return state, dirty
 
 
 def dirty_channels(checkout: str) -> "dict[str, list[str]]":
-    """{path: [channel, ...]} across staged / unstaged / untracked."""
+    """{path: [channel, ...]} across staged / unstaged / untracked.
+
+    `--no-renames` on both diffs (t2310, the same reason as t2304's flag in
+    `aitask_change_surface.sh`): git's default rename detection prints only a
+    rename's NEW path, so a staged rename's OLD half would never reach the
+    review. The flag also overrides a user's `diff.renames` config.
+    """
     chans: "dict[str, list[str]]" = {}
     sources = (
-        ("staged", ("diff", "--cached", "--name-only", "-z", "--", ".", *EXCLUDE_SPECS)),
-        ("unstaged", ("diff", "--name-only", "-z", "--", ".", *EXCLUDE_SPECS)),
+        ("staged", ("diff", "--cached", "--no-renames", "--name-only", "-z", "--", ".",
+                    *EXCLUDE_SPECS)),
+        ("unstaged", ("diff", "--no-renames", "--name-only", "-z", "--", ".",
+                      *EXCLUDE_SPECS)),
         ("untracked", ("ls-files", "--others", "--exclude-standard", "-z", "--", ".",
                        *EXCLUDE_SPECS)),
     )

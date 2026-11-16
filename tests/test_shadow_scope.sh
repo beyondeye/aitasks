@@ -289,6 +289,80 @@ assert_contains "dedicated by branch beside a same-named tag" \
     "SIGNAL:dedicated_worktree|yes|branch" "$outT"
 git -C "$C" tag -d aitask/t7_x >/dev/null
 
+# ===========================================================================
+# Fixture E — RAW BASELINE HANDOFF (t2310). `aitask_change_surface.sh baseline`
+# prints raw paths, so the reader must split records on LF ALONE and decode the
+# producer's escaped form. core.quotePath is pinned ON (command scope): under a
+# user's quotePath=false the pre-fix producer would print the non-ASCII name raw
+# and the umlaut case could not fail. The shadow's own git reads pass
+# `-c core.quotePath=false`, which outranks this environment.
+# ===========================================================================
+QUOTE_ON=(env -u GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT=1
+          GIT_CONFIG_KEY_0=core.quotePath GIT_CONFIG_VALUE_0=true)
+E="$(new_repo)"
+mkdir -p "$E/docs"
+echo i > "$E/innocent.md"; echo b > "$E/docs/b.md"
+( cd "$E" && git add -A && git commit -qm "tracked neighbours" ) >/dev/null 2>&1
+task "$E" 5 Implementing 'Nothing named.'
+plan "$E" 5 'Nothing named.'
+LS_PATH="$(printf 'docs/a\342\200\250DIRTY_AT_CLAIM:innocent.md')"   # U+2028 inside
+TCR_PATH=$'docs/b.md\r'                                             # TRAILING CR
+UML_PATH="$(printf 'docs/\303\266.md')"                             # "docs/ö.md"
+printf 'n\n' > "$E/$LS_PATH"; printf 'n\n' > "$E/$TCR_PATH"; printf 'n\n' > "$E/$UML_PATH"
+( cd "$E" && "${QUOTE_ON[@]}" "$CS" capture 5 >/dev/null 2>&1 )        # BEFORE the edits below
+echo edit >> "$E/innocent.md"; echo edit >> "$E/docs/b.md"
+outE="$( cd "$E" && "${QUOTE_ON[@]}" "$SCOPE" 5 --checkout "$E" 2>/dev/null )"
+
+echo "=== raw baseline handoff: one record per path, no invented evidence ==="
+assert_eq "U+2028 path keeps its pre-claim evidence" \
+    "PART|dirty|untracked|baseline_dirty|$LS_PATH" "$(part_line "$outE" "$LS_PATH" dirty)"
+assert_eq "NEG: innocent.md gets no invented baseline evidence" \
+    "PART|dirty|unstaged|-|innocent.md" "$(part_line "$outE" innocent.md dirty)"
+assert_eq "NEG: no phantom record for the U+2028 name's first half" \
+    "" "$(part_line "$outE" docs/a dirty)"
+assert_eq "trailing-CR path (escaped by the producer) keeps its evidence" \
+    "PART|dirty|untracked|baseline_dirty|$TCR_PATH" "$(part_line "$outE" "$TCR_PATH" dirty)"
+assert_eq "NEG: its CR-less neighbour gets no baseline evidence" \
+    "PART|dirty|unstaged|-|docs/b.md" "$(part_line "$outE" docs/b.md dirty)"
+assert_eq "non-ASCII path keeps its pre-claim evidence" \
+    "PART|dirty|untracked|baseline_dirty|$UML_PATH" "$(part_line "$outE" "$UML_PATH" dirty)"
+
+echo "=== _run_lines splits on LF only ==="
+PY="$( . "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" 2>/dev/null; resolve_python 2>/dev/null || echo python3)"
+split_out="$("$PY" - "$PROJECT_DIR/.aitask-scripts/lib" <<'EOF'
+import sys
+sys.path.insert(0, sys.argv[1])
+import shadow_scope
+cmd = [sys.executable, "-c",
+       "import sys; sys.stdout.buffer.write(b'a\\rb\\x0bc\\xe2\\x80\\xa8d\\x0ce\\nf\\n')"]
+print(repr(shadow_scope._run_lines(cmd, ".")))
+EOF
+)"
+assert_eq "CR, VT, FF and U+2028 stay inside one record" \
+    "['a\\rb\\x0bc\\u2028d\\x0ce', 'f']" "$split_out"
+
+# ===========================================================================
+# Fixture R — a STAGED RENAME reaches the review with both halves (t2310; the
+# same blind spot t2304 closed in the change surface). Rename detection is
+# pinned ON, and a control proves git really pairs this rename.
+# ===========================================================================
+RENAMES_ON=(env -u GIT_CONFIG_PARAMETERS GIT_CONFIG_COUNT=1
+            GIT_CONFIG_KEY_0=diff.renames GIT_CONFIG_VALUE_0=true)
+R="$(new_repo)"
+printf 'body of old\nold-unique-line\n' > "$R/old.sh"
+( cd "$R" && git add old.sh && git commit -qm "add old" ) >/dev/null 2>&1
+task "$R" 6 Implementing 'Nothing named.'
+plan "$R" 6 'Nothing named.'
+( cd "$R" && "$CS" capture 6 >/dev/null 2>&1 && git mv old.sh new.sh ) >/dev/null 2>&1
+ctl_r="$(cd "$R" && "${RENAMES_ON[@]}" git diff --cached --name-only)"
+assert_eq "control: git pairs the staged rename (only the new half listed)" "new.sh" "$ctl_r"
+outRn="$( cd "$R" && "${RENAMES_ON[@]}" "$SCOPE" 6 --checkout "$R" 2>/dev/null )"
+echo "=== staged rename: both halves ==="
+assert_eq "staged rename: the OLD half is a staged part" \
+    "PART|dirty|staged|-|old.sh" "$(part_line "$outRn" old.sh dirty)"
+assert_eq "staged rename: the new half is a staged part" \
+    "PART|dirty|staged|-|new.sh" "$(part_line "$outRn" new.sh dirty)"
+
 echo "=== no binding, no record: the shadow's own checkout, stated as such ==="
 D="$(new_repo)"
 task "$D" 3 Implementing 'x'

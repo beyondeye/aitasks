@@ -18,14 +18,15 @@ extraction previously lived inline in the drift check as a one-line
 on the edges recorded in
 ``aidocs/framework/plan_path_reference_extraction_findings.md``.
 
-NOT THE ONLY EXTRACTOR IN THE REPO, AND DELIBERATELY SO. ``aitask_change_surface.sh``
-carries its own, broader one (t1263): no extension allowlist, a token class that
-admits a leading dot, and validation against the FILESYSTEM rather than
-``git ls-files``. It answers a different question -- "which files did this task
-change?" -- with different correctness requirements, so the two are not merged.
-This module owns the extension-allowlisted grammar shared by the gatherer and
-the admission checker; ``tests/test_plan_paths_seam.sh`` guards that scope and pins the
-other one so it cannot quietly drift into a copy.
+THE CHANGE SURFACE DOES NOT USE THIS GRAMMAR. ``aitask_change_surface.sh``
+once carried its own, broader tokenizer (t1263). Since t2310 its plan-scope
+signal asks the inverted search below (``find_references``, through
+``lib/plan_paths_sh.sh``) instead: its question -- "which of these dirty paths
+does the plan mention?" -- is exactly the one that search answers, with no
+filename grammar at all. This module owns the extension-allowlisted grammar
+shared by the gatherer and the admission checker; ``tests/test_plan_paths_seam.sh``
+guards that scope and pins the change surface to the inverted search so it can
+neither grow a tokenizer back nor slide onto this one.
 
 GRAMMAR -- deliberately unchanged from the pipeline this replaces, so the move is
 behaviour-preserving, with ONE later exception: the right boundary (t1889), which

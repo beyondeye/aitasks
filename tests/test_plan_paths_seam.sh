@@ -72,21 +72,23 @@ PY
 assert_eq "guard: no second copy of the extension-allowlist grammar" "" "$forks"
 
 # WHAT THIS GUARD DOES NOT BUY. It pins one copy of THIS grammar — the
-# extension-allowlisted one the gatherer and the admission checker share. It does not
-# claim the repository has exactly one plan-path extractor, because it does not:
-# aitask_change_surface.sh carries a deliberately DIFFERENT one (t1263) with a
-# broader token class, no extension allowlist, and filesystem validation instead
-# of `git ls-files`. That is a different question ("which files did this task
-# change?") with different correctness requirements, and consolidating the two
-# would change its behaviour. Pinned here so a reader sees a recorded decision
-# rather than an oversight — and so it cannot quietly drift INTO a copy of ours.
-# Located by content, not line number: the file's help text and subcommands
-# grow independently of this grammar line.
-other="$(grep -F 'tokens="$(grep -oE' .aitask-scripts/aitask_change_surface.sh)"
-assert_contains "guard: change_surface keeps its own broader grammar" \
-    "[A-Za-z0-9_.][A-Za-z0-9_./-]*" "$other"
-assert_not_contains "guard: change_surface has NOT adopted our extension list" \
-    "yaml|yml|json|toml" "$other"
+# extension-allowlisted one the gatherer and the admission checker share. The
+# change surface's plan-scope signal (aitask_change_surface.sh, P2) once carried
+# its own, broader tokenizer (t1263); since t2310 it asks the INVERTED search
+# instead — its question, "which of these dirty paths does the plan mention?",
+# is exactly the one find_references answers — so there is no second tokenizer
+# left to drift. Pinned here so it can neither grow one back nor slide onto the
+# extension grammar (which would blind it to every non-listed language).
+# Located by content, not line number.
+cs_text="$(cat .aitask-scripts/aitask_change_surface.sh)"
+assert_contains "guard: change_surface reaches plan_paths through the bridge" \
+    "lib/plan_paths_sh.sh" "$cs_text"
+assert_contains "guard: change_surface calls the shared reference search" \
+    "plan_paths_references" "$cs_text"
+assert_not_contains "guard: change_surface has no tokenizer of its own" \
+    "grep -oE" "$cs_text"
+assert_not_contains "guard: change_surface has NOT adopted the extension list" \
+    "yaml|yml|json|toml" "$cs_text"
 
 # (c) The drift check reaches plan_paths through the bridge, not a local copy.
 #     Since t1877 it calls the reference search (plan_paths_references), not the
