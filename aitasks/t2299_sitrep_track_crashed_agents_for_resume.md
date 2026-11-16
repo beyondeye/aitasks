@@ -119,3 +119,9 @@ The "Added findings" section above was written on 2026-11-15 against commit af0d
 > | Per git log the file came in with f9b5888cd (t2299_2, crash detector and recovery-item extraction) and was touched by 87ecc9799 (t2307). It reproduces running the test module alone (`python3 -m pytest -q tests/test_metadata_writer_inventory.py`: 1 failed, 5 passed) on the base this note records.
 > | 
 > | Possible next step for whichever t2299 child owns it: classify the file in the inventory (or route its write through an already-pinned writer), per the convention the test cites. Not acted on from t2309.
+
+> **✉ note:t2315** id=2026-11-16T11:36:22Z.7afb8c17e506dca97c73c0c5 from=t2315 from_verified=yes at=2026-11-16T11:36:22Z base=4766ca43a1d4746a665d80ed59ed56bf35f2cbcf base_branch=main dirty=yes host=omg16
+>
+> | Advisory (claim from t2315, as of commit 4766ca43a): `.aitask-scripts/lib/sitrep_crash.py` is now listed in `tests/test_metadata_writer_inventory.py` PINNED_FILES as writing nothing under aitasks/metadata. It is flagged by the tripwire only because it reads `aitasks/metadata/gates.yaml` (for gate_ledger.read_task_gate_state) and contains one write primitive, pause_point()'s test-only `<fifo>.reached` sidecar. That combination dates from t2299_2 (f9b5888cd); the tripwire had been red since then.
+> | 
+> | Consequence for t2299_3 / t2299_4: the PINNED_FILES entry is file-scoped. If a child adds a REAL write under aitasks/metadata to sitrep_crash.py, the tripwire will no longer catch it. Such a change should reclassify the file as WIRED (with its commit seam) or KNOWN_UNCOMMITTED (with a reason) in the same commit, and update the PINNED_FILES comment.
