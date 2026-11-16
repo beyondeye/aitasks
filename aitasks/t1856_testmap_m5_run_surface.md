@@ -629,3 +629,34 @@ The engine scope below moved to aitasks_go#t62 and is quoted for reference only.
 > | - Reader hazard on the engine side, tracked as aitasks_go#t131: the intake's `bufio.ScanLines` drops a trailing CR. The producer no longer emits a raw CR, but a front that re-encodes or forwards records should not reintroduce one.
 > | 
 > | The contract is in `aitask_change_surface.sh --help` ("PATH ENCODING").
+
+> **✉ note:t61_5** id=2026-11-16T20:29:57Z.4fa0bd451e642e0f81ac7c5a from=aitasks_go#t61_5 from_verified=yes at=2026-11-16T20:29:57Z base=7d9572c13ee2cafe6110a585c593c21f9990d7a4 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from aitasks_go#t61_5 (M4.5, the engine `test` composite): LANDED in aitasks_go 6091e65 (main). It is the one engine call M5.1 makes. Contract as landed; tree claims are dated by that commit:
+> | 
+> | - Usage: `ait-testmap test (--changes - | --paths <path>... | --all) [--task <id>] [--explain] [--budget-s <n>] [--format lines|json|tokens] [--run <id>]`. Exactly one intake. `--task` works with `--changes -` / `--paths` (it writes the prediction record) and is refused with `--all` (64). `--explain --format tokens` is 64.
+> | - Lines, in order:
+> |   1. the selection's lines (ESCALATE / FULL_RUN_REQUIRED / CHANGES / SELECTED / UNMAPPED_SOURCE / UNMAPPED_OTHER, the SELECT rows, DEFERRED) and PREDICTION_RECORD, printed BEFORE anything runs;
+> |   2. RUN_PROMOTED:<requested>|<run id>|escalation (see below);
+> |   3. the executed schedule (`schedule`'s SCHEDULE..SCHEDULE_ESTIMATE lines and findings, taken from the executor's own plan);
+> |   4. `run`'s lines RUN .. RUN_RESULT (score lines just before RUN_RESULT);
+> |   5. last: RESULT:pass|fail|skip|error|refused|<n passed>|<n failed>|<n skipped>|<n unrun>.
+> | - RESULT is the shape your coarse-pass note proposed (t61 Decision 3). It is PINNED in tests before your confirmation, by user decision. Please confirm it, or tell aitasks_go#t61_5's successor to re-pin.
+> |   - Status from the exit code only: 0 pass, 1 fail, 2 skip, 3 error, 75 refused. That is `run`'s exit, raised to 3 by RUN_HOOK_ERROR / SCHEDULE_ERROR / TEST_ERROR.
+> |   - The counts are disjoint and come from the records. Unrun = every DEFERRED row + every unit of a withheld invocation, whatever its WITHHELD status. Child rows never count.
+> |   - An all-unrun run keeps its precedence: all withheld with a refusal → refused/75; a mechanism cause → error/3. It is skip/2 only for benign non-execution (tested).
+> |   - "All deferred" cannot happen: the selector never defers its top-ranked row. How VERDICT treats unrun > 0 in completion mode is still yours to record.
+> | - RESULT appears only in run mode with lines format, also on an error (RESULT:error|0|0|0|<n>). It never appears on usage (64) or TESTMAP_ABSENT (2).
+> | - Previews (--explain, --format tokens) run nothing and print no RESULT. Their errors keep `select`'s conventions; in tokens mode stdout stays empty and diagnostics go to stderr.
+> | - --format json: one document {contract, select, prediction_record, run_id_requested, run_id, schedule, run, score[], drift{missing,added}, result{status, passed, failed, skipped, unrun}}.
+> | - --all and an escalated selection both run `run --all` (subsumed_by honoured).
+> |   - An ESCALATED run whose requested id lacks `full-` runs as `full-<requested>` and prints RUN_PROMOTED:<requested>|<full id>|escalation. Without this the cost ledger would not treat it as a full run and score would never fire.
+> |   - Under the gate this means the run directory is named full-<AIT_GATE_RUN_ID>, not AIT_GATE_RUN_ID. RUN_PROMOTED carries the mapping, so the front may need to follow it for the gate-log / run-dir correlation.
+> |   - An explicit --all keeps the caller's id (the front prefixes `full-`).
+> | - The run id is resolved before select in every mode (--run, else $AIT_GATE_RUN_ID, else generated). An invalid explicit or inherited id is RUN_ERROR:run-id, exit 3.
+> | - Select and run each discover the runners (two loads). If they disagree, the run is refused BEFORE execution and before any post-run hook: TEST_ERROR:selection-drift|<id>|missing|added, or RUN_ERROR:unknown-id|<id> for a vanished id; exit 3, every selected unit unrun. A single-load evaluation is aitasks_go#t132.
+> | - Not in the composite:
+> |   - no --fresh-only (stale units are always included; your front flag has no engine counterpart);
+> |   - --paths is a one-row TASK change set of paths (a test path selects itself), not a unit-id intake (`file#member` ids are not supported).
+> | - End-to-end readiness prerequisite: aitasks_go#t133 re-syncs aitask_change_surface.sh (your 1de178515 --no-renames + 9a7048011 raw paths) and regenerates the engine's change-surface fixtures. As of this note it has not landed.
+> | - See aitasks_go goengines/README.md, the `test` (M4.5) row, and the archived plan aiplans/archived/p61/p61_5_*.md.
