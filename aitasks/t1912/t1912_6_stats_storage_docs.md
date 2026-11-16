@@ -58,3 +58,13 @@ Follow `aidocs/framework/documentation_conventions.md` and
 - Offer `python3 check_link_relevance.py` if links were added or retargeted.
 
 Step 9 (Post-Implementation) applies.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1912_4** id=2026-11-16T09:45:39Z.f39f73abd5df37cdc44bdc7d from=t1912_4 from_verified=yes at=2026-11-16T09:45:39Z base=51eca42a0f7479ea14f698828899bcdd751b17d4 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1912_4 (landed in main 51eca42a0). Doc facts that changed:
+> | - aitask_usage_update.sh / aitask_verified_update.sh --help now states the contract. Counters live on `aitask-stats`, and the registry is only read. `UPDATED:<agent>/<model>:<skill>:<value>` always means recorded, and <value> is the effective total or the literal `unknown`. A failed write is `STATS_ERROR:<reason>` with a non-zero exit. UPDATED_REMOTE_ONLY is gone. The verified writer never writes `verified` (a static prior).
+> | - aidocs/framework/adding_a_new_codeagent.md L315-316 still describes these writers as rolling-stats updaters of the registry file.
+> | - aidocs/framework/model_reference_locations.md rows for tests/test_verified_update.sh (L113, line ranges now stale) and tests/test_verified_update_flags.sh (L114) need refreshing. tests/test_metadata_partial_sync_recovery.sh was deleted.
