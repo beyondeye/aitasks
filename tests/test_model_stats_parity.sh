@@ -72,7 +72,17 @@ check() {
     assert_eq "$label: writer ran" "UPDATED:claudecode/opus4_6:$skill:$value" "$out"
     assert_eq "$label: bucket" "$(writer_bucket "$repo" "$key" "$skill")" "$port_bucket"
     assert_eq "$label: printed value" "$value" "$port_value"
+    CHECKS=$((CHECKS + 1))
+    # PARITY_CAPTURE=<file>: freeze this step of the real jq writer as one TSV
+    # row (label, key, skill, date, score_100, pre-state, value, bucket) so the
+    # port stays pinned after t1912_4 deletes the jq renderers.
+    if [[ -n "${PARITY_CAPTURE:-}" ]]; then
+        printf '%s\t%s\t%s\t%s\t%s\t%s\t%s\t%s\n' "$label" "$key" "$skill" "$day" \
+            "${raw:+$((raw * 20))}" "$(jq -S -c . <<<"$pre")" "$value" \
+            "$(writer_bucket "$repo" "$key" "$skill")" >> "$PARITY_CAPTURE"
+    fi
 }
+CHECKS=0
 
 seed() {  # seed <repo> <jq filter>
     local tmp
@@ -119,6 +129,11 @@ seed "$V" '.models[0].verifiedstats.wrap = {"all_time": {"runs": 7, "score_sum":
 check "verified wrap 20/8" "$V" aitask_verified_update.sh verifiedstats wrap 2026-11-12 1
 assert_eq "the .5 case really is 2.5 -> 3" "3" "$(jq -r '.models[0].verified.wrap' "$V/$MODELS")"
 rm -rf "$V"
+
+if [[ -n "${PARITY_CAPTURE:-}" ]]; then
+    assert_eq "capture holds one row per check" "$CHECKS" \
+        "$(grep -vc '^#' "$PARITY_CAPTURE")"
+fi
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"
