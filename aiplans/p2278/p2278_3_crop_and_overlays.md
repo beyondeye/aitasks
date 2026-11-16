@@ -304,3 +304,118 @@ Post-implementation: Step 9 of the task workflow.
 
 No separate mitigation is proposed: each risk is covered by a step of this
 plan.
+
+## Implementation log
+
+- **Steps 1-6 done (2026-11-16).** Deviations found by looking at the first
+  PNG previews of the real board (step 5), applied before any recipe was saved:
+  - **Callout placement.** A callout on the rectangle's top-left corner covered
+    the content it numbered (the header's `⭘`, the `T` of "Task filter") and
+    was too small at page width. Callouts now sit **outside** the rectangle,
+    left of it, at its vertical middle (`CALLOUT_R` 17, `CALLOUT_FONT_PX` 22),
+    and the image grows to take them in: `svgpost.grow` widens an uncropped
+    `viewBox` (the added margin is transparent, so callouts sit beside the
+    window on the page); a crop already took the extent in. The "clamp inside
+    the image" rule of the plan is gone with it.
+  - **Crop clip.** Clipping to the rectangle *plus* `CROP_PAD` showed slivers
+    of the column header and the column border around the card. The clip is
+    now exactly the rectangle; `CROP_PAD` is plain background in the
+    `viewBox` only.
+- **Bug caught by a test:** `cell_grid` measured `🏷` and its VS16 one
+  character at a time (1 + 0 cells) while Rich, and so `find_in_rows`,
+  measures the pair as 2. Zero-width characters now join the previous
+  character and the cluster is measured as a whole.
+- Recipe files write cell rectangles in flow style (`cells: [2, 6, 38, 6]`).
+  The two new recipes were re-dumped once through `recipe.dump` after that
+  change, with a check that each loads back equal to the recipe that was
+  saved; then replayed from the shipped files.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-16 12:30)
+- **Requested by user:** four review findings, each reproduced before fixing:
+  (1) label extents used `len(label) * LABEL_CHAR_W` while the renderer draws
+  real glyph widths, so a CJK or emoji label overflowed the `viewBox`
+  (measured 380.3 vs 288.6); (2) `cell_grid` joined zero-width characters to
+  the previous code point only, so `👩‍💻` measured 4 cells instead of Rich's 2
+  and `box_around` failed beside it; (3) `box_around` gave up on the nearest
+  vertical glyph, so an inner box beside the text hid the enclosing box;
+  (4) `box_around` never checked the right edge or the bottom edge between
+  the corners, so open boxes were accepted.
+- **Changes made:** (1) `svgpost.label_width(label)` = Rich cell width ×
+  `LABEL_CHAR_W`, and every label is drawn with that width as `textLength`
+  (`lengthAdjust="spacingAndGlyphs"`), so the renderer fits it to exactly the
+  width the extent assumes; (2) `cell_grid` builds cells from
+  `rich.cells.split_graphemes` spans; (3) every vertical glyph left of the
+  text is tried as a left border, nearest first, until one closes into a box
+  holding the whole text; (4) `_closed_box` checks all four border runs and
+  corners. Tests: a rendered-bound check in headless Chromium (`getBBox` of
+  each label, one label per image so a longer one cannot mask an overflow,
+  for CJK, emoji and ASCII) plus a `label_width` unit check; the ZWJ box; an
+  inner box beside the text; negatives for gaps in the right, bottom and top
+  edges and a box too narrow for the text, with a closed-box control. Six
+  mutants (no `textLength`; width by `len()`; per-code-point grid; first
+  vertical only; no bottom-edge check; no right-edge check) and the original
+  defect (`len()` without `textLength`) were all killed on an isolated copy.
+- **Files affected:** `website/screenshots/svgpost.py`,
+  `website/screenshots/session.py`, `tests/test_screenshots_svgpost.py`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `website/screenshots/svgpost.py` (new): `cell_rect_to_px`, `overlay`
+    (box / tint / anchor; numbered callouts; labels with a leader),
+    `overlay_extent`, `label_width`, `crop` (exact-rectangle clip, plain
+    background, `CROP_PAD`, `gutter`, grows to the overlay extent), `grow`
+    (uncropped images widen to take in callouts), `postprocess` (the only
+    entry point: overlay, then crop or grow), `viewbox`.
+  - `session.py`: `cell_grid` (Rich grapheme spans), `find_in_rows`,
+    `box_around` (innermost closed box, all four edges checked),
+    `rect_holds`; `find` wraps `find_in_rows`.
+  - `recipe.py`: `validate_crop` / `validate_overlays` (shared by the loader
+    and `shot`), normalised values on `Recipe`, `from_session` copies them from
+    the shot, cell rectangles dumped in flow style; schema in the docstring.
+  - `cli.py`: `shot --crop/--overlay`, `find --box` (`BOX:c,r,w,h`), `export`
+    checks `holds` on the exported frame (`FAILED:<scene>|overlay|…` on
+    replay, `FAILED:overlay|…` on shot), strict `--png` (exit 1 without a
+    preview).
+  - `svg_export.py`: `render_png` sizes the window from any `viewBox` origin.
+  - Scenes `board_layout_annotated` and `board_card_annotated`, recorded
+    through the tool and replayed.
+  - Tests: `tests/test_screenshots_svgpost.py` (27, new),
+    `test_screenshots_recipe.py` (+5), `test_screenshots_session_live.py`
+    (+5 in `AnnotatedSceneTests`).
+- **Deviations from plan:** callouts sit left of their rectangle (outside),
+  not on its top-left corner, and the image grows to take them in; the crop
+  clip is the exact rectangle, the pad is background only (both from the
+  first PNG previews, see the implementation log); labels are drawn with
+  `textLength` (review finding 1).
+- **Issues encountered:** `cell_grid` disagreed with Rich on VS16 and ZWJ
+  sequences (fixed with `split_graphemes`); see "Post-Review Changes" for the
+  four review findings. Headless Chromium aborts (SIGABRT) when `TMPDIR` is a
+  very long path, so preview tests fail under such a `TMPDIR`; with the
+  default one they pass. The first full-suite run failed in its parallel lane
+  with output lost to a `| tail`; the two runs after it passed in full
+  (12411 + 39, then 12415 + 39).
+- **Key decisions:** no text-anchored targets; `holds` instead, so a layout
+  shift fails a replay rather than misplacing an annotation. The card uses
+  labels in a gutter in the page's own words (user decision), so no page was
+  renumbered. Overlay targets must lie inside the crop.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **Rectangle contract:** `[column, row, width, height]` in pane cells,
+    border cells included, `(0, 0)` = the pane's top-left. `find --box --text
+    T` returns the innermost closed box around a unique text. Child 4
+    (multi-pane) should pass window-wide cell rectangles in the same form;
+    child 7 maps the same cells to pixels with its window size ÷ cols×rows.
+  - **Schema:** `crop: {cells, gutter?, holds?}`; `overlays: [{type: box |
+    tint | anchor, target: {cells, holds?}, callout?: 1-99 unique, label?}]`.
+    Every target carries a `holds` text in the shipped scenes; do the same.
+  - **Style constants** (`svgpost.py`): `ACCENT #ffc24b`, `INK #1e1e1e`,
+    `STROKE_W 3`, `BOX_INSET 2`, `TINT_OPACITY 0.18`, `CALLOUT_R 17`,
+    `CALLOUT_FONT_PX 22`, `LABEL_FONT_PX 16`, `LEADER_PX 24`, `CROP_PAD 8`.
+  - **Uncropped images with callouts are wider than the window** (transparent
+    left margin): the page shows the callouts beside the window.
+  - **Box finding needs four drawn edges:** a border with a title in its top
+    run (`╭─ Title ─╮`) is not a closed box; use `screen` and give cells.
+  - Preview checks: `shot`/`replay --png` now fail when no PNG is produced;
+    child 5's skill should treat `PNG_UNAVAILABLE:` as "look at the SVG".
