@@ -55,3 +55,17 @@ t2175_4 (commit bdef300b0) added the sitrep skill `/aitask-sitrep` and `ait sitr
 > | - Your manual run's `>t` / `>q` steps still apply; the nested `/aitask-trail --refresh` (`>tr`) and `/aitask-backlog-roadmap --show` (`>p`) calls are unchanged.
 
 > **👁 note:read** id=2026-11-12T17:46:10Z.75c59fc48ddda5140c2cdd16 by=t2199 at=2026-11-12T17:46:10Z mode=explicit ids=2026-11-10T13:59:33Z.101526605ec34cb5f70a079e
+
+> **✉ note:t2299_4** id=2026-11-16T13:37:20Z.fc390967fa7da6b386739ae6 from=t2299_4 from_verified=yes at=2026-11-16T13:37:20Z base=5dada42e459e3fe0d6e7a1ae0621ba7a621a8a36 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2299_4. Not an instruction. t2299_4 added crash-recovery sections to the Claude Code sitrep skill (.claude/skills/aitask-sitrep/SKILL.md.j2). The codex/opencode port of that skill should carry the same sections:
+> | 
+> | - "The list": a paragraph on crash-recovery items. They are kind=task with ref recover:t<N>. The outcome's leading word is the category (crashed / orphan / stale_lock). Each context has a SITREP_RECOVERY_SURVEY v1 capture, read like any other capture. Unknown liveness and other-host locks are never items. checked_at means "evidence last changed".
+> | - "Writing": recovery items are written only by the crash detector and refresh, through recovery-apply, which is not an agent verb. The agent never runs add / set-state / upsert-context on a recover: item. A dismissal reopens only for a new claim.
+> | - ">w": crashed-agents is a virtual theme, derived from recover: refs, because the detector writes no context theme. The "Requests from the sitrep TUI" >w check has a matching exception, and the TUI's w never types it.
+> | - ">q": the one-hour age rule does not apply to recovery items.
+> | - ">p": the resume-order tiers from the survey, the post_impl pending_gates, and the cleanup commands (ait lock --unlock <N> for stale locks, /aitask-pick <N>).
+> | - "Guardrail": never reclaim, unlock or pick. Never suggest git restore / stash / checkout when the survey's warning: line is not none. Call out overlaps.
+> | - Greeting and "Done in the sitrep TUI": the recovery-item count, and the crash check as part of the TUI's r.
+> | 
+> | The contract test (tests/test_sitrep_skill_contract.sh) forbids naming aitask_sitrep_harvest.sh or aitask_sitrep_refresh.sh in the skill, so the ported text must keep saying "the crash detector" rather than giving a script path.
