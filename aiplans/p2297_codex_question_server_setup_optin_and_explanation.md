@@ -486,3 +486,16 @@ injection.
 
 ### Planned mitigations
 - name: remember_codex_questions_decline · timing: inline post-phase · inline_risk: low · added_complexity: medium · addresses: decline not remembered (goal-achievement) · plan step: §3 (remembered decline)
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-17 00:30)
+- **Requested by user:** three confirmed defects. (1) Removal re-serialized through `toml_serialize`, which never escaped strings, so a config with `args = ['say "hello"']` produced invalid TOML; validation then refused the removal and the server stayed registered. (2) `apply_codex_config` published with `mv -f`, replacing a symlinked `.codex/config.toml` with a regular file while the backing file stayed registered. (3) `record_codex_questions_decision` rewrote `project_config.yaml` with `cat tmp > cfg`, truncating it in place.
+- **Changes made:**
+  - A remove-only rewrite first tries `_codex_config_text_remove`, a byte-preserving text cut of the `aitask_questions` table and its subtables. It finds headers by parsing each `[`-line with tomllib, keeps the comments that belong to the next table, drops the seed's own `# aitask_questions` comment paragraph, and collapses surplus blank lines. Only if that fails does it fall back to the re-serializing merge. Both candidates must parse to the original minus the table, with an empty `[mcp_servers]` normalized to absent.
+  - The `merge_codex_settings` Python moved into a quoted heredoc, and its serializer became a real TOML emitter: escaped strings, quoted non-bare keys, and booleans, floats and dates kept inside arrays and inline tables. Plain values serialize byte-identically to before.
+  - `apply_codex_config` now stages and publishes through `lib/atomic_write.sh` (`ait_atomic_resolve`, `ait_atomic_tmp`, `ait_atomic_commit`). A symlinked config is updated through the link, the link stays a link, and the file mode is kept.
+  - `record_codex_questions_decision` uses `ait_atomic_render` with a guarded renderer.
+  - The refresh fallback insertion also publishes through `ait_atomic_render`, and its awk renderer exits 1 when it inserted nothing.
+  - New tests. G11: a standalone removal with quoted, escaped and dotted values is byte-exact; values survive the merge path and a double keep-merge; a dotted-key registration falls back to the merge; the seed comment block is dropped. G12: removal and merge through symlinks; `project_config.yaml` through a symlink keeps its mode and is published by rename (new inode); a failed render leaves it intact. Pre-fix mutants (`mv` unresolved, in-place truncation, no escaping, no text cut) each fail G11/G12.
+- **Files affected:** `.aitask-scripts/aitask_setup.sh`, `tests/test_setup_questions_server.sh`
