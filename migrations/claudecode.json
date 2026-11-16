@@ -1,0 +1,10 @@
+{
+  "schema": 1,
+  "agent": "claudecode",
+  "migration_id": "6167a8c997c44e88be8d4e2a9a622053",
+  "strip_commit": "83057108898b4f7601955e996f7b3f5ff9b26c67",
+  "source_commit": "dd69a1160bcadb2f3c3395da4dd99b1fff5037d2",
+  "source_blob": "32032de0ffecd7e5092b2f8a3092322745450fd5",
+  "absorbed_runs": 3237,
+  "absorbed_at": "2026-11-16T15:58:06Z"
+}

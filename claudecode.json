@@ -1,22 +1,1294 @@
 {
+  "schema": 1,
   "models": {
-    "fable5_2": {
+    "opus4_6": {
       "usagestats": {
         "pick": {
           "all_time": {
+            "runs": 5
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 5
+          },
+          "week": {
+            "period": "2026-W36",
+            "runs": 5
+          }
+        }
+      },
+      "verifiedstats": {
+        "pick": {
+          "all_time": {
+            "runs": 298,
+            "score_sum": 29080
+          },
+          "prev_month": {
+            "period": "2026-04",
+            "runs": 112,
+            "score_sum": 11020
+          },
+          "month": {
+            "period": "2026-05",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W18",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "changelog": {
+          "all_time": {
+            "runs": 6,
+            "score_sum": 580
+          },
+          "month": {
+            "period": "2026-04",
+            "runs": 2,
+            "score_sum": 200
+          },
+          "week": {
+            "period": "2026-W16",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "explore": {
+          "all_time": {
+            "runs": 30,
+            "score_sum": 2940
+          },
+          "month": {
+            "period": "2026-04",
+            "runs": 1,
+            "score_sum": 60
+          },
+          "week": {
+            "period": "2026-W16",
+            "runs": 1,
+            "score_sum": 60
+          }
+        },
+        "revert": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "month": {
+            "period": "2026-03",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W12",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "qa": {
+          "all_time": {
+            "runs": 2,
+            "score_sum": 200
+          },
+          "month": {
+            "period": "2026-03",
+            "runs": 2,
+            "score_sum": 200
+          },
+          "week": {
+            "period": "2026-W13",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "wrap": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "month": {
+            "period": "2026-03",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W13",
+            "runs": 1,
+            "score_sum": 100
+          }
+        }
+      }
+    },
+    "sonnet4_6": {
+      "verifiedstats": {}
+    },
+    "haiku4_5": {
+      "verifiedstats": {}
+    },
+    "opus4_5": {
+      "verifiedstats": {}
+    },
+    "sonnet4_5": {
+      "verifiedstats": {}
+    },
+    "opus4_7": {
+      "usagestats": {
+        "pick": {
+          "all_time": {
+            "runs": 18
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-05",
+            "runs": 18
+          },
+          "week": {
+            "period": "2026-W21",
+            "runs": 10
+          }
+        }
+      },
+      "verifiedstats": {
+        "pick": {
+          "all_time": {
+            "runs": 35,
+            "score_sum": 3440
+          },
+          "prev_month": {
+            "period": "2026-04",
+            "runs": 17,
+            "score_sum": 1640
+          },
+          "month": {
+            "period": "2026-05",
+            "runs": 18,
+            "score_sum": 1800
+          },
+          "week": {
+            "period": "2026-W21",
+            "runs": 10,
+            "score_sum": 1000
+          }
+        }
+      }
+    },
+    "opus4_7_1m": {
+      "usagestats": {
+        "pick": {
+          "all_time": {
+            "runs": 174
+          },
+          "prev_month": {
+            "period": "2026-04",
+            "runs": 18
+          },
+          "month": {
+            "period": "2026-05",
+            "runs": 156
+          },
+          "week": {
+            "period": "2026-W22",
+            "runs": 58
+          }
+        },
+        "explore": {
+          "all_time": {
+            "runs": 14
+          },
+          "prev_month": {
+            "period": "2026-04",
             "runs": 1
           },
           "month": {
-            "period": "2026-11",
+            "period": "2026-05",
+            "runs": 13
+          },
+          "week": {
+            "period": "2026-W22",
+            "runs": 3
+          }
+        },
+        "wrap": {
+          "all_time": {
+            "runs": 2
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-05",
+            "runs": 2
+          },
+          "week": {
+            "period": "2026-W21",
+            "runs": 1
+          }
+        },
+        "changelog": {
+          "all_time": {
+            "runs": 5
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-05",
+            "runs": 5
+          },
+          "week": {
+            "period": "2026-W22",
+            "runs": 1
+          }
+        }
+      },
+      "verifiedstats": {
+        "pick": {
+          "all_time": {
+            "runs": 288,
+            "score_sum": 28540
+          },
+          "prev_month": {
+            "period": "2026-04",
+            "runs": 134,
+            "score_sum": 13180
+          },
+          "month": {
+            "period": "2026-05",
+            "runs": 154,
+            "score_sum": 15360
+          },
+          "week": {
+            "period": "2026-W22",
+            "runs": 58,
+            "score_sum": 5780
+          }
+        },
+        "changelog": {
+          "all_time": {
+            "runs": 15,
+            "score_sum": 1460
+          },
+          "prev_month": {
+            "period": "2026-04",
+            "runs": 10,
+            "score_sum": 960
+          },
+          "month": {
+            "period": "2026-05",
+            "runs": 5,
+            "score_sum": 500
+          },
+          "week": {
+            "period": "2026-W22",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "explore": {
+          "all_time": {
+            "runs": 32,
+            "score_sum": 3180
+          },
+          "prev_month": {
+            "period": "2026-04",
+            "runs": 18,
+            "score_sum": 1780
+          },
+          "month": {
+            "period": "2026-05",
+            "runs": 14,
+            "score_sum": 1400
+          },
+          "week": {
+            "period": "2026-W22",
+            "runs": 4,
+            "score_sum": 400
+          }
+        },
+        "wrap": {
+          "all_time": {
+            "runs": 2,
+            "score_sum": 200
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-05",
+            "runs": 2,
+            "score_sum": 200
+          },
+          "week": {
+            "period": "2026-W21",
+            "runs": 1,
+            "score_sum": 100
+          }
+        }
+      }
+    },
+    "opus4_8": {
+      "usagestats": {
+        "pick": {
+          "all_time": {
+            "runs": 303
+          },
+          "prev_month": {
+            "period": "2026-06",
+            "runs": 220
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 47
+          },
+          "week": {
+            "period": "2026-W30",
+            "runs": 27
+          }
+        },
+        "explore": {
+          "all_time": {
+            "runs": 56
+          },
+          "prev_month": {
+            "period": "2026-06",
+            "runs": 38
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 14
+          },
+          "week": {
+            "period": "2026-W30",
+            "runs": 6
+          }
+        },
+        "changelog": {
+          "all_time": {
+            "runs": 6
+          },
+          "prev_month": {
+            "period": "2026-06",
+            "runs": 4
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 2
+          },
+          "week": {
+            "period": "2026-W28",
+            "runs": 1
+          }
+        },
+        "wrap": {
+          "all_time": {
+            "runs": 2
+          },
+          "prev_month": {
+            "period": "2026-06",
+            "runs": 1
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W30",
+            "runs": 1
+          }
+        },
+        "resume": {
+          "all_time": {
+            "runs": 2
+          },
+          "prev_month": {
+            "period": "2026-06",
+            "runs": 1
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W27",
+            "runs": 1
+          }
+        },
+        "work-report": {
+          "all_time": {
             "runs": 1
           },
           "prev_month": {
             "period": "",
             "runs": 0
           },
-          "week": {
-            "period": "2026-W47",
+          "month": {
+            "period": "2026-07",
             "runs": 1
+          },
+          "week": {
+            "period": "2026-W30",
+            "runs": 1
+          }
+        }
+      },
+      "verifiedstats": {
+        "pick": {
+          "all_time": {
+            "runs": 298,
+            "score_sum": 29740
+          },
+          "prev_month": {
+            "period": "2026-06",
+            "runs": 218,
+            "score_sum": 21760
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 44,
+            "score_sum": 4400
+          },
+          "week": {
+            "period": "2026-W30",
+            "runs": 24,
+            "score_sum": 2400
+          }
+        },
+        "explore": {
+          "all_time": {
+            "runs": 54,
+            "score_sum": 5400
+          },
+          "prev_month": {
+            "period": "2026-06",
+            "runs": 37,
+            "score_sum": 3700
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 13,
+            "score_sum": 1300
+          },
+          "week": {
+            "period": "2026-W30",
+            "runs": 6,
+            "score_sum": 600
+          }
+        },
+        "changelog": {
+          "all_time": {
+            "runs": 6,
+            "score_sum": 600
+          },
+          "prev_month": {
+            "period": "2026-06",
+            "runs": 4,
+            "score_sum": 400
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 2,
+            "score_sum": 200
+          },
+          "week": {
+            "period": "2026-W28",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "wrap": {
+          "all_time": {
+            "runs": 2,
+            "score_sum": 200
+          },
+          "prev_month": {
+            "period": "2026-06",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W30",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "resume": {
+          "all_time": {
+            "runs": 2,
+            "score_sum": 200
+          },
+          "prev_month": {
+            "period": "2026-06",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W27",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "work-report": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W30",
+            "runs": 1,
+            "score_sum": 100
+          }
+        }
+      }
+    },
+    "opus4_8_1m": {
+      "usagestats": {
+        "add-model": {
+          "all_time": {
+            "runs": 1
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-06",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W23",
+            "runs": 1
+          }
+        },
+        "wrap": {
+          "all_time": {
+            "runs": 3
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-06",
+            "runs": 3
+          },
+          "week": {
+            "period": "2026-W23",
+            "runs": 3
+          }
+        },
+        "pick": {
+          "all_time": {
+            "runs": 1
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-06",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W23",
+            "runs": 1
+          }
+        },
+        "explore": {
+          "all_time": {
+            "runs": 2
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-06",
+            "runs": 2
+          },
+          "week": {
+            "period": "2026-W24",
+            "runs": 2
+          }
+        }
+      },
+      "verifiedstats": {
+        "add-model": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-06",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W23",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "wrap": {
+          "all_time": {
+            "runs": 3,
+            "score_sum": 300
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-06",
+            "runs": 3,
+            "score_sum": 300
+          },
+          "week": {
+            "period": "2026-W23",
+            "runs": 3,
+            "score_sum": 300
+          }
+        },
+        "pick": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-06",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W23",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "explore": {
+          "all_time": {
+            "runs": 2,
+            "score_sum": 200
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-06",
+            "runs": 2,
+            "score_sum": 200
+          },
+          "week": {
+            "period": "2026-W24",
+            "runs": 2,
+            "score_sum": 200
+          }
+        }
+      }
+    },
+    "fable5": {
+      "usagestats": {
+        "pick": {
+          "all_time": {
+            "runs": 57
+          },
+          "prev_month": {
+            "period": "2026-08",
+            "runs": 6
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W36",
+            "runs": 1
+          }
+        },
+        "explore": {
+          "all_time": {
+            "runs": 12
+          },
+          "prev_month": {
+            "period": "2026-07",
+            "runs": 10
+          },
+          "month": {
+            "period": "2026-08",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W35",
+            "runs": 1
+          }
+        },
+        "changelog": {
+          "all_time": {
+            "runs": 1
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W27",
+            "runs": 1
+          }
+        },
+        "wrap": {
+          "all_time": {
+            "runs": 2
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 2
+          },
+          "week": {
+            "period": "2026-W30",
+            "runs": 1
+          }
+        }
+      },
+      "verifiedstats": {
+        "pick": {
+          "all_time": {
+            "runs": 54,
+            "score_sum": 5400
+          },
+          "prev_month": {
+            "period": "2026-08",
+            "runs": 6,
+            "score_sum": 600
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W36",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "explore": {
+          "all_time": {
+            "runs": 12,
+            "score_sum": 1180
+          },
+          "prev_month": {
+            "period": "2026-07",
+            "runs": 10,
+            "score_sum": 1000
+          },
+          "month": {
+            "period": "2026-08",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W35",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "changelog": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W27",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "wrap": {
+          "all_time": {
+            "runs": 2,
+            "score_sum": 200
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-07",
+            "runs": 2,
+            "score_sum": 200
+          },
+          "week": {
+            "period": "2026-W30",
+            "runs": 1,
+            "score_sum": 100
+          }
+        }
+      }
+    },
+    "opus5": {
+      "usagestats": {
+        "explore": {
+          "all_time": {
+            "runs": 41
+          },
+          "prev_month": {
+            "period": "2026-08",
+            "runs": 26
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 5
+          },
+          "week": {
+            "period": "2026-W39",
+            "runs": 2
+          }
+        },
+        "pick": {
+          "all_time": {
+            "runs": 401
+          },
+          "prev_month": {
+            "period": "2026-08",
+            "runs": 198
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 158
+          },
+          "week": {
+            "period": "2026-W39",
+            "runs": 10
+          }
+        },
+        "changelog": {
+          "all_time": {
+            "runs": 5
+          },
+          "prev_month": {
+            "period": "2026-08",
+            "runs": 2
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W36",
+            "runs": 1
+          }
+        },
+        "docs-gap": {
+          "all_time": {
+            "runs": 3
+          },
+          "prev_month": {
+            "period": "2026-08",
+            "runs": 1
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W37",
+            "runs": 1
+          }
+        },
+        "wrap": {
+          "all_time": {
+            "runs": 2
+          },
+          "prev_month": {
+            "period": "2026-08",
+            "runs": 1
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W36",
+            "runs": 1
+          }
+        }
+      },
+      "verifiedstats": {
+        "explore": {
+          "all_time": {
+            "runs": 40,
+            "score_sum": 4000
+          },
+          "prev_month": {
+            "period": "2026-08",
+            "runs": 26,
+            "score_sum": 2600
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 4,
+            "score_sum": 400
+          },
+          "week": {
+            "period": "2026-W39",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "pick": {
+          "all_time": {
+            "runs": 377,
+            "score_sum": 37700
+          },
+          "prev_month": {
+            "period": "2026-08",
+            "runs": 178,
+            "score_sum": 17800
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 156,
+            "score_sum": 15600
+          },
+          "week": {
+            "period": "2026-W39",
+            "runs": 10,
+            "score_sum": 1000
+          }
+        },
+        "changelog": {
+          "all_time": {
+            "runs": 5,
+            "score_sum": 500
+          },
+          "prev_month": {
+            "period": "2026-08",
+            "runs": 2,
+            "score_sum": 200
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W36",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "docs-gap": {
+          "all_time": {
+            "runs": 3,
+            "score_sum": 300
+          },
+          "prev_month": {
+            "period": "2026-08",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W37",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "wrap": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W36",
+            "runs": 1,
+            "score_sum": 100
+          }
+        }
+      }
+    },
+    "sonnet5": {
+      "usagestats": {
+        "docs-gap": {
+          "all_time": {
+            "runs": 1
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-08",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W34",
+            "runs": 1
+          }
+        }
+      },
+      "verifiedstats": {
+        "docs-gap": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-08",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W34",
+            "runs": 1,
+            "score_sum": 100
+          }
+        }
+      }
+    },
+    "fable5_1": {
+      "usagestats": {
+        "explore": {
+          "all_time": {
+            "runs": 7
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 7
+          },
+          "week": {
+            "period": "2026-W38",
+            "runs": 1
+          }
+        },
+        "pick": {
+          "all_time": {
+            "runs": 14
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 14
+          },
+          "week": {
+            "period": "2026-W39",
+            "runs": 2
+          }
+        }
+      },
+      "verifiedstats": {
+        "explore": {
+          "all_time": {
+            "runs": 6,
+            "score_sum": 600
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 6,
+            "score_sum": 600
+          },
+          "week": {
+            "period": "2026-W38",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "pick": {
+          "all_time": {
+            "runs": 14,
+            "score_sum": 1400
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 14,
+            "score_sum": 1400
+          },
+          "week": {
+            "period": "2026-W39",
+            "runs": 2,
+            "score_sum": 200
+          }
+        }
+      }
+    },
+    "opus5_1m": {
+      "usagestats": {
+        "pick": {
+          "all_time": {
+            "runs": 3
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 3
+          },
+          "week": {
+            "period": "2026-W39",
+            "runs": 1
+          }
+        },
+        "changelog": {
+          "all_time": {
+            "runs": 1
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W38",
+            "runs": 1
+          }
+        }
+      },
+      "verifiedstats": {
+        "pick": {
+          "all_time": {
+            "runs": 3,
+            "score_sum": 300
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 3,
+            "score_sum": 300
+          },
+          "week": {
+            "period": "2026-W39",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "changelog": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-09",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W38",
+            "runs": 1,
+            "score_sum": 100
           }
         }
       }
@@ -25,7 +1297,180 @@
       "usagestats": {
         "pick": {
           "all_time": {
+            "runs": 434
+          },
+          "prev_month": {
+            "period": "2026-10",
+            "runs": 276
+          },
+          "month": {
+            "period": "2026-11",
+            "runs": 137
+          },
+          "week": {
+            "period": "2026-W47",
             "runs": 9
+          }
+        },
+        "changelog": {
+          "all_time": {
+            "runs": 7
+          },
+          "prev_month": {
+            "period": "2026-09",
+            "runs": 1
+          },
+          "month": {
+            "period": "2026-10",
+            "runs": 6
+          },
+          "week": {
+            "period": "2026-W44",
+            "runs": 1
+          }
+        },
+        "wrap": {
+          "all_time": {
+            "runs": 3
+          },
+          "prev_month": {
+            "period": "2026-10",
+            "runs": 2
+          },
+          "month": {
+            "period": "2026-11",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W45",
+            "runs": 1
+          }
+        },
+        "explore": {
+          "all_time": {
+            "runs": 9
+          },
+          "prev_month": {
+            "period": "2026-10",
+            "runs": 7
+          },
+          "month": {
+            "period": "2026-11",
+            "runs": 2
+          },
+          "week": {
+            "period": "2026-W46",
+            "runs": 1
+          }
+        }
+      },
+      "verifiedstats": {
+        "pick": {
+          "all_time": {
+            "runs": 36,
+            "score_sum": 3600
+          },
+          "prev_month": {
+            "period": "2026-09",
+            "runs": 21,
+            "score_sum": 2100
+          },
+          "month": {
+            "period": "2026-10",
+            "runs": 15,
+            "score_sum": 1500
+          },
+          "week": {
+            "period": "2026-W41",
+            "runs": 14,
+            "score_sum": 1400
+          }
+        },
+        "changelog": {
+          "all_time": {
+            "runs": 7,
+            "score_sum": 700
+          },
+          "prev_month": {
+            "period": "2026-09",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "month": {
+            "period": "2026-10",
+            "runs": 6,
+            "score_sum": 600
+          },
+          "week": {
+            "period": "2026-W44",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "wrap": {
+          "all_time": {
+            "runs": 3,
+            "score_sum": 300
+          },
+          "prev_month": {
+            "period": "2026-10",
+            "runs": 2,
+            "score_sum": 200
+          },
+          "month": {
+            "period": "2026-11",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W45",
+            "runs": 1,
+            "score_sum": 100
+          }
+        },
+        "explore": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-10",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W41",
+            "runs": 1,
+            "score_sum": 100
+          }
+        }
+      }
+    },
+    "opus5_5_1m": {
+      "verifiedstats": {}
+    },
+    "sonnet5_5": {
+      "verifiedstats": {}
+    },
+    "sonnet5_5_1m": {
+      "verifiedstats": {}
+    },
+    "haiku5_5": {
+      "verifiedstats": {}
+    },
+    "haiku5_5_1m": {
+      "verifiedstats": {}
+    },
+    "fable5_2": {
+      "usagestats": {
+        "pick": {
+          "all_time": {
+            "runs": 2
           },
           "prev_month": {
             "period": "",
@@ -33,15 +1478,18 @@
           },
           "month": {
             "period": "2026-11",
-            "runs": 9
+            "runs": 2
           },
           "week": {
             "period": "2026-W47",
-            "runs": 9
+            "runs": 1
           }
         }
-      }
+      },
+      "verifiedstats": {}
+    },
+    "fable5_2_1m": {
+      "verifiedstats": {}
     }
-  },
-  "schema": 1
+  }
 }
