@@ -209,3 +209,55 @@ Archive per the workflow.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+
+- **Actual work done:** Steps 1–4 as planned.
+  - `tests/test_metadata_writer_inventory.py`: `sitrep_crash.py` added to
+    `PINNED_FILES` with its reason (read-only `gates.yaml`; the only write is
+    the test-only `pause_point()` fifo sidecar).
+  - `lib/model_stats_store.py`: new `_registry_root()` (`_layout` toplevel,
+    raw-root fallback on `GitError`/`OSError`), used by `legacy_models` and
+    `load_all_stats` when no explicit `metadata_path` is given. The comment in
+    `effective_total` now says the loaders follow the same rule.
+  - `aitask_model_stats.py`: module docstring says a nested `--root` means its
+    repository.
+  - Tests: `TestLoader.test_nested_root_reads_the_repository_registry` and
+    `TestEffectiveTotal.test_nested_cwd_export_and_show_read_the_repository_registry`,
+    both with a legacy-only `codex` agent.
+- **Pre-fix controls (run, per assertion):**
+  - (a) no store change: both new tests fail on branch-only values —
+    `(5, 1) != (5, 5)` and `{'runs': 1, 'score_sum': 100} != {'runs': 2, 'score_sum': 120}`.
+  - (b) only `legacy_models` fixed: the claudecode runs/export/show assertions
+    pass; the codex assertions still fail (`'codex'` missing from
+    `load_all_stats(nested)`; `MARKER:codex:no` missing from `show`).
+  - (c) both fixed: everything passes.
+- **Deviations from plan:** none.
+- **Issues encountered:** the task description attributed the tripwire to
+  t2307 (87ecc9799). In fact both flagged lines date from t2299_2 (f9b5888cd),
+  where the file was added.
+- **Key decisions:** the fix went into the store, not into a CLI-only
+  defaulted-`--root` resolve, so an explicit nested `--root` is covered too and
+  the legacy read stays consistent with the branch read.
+- **Upstream defects identified:** None
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-16 13:20)
+- **Requested by user:** `legacy_models` re-resolved the toplevel through
+  `_registry_root` even when `effective_total` passed an already-resolved
+  `top`. `update()` / `effective_total` call `ors.toplevel` directly and never
+  populate `_layout_cache`, so a fresh writer process paid three more
+  `rev-parse` calls (`--show-toplevel`, `--git-common-dir`, `--show-toplevel`).
+  The plan's "cached no-op" claim was wrong.
+- **Changes made:** split the file read into `_read_legacy(root, …)`, which
+  uses the root verbatim. Public `legacy_models` resolves the root and then
+  delegates. `effective_total` calls `_read_legacy(top, …, strict=True)`. The
+  instrumented count dropped from 5 git calls to 2, the pre-change count.
+  Nested reads and strict handling are unchanged. New regression test
+  `TestEffectiveTotal.test_total_reads_the_resolved_root_without_a_second_lookup`
+  asserts exactly one `rev-parse --show-toplevel`. Its mutant control (routing
+  `effective_total` back through `legacy_models`) fails it with the three
+  extra calls.
+- **Files affected:** `.aitask-scripts/lib/model_stats_store.py`,
+  `tests/test_model_stats_store.py`
