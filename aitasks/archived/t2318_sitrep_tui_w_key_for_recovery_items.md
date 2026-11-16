@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [sitrep, crash_recovery]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2299
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-16 17:20
-updated_at: 2026-11-16 18:23
+updated_at: 2026-11-16 22:26
+completed_at: 2026-11-16 22:26
 ---
 
 ## Context
@@ -63,3 +64,14 @@ Pressing `w` on a crash-recovery item (any state the other request keys accept) 
 > **✅ gate:plan_approved** run=2026-11-16T16:23:29Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-16T16:46:43Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-16T20:26:18Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:ba8c875834d4249f
+
+> **✅ gate:risk_evaluated** run=2026-11-16T20:26:18Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2318/risk_evaluated_2026-11-16T20:26:18Z-risk_evaluated-a1.log`
