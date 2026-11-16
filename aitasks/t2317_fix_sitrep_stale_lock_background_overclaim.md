@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2299
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-16 17:08
-updated_at: 2026-11-16 17:21
+updated_at: 2026-11-16 17:32
 ---
 
 ## Origin
@@ -40,3 +41,8 @@ The docs were corrected in t2299_4 (skill, `aidocs/framework/sitrep.md`, website
 Reword `BACKGROUND["stale_lock"]` to describe both routes without claiming the holder is gone. For example: "A lock remains for this task: it records no PID anchor, so its holder cannot be checked, or its holder is gone and the task is no longer Implementing."
 
 Mind the idempotence rule (the module header): changing the background changes every stored stale_lock item's context. The next detector pass therefore rewrites each of them once (`APPLIED`, new `checked_at`). Confirm that this is acceptable, or note it in the commit. Update any test that pins the background text (`tests/test_sitrep_crash.py`, `tests/test_sitrep_crash.sh`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-16T15:32:44Z status=pass attempt=1 type=human
