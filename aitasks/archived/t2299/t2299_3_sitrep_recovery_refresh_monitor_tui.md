@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: [t2299_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [sitrep, crash_recovery]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2299
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 12:54
-updated_at: 2026-11-16 11:35
+updated_at: 2026-11-16 12:57
+completed_at: 2026-11-16 12:57
 ---
 
 ## Context
@@ -150,3 +151,14 @@ Never `git restore` / `git stash` / checkout: the shared tree holds other tasks'
 > **✅ gate:plan_approved** run=2026-11-16T09:35:49Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-16T10:47:39Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-16T10:57:16Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:1df1eeda43ba9946
+
+> **✅ gate:risk_evaluated** run=2026-11-16T10:57:16Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2299_3/risk_evaluated_2026-11-16T10:57:16Z-risk_evaluated-a1.log`
