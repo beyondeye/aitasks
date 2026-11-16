@@ -253,3 +253,77 @@ Step 9 (Post-Implementation): commit the code/docs paths only —
 
 ### Planned mitigations
 - timing: post-phase · name: claim_audit · inline_risk: low · added_complexity: low · addresses: docs describe the plan rather than what shipped
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-16 14:05)
+- **Requested by user:** four verified review concerns: (1) "unknown liveness / other-host lock is never an item" ignored that rows 2/4 move an EXISTING item to `unknown` (outcome `other_host · …` / `unknown · …`), keeping its old title and survey; (2) the stale_lock definition presented a missing PID anchor or a non-Implementing status as proof that no live session holds the lock; (3) aidocs said refresh writes through `recovery-apply`, but it uses `set-state --batch`; (4) the how-to `x` bullet still promised that a dismissed item never comes back.
+- **Changes made:**
+  - The skill now separates creating an item from moving an existing one, reports `unknown` recovery items as unverified (never in the >p order, survey read as history, check the holder), defines stale_lock by its actual conditions ("check who holds it, never proof that nobody does"), and names both write paths.
+  - aidocs gains the two-writer paragraph (detector `recovery-apply`, refresh `set-state --batch`), a corrected table summary, and a "Creation vs. an existing item" paragraph.
+  - The workflow page has the stale-lock and unknown-item wording.
+  - The how-to has the `x` exception and the unknown-item note.
+  - The reference has the unknown-item note.
+  - Goldens regenerated, and a correction note sent to t2199.
+- **Files affected:** `.claude/skills/aitask-sitrep/SKILL.md.j2`, `tests/golden/skills/aitask-sitrep/*`, `aidocs/framework/sitrep.md`, `website/content/docs/workflows/sitrep.md`, `website/content/docs/tuis/sitrep/how-to.md`, `website/content/docs/tuis/sitrep/reference.md`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - Skill (`.claude/skills/aitask-sitrep/SKILL.md.j2`):
+    - "The list": a crash-recovery paragraph (ref, categories, title, survey passage, `checked_at` = evidence age, creation vs. existing-item `unknown` transitions);
+    - "Writing": a detector/refresh ownership rule naming both write paths, plus the dismissal/reopen rule;
+    - the `crashed-agents` virtual theme in `>w`, with a matching exception in the TUI-request `>w` check;
+    - the `>q` evidence-age exception;
+    - the `>p` resume-order tiers, `post_impl` pending gates and cleanup commands;
+    - guardrail additions;
+    - the greeting count;
+    - the crash check named as the TUI's.
+  - Goldens regenerated for all three profiles; the diff is identical to the template's.
+  - `aidocs/framework/sitrep.md`:
+    - a components row and the maintenance order;
+    - a new "Crash recovery items" section: item, writers, episodes and dismissal, decision table, creation vs. existing item, survey, rank and group, idempotence, wire lines, refresh class;
+    - the TUI `r` / pick / What-to-do / `w` notes;
+    - the monitor maintenance order;
+    - the skill bullet;
+    - test-table rows.
+  - Website:
+    - `workflows/sitrep.md`: a "Crashed agents" section, with steps 2, 3, 5 and 6 amended;
+    - `tuis/sitrep/how-to.md`: "How to Resume Crashed Work", plus the Checked / `r` / `p` / `x` wording;
+    - `tuis/sitrep/reference.md`: the key rows, the Checked column, recovery What-to-do rows, the unknown-item note, the three-line result panel and Timing;
+    - `skills/aitask-sitrep.md`;
+    - `workflows/crash-recovery.md`: a Tip and a See-also cross-link.
+- **Deviations from plan:**
+  - The hunk-scoped staging of `crash-recovery.md` was not needed: t2284 committed its hunk (`7a68196d0`) before this task started, and the file was clean when re-checked before editing.
+  - `skills/aitask-sitrep.md` was added to scope; the task's file list missed it.
+  - The user's plan review added the `crashed-agents` virtual theme and the evidence-age rule.
+  - The code review added four corrections (Post-Review Changes CR1).
+- **Issues encountered:**
+  - `tests/test_sitrep_skill_contract.sh` forbids naming `aitask_sitrep_harvest.sh` / `aitask_sitrep_refresh.sh` in the skill, so the skill says "the crash detector" / "refresh".
+  - Every prohibition paragraph keeps a "Never".
+- **Key decisions:**
+  - `crashed-agents` is a virtual theme, derived from `recover:` refs; recovery contexts stay detector-owned.
+  - The TUI's `w` stays unavailable on recovery items, documented rather than changed (a code change, out of scope).
+  - The user-facing reference documents the TUI's `Recovery:` verdict and detail lines, not the `CRASH_*` wire lines: `crashed` is not exposed through `ait sitrep`, so the wire lines live in aidocs.
+- **claim_audit (post-phase):** 32 concrete claims grepped against the shipped code. All OK:
+  - `SITREP_RECOVERY_SURVEY v1`, `recover:t<N>[_<M>]`, `dismissed_no_incarnation`, `RECOVER_FORMAT`;
+  - survey keys: `pending_gates`, `plan_signature`, `branch_head`, lock-age buckets;
+  - `CRASH_NONE:nothing_inflight`, `kept_dismissed`, `other_host:<host>`;
+  - every `Recovery:` verdict string, `recovery warning:`, `not verified` / `not reached`;
+  - `ait lock --unlock {pick_id}`, `RECOVER_PICKABLE`, `recover_category`;
+  - `recovery_refresh_verdict`, `refresh_attempts.json`, `attempts_unwritable`, `ATTEMPT_MAX_AGE_DAYS = 7`;
+  - `HARVEST_CRASHED_TIMEOUT = 120`, `_sitrep_store_roots` (the monitor checks only roots that have a store), `MAX_COMMIT_SOURCES = 5`;
+  - the title format and the stale-signature rule;
+  - `refs/remotes/origin/aitask-locks`;
+  - the test names `CrashDetectJobTests`, `CrashDetectorStepTests`, `RecoverPickTests`, `test_recovery_guidance_per_category` and Tests 15/16.
+
+  Behavioural claims were checked against `recovery_verdict`, `Pass.rank_of` / `group_of` / `state_only`, `recovery_refresh_verdict`, `run_writer` (`set-state --batch`) and `_harvest_refresh`. Review CR1 caught three behavioural overstatements that the grep audit had not (the unknown transition, the stale-lock conditions, refresh's write path).
+- **Verification:**
+  - `aitask_skill_verify.sh`: OK.
+  - `test_skill_render_aitask_sitrep.sh`: 126/126.
+  - `test_sitrep_skill_contract.sh`: 70/70.
+  - `check_links.py --build`: PASSED (0 broken).
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/sitrep_crash.py:138-139 — BACKGROUND["stale_lock"] says "no live session holds" the lock, but row 5 (no PID anchor) never proves the holder dead; the stored background over-claims for unanchored locks`
+- **Notes for sibling tasks:**
+  - t2199 (codex/opencode port) received two notes: `2026-11-16T13:37:20Z.fc390967…` with the sections to port, and `2026-11-16T13:51:55Z.56b01116…` with the CR1 corrections.
+  - A possible follow-up: TUI routing so that `w` on a recovery item types `>w crashed-agents`.
