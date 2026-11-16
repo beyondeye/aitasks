@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [sitrep, crash_recovery]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2299
 followup_kind: upstream_defect
 created_at: 2026-11-16 17:08
-updated_at: 2026-11-16 17:08
+updated_at: 2026-11-16 17:21
 ---
 
 ## Origin
