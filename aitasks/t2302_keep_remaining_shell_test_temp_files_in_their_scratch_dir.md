@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2290
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 13:09
-updated_at: 2026-11-16 18:18
+updated_at: 2026-11-16 23:02
 ---
 
 ## Problem
@@ -50,3 +51,8 @@ fixed-name `/tmp/work2do*.md`, `/tmp/*_err` in the crew / apply_initializer test
   `TMPDIR LEFTOVERS` line, test status unchanged.
 - Then consider flipping the guard from warn-only to failing on leftovers
   (decision deferred by t2290 until attribution was complete).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-16T21:02:34Z status=pass attempt=1 type=human
