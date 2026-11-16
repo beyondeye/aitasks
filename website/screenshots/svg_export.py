@@ -24,6 +24,8 @@ from rich.console import Console
 from rich.terminal_theme import SVG_EXPORT_THEME
 from rich.text import Text
 
+from .svgpost import SvgPostError, viewbox
+
 _ID_RE = re.compile(r"^[a-z0-9_]+$")
 
 
@@ -88,7 +90,6 @@ def svg_plain_text(svg: str) -> str:
 CHAR_WIDTH = 12.2
 
 
-_VIEWBOX_RE = re.compile(r'viewBox="0 0 ([0-9.]+) ([0-9.]+)"')
 _BROWSERS = ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable")
 
 
@@ -101,10 +102,12 @@ def render_png(svg_path: Path, png_path: Path, *, timeout: float = 90.0) -> str:
     is available or the render fails. The SVG stays the deliverable.
     """
     svg_path, png_path = Path(svg_path).resolve(), Path(png_path).resolve()
-    match = _VIEWBOX_RE.search(svg_path.read_text(encoding="utf-8")[:4000])
-    if not match:
-        raise ExportError(f"no viewBox in {svg_path}")
-    width, height = (int(float(v) + 0.999) for v in match.groups())
+    try:
+        # Any origin: a cropped SVG's viewBox does not start at 0 0.
+        _x, _y, width, height = viewbox(svg_path.read_text(encoding="utf-8"))
+    except SvgPostError as exc:
+        raise ExportError(f"no usable viewBox in {svg_path}: {exc}") from exc
+    width, height = int(width + 0.999), int(height + 0.999)
     browser = next((b for b in _BROWSERS if shutil.which(b)), None)
     if browser:
         import tempfile

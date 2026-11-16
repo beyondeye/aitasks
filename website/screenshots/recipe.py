@@ -20,7 +20,23 @@ expect:                       # texts that must be on screen at capture time
   - t12_1 cart summary widget
 illustrates: >-               # what the image is meant to show (for the agent)
   An expanded parent task with its child cards.
+crop:                         # optional: show only this cell rectangle
+  cells: [1, 5, 40, 7]        # [column, row, width, height], borders included
+  gutter: 30                  # optional: empty cells added on the right (labels)
+  holds: t12 add checkout page   # optional: text that must lie inside it
+overlays:                     # optional: drawn on top, in pane cell coordinates
+  - type: box                 # box | tint | anchor (anchor draws only its marks)
+    target: {cells: [0, 0, 126, 1], holds: aitasks board}
+    callout: 1                # optional: numbered circle, unique per scene
+  - type: anchor
+    target: {cells: [2, 7, 36, 1]}
+    label: Info line          # optional: leader line and text to the right
 ```
+
+Every rectangle lies inside the pane, and with a ``crop`` every overlay target
+lies inside the crop. A ``holds`` text is checked on the captured frame: if it
+is not inside its rectangle the capture fails, so a layout that moved makes a
+replay fail instead of annotating the wrong place.
 
 ``id:`` and ``output:`` own the image file. ``website/check_screenshots.py``
 reads those two lines without a YAML parser (``markers.read_spec_owner``), so
@@ -71,6 +87,105 @@ class Recipe:
     @property
     def window_title(self) -> str:
         return self.title or "aitasks"
+
+
+def _is_int(value) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool)
+
+
+OVERLAY_TYPES = ("box", "tint", "anchor")
+MAX_GUTTER = 200
+MAX_CALLOUT = 99
+
+
+def _cells(value, size, where: str) -> list[int]:
+    if not isinstance(value, list) or len(value) != 4 or not all(_is_int(v) for v in value):
+        raise RecipeError(f"{where}: cells must be [column, row, width, height], four integers")
+    c, r, w, h = value
+    if c < 0 or r < 0 or w < 1 or h < 1:
+        raise RecipeError(f"{where}: cells {value} must have column, row >= 0 and "
+                          "width, height >= 1")
+    if c + w > size[0] or r + h > size[1]:
+        raise RecipeError(f"{where}: cells {value} reach outside the {size[0]}x{size[1]} pane")
+    return [c, r, w, h]
+
+
+def _target(value, size, where: str, extra=()) -> dict:
+    """A rectangle mapping: ``cells`` plus an optional ``holds`` text."""
+    if not isinstance(value, dict):
+        raise RecipeError(f"{where}: must be a mapping with cells")
+    unknown = sorted(set(map(str, value)) - {"cells", "holds", *extra})
+    if unknown:
+        raise RecipeError(f"{where}: unknown key(s): {', '.join(unknown)}")
+    if "cells" not in value:
+        raise RecipeError(f"{where}: missing cells")
+    out = {"cells": _cells(value["cells"], size, where)}
+    if "holds" in value:
+        if not _is_text(value["holds"]):
+            raise RecipeError(f"{where}: holds must be a one-line text")
+        out["holds"] = value["holds"]
+    return out
+
+
+def validate_crop(value, size):
+    """A normalised crop mapping, or None. Raises :class:`RecipeError`."""
+    if value is None:
+        return None
+    crop = _target(value, size, "crop", extra=("gutter",))
+    if "gutter" in value:
+        gutter = value["gutter"]
+        if not _is_int(gutter) or not 0 <= gutter <= MAX_GUTTER:
+            raise RecipeError(f"crop: gutter must be an integer in [0, {MAX_GUTTER}]")
+        if gutter:
+            crop = {"cells": crop["cells"], "gutter": gutter,
+                    **({"holds": crop["holds"]} if "holds" in crop else {})}
+    return crop
+
+
+def validate_overlays(value, size, crop=None):
+    """A normalised overlay list, or None. Raises :class:`RecipeError`."""
+    if value is None:
+        return None
+    if not isinstance(value, list) or not value:
+        raise RecipeError("overlays: must be a non-empty list")
+    out, callouts = [], {}
+    for number, item in enumerate(value, start=1):
+        where = f"overlay {number}"
+        if not isinstance(item, dict):
+            raise RecipeError(f"{where}: must be a mapping")
+        unknown = sorted(set(map(str, item)) - {"type", "target", "callout", "label"})
+        if unknown:
+            raise RecipeError(f"{where}: unknown key(s): {', '.join(unknown)}")
+        kind = item.get("type")
+        if kind not in OVERLAY_TYPES:
+            raise RecipeError(f"{where}: type {kind!r} is not one of {', '.join(OVERLAY_TYPES)}")
+        if "target" not in item:
+            raise RecipeError(f"{where}: missing target")
+        entry = {"type": kind, "target": _target(item["target"], size, f"{where} target")}
+        if "callout" in item:
+            callout = item["callout"]
+            if not _is_int(callout) or not 1 <= callout <= MAX_CALLOUT:
+                raise RecipeError(f"{where}: callout must be an integer in [1, {MAX_CALLOUT}]")
+            if callout in callouts:
+                raise RecipeError(f"{where}: callout {callout} is already used by "
+                                  f"overlay {callouts[callout]}")
+            callouts[callout] = number
+            entry["callout"] = callout
+        if "label" in item:
+            if not _is_text(item["label"]):
+                raise RecipeError(f"{where}: label must be a one-line text")
+            entry["label"] = item["label"]
+        if kind == "anchor" and "callout" not in entry and "label" not in entry:
+            raise RecipeError(f"{where}: an anchor draws nothing without a callout or a label")
+        if crop is not None:
+            c, r, w, h = crop["cells"]
+            tc, tr, tw, th = entry["target"]["cells"]
+            if tc < c or tr < r or tc + tw > c + w or tr + th > r + h:
+                raise RecipeError(f"{where}: target {entry['target']['cells']} lies outside "
+                                  f"the crop {crop['cells']}; it would annotate cropped-away "
+                                  "content")
+        out.append(entry)
+    return out
 
 
 def _is_text(value) -> bool:
@@ -153,12 +268,17 @@ def _validate(data: dict, where: str) -> Recipe:
     title = data.get("title", "")
     if title and not _is_text(title):
         fail("title: must be one line")
+    try:
+        crop = validate_crop(data.get("crop"), size)
+        overlays = validate_overlays(data.get("overlays"), size, crop)
+    except RecipeError as exc:
+        fail(str(exc))
 
     return Recipe(id=data["id"], output=data["output"], size=(size[0], size[1]),
                   dataset=data["dataset"], launch=data["launch"].strip(),
                   expect=tuple(expect), illustrates=" ".join(data["illustrates"].split()),
                   title=title or "", setup=tuple(setup), steps=tuple(steps),
-                  crop=data.get("crop"), overlays=data.get("overlays"))
+                  crop=crop, overlays=overlays)
 
 
 def load(path: Path) -> Recipe:
@@ -212,6 +332,28 @@ def _number(value: float):
     return int(value) if float(value).is_integer() else value
 
 
+class _Flow(list):
+    """A list written on one line (``[2, 6, 38, 6]``): cell rectangles."""
+
+
+class _Dumper(yaml.SafeDumper):
+    pass
+
+
+_Dumper.add_representer(
+    _Flow, lambda dumper, data: dumper.represent_sequence(
+        "tag:yaml.org,2002:seq", data, flow_style=True))
+
+
+def _flow_cells(value):
+    """A copy of a crop / overlay value with every ``cells`` list in flow style."""
+    if isinstance(value, dict):
+        return {k: _Flow(v) if k == "cells" else _flow_cells(v) for k, v in value.items()}
+    if isinstance(value, list):
+        return [_flow_cells(v) for v in value]
+    return value
+
+
 def dump(recipe: Recipe) -> str:
     body: dict = {}
     if recipe.title:
@@ -227,13 +369,14 @@ def dump(recipe: Recipe) -> str:
     body["expect"] = list(recipe.expect)
     body["illustrates"] = recipe.illustrates
     if recipe.crop is not None:
-        body["crop"] = recipe.crop
+        body["crop"] = _flow_cells(recipe.crop)
     if recipe.overlays is not None:
-        body["overlays"] = recipe.overlays
+        body["overlays"] = _flow_cells(recipe.overlays)
     head = ("# Recorded by `website/screenshots.sh recipe save` from a capture that worked.\n"
             "# Do not edit a failing recipe by hand: re-discover the route and save with --replace.\n")
     return (head + _owner_line("id", recipe.id) + "\n" + _owner_line("output", recipe.output)
-            + "\n" + yaml.safe_dump(body, sort_keys=False, allow_unicode=True, width=10 ** 6))
+            + "\n" + yaml.dump(body, Dumper=_Dumper, sort_keys=False, allow_unicode=True,
+                                width=10 ** 6))
 
 
 def from_session(session, *, scene: str, output: str, expect: list[str], illustrates: str,
@@ -280,6 +423,12 @@ def from_session(session, *, scene: str, output: str, expect: list[str], illustr
             "steps": steps, "expect": list(expect), "illustrates": illustrates}
     if title:
         data["title"] = title
+    # The crop and overlays the shot was taken with are part of the route.
+    shot = session.journal[upto]
+    if shot.get("crop") is not None:
+        data["crop"] = shot["crop"]
+    if shot.get("overlays") is not None:
+        data["overlays"] = shot["overlays"]
     return _validate(data, f"scene {scene}")
 
 

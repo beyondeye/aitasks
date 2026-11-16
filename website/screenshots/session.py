@@ -366,22 +366,136 @@ def wait(session: Session, *, text: str | None = None, gone: str | None = None,
 
 
 def find(session: Session, text: str) -> list[tuple[int, int]]:
-    """Every ``(column, row)`` cell where ``text`` starts on screen.
+    """Every ``(column, row)`` cell where ``text`` starts on screen."""
+    return find_in_rows(screen_rows(session), text)
 
-    Columns are terminal cells, not characters: a wide glyph before the text
-    counts as two, the same measure the SVG export uses.
+
+# --- rectangles on a screen (pure: rows of plain text) --------------------------
+#
+# Columns are terminal cells, not characters: a wide glyph counts as two, the
+# same measure (``rich.cells.cell_len``) the SVG export places text by. These
+# work on rows of plain text, so the CLI runs them on the very frame it
+# exports, and tests run them without tmux.
+
+VERTICAL = set("│┃║╎╏┆┇┊┋▏▕")
+TOP_LEFT = set("┌┏╔╭┍┎╒╓")
+TOP_RIGHT = set("┐┓╗╮┑┒╕╖")
+BOTTOM_LEFT = set("└┗╚╰┕┖╘╙")
+BOTTOM_RIGHT = set("┘┛╝╯┙┚╛╜")
+HORIZONTAL = set("─━═╌╍┄┅┈┉")
+
+
+def cell_grid(line: str) -> list[str]:
+    """``line`` as one entry per cell. A wide grapheme fills its first cell
+    and leaves ``""`` in the second.
+
+    Cells come from Rich's own grapheme spans (``rich.cells.split_graphemes``),
+    the measure the exporter places text by and ``find_in_rows`` counts
+    prefixes with: ``🏷`` + VS16 and a ZWJ sequence such as ``👩‍💻`` are one
+    grapheme of two cells each. A zero-width span joins the cell before it.
     """
+    from rich.cells import split_graphemes
+
+    cells: list[str] = []
+    spans, _ = split_graphemes(line)
+    for start, end, width in spans:
+        cluster = line[start:end]
+        if width == 0:
+            if cells:
+                cells[-1 if cells[-1] else -2] += cluster
+            else:
+                cells.append(cluster)
+            continue
+        cells += [cluster] + [""] * (width - 1)
+    return cells
+
+
+def find_in_rows(rows: list[str], text: str) -> list[tuple[int, int]]:
+    """Every ``(column, row)`` cell where ``text`` starts."""
     from rich.cells import cell_len
 
     if not text:
         raise SessionError("empty find text")
     cells = []
-    for row, line in enumerate(screen_rows(session)):
+    for row, line in enumerate(rows):
         start = line.find(text)
         while start != -1:
             cells.append((cell_len(line[:start]), row))
             start = line.find(text, start + 1)
     return cells
+
+
+def _only(rows: list[str], text: str) -> tuple[int, int]:
+    found = find_in_rows(rows, text)
+    if len(found) != 1:
+        raise SessionError(f"{text!r} is on the screen {len(found)} times; "
+                           "it must occur exactly once")
+    return found[0]
+
+
+def _closed_box(at, left: int, row: int):
+    """The box whose left border runs through ``(left, row)``, as
+    ``(left, top, right, bottom)``, or None unless all four border runs and
+    all four corners are there."""
+    top = row
+    while at(left, top - 1) in VERTICAL:
+        top -= 1
+    top -= 1
+    bottom = row
+    while at(left, bottom + 1) in VERTICAL:
+        bottom += 1
+    bottom += 1
+    if at(left, top) not in TOP_LEFT or at(left, bottom) not in BOTTOM_LEFT:
+        return None
+    right = left + 1
+    while at(right, top) in HORIZONTAL:
+        right += 1
+    if right == left + 1 or at(right, top) not in TOP_RIGHT \
+            or at(right, bottom) not in BOTTOM_RIGHT:
+        return None
+    if any(at(c, bottom) not in HORIZONTAL for c in range(left + 1, right)):
+        return None
+    if any(at(right, r) not in VERTICAL for r in range(top + 1, bottom)):
+        return None
+    return left, top, right, bottom
+
+
+def box_around(rows: list[str], text: str) -> tuple[int, int, int, int]:
+    """``(column, row, width, height)`` of the innermost closed box-drawn
+    border around ``text``, border cells included. ``text`` must occur once.
+
+    Every vertical glyph left of the text is tried as a left border, nearest
+    first; the first one that closes into a box (all four edges and corners)
+    holding the whole text wins. A smaller box beside the text is skipped, so
+    an enclosing box further out is still found.
+    """
+    from rich.cells import cell_len
+
+    col, row = _only(rows, text)
+    end = col + cell_len(text)
+    grid = [cell_grid(line) for line in rows]
+
+    def at(c: int, r: int) -> str:
+        return grid[r][c] if 0 <= r < len(grid) and 0 <= c < len(grid[r]) else ""
+
+    for left in range(col - 1, -1, -1):
+        if at(left, row) not in VERTICAL:
+            continue
+        box = _closed_box(at, left, row)
+        if box is not None and box[2] >= end:
+            left, top, right, bottom = box
+            return left, top, right - left + 1, bottom - top + 1
+    raise SessionError(f"no closed box around {text!r}")
+
+
+def rect_holds(rows: list[str], rect, text: str) -> bool:
+    """Whether ``text`` occurs with every one of its cells inside ``rect``."""
+    from rich.cells import cell_len
+
+    c, r, w, h = rect
+    width = cell_len(text)
+    return any(c <= col and col + width <= c + w and r <= row < r + h
+               for col, row in find_in_rows(rows, text))
 
 
 def _remove_dead_socket(session: Session) -> None:

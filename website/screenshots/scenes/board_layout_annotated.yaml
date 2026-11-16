@@ -1,0 +1,41 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: board_layout_annotated
+output: aitasks_board_layout_annotated.svg
+title: aitasks board
+size:
+- 126
+- 44
+dataset: base
+setup: []
+launch: ./ait board
+steps:
+- wait: 3 children
+- wait: ╔
+expect:
+- aitasks board
+- Task filter
+- Now (2)
+- q Quit
+illustrates: 'The whole board with its four areas outlined and numbered as in the page''s list: 1 the header (title bar), 2 the filter area (view selector and search box), 3 the board area with its columns of task cards, 4 the footer with the key bindings.'
+overlays:
+- type: box
+  target:
+    cells: [0, 0, 126, 1]
+    holds: aitasks board
+  callout: 1
+- type: box
+  target:
+    cells: [0, 1, 126, 3]
+    holds: Task filter
+  callout: 2
+- type: box
+  target:
+    cells: [0, 4, 126, 37]
+    holds: Now (2)
+  callout: 3
+- type: box
+  target:
+    cells: [0, 41, 126, 3]
+    holds: q Quit
+  callout: 4

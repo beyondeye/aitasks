@@ -1,0 +1,43 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: board_card_annotated
+output: aitasks_board_card_annotated.svg
+title: aitasks board
+size:
+- 126
+- 44
+dataset: base
+setup: []
+launch: ./ait board
+steps:
+- wait: 3 children
+- wait: ╔
+expect:
+- t12 add checkout page
+- 3 children
+illustrates: 'One task card (t12, cropped from the board) with a label for each of its rows, in the page''s words: the mark and task number and title, the info line (effort and labels), the status line, and the children count.'
+crop:
+  cells: [2, 6, 38, 6]
+  gutter: 28
+  holds: t12 add checkout page
+overlays:
+- type: anchor
+  target:
+    cells: [3, 7, 37, 1]
+    holds: t12 add checkout page
+  label: Mark / Task number and title
+- type: anchor
+  target:
+    cells: [3, 8, 37, 1]
+    holds: high
+  label: Info line
+- type: anchor
+  target:
+    cells: [3, 9, 37, 1]
+    holds: Ready
+  label: Status line
+- type: anchor
+  target:
+    cells: [3, 10, 37, 1]
+    holds: 3 children
+  label: Children count

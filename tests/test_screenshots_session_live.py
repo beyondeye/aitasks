@@ -1,4 +1,4 @@
-"""Live tests for the docs-screenshot session primitives (t2278_2).
+"""Live tests for the docs-screenshot session primitives (t2278_2, t2278_3).
 
 These boot the REAL `ait board` in an isolated tmux session on the sample
 project, through `website/screenshots/cli.py`, exactly as an agent drives it.
@@ -6,7 +6,7 @@ project, through `website/screenshots/cli.py`, exactly as an agent drives it.
 Isolation: every session uses its own `-L ait_shots_<id>` socket through
 `TmuxClient`, started with `-f /dev/null`. The staging, scenes, content and
 static directories are scratch directories, so nothing under `website/` is
-read or written (the one exception is the shipped recipe, which is replayed
+read or written (the one exception is the shipped recipes, which are replayed
 read-only).
 
 Skip-vs-fail: the module skips only when the `tmux` binary is missing
@@ -575,6 +575,104 @@ class SetupContractTests(LiveCase):
         self.assertIn("exited 4", out)
         journal = sessions.load(self.staging, sid).journal
         self.assertEqual([(e["kind"], e["ok"]) for e in journal], [("setup", False)])
+
+
+RENDERERS = ("chromium", "chromium-browser", "google-chrome", "google-chrome-stable",
+             "rsvg-convert")
+LAYOUT = "board_layout_annotated"
+CARD = "board_card_annotated"
+
+
+class AnnotatedSceneTests(LiveCase):
+    """Crop and overlays (t2278_3), on the real board."""
+
+    def replay_shipped(self, scene, *extra):
+        out = self.ok("replay", "--scene", scene, "--no-keep", *extra, scenes=SHIPPED_SCENES)
+        return out, Path(self.value(out, "STAGED").split("|", 1)[1])
+
+    def test_the_shipped_annotated_recipes_replay(self):
+        _, layout = self.replay_shipped(LAYOUT)
+        svg = layout.read_text(encoding="utf-8")
+        self.assertIn('<g class="shot-overlay">', svg)
+        self.assertEqual(svg.count('class="shot-box"'), 4)
+        self.assertEqual(svg.count('class="shot-callout"'), 4)
+        self.assertIn('stroke="rgba(255,255,255,0.35)"', svg)     # uncropped: chrome kept
+
+        _, card = self.replay_shipped(CARD)
+        svg = card.read_text(encoding="utf-8")
+        recipe = rc.load(SHIPPED_SCENES / f"{CARD}.yaml")
+        x, y, _, _ = sx.viewbox(svg)
+        cx, cy, _, _ = sx_px(recipe.crop["cells"])
+        self.assertLessEqual((x, y), (cx - 8, cy - 8))
+        self.assertNotIn('stroke="rgba(255,255,255,0.35)"', svg)  # cropped: no chrome
+        self.assertEqual(svg.count('class="shot-label"'), len(recipe.overlays))
+        self.assertIn("t12 add checkout page", sx.svg_plain_text(svg))
+
+    def test_find_box_shot_and_save_with_crop_and_overlays(self):
+        sid = self.start()
+        self.board(sid)
+        box = self.value(self.ok("find", sid, "--text", "t12 add checkout page", "--box"), "BOX")
+        self.assertEqual(box, "2,6,38,6")
+        status, out = self.cli("find", sid, "--text", "Ready", "--box")
+        self.assertEqual(status, 1, out)
+        self.assertIn("times", out)                 # several cards: not unique
+        self.ok("shot", sid, "--scene", "card", "--output", "card.svg", "--crop", box,
+                "--overlay", "{type: anchor, target: {cells: [3, 10, 37, 1], "
+                             "holds: 3 children}, label: Children count}")
+        out = self.ok("recipe", "save", sid, "--scene", "card", "--expect", "3 children",
+                      "--illustrates", "One card with a label.")
+        recipe = rc.load(Path(self.value(out, "RECIPE_SAVED")))
+        self.assertEqual(recipe.crop, {"cells": [2, 6, 38, 6]})
+        self.assertEqual(recipe.overlays[0]["label"], "Children count")
+        # A shot whose overlay leaves the crop is refused before anything is taken.
+        before = self.batches()
+        status, out = self.cli("shot", sid, "--scene", "card2", "--output", "card2.svg",
+                               "--crop", box, "--overlay",
+                               "{type: box, target: {cells: [60, 6, 4, 1]}}")
+        self.assertEqual(status, 1, out)
+        self.assertIn("REFUSED:", out)
+        self.assertEqual(self.batches(), before)
+
+    def test_a_holds_text_outside_its_rectangle_fails_the_replay(self):
+        text = (SHIPPED_SCENES / f"{LAYOUT}.yaml").read_text(encoding="utf-8")
+        (self.scenes / f"{LAYOUT}.yaml").write_text(text, encoding="utf-8")
+        # Control first: the unmodified copy passes.
+        self.ok("replay", "--scene", LAYOUT, "--no-keep")
+        moved = text.replace("holds: aitasks board", "holds: q Quit", 1)
+        self.assertNotEqual(moved, text)
+        (self.scenes / f"{LAYOUT}.yaml").write_text(moved, encoding="utf-8")
+        status, out = self.cli("replay", "--scene", LAYOUT, "--no-keep")
+        self.assertEqual(status, 1, out)
+        self.assertIn(f"FAILED:{LAYOUT}|overlay|", out)
+        self.assertIn("'q Quit' not inside [0, 0, 126, 1]", out)
+        batch = self.staging / self.value(out, "BATCH")
+        self.assertFalse((batch / "aitasks_board_layout_annotated.svg").exists())
+
+    @unittest.skipUnless(any(shutil.which(r) for r in RENDERERS), "no SVG renderer installed")
+    def test_a_cropped_preview_is_produced(self):
+        out, card = self.replay_shipped(CARD, "--png")
+        png = Path(self.value(out, "PNG").split(" (", 1)[0])
+        self.assertTrue(png.is_file(), out)
+        self.assertEqual(png.read_bytes()[:4], b"\x89PNG")
+
+    def test_a_requested_preview_that_cannot_be_made_fails_the_verb(self):
+        import types
+
+        no_renderer = types.SimpleNamespace(which=lambda name: None)
+        with mock.patch.object(sx, "shutil", no_renderer):
+            status, out = self.cli("replay", "--scene", CARD, "--no-keep", "--png",
+                                   scenes=SHIPPED_SCENES)
+        self.assertEqual(status, 1, out)
+        self.assertIn("PNG_UNAVAILABLE:", out)
+        self.assertNotIn("\nPNG:", "\n" + out)
+        # The SVG itself is still staged.
+        self.assertTrue(Path(self.value(out, "STAGED").split("|", 1)[1]).is_file())
+
+
+def sx_px(cells):
+    from screenshots import svgpost
+
+    return svgpost.cell_rect_to_px(cells)
 
 
 if __name__ == "__main__":

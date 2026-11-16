@@ -10,16 +10,22 @@ Run through ``website/screenshots.sh`` (it picks the framework interpreter).
     screen <id>                                     the pane as numbered text
     keys <id> <key>...                              tmux key names
     wait <id> (--text T | --gone T) [--timeout S]
-    find <id> --text T                              CELL:<col>,<row> lines
+    find <id> --text T [--box]                      CELL:<col>,<row> lines; with --box
+                                                    BOX:<col>,<row>,<w>,<h> of the
+                                                    innermost box around a unique text
     shot <id> --scene ID --output FILE [--title T] [--png]
+             [--crop SPEC] [--overlay SPEC]...      SPEC is the recipe form as YAML flow
+                                                    ('{cells: [1, 5, 40, 7], gutter: 30}');
+                                                    --crop also takes C,R,W,H
     recipe save <id> --scene ID --expect T... --illustrates TEXT [--replace]
     replay (--scene ID... | --all | --pending) [--no-keep] [--png]
     session stop (<id> | --all) / session list
     list
 
 Result lines are ``KEY:value`` (``SESSION:``, ``BATCH:``, ``SHOT:``, ``PNG:``,
-``STAGED:``, ``FAILED:``, ``REFUSED:``, ``RECIPE_SAVED:``). Exit status: 0 done,
-1 a capture, wait, replay or save failed or was refused, 2 usage.
+``STAGED:``, ``FAILED:``, ``REFUSED:``, ``RECIPE_SAVED:``, ``BOX:``). Exit status:
+0 done, 1 a capture, wait, replay or save failed or was refused (also when
+``--png`` was asked and no preview could be made), 2 usage.
 """
 from __future__ import annotations
 
@@ -40,7 +46,7 @@ if str(WEBSITE) not in sys.path:
 
 from screenshots import markers, recipe as recipes, sample_project  # noqa: E402
 from screenshots import session as sessions  # noqa: E402
-from screenshots import svg_export  # noqa: E402
+from screenshots import svg_export, svgpost  # noqa: E402
 
 STEP_TIMEOUT = sessions.DEFAULT_TIMEOUT
 EXPECT_TIMEOUT = 15.0
@@ -135,17 +141,23 @@ def record_failure(batch: Path, scene: str, reason: str) -> None:
     write_manifest(batch, manifest)
 
 
-def preview_png(batch: Path, scene: str, image: Path) -> None:
+def preview_png(batch: Path, scene: str, image: Path) -> bool:
+    """Render the preview. Returns whether a PNG file was produced; a caller
+    that asked for one must not report success without it."""
     png = batch / "_preview" / f"{scene}.png"
     png.parent.mkdir(exist_ok=True)
     try:
         renderer = svg_export.render_png(image, png)
     except svg_export.ExportError as exc:
-        print(f"PNG_UNAVAILABLE:{exc}")
-        return
+        print(f"PNG_UNAVAILABLE:{_one_line(exc)} (the SVG is staged: {image})")
+        return False
+    if not png.is_file():
+        print(f"FAILED:png|{renderer} reported success but wrote no {png}")
+        return False
     note = "" if renderer != "rsvg-convert" else \
         " (rsvg-convert: NOT faithful — leading spaces and emoji are wrong; trust the SVG)"
     print(f"PNG:{png}{note}")
+    return True
 
 
 # --- capture -----------------------------------------------------------------
@@ -170,12 +182,24 @@ def stable_capture(sess) -> str:
         previous = current
 
 
-def export(sess, title: str, scene: str, expect=()) -> str:
+def _misplaced(rows, crop, overlays) -> list[str]:
+    """Every ``holds`` text that is not inside its rectangle on ``rows``."""
+    targets = ([("crop", crop)] if crop else []) + [
+        (f"overlay {n}", item["target"]) for n, item in enumerate(overlays or (), start=1)]
+    return [f"{where}: {target['holds']!r} not inside {target['cells']}"
+            for where, target in targets
+            if "holds" in target and not sessions.rect_holds(rows, target["cells"],
+                                                             target["holds"])]
+
+
+def export(sess, title: str, scene: str, expect=(), crop=None, overlays=None) -> str:
     """Export one settled frame that shows every text in ``expect``.
 
     The texts are checked together, on the very frame that becomes the image.
     Checking them one after another on the live screen would accept a text
-    that was there a moment ago and is gone from the picture.
+    that was there a moment ago and is gone from the picture. The ``holds``
+    texts of the crop and overlays are checked on that same frame, then the
+    crop and overlays are applied to its SVG.
     """
     width, height = sess.size
     deadline = time.monotonic() + EXPECT_TIMEOUT
@@ -183,10 +207,17 @@ def export(sess, title: str, scene: str, expect=()) -> str:
         frame = stable_capture(sess)
         text = svg_export.ansi_plain_text(frame)
         missing = [wanted for wanted in expect if wanted not in text]
-        if not missing:
-            return svg_export.ansi_to_svg(frame, width, height, title=title, scene_id=scene)
+        misplaced = [] if missing else _misplaced(text.split("\n"), crop, overlays)
+        if not missing and not misplaced:
+            svg = svg_export.ansi_to_svg(frame, width, height, title=title, scene_id=scene)
+            try:
+                return svgpost.postprocess(svg, crop, overlays or ())
+            except svgpost.SvgPostError as exc:
+                raise svg_export.ExportError(f"crop/overlay: {exc}") from exc
         if time.monotonic() >= deadline:
-            raise MissingExpected(missing)
+            if missing:
+                raise MissingExpected(missing)
+            raise Misplaced(misplaced)
         time.sleep(sessions.POLL_INTERVAL)
 
 
@@ -194,6 +225,14 @@ class MissingExpected(Exception):
     def __init__(self, missing):
         super().__init__(", ".join(repr(m) for m in missing) + " not on the captured frame")
         self.missing = missing
+
+
+class Misplaced(Exception):
+    """A crop or overlay rectangle no longer holds its text: the layout moved."""
+
+    def __init__(self, problems):
+        super().__init__("; ".join(problems))
+        self.problems = problems
 
 
 def check_ownership(paths: Paths, scene: str, output: str) -> None:
@@ -252,9 +291,11 @@ def replay_one(rec, paths: Paths, *, keep: bool):
             except sessions.SessionError as exc:
                 return failed(f"step {number}", exc)
         try:
-            svg = export(sess, rec.window_title, rec.id, rec.expect)
+            svg = export(sess, rec.window_title, rec.id, rec.expect, rec.crop, rec.overlays)
         except MissingExpected as exc:
             return failed("expect", exc)
+        except Misplaced as exc:
+            return failed("overlay", exc)
         except (sessions.SessionError, svg_export.ExportError) as exc:
             return failed("capture", exc)
     except BaseException:
@@ -372,17 +413,44 @@ def cmd_wait(args, paths):
 
 
 def cmd_find(args, paths):
-    cells = sessions.find(_session(args, paths), args.text)
+    sess = _session(args, paths)
+    if args.box:
+        c, r, w, h = sessions.box_around(sessions.screen_rows(sess), args.text)
+        print(f"BOX:{c},{r},{w},{h}")
+        return 0
+    cells = sessions.find(sess, args.text)
     for column, row in cells:
         print(f"CELL:{column},{row}")
     print(f"FOUND:{len(cells)}")
     return 0 if cells else 1
 
 
+def _spec(text: str, what: str):
+    """A ``--crop`` / ``--overlay`` value: the recipe form as YAML flow."""
+    import yaml
+
+    if what == "crop" and all(part.strip().lstrip("-").isdigit() for part in text.split(",")) \
+            and text.count(",") == 3:
+        return {"cells": [int(part) for part in text.split(",")]}
+    try:
+        return yaml.safe_load(text)
+    except yaml.YAMLError as exc:
+        raise Refused(f"--{what} {text!r} is not YAML: {_one_line(exc)}") from None
+
+
 def cmd_shot(args, paths):
     sess = _session(args, paths)
     check_ownership(paths, args.scene, args.output)
-    svg = export(sess, args.title, args.scene)
+    # Validated exactly as a recipe validates them, before anything is
+    # captured: a shot can only journal what `recipe save` will accept.
+    crop = recipes.validate_crop(_spec(args.crop, "crop"), sess.size) if args.crop else None
+    overlays = recipes.validate_overlays([_spec(o, "overlay") for o in args.overlay],
+                                         sess.size, crop) if args.overlay else None
+    try:
+        svg = export(sess, args.title, args.scene, (), crop, overlays)
+    except Misplaced as exc:
+        print(f"FAILED:overlay|{_one_line(exc)}")
+        return 1
     batch = paths.staging / sess.batch if sess.batch else None
     if batch is None or not (batch / "manifest.json").is_file() \
             or batch_holds(batch, args.scene, args.output):
@@ -391,12 +459,16 @@ def cmd_shot(args, paths):
         batch = new_batch(paths.staging)
     sess.batch = batch.name
     image = stage(batch, paths, args.scene, args.output, svg)
-    sess.log("shot", scene=args.scene, output=args.output, title=args.title)
+    entry = {"scene": args.scene, "output": args.output, "title": args.title}
+    if crop is not None:
+        entry["crop"] = crop
+    if overlays is not None:
+        entry["overlays"] = overlays
+    sess.log("shot", **entry)
     print(f"SHOT:{image}")
-    if args.png:
-        preview_png(batch, args.scene, image)
+    previewed = preview_png(batch, args.scene, image) if args.png else True
     print(f"BATCH:{batch.name}")
-    return 0
+    return 0 if previewed else 1
 
 
 def cmd_recipe_save(args, paths):
@@ -453,8 +525,8 @@ def cmd_replay(args, paths):
             continue
         image = stage(batch, paths, scene, rec.output, svg)
         print(f"STAGED:{scene}|{image}")
-        if args.png:
-            preview_png(batch, scene, image)
+        if args.png and not preview_png(batch, scene, image):
+            failures += 1
     print(f"BATCH:{batch.name}")
     return 1 if failures else 0
 
@@ -517,6 +589,7 @@ def build_parser() -> argparse.ArgumentParser:
     sub = verbs.add_parser("find")
     sub.add_argument("id")
     sub.add_argument("--text", required=True)
+    sub.add_argument("--box", action="store_true")
     sub.set_defaults(func=cmd_find)
 
     sub = verbs.add_parser("shot")
@@ -525,6 +598,8 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--output", required=True)
     sub.add_argument("--title", default=DEFAULT_TITLE)
     sub.add_argument("--png", action="store_true")
+    sub.add_argument("--crop")
+    sub.add_argument("--overlay", action="append", default=[])
     sub.set_defaults(func=cmd_shot)
 
     p_recipe = verbs.add_parser("recipe").add_subparsers(dest="action", required=True)

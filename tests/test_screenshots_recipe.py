@@ -1,4 +1,4 @@
-"""Tests for docs-screenshot recipes (t2278_2).
+"""Tests for docs-screenshot recipes (t2278_2; crop and overlays t2278_3).
 
 `website/screenshots/recipe.py` loads, validates and writes the recorded route
 to one screenshot (`scenes/<id>.yaml`). No tmux is needed here: sessions are
@@ -212,6 +212,92 @@ class FromSessionTests(unittest.TestCase):
                                                           output="other.svg"))
 
 
+ANNOTATED = GOOD + """\
+crop: {cells: [2, 6, 38, 6], gutter: 28, holds: t12 add checkout page}
+overlays:
+  - {type: box, target: {cells: [3, 7, 36, 1], holds: t12}, callout: 1}
+  - {type: tint, target: {cells: [3, 8, 36, 1]}}
+  - {type: anchor, target: {cells: [3, 9, 37, 1]}, label: Status line}
+"""
+
+
+class CropOverlayTests(ScenesCase):
+    def test_a_valid_crop_and_overlays_load_normalised(self):
+        recipe = rc.load(self.spec("scene_a", ANNOTATED))
+        self.assertEqual(recipe.crop, {"cells": [2, 6, 38, 6], "gutter": 28,
+                                       "holds": "t12 add checkout page"})
+        self.assertEqual([o["type"] for o in recipe.overlays], ["box", "tint", "anchor"])
+        self.assertEqual(recipe.overlays[0],
+                         {"type": "box", "target": {"cells": [3, 7, 36, 1], "holds": "t12"},
+                          "callout": 1})
+
+    def test_a_zero_gutter_is_dropped(self):
+        recipe = rc.load(self.spec("scene_a", GOOD + "crop: {cells: [0, 0, 5, 5], gutter: 0}\n"))
+        self.assertEqual(recipe.crop, {"cells": [0, 0, 5, 5]})
+
+    def test_round_trip_through_write(self):
+        written = rc.load(self.spec("scene_a", ANNOTATED))
+        (self.scenes / "scene_a.yaml").unlink()
+        path = rc.write(written, self.scenes)
+        self.assertEqual(rc.load(path), written)
+        # Rectangles are written on one line.
+        self.assertIn("cells: [2, 6, 38, 6]", path.read_text(encoding="utf-8"))
+
+    def test_each_rejection_rule(self):
+        crop_line = "crop: {cells: [2, 6, 38, 6], gutter: 28, holds: t12 add checkout page}"
+        box = "{type: box, target: {cells: [3, 7, 36, 1], holds: t12}, callout: 1}"
+        cases = {
+            "crop unknown key": ANNOTATED.replace(crop_line, "crop: {cells: [2, 6, 38, 6], pad: 3}"),
+            "crop without cells": ANNOTATED.replace(crop_line, "crop: {gutter: 3}"),
+            "crop not a mapping": ANNOTATED.replace(crop_line, "crop: [2, 6, 38, 6]"),
+            "cells three numbers": ANNOTATED.replace(crop_line, "crop: {cells: [2, 6, 38]}"),
+            "cells not ints": ANNOTATED.replace(crop_line, "crop: {cells: [2, 6, 38.5, 6]}"),
+            "cells bool": ANNOTATED.replace(crop_line, "crop: {cells: [true, 6, 38, 6]}"),
+            "cells negative": ANNOTATED.replace(crop_line, "crop: {cells: [-1, 6, 38, 6]}"),
+            "cells zero width": ANNOTATED.replace(crop_line, "crop: {cells: [2, 6, 0, 6]}"),
+            "crop outside the pane": ANNOTATED.replace(crop_line, "crop: {cells: [100, 6, 38, 6]}"),
+            "crop below the pane": ANNOTATED.replace(crop_line, "crop: {cells: [2, 40, 38, 6]}"),
+            "gutter negative": ANNOTATED.replace("gutter: 28", "gutter: -1"),
+            "gutter too big": ANNOTATED.replace("gutter: 28", "gutter: 201"),
+            "gutter not an int": ANNOTATED.replace("gutter: 28", "gutter: wide"),
+            "holds empty": ANNOTATED.replace("holds: t12 add checkout page", "holds: ''"),
+            "overlays empty": GOOD + "overlays: []\n",
+            "overlays a mapping": GOOD + "overlays: {type: box}\n",
+            "overlay unknown key": ANNOTATED.replace(box, box[:-1] + ", colour: red}"),
+            "overlay bad type": ANNOTATED.replace("type: box", "type: arrow"),
+            "overlay without target": ANNOTATED.replace(box, "{type: box, callout: 1}"),
+            "target unknown key": ANNOTATED.replace("holds: t12}", "holds: t12, box: true}"),
+            "target outside the pane": ANNOTATED.replace("[3, 7, 36, 1]", "[100, 7, 36, 1]"),
+            "target outside the crop": ANNOTATED.replace("[3, 7, 36, 1]", "[3, 2, 36, 1]"),
+            "callout zero": ANNOTATED.replace("callout: 1", "callout: 0"),
+            "callout too big": ANNOTATED.replace("callout: 1", "callout: 100"),
+            "callout not an int": ANNOTATED.replace("callout: 1", "callout: one"),
+            "duplicate callout": ANNOTATED.replace(
+                "{type: tint, target: {cells: [3, 8, 36, 1]}}",
+                "{type: tint, target: {cells: [3, 8, 36, 1]}, callout: 1}"),
+            "label two lines": ANNOTATED.replace("label: Status line", 'label: "a\\nb"'),
+            "bare anchor": ANNOTATED.replace(", label: Status line", ""),
+        }
+        for name, text in cases.items():
+            with self.subTest(rule=name):
+                with self.assertRaises(rc.RecipeError):
+                    rc.load(self.spec("scene_a", text))
+        # Control: the unmodified recipe loads.
+        self.assertIsNotNone(rc.load(self.spec("scene_a", ANNOTATED)).crop)
+
+    def test_from_session_copies_crop_and_overlays_from_the_shot(self):
+        crop = {"cells": [2, 6, 38, 6], "gutter": 28}
+        overlays = [{"type": "anchor", "target": {"cells": [3, 9, 37, 1]}, "label": "Status line"}]
+        entries = [dict(e) for e in CLEAN]
+        shot = next(e for e in entries if e["kind"] == "shot")
+        shot.update(crop=crop, overlays=overlays)
+        recipe = rc.from_session(fake_session(entries), **save_kwargs())
+        self.assertEqual((recipe.crop, recipe.overlays), (crop, overlays))
+        # Control: a shot without them records neither.
+        plain = rc.from_session(fake_session(), **save_kwargs())
+        self.assertEqual((plain.crop, plain.overlays), (None, None))
+
+
 class WriteTests(ScenesCase):
     def recipe(self, **over):
         return dataclasses.replace(
@@ -276,6 +362,9 @@ class WriteTests(ScenesCase):
         shipped = Path(__file__).resolve().parent.parent / "website" / "screenshots" / "scenes"
         recipes = rc.load_all(shipped)
         self.assertIn("board_child_tasks", recipes)
+        self.assertEqual(recipes["board_layout_annotated"].output,
+                         "aitasks_board_layout_annotated.svg")
+        self.assertEqual(recipes["board_card_annotated"].crop["cells"], [2, 6, 38, 6])
         self.assertEqual(recipes["board_child_tasks"].output, "aitasks_board_child_tasks.svg")
 
 
