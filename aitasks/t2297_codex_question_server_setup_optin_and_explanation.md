@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2281
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-13 14:20
-updated_at: 2026-11-16 17:12
+updated_at: 2026-11-16 18:11
 ---
 
 ## Origin
@@ -50,3 +51,8 @@ Make the question server an explicit, explained choice in `ait setup`.
 
 - Tests must never reach a real `~/.aitask`: `setup_questions_deps` is deliberately called from `main()` and not from `setup_codex_cli`, so driving the Codex setup function directly can never run pip against a real venv. Keep that property.
 - The approval enforcement keys on the registration plus `CODEX_THREAD_ID`; an opt-out therefore also switches enforcement off. State that in the explanation rather than hiding it.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-16T16:11:28Z status=pass attempt=1 type=human
