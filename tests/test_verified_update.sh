@@ -1,4 +1,23 @@
 #!/usr/bin/env bash
+# test_verified_update.sh - aitask_verified_update.sh records satisfaction
+# ratings on the aitask-stats branch through aitask_model_stats.py (t1912_4).
+#
+# Every count is read back through the CLI's effective view (`mdfix_export`):
+# legacy registry counters + branch counters, exactly as readers see them, so
+# the rollover tests below keep seeding legacy bucket state in the registry and
+# keep their expected values (the store's merge re-slots months the way the old
+# writer rolled them). The registry is only READ: its `verified` map is a static
+# prior that the writer never updates (parent decision 4); readers derive the
+# effective score from verifiedstats.
+#
+# Retired with the clone/push path t1912_4 deleted (concurrency of the new path
+# is pinned by test_model_stats_store.py's forced-conflict and two-clone tests):
+# Test 9 / 9t (remote retry, a data-branch tag), t2134a-d (push-failure
+# classifier), 21-26 and 29-31 (local-ref convergence, out-params, the commit
+# seam and the converge), 33A-E (the shared-index commit seam: no longer reached
+# by this writer; the seam itself stays covered by test_verification_followup.sh)
+# and t1928a-c (the writer no longer rewrites the registry). Test 22 (a dirty
+# file never strands the commit) moved to test_stats_writers_leave_task_data.sh.
 
 set -e
 
@@ -18,112 +37,30 @@ TOTAL=0
 # Shared core helpers (assert_eq, assert_contains, …) live in tests/lib/asserts.sh.
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 
-# Shared metadata fixtures (legacy-mode remote + real branch-mode worktree).
 # shellcheck source=lib/metadata_update_fixture.sh
 . "$PROJECT_DIR/tests/lib/metadata_update_fixture.sh"
+. "$PROJECT_DIR/tests/lib/git_config_isolation.sh"
+sync_isolate_git_config
 
-setup_repo() {
-    local tmpdir
-    tmpdir="$(mktemp -d)"
+SCRIPT=aitask_verified_update.sh
+setup_repo() { setup_local_metadata_repo "$SCRIPT"; }
 
-    (
-        cd "$tmpdir" || exit 1
-        git init --quiet
-        git config user.email "test@test.com"
-        git config user.name "Test"
-        populate_repo "$tmpdir"
-
-        git add .
-        git commit -m "Initial setup" --quiet
-    )
-
-    echo "$tmpdir"
+# seed <repo> <jq filter> — edit the registry's legacy counters and commit.
+seed() {
+    local tmp
+    tmp="$(mktemp)"
+    jq "$2" "$1/aitasks/metadata/models_claudecode.json" > "$tmp"
+    mv "$tmp" "$1/aitasks/metadata/models_claudecode.json"
+    (cd "$1" && git add -A && git commit -m seed --quiet)
 }
 
-populate_repo() {
-    local repo_dir="$1"
-
-    mkdir -p "$repo_dir/aitasks/metadata"
-    setup_fake_aitask_repo "$repo_dir"
-
-    cp "$PROJECT_DIR/.aitask-scripts/aitask_verified_update.sh" "$repo_dir/.aitask-scripts/"
-    cp "$PROJECT_DIR/.aitask-scripts/lib/task_utils.sh" "$repo_dir/.aitask-scripts/lib/"
-    cp "$PROJECT_DIR/.aitask-scripts/lib/archive_utils.sh" "$repo_dir/.aitask-scripts/lib/"
-    cp "$PROJECT_DIR/.aitask-scripts/lib/verified_update_lib.sh" "$repo_dir/.aitask-scripts/lib/"
-    chmod +x "$repo_dir/.aitask-scripts/aitask_verified_update.sh"
-
-    cat > "$repo_dir/ait" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-case "${1:-}" in
-    git)
-        shift
-        exec git "$@"
-        ;;
-    *)
-        echo "unsupported test helper command" >&2
-        exit 1
-        ;;
-esac
-EOF
-    chmod +x "$repo_dir/ait"
-
-    cat > "$repo_dir/aitasks/metadata/models_claudecode.json" <<'EOF'
-{
-  "models": [
-    {
-      "name": "opus4_6",
-      "cli_id": "claude-opus-4-6",
-      "notes": "Test model",
-      "verified": {
-        "pick": 80,
-        "explain": 60,
-        "batch-review": 0
-      }
-    }
-  ]
-}
-EOF
+rate() {  # rate <repo> <args...> — run the writer from <repo>
+    local repo="$1"; shift
+    (cd "$repo" && "./.aitask-scripts/$SCRIPT" --agent-string claudecode/opus4_6 "$@")
 }
 
-setup_remote_repo() {
-    local basedir origin_dir seed_dir work_dir
-    basedir="$(mktemp -d)"
-    origin_dir="$basedir/origin.git"
-    seed_dir="$basedir/seed"
-    work_dir="$basedir/work"
-
-    git init --bare --quiet "$origin_dir"
-    mkdir -p "$seed_dir"
-
-    (
-        cd "$seed_dir" || exit 1
-        git init --quiet
-        git config user.email "test@test.com"
-        git config user.name "Test"
-        populate_repo "$seed_dir"
-        git add .
-        git commit -m "Initial setup" --quiet
-        git branch -M main
-        git remote add origin "$origin_dir"
-        git push --quiet -u origin main
-    )
-
-    git --git-dir="$origin_dir" symbolic-ref HEAD refs/heads/main
-    git clone --quiet --branch main "$origin_dir" "$work_dir" >/dev/null 2>&1
-    (
-        cd "$work_dir" || exit 1
-        git config user.email "test@test.com"
-        git config user.name "Test"
-    )
-
-    echo "$basedir"
-}
-
-json_get() {
-    local repo_dir="$1" jq_filter="$2"
-    jq -r "$jq_filter" "$repo_dir/aitasks/metadata/models_claudecode.json"
+registry() {  # registry <repo> <jq filter>
+    jq -r ".models[0]$2" "$1/aitasks/metadata/models_claudecode.json"
 }
 
 set +e
@@ -132,1078 +69,376 @@ echo "=== aitask_verified_update.sh Tests ==="
 echo ""
 
 echo "--- Test 1: Valid update creates bucketed stats ---"
-TMPDIR_1="$(setup_repo)"
-output1=$(cd "$TMPDIR_1" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --date 2026-03-11 2>&1)
+T1="$(setup_repo)"
+sha1="$(mdfix_registry_sha "$T1")"
+output1=$(rate "$T1" --skill pick --score 4 --date 2026-03-11 2>&1)
 assert_contains "Structured success output" "UPDATED:claudecode/opus4_6:pick:80" "$output1"
-assert_eq "All-time runs initialized to 1" "1" "$(json_get "$TMPDIR_1" '.models[0].verifiedstats.pick.all_time.runs')"
-assert_eq "All-time score sum initialized to 80" "80" "$(json_get "$TMPDIR_1" '.models[0].verifiedstats.pick.all_time.score_sum')"
-assert_eq "Month period set" "2026-03" "$(json_get "$TMPDIR_1" '.models[0].verifiedstats.pick.month.period')"
-assert_eq "Month runs initialized to 1" "1" "$(json_get "$TMPDIR_1" '.models[0].verifiedstats.pick.month.runs')"
-assert_eq "Week period set" "2026-W11" "$(json_get "$TMPDIR_1" '.models[0].verifiedstats.pick.week.period')"
-assert_eq "Week runs initialized to 1" "1" "$(json_get "$TMPDIR_1" '.models[0].verifiedstats.pick.week.runs')"
-assert_eq "Verified pick initialized to 80" "80" "$(json_get "$TMPDIR_1" '.models[0].verified.pick')"
-assert_eq "Existing verified key preserved (batch-review)" "0" "$(json_get "$TMPDIR_1" '.models[0].verified["batch-review"]')"
-assert_eq "Existing verified key preserved (explain)" "60" "$(json_get "$TMPDIR_1" '.models[0].verified.explain')"
-rm -rf "$TMPDIR_1"
+assert_eq "All-time runs initialized to 1" "1" "$(mdfix_stat "$T1" '.verifiedstats.pick.all_time.runs')"
+assert_eq "All-time score sum initialized to 80" "80" "$(mdfix_stat "$T1" '.verifiedstats.pick.all_time.score_sum')"
+assert_eq "Month period set" "2026-03" "$(mdfix_stat "$T1" '.verifiedstats.pick.month.period')"
+assert_eq "Month runs initialized to 1" "1" "$(mdfix_stat "$T1" '.verifiedstats.pick.month.runs')"
+assert_eq "Week period set" "2026-W11" "$(mdfix_stat "$T1" '.verifiedstats.pick.week.period')"
+assert_eq "Week runs initialized to 1" "1" "$(mdfix_stat "$T1" '.verifiedstats.pick.week.runs')"
+assert_eq "registry file byte-identical (verified prior not written)" "$sha1" "$(mdfix_registry_sha "$T1")"
+assert_eq "verified prior kept (pick)" "80" "$(registry "$T1" '.verified.pick')"
+assert_eq "verified prior kept (batch-review)" "0" "$(registry "$T1" '.verified["batch-review"]')"
+assert_eq "verified prior kept (explain)" "60" "$(registry "$T1" '.verified.explain')"
+assert_eq "registry carries no verifiedstats" "null" "$(registry "$T1" '.verifiedstats')"
+rm -rf "$T1"
 
 echo "--- Test 2: Rolling average updates correctly ---"
-TMPDIR_2="$(setup_repo)"
-(cd "$TMPDIR_2" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --date 2026-03-11 >/dev/null 2>&1)
-output2=$(cd "$TMPDIR_2" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-03-11 2>&1)
+T2="$(setup_repo)"
+rate "$T2" --skill pick --score 4 --date 2026-03-11 >/dev/null 2>&1
+output2=$(rate "$T2" --skill pick --score 5 --date 2026-03-11 2>&1)
 assert_contains "Structured rolling average output" "UPDATED:claudecode/opus4_6:pick:90" "$output2"
-assert_eq "All-time runs incremented to 2" "2" "$(json_get "$TMPDIR_2" '.models[0].verifiedstats.pick.all_time.runs')"
-assert_eq "All-time score sum incremented to 180" "180" "$(json_get "$TMPDIR_2" '.models[0].verifiedstats.pick.all_time.score_sum')"
-assert_eq "Month runs incremented to 2" "2" "$(json_get "$TMPDIR_2" '.models[0].verifiedstats.pick.month.runs')"
-assert_eq "Week runs incremented to 2" "2" "$(json_get "$TMPDIR_2" '.models[0].verifiedstats.pick.week.runs')"
-assert_eq "Verified pick rounded to 90" "90" "$(json_get "$TMPDIR_2" '.models[0].verified.pick')"
-rm -rf "$TMPDIR_2"
+assert_eq "All-time runs incremented to 2" "2" "$(mdfix_stat "$T2" '.verifiedstats.pick.all_time.runs')"
+assert_eq "All-time score sum incremented to 180" "180" "$(mdfix_stat "$T2" '.verifiedstats.pick.all_time.score_sum')"
+assert_eq "Month runs incremented to 2" "2" "$(mdfix_stat "$T2" '.verifiedstats.pick.month.runs')"
+assert_eq "Week runs incremented to 2" "2" "$(mdfix_stat "$T2" '.verifiedstats.pick.week.runs')"
+assert_eq "verified prior NOT rewritten to the average" "80" "$(registry "$T2" '.verified.pick')"
+rm -rf "$T2"
 
 echo "--- Test 3: Invalid agent string fails ---"
-TMPDIR_3="$(setup_repo)"
-assert_exit_nonzero "Invalid agent string rejected" bash -c "cd '$TMPDIR_3' && ./.aitask-scripts/aitask_verified_update.sh --agent-string invalid --skill pick --score 4"
-rm -rf "$TMPDIR_3"
+T3="$(setup_repo)"
+assert_exit_nonzero "Invalid agent string rejected" bash -c "cd '$T3' && ./.aitask-scripts/$SCRIPT --agent-string invalid --skill pick --score 4"
+rm -rf "$T3"
 
 echo "--- Test 4: Invalid score fails ---"
-TMPDIR_4="$(setup_repo)"
-assert_exit_nonzero "Invalid score rejected" bash -c "cd '$TMPDIR_4' && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 6"
-rm -rf "$TMPDIR_4"
+T4="$(setup_repo)"
+assert_exit_nonzero "Invalid score rejected" bash -c "cd '$T4' && ./.aitask-scripts/$SCRIPT --agent-string claudecode/opus4_6 --skill pick --score 6"
+assert_eq "Invalid score: nothing recorded" "no" \
+    "$(git -C "$T4" rev-parse -q --verify refs/heads/aitask-stats >/dev/null && echo yes || echo no)"
+rm -rf "$T4"
 
 echo "--- Test 5: Missing model fails ---"
-TMPDIR_5="$(setup_repo)"
-assert_exit_nonzero "Missing model rejected" bash -c "cd '$TMPDIR_5' && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/sonnet4_6 --skill pick --score 4"
-rm -rf "$TMPDIR_5"
+T5="$(setup_repo)"
+assert_exit_nonzero "Missing model rejected" bash -c "cd '$T5' && ./.aitask-scripts/$SCRIPT --agent-string claudecode/sonnet4_6 --skill pick --score 4"
+rm -rf "$T5"
 
 echo "--- Test 6: Help exits 0 ---"
-TMPDIR_6="$(setup_repo)"
-assert_exit_zero "Help exits successfully" bash -c "cd '$TMPDIR_6' && ./.aitask-scripts/aitask_verified_update.sh --help"
-rm -rf "$TMPDIR_6"
+T6="$(setup_repo)"
+assert_exit_zero "Help exits successfully" bash -c "cd '$T6' && ./.aitask-scripts/$SCRIPT --help"
+help6="$(cd "$T6" && "./.aitask-scripts/$SCRIPT" --help)"
+assert_contains "Help documents STATS_ERROR" "STATS_ERROR:<reason>" "$help6"
+assert_contains "Help says verified is never written" "never written" "$help6"
+assert_not_contains "Help no longer documents UPDATED_REMOTE_ONLY" "UPDATED_REMOTE_ONLY" "$help6"
+rm -rf "$T6"
 
 echo "--- Test 7: Missing verifiedstats is created automatically with buckets ---"
-TMPDIR_7="$(setup_repo)"
-(cd "$TMPDIR_7" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill explain --score 3 --date 2026-03-11 >/dev/null 2>&1)
-assert_eq "Explain all-time runs created" "1" "$(json_get "$TMPDIR_7" '.models[0].verifiedstats.explain.all_time.runs')"
-assert_eq "Explain all-time score sum created" "60" "$(json_get "$TMPDIR_7" '.models[0].verifiedstats.explain.all_time.score_sum')"
-assert_eq "Explain month runs created" "1" "$(json_get "$TMPDIR_7" '.models[0].verifiedstats.explain.month.runs')"
-assert_eq "Explain week runs created" "1" "$(json_get "$TMPDIR_7" '.models[0].verifiedstats.explain.week.runs')"
-assert_eq "Explain verified updated" "60" "$(json_get "$TMPDIR_7" '.models[0].verified.explain')"
-rm -rf "$TMPDIR_7"
+T7="$(setup_repo)"
+rate "$T7" --skill explain --score 3 --date 2026-03-11 >/dev/null 2>&1
+assert_eq "Explain all-time runs created" "1" "$(mdfix_stat "$T7" '.verifiedstats.explain.all_time.runs')"
+assert_eq "Explain all-time score sum created" "60" "$(mdfix_stat "$T7" '.verifiedstats.explain.all_time.score_sum')"
+assert_eq "Explain month runs created" "1" "$(mdfix_stat "$T7" '.verifiedstats.explain.month.runs')"
+assert_eq "Explain week runs created" "1" "$(mdfix_stat "$T7" '.verifiedstats.explain.week.runs')"
+assert_eq "Explain verified prior unchanged" "60" "$(registry "$T7" '.verified.explain')"
+rm -rf "$T7"
 
 echo "--- Test 8: Silent mode prints only structured result ---"
-TMPDIR_8="$(setup_repo)"
-output8=$(cd "$TMPDIR_8" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>&1)
+T8="$(setup_repo)"
+output8=$(rate "$T8" --skill pick --score 4 --silent 2>&1)
 assert_eq "Silent output is structured only" "UPDATED:claudecode/opus4_6:pick:80" "$output8"
-rm -rf "$TMPDIR_8"
+rm -rf "$T8"
 
-echo "--- Test 9: Remote retry preserves concurrent updates ---"
-TMPDIR_9="$(setup_remote_repo)"
-WORKDIR_9="$TMPDIR_9/work"
-ORIGIN_9="$TMPDIR_9/origin.git"
-HOOK_FLAG_9="$TMPDIR_9/hook-ran"
-cat > "$TMPDIR_9/hook.sh" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-
-if [[ "${AITASK_VERIFIED_UPDATE_ATTEMPT:-}" != "1" ]]; then
-    exit 0
-fi
-
-if [[ -f "${AITASK_VERIFIED_UPDATE_HOOK_FLAG:-}" ]]; then
-    exit 0
-fi
-
-touch "$AITASK_VERIFIED_UPDATE_HOOK_FLAG"
-
-tmpdir="$(mktemp -d)"
-git clone --quiet "$AITASK_VERIFIED_UPDATE_TEST_ORIGIN" "$tmpdir/repo" >/dev/null 2>&1
-(
-    cd "$tmpdir/repo"
-    git config user.email "test@test.com"
-    git config user.name "Test"
-    tmp_json="$(mktemp)"
-    jq '
-        .models |= map(
-            if .name == "opus4_6" then
-                .verified = (.verified // {}) |
-                .verifiedstats = (.verifiedstats // {}) |
-                .verifiedstats.pick = {
-                    "runs": ((.verifiedstats.pick.runs // 0) + 1),
-                    "score_sum": ((.verifiedstats.pick.score_sum // 0) + 80)
-                } |
-                .verified.pick = ((.verifiedstats.pick.score_sum / .verifiedstats.pick.runs) | round)
-            else
-                .
-            end
-        )
-    ' aitasks/metadata/models_claudecode.json > "$tmp_json"
-    mv "$tmp_json" aitasks/metadata/models_claudecode.json
-    git add aitasks/metadata/models_claudecode.json
-    git commit -m "competing verified update" --quiet
-    git push --quiet origin main
-)
-rm -rf "$tmpdir"
-EOF
-chmod +x "$TMPDIR_9/hook.sh"
-output9=$(cd "$WORKDIR_9" && \
-    AITASK_VERIFIED_UPDATE_BEFORE_PUSH_HOOK="$TMPDIR_9/hook.sh" \
-    AITASK_VERIFIED_UPDATE_HOOK_FLAG="$HOOK_FLAG_9" \
-    AITASK_VERIFIED_UPDATE_TEST_ORIGIN="$ORIGIN_9" \
-    ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>&1)
-assert_eq "Remote retry keeps structured silent output" "UPDATED:claudecode/opus4_6:pick:80" "$output9"
-assert_eq "Concurrent remote updates both counted" "2" "$(json_get "$WORKDIR_9" '.models[0].verifiedstats.pick.all_time.runs')"
-assert_eq "Concurrent score sum preserved" "160" "$(json_get "$WORKDIR_9" '.models[0].verifiedstats.pick.all_time.score_sum')"
-rm -rf "$TMPDIR_9"
-
-echo "--- Test 9t: a tag named like the data branch, published to origin (t2132) ---"
-# Two defects: `rev-parse --abbrev-ref HEAD` answers `heads/main` beside a
-# same-named tag (so the clone of that "branch" failed), and once the name is
-# right, the unqualified push destination `HEAD:main` is ambiguous on an origin
-# that carries both refs/heads/main and refs/tags/main.
-TMPDIR_9T="$(setup_remote_repo)"
-WORKDIR_9T="$TMPDIR_9T/work"
-ORIGIN_9T="$TMPDIR_9T/origin.git"
-git -C "$WORKDIR_9T" tag main
-git -C "$WORKDIR_9T" push --quiet origin refs/tags/main:refs/tags/main
-tag_9t="$(git --git-dir="$ORIGIN_9T" rev-parse refs/tags/main)"
-assert_eq "9t: fixture: --abbrev-ref is ambiguous here" "heads/main" \
-    "$(git -C "$WORKDIR_9T" rev-parse --abbrev-ref HEAD)"
-assert_eq "9t: fixture: origin carries the branch and the tag" "2" \
-    "$(git --git-dir="$ORIGIN_9T" for-each-ref --format='%(refname)' refs/heads/main refs/tags/main | wc -l | tr -d ' ')"
-rc_9t=0
-output_9t=$(cd "$WORKDIR_9T" && \
-    ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>&1) || rc_9t=$?
-assert_eq "9t: exits 0" "0" "$rc_9t"
-assert_eq "9t: structured output" "UPDATED:claudecode/opus4_6:pick:80" "$output_9t"
-origin_9t="$(git --git-dir="$ORIGIN_9T" rev-parse refs/heads/main)"
-assert_contains "9t: origin's branch carries the update" "ait: Update verified score" \
-    "$(git --git-dir="$ORIGIN_9T" log -1 --format=%s refs/heads/main)"
-assert_eq "9t: origin's tag is untouched" "$tag_9t" "$(git --git-dir="$ORIGIN_9T" rev-parse refs/tags/main)"
-assert_eq "9t: the local branch converged onto the pushed commit" "$origin_9t" \
-    "$(git -C "$WORKDIR_9T" rev-parse refs/heads/main)"
-rm -rf "$TMPDIR_9T"
-
-echo "--- Test t2134: only a real race is retried; every other push failure stops at once ---"
-# "failed to push some refs" ends EVERY rejected push, so the old classifier
-# retried hook refusals and ambiguous destinations 5 times and reported them as
-# concurrent pushes. Every family below is git's own output from a real push.
-LIB_T2134="$PROJECT_DIR/.aitask-scripts/lib/verified_update_lib.sh"
-RACE_REASON_T2134="$(mdfix_server_race_reason)"
-echo "  (installed git's server-side race reason: '${RACE_REASON_T2134}')"
-
-# Echoes 0 when the classifier calls <output> a retryable race, else 1.
-t2134_classify() {
-    local rc=0
-    # shellcheck source=../.aitask-scripts/lib/verified_update_lib.sh
-    ( . "$LIB_T2134"; is_retryable_push_error "$1" ) || rc=$?
-    echo "$rc"
-}
-# The pre-t2134 classifier, kept as the mutant control.
-t2134_classify_old() {
-    if printf '%s' "$1" | grep -Eq 'non-fast-forward|fetch first|rejected|failed to push some refs'; then
-        echo 0
-    else
-        echo 1
-    fi
-}
-
-# --- t2134a: the classifier against real push output -------------------------
-D_A="$(mktemp -d)"
-git init --bare --quiet "$D_A/o.git"
-git --git-dir="$D_A/o.git" symbolic-ref HEAD refs/heads/main
-git init --quiet "$D_A/seed"
-git -C "$D_A/seed" -c user.email=t@t -c user.name=t commit --quiet --allow-empty -m seed
-git -C "$D_A/seed" push --quiet "$D_A/o.git" HEAD:refs/heads/main
-t2134_clone() {   # <dir>: a clone of origin carrying one unpushed commit
-    git clone --quiet "$D_A/o.git" "$1"
-    git -C "$1" -c user.email=t@t -c user.name=t commit --quiet --allow-empty -m "pusher $1"
-}
-# Fixture pushes run untranslated: git localizes its "error:" lines, and the
-# fixture-shape assertions and the old-classifier control read those.
-t2134_push() { LC_ALL=C LANGUAGE='' git -C "$1" push --quiet origin "$2" 2>&1; }
-# The same push under a translating locale, for the locale-independence check.
-t2134_push_de() { LANGUAGE=de LC_ALL=en_US.UTF-8 git -C "$1" push --quiet origin "$2" 2>&1; }
-
-t2134_clone "$D_A/c1"
-git -C "$D_A/seed" -c user.email=t@t -c user.name=t commit --quiet --allow-empty -m racer
-git -C "$D_A/seed" push --quiet "$D_A/o.git" HEAD:refs/heads/main
-out_ff="$(t2134_push "$D_A/c1" HEAD:refs/heads/main)"
-git -C "$D_A/c1" fetch --quiet origin
-out_nff="$(t2134_push "$D_A/c1" HEAD:refs/heads/main)"
-out_nff_de="$(t2134_push_de "$D_A/c1" HEAD:refs/heads/main)"
-
-t2134_clone "$D_A/c2"
-mdfix_install_server_race_pre_receive "$D_A/o.git" "$D_A/raced"
-out_srv="$(t2134_push "$D_A/c2" HEAD:refs/heads/main)"
-
-t2134_clone "$D_A/c3"
-mdfix_install_refusing_pre_receive "$D_A/o.git"
-out_pre="$(t2134_push "$D_A/c3" HEAD:refs/heads/main)"
-rm -f "$D_A/o.git/hooks/pre-receive"
-printf '#!/usr/bin/env bash\necho "update hook says no"\nexit 1\n' > "$D_A/o.git/hooks/update"
-chmod +x "$D_A/o.git/hooks/update"
-out_upd="$(t2134_push "$D_A/c3" HEAD:refs/heads/main)"
-rm -f "$D_A/o.git/hooks/update"
-
-git -C "$D_A/seed" tag main
-git -C "$D_A/seed" push --quiet "$D_A/o.git" refs/tags/main:refs/tags/main
-git -C "$D_A/c3" fetch --quiet origin
-out_amb="$(t2134_push "$D_A/c3" HEAD:main)"
-out_amb_de="$(t2134_push_de "$D_A/c3" HEAD:main)"
-out_bad="$(LC_ALL=C LANGUAGE='' git -C "$D_A/c3" push --quiet "$D_A/no-such-remote.git" HEAD:refs/heads/main 2>&1)"
-rm -rf "$D_A"
-
-# Fixture shape first: each output must be the family it claims to be.
-assert_contains "t2134a: fixture: fetch first" "(fetch first)" "$out_ff"
-assert_contains "t2134a: fixture: non-fast-forward" "(non-fast-forward)" "$out_nff"
-assert_contains "t2134a: fixture: pre-receive refusal" "(pre-receive hook declined)" "$out_pre"
-assert_contains "t2134a: fixture: the refusal carries the race words" "non-fast-forward fetch first rejected" "$out_pre"
-assert_contains "t2134a: fixture: update-hook refusal" "(hook declined)" "$out_upd"
-assert_contains "t2134a: fixture: ambiguous destination" "matches more than one" "$out_amb"
-assert_contains "t2134a: fixture: missing remote" "does not appear to be a git repository" "$out_bad"
-
-assert_eq "t2134a: fetch first is retried" "0" "$(t2134_classify "$out_ff")"
-assert_eq "t2134a: non-fast-forward is retried" "0" "$(t2134_classify "$out_nff")"
-assert_eq "t2134a: pre-receive refusal is not retried" "1" "$(t2134_classify "$out_pre")"
-assert_eq "t2134a: update-hook refusal is not retried" "1" "$(t2134_classify "$out_upd")"
-assert_eq "t2134a: ambiguous destination is not retried" "1" "$(t2134_classify "$out_amb")"
-assert_eq "t2134a: missing remote is not retried" "1" "$(t2134_classify "$out_bad")"
-case "$RACE_REASON_T2134" in
-    "incorrect old value provided")
-        assert_eq "t2134a: real server-side race is retried" "0" "$(t2134_classify "$out_srv")" ;;
-    "failed to update ref")
-        assert_eq "t2134a: real server-side race (older wording) is not retried" "1" "$(t2134_classify "$out_srv")" ;;
-    *)
-        assert_eq "t2134a: installed git's server-race reason is a known one" \
-            "incorrect old value provided|failed to update ref" "$RACE_REASON_T2134" ;;
-esac
-# Mutant control: the old classifier retried exactly these.
-assert_eq "t2134a: control: old classifier retried the refusal" "0" "$(t2134_classify_old "$out_pre")"
-assert_eq "t2134a: control: old classifier retried the ambiguous destination" "0" "$(t2134_classify_old "$out_amb")"
-# Locale independence: the classifier reads only git's untranslated status
-# line. Exercised only where git really translates (a German catalog and a
-# UTF-8 locale are installed); otherwise the output equals the C one.
-if [[ "$out_amb_de" != "$out_amb" ]]; then
-    assert_eq "t2134a: translated non-fast-forward is still retried" "0" "$(t2134_classify "$out_nff_de")"
-    assert_eq "t2134a: translated ambiguous destination is still not retried" "1" "$(t2134_classify "$out_amb_de")"
-else
-    echo "  (t2134a: locale independence not exercised — git does not translate here)"
-fi
-
-# --- t2134a': both server-race wordings, whatever git is installed ------------
-srv_new=$'remote: error: cannot lock ref \'refs/heads/main\': is at 9252a3f5995695ed78754c57cc49a38da14cca9f but expected 41692cd51aa04a62ac72788fba316e4913b7d229        \nTo /tmp/o.git\n ! [remote rejected] HEAD -> main (incorrect old value provided)\nerror: failed to push some refs to \'/tmp/o.git\''
-srv_old=$'remote: error: cannot lock ref \'refs/heads/main\': is at 9252a3f5995695ed78754c57cc49a38da14cca9f but expected 41692cd51aa04a62ac72788fba316e4913b7d229        \nTo /tmp/o.git\n ! [remote rejected] HEAD -> main (failed to update ref)\nerror: failed to push some refs to \'/tmp/o.git\''
-assert_eq "t2134a': 'incorrect old value provided' is retried" "0" "$(t2134_classify "$srv_new")"
-assert_eq "t2134a': 'failed to update ref' is not retried" "1" "$(t2134_classify "$srv_old")"
-
-# --- t2134b / t2134c: end-to-end through aitask_verified_update.sh -----------
-mdfix_check_push_refusal "t2134b" aitask_verified_update.sh \
-    --agent-string claudecode/opus4_6 --skill pick --score 4
-mdfix_check_server_race "t2134c" "$RACE_REASON_T2134" "UPDATED:claudecode/opus4_6:pick:80" \
-    aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --silent
-
-# --- t2134d: a race on every attempt still ends with git's reason ------------
-TMPDIR_D="$(setup_remote_metadata_repo aitask_verified_update.sh)"
-cat > "$TMPDIR_D/always_race.sh" <<'EOF'
-#!/usr/bin/env bash
-set -euo pipefail
-printf '%s\n' "$AITASK_VERIFIED_UPDATE_ATTEMPT" >> "$T2134_ATTEMPTS"
-tmp="$(mktemp -d)"
-git clone --quiet "$T2134_ORIGIN" "$tmp/repo" >/dev/null 2>&1
-git -C "$tmp/repo" -c user.email=r@test.com -c user.name=Racer \
-    commit --quiet --allow-empty -m "racer $AITASK_VERIFIED_UPDATE_ATTEMPT"
-git -C "$tmp/repo" push --quiet origin HEAD:refs/heads/main
-rm -rf "$tmp"
-EOF
-rc_d=0
-out_d=$(cd "$TMPDIR_D/work" && \
-    AITASK_VERIFIED_UPDATE_BEFORE_PUSH_HOOK="$TMPDIR_D/always_race.sh" \
-    T2134_ATTEMPTS="$TMPDIR_D/attempts" T2134_ORIGIN="$TMPDIR_D/origin.git" \
-    ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>&1) || rc_d=$?
-assert_exit_nonzero_rc "t2134d: retry exhaustion fails" "$rc_d"
-assert_eq "t2134d: every allowed attempt ran" "5" "$(_mdfix_attempts "$TMPDIR_D/attempts")"
-assert_contains "t2134d: reported as concurrent pushes" "after 5 retries due to concurrent pushes" "$out_d"
-assert_contains "t2134d: git's last reason is shown" "(fetch first)" "$out_d"
-rm -rf "$TMPDIR_D"
+echo "--- Test 8b: every non-empty skill the writer always accepted still records ---"
+# The writer took any non-empty --skill (a JSON key); routing it through the
+# stats CLI must not narrow its public interface (t1912_4).
+T8B="$(setup_repo)"
+for skill_8b in "custom/skill" "a:b" "two words" '*glob[x]' "-custom" "--score"; do
+    rc=0; out=$(rate "$T8B" --skill "$skill_8b" --score 4 --silent 2>/dev/null) || rc=$?
+    assert_eq "skill '$skill_8b' recorded, echoed verbatim" \
+        "UPDATED:claudecode/opus4_6:${skill_8b}:80|0" "$out|$rc"
+done
+rm -rf "$T8B"
 
 echo "--- Test 10: Old schema migration on update ---"
-TMPDIR_10="$(setup_repo)"
-# Inject old-format verifiedstats manually
-tmp_json_10="$(mktemp)"
-jq '.models[0].verifiedstats.pick = {"runs": 3, "score_sum": 240}' \
-    "$TMPDIR_10/aitasks/metadata/models_claudecode.json" > "$tmp_json_10"
-mv "$tmp_json_10" "$TMPDIR_10/aitasks/metadata/models_claudecode.json"
-(cd "$TMPDIR_10" && git add -A && git commit -m "old format" --quiet)
-output10=$(cd "$TMPDIR_10" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-03-11 --silent 2>&1)
-assert_eq "Migration: structured output" "UPDATED:claudecode/opus4_6:pick:85" "$output10"
-assert_eq "Migration: all-time runs = old + 1" "4" "$(json_get "$TMPDIR_10" '.models[0].verifiedstats.pick.all_time.runs')"
-assert_eq "Migration: all-time score_sum = old + 100" "340" "$(json_get "$TMPDIR_10" '.models[0].verifiedstats.pick.all_time.score_sum')"
-assert_eq "Migration: month runs = 1 (fresh)" "1" "$(json_get "$TMPDIR_10" '.models[0].verifiedstats.pick.month.runs')"
-assert_eq "Migration: month period set" "2026-03" "$(json_get "$TMPDIR_10" '.models[0].verifiedstats.pick.month.period')"
-assert_eq "Migration: week runs = 1 (fresh)" "1" "$(json_get "$TMPDIR_10" '.models[0].verifiedstats.pick.week.runs')"
-assert_eq "Migration: verified avg correct" "85" "$(json_get "$TMPDIR_10" '.models[0].verified.pick')"
-rm -rf "$TMPDIR_10"
+T10="$(setup_repo)"
+seed "$T10" '.models[0].verifiedstats.pick = {"runs": 3, "score_sum": 240}'
+sha10="$(mdfix_registry_sha "$T10")"
+output10=$(rate "$T10" --skill pick --score 5 --date 2026-03-11 --silent 2>&1)
+assert_eq "Migration: structured output (registry counters included)" "UPDATED:claudecode/opus4_6:pick:85" "$output10"
+assert_eq "Migration: all-time runs = old + 1" "4" "$(mdfix_stat "$T10" '.verifiedstats.pick.all_time.runs')"
+assert_eq "Migration: all-time score_sum = old + 100" "340" "$(mdfix_stat "$T10" '.verifiedstats.pick.all_time.score_sum')"
+assert_eq "Migration: month runs = 1 (fresh)" "1" "$(mdfix_stat "$T10" '.verifiedstats.pick.month.runs')"
+assert_eq "Migration: month period set" "2026-03" "$(mdfix_stat "$T10" '.verifiedstats.pick.month.period')"
+assert_eq "Migration: week runs = 1 (fresh)" "1" "$(mdfix_stat "$T10" '.verifiedstats.pick.week.runs')"
+assert_eq "Migration: the flat registry entry is left as it was" "$sha10" "$(mdfix_registry_sha "$T10")"
+rm -rf "$T10"
 
 echo "--- Test 11: Month rollover resets month but keeps all-time ---"
-TMPDIR_11="$(setup_repo)"
-(cd "$TMPDIR_11" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --date 2026-01-15 --silent >/dev/null 2>&1)
-(cd "$TMPDIR_11" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-02-15 --silent >/dev/null 2>&1)
-assert_eq "Month rollover: all-time runs = 2" "2" "$(json_get "$TMPDIR_11" '.models[0].verifiedstats.pick.all_time.runs')"
-assert_eq "Month rollover: all-time score_sum = 180" "180" "$(json_get "$TMPDIR_11" '.models[0].verifiedstats.pick.all_time.score_sum')"
-assert_eq "Month rollover: month period updated" "2026-02" "$(json_get "$TMPDIR_11" '.models[0].verifiedstats.pick.month.period')"
-assert_eq "Month rollover: month runs reset to 1" "1" "$(json_get "$TMPDIR_11" '.models[0].verifiedstats.pick.month.runs')"
-assert_eq "Month rollover: month score_sum reset" "100" "$(json_get "$TMPDIR_11" '.models[0].verifiedstats.pick.month.score_sum')"
-rm -rf "$TMPDIR_11"
+T11="$(setup_repo)"
+rate "$T11" --skill pick --score 4 --date 2026-01-15 --silent >/dev/null 2>&1
+rate "$T11" --skill pick --score 5 --date 2026-02-15 --silent >/dev/null 2>&1
+assert_eq "Month rollover: all-time runs = 2" "2" "$(mdfix_stat "$T11" '.verifiedstats.pick.all_time.runs')"
+assert_eq "Month rollover: all-time score_sum = 180" "180" "$(mdfix_stat "$T11" '.verifiedstats.pick.all_time.score_sum')"
+assert_eq "Month rollover: month period updated" "2026-02" "$(mdfix_stat "$T11" '.verifiedstats.pick.month.period')"
+assert_eq "Month rollover: month runs reset to 1" "1" "$(mdfix_stat "$T11" '.verifiedstats.pick.month.runs')"
+assert_eq "Month rollover: month score_sum reset" "100" "$(mdfix_stat "$T11" '.verifiedstats.pick.month.score_sum')"
+rm -rf "$T11"
 
 echo "--- Test 12: Week rollover resets week but keeps all-time ---"
-TMPDIR_12="$(setup_repo)"
-(cd "$TMPDIR_12" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --date 2026-03-09 --silent >/dev/null 2>&1)
-(cd "$TMPDIR_12" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-03-16 --silent >/dev/null 2>&1)
-assert_eq "Week rollover: all-time runs = 2" "2" "$(json_get "$TMPDIR_12" '.models[0].verifiedstats.pick.all_time.runs')"
-assert_eq "Week rollover: week period updated" "2026-W12" "$(json_get "$TMPDIR_12" '.models[0].verifiedstats.pick.week.period')"
-assert_eq "Week rollover: week runs reset to 1" "1" "$(json_get "$TMPDIR_12" '.models[0].verifiedstats.pick.week.runs')"
-assert_eq "Week rollover: week score_sum reset" "100" "$(json_get "$TMPDIR_12" '.models[0].verifiedstats.pick.week.score_sum')"
-assert_eq "Week rollover: month still same (March)" "2026-03" "$(json_get "$TMPDIR_12" '.models[0].verifiedstats.pick.month.period')"
-assert_eq "Week rollover: month runs accumulated" "2" "$(json_get "$TMPDIR_12" '.models[0].verifiedstats.pick.month.runs')"
-rm -rf "$TMPDIR_12"
+T12="$(setup_repo)"
+rate "$T12" --skill pick --score 4 --date 2026-03-09 --silent >/dev/null 2>&1
+rate "$T12" --skill pick --score 5 --date 2026-03-16 --silent >/dev/null 2>&1
+assert_eq "Week rollover: all-time runs = 2" "2" "$(mdfix_stat "$T12" '.verifiedstats.pick.all_time.runs')"
+assert_eq "Week rollover: week period updated" "2026-W12" "$(mdfix_stat "$T12" '.verifiedstats.pick.week.period')"
+assert_eq "Week rollover: week runs reset to 1" "1" "$(mdfix_stat "$T12" '.verifiedstats.pick.week.runs')"
+assert_eq "Week rollover: week score_sum reset" "100" "$(mdfix_stat "$T12" '.verifiedstats.pick.week.score_sum')"
+assert_eq "Week rollover: month still same (March)" "2026-03" "$(mdfix_stat "$T12" '.verifiedstats.pick.month.period')"
+assert_eq "Week rollover: month runs accumulated" "2" "$(mdfix_stat "$T12" '.verifiedstats.pick.month.runs')"
+rm -rf "$T12"
 
 echo "--- Test 13: New skill entry gets full bucketed structure ---"
-TMPDIR_13="$(setup_repo)"
-(cd "$TMPDIR_13" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill review --score 3 --date 2026-06-15 --silent >/dev/null 2>&1)
-assert_eq "New skill: all-time runs = 1" "1" "$(json_get "$TMPDIR_13" '.models[0].verifiedstats.review.all_time.runs')"
-assert_eq "New skill: all-time score_sum = 60" "60" "$(json_get "$TMPDIR_13" '.models[0].verifiedstats.review.all_time.score_sum')"
-assert_eq "New skill: month period" "2026-06" "$(json_get "$TMPDIR_13" '.models[0].verifiedstats.review.month.period')"
-assert_eq "New skill: month runs = 1" "1" "$(json_get "$TMPDIR_13" '.models[0].verifiedstats.review.month.runs')"
-assert_eq "New skill: week period" "2026-W25" "$(json_get "$TMPDIR_13" '.models[0].verifiedstats.review.week.period')"
-assert_eq "New skill: week runs = 1" "1" "$(json_get "$TMPDIR_13" '.models[0].verifiedstats.review.week.runs')"
-assert_eq "New skill: verified avg = 60" "60" "$(json_get "$TMPDIR_13" '.models[0].verified.review')"
-assert_eq "New skill: prev_month seeded empty" "" "$(json_get "$TMPDIR_13" '.models[0].verifiedstats.review.prev_month.period')"
-assert_eq "New skill: prev_month runs = 0" "0" "$(json_get "$TMPDIR_13" '.models[0].verifiedstats.review.prev_month.runs')"
-rm -rf "$TMPDIR_13"
+T13="$(setup_repo)"
+rate "$T13" --skill review --score 3 --date 2026-06-15 --silent >/dev/null 2>&1
+assert_eq "New skill: all-time runs = 1" "1" "$(mdfix_stat "$T13" '.verifiedstats.review.all_time.runs')"
+assert_eq "New skill: all-time score_sum = 60" "60" "$(mdfix_stat "$T13" '.verifiedstats.review.all_time.score_sum')"
+assert_eq "New skill: month period" "2026-06" "$(mdfix_stat "$T13" '.verifiedstats.review.month.period')"
+assert_eq "New skill: month runs = 1" "1" "$(mdfix_stat "$T13" '.verifiedstats.review.month.runs')"
+assert_eq "New skill: week period" "2026-W25" "$(mdfix_stat "$T13" '.verifiedstats.review.week.period')"
+assert_eq "New skill: week runs = 1" "1" "$(mdfix_stat "$T13" '.verifiedstats.review.week.runs')"
+assert_eq "New skill: no verified prior invented" "null" "$(registry "$T13" '.verified.review')"
+assert_eq "New skill: prev_month seeded empty" "" "$(mdfix_stat "$T13" '.verifiedstats.review.prev_month.period')"
+assert_eq "New skill: prev_month runs = 0" "0" "$(mdfix_stat "$T13" '.verifiedstats.review.prev_month.runs')"
+rm -rf "$T13"
 
 echo "--- Test 14: Same-month bump leaves existing prev_month untouched ---"
-TMPDIR_14="$(setup_repo)"
-tmp_json_14="$(mktemp)"
-jq '.models[0].verifiedstats.pick = {
+T14="$(setup_repo)"
+seed "$T14" '.models[0].verifiedstats.pick = {
         "all_time":   {"runs": 7, "score_sum": 660},
         "prev_month": {"period": "2026-03", "runs": 5, "score_sum": 480},
         "month":      {"period": "2026-04", "runs": 2, "score_sum": 180},
         "week":       {"period": "2026-W17", "runs": 1, "score_sum": 80}
-    }' \
-    "$TMPDIR_14/aitasks/metadata/models_claudecode.json" > "$tmp_json_14"
-mv "$tmp_json_14" "$TMPDIR_14/aitasks/metadata/models_claudecode.json"
-(cd "$TMPDIR_14" && git add -A && git commit -m "seed prev_month" --quiet)
-(cd "$TMPDIR_14" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-04-29 --silent >/dev/null 2>&1)
-assert_eq "Same-month bump: month runs = 3" "3" "$(json_get "$TMPDIR_14" '.models[0].verifiedstats.pick.month.runs')"
-assert_eq "Same-month bump: month score_sum = 280" "280" "$(json_get "$TMPDIR_14" '.models[0].verifiedstats.pick.month.score_sum')"
-assert_eq "Same-month bump: month period unchanged" "2026-04" "$(json_get "$TMPDIR_14" '.models[0].verifiedstats.pick.month.period')"
-assert_eq "Same-month bump: prev_month period preserved" "2026-03" "$(json_get "$TMPDIR_14" '.models[0].verifiedstats.pick.prev_month.period')"
-assert_eq "Same-month bump: prev_month runs preserved" "5" "$(json_get "$TMPDIR_14" '.models[0].verifiedstats.pick.prev_month.runs')"
-assert_eq "Same-month bump: prev_month score_sum preserved" "480" "$(json_get "$TMPDIR_14" '.models[0].verifiedstats.pick.prev_month.score_sum')"
-rm -rf "$TMPDIR_14"
+    }'
+rate "$T14" --skill pick --score 5 --date 2026-04-29 --silent >/dev/null 2>&1
+assert_eq "Same-month bump: month runs = 3" "3" "$(mdfix_stat "$T14" '.verifiedstats.pick.month.runs')"
+assert_eq "Same-month bump: month score_sum = 280" "280" "$(mdfix_stat "$T14" '.verifiedstats.pick.month.score_sum')"
+assert_eq "Same-month bump: month period unchanged" "2026-04" "$(mdfix_stat "$T14" '.verifiedstats.pick.month.period')"
+assert_eq "Same-month bump: prev_month period preserved" "2026-03" "$(mdfix_stat "$T14" '.verifiedstats.pick.prev_month.period')"
+assert_eq "Same-month bump: prev_month runs preserved" "5" "$(mdfix_stat "$T14" '.verifiedstats.pick.prev_month.runs')"
+assert_eq "Same-month bump: prev_month score_sum preserved" "480" "$(mdfix_stat "$T14" '.verifiedstats.pick.prev_month.score_sum')"
+rm -rf "$T14"
 
 echo "--- Test 15: One-month rollover copies month into prev_month ---"
-TMPDIR_15="$(setup_repo)"
-tmp_json_15="$(mktemp)"
-jq '.models[0].verifiedstats.pick = {
+T15="$(setup_repo)"
+seed "$T15" '.models[0].verifiedstats.pick = {
         "all_time":   {"runs": 5, "score_sum": 480},
         "prev_month": {"period": "", "runs": 0, "score_sum": 0},
         "month":      {"period": "2026-04", "runs": 5, "score_sum": 480},
         "week":       {"period": "2026-W17", "runs": 1, "score_sum": 80}
-    }' \
-    "$TMPDIR_15/aitasks/metadata/models_claudecode.json" > "$tmp_json_15"
-mv "$tmp_json_15" "$TMPDIR_15/aitasks/metadata/models_claudecode.json"
-(cd "$TMPDIR_15" && git add -A && git commit -m "seed pre-rollover" --quiet)
-(cd "$TMPDIR_15" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 4 --date 2026-05-01 --silent >/dev/null 2>&1)
-assert_eq "One-month rollover: prev_month period = old month" "2026-04" "$(json_get "$TMPDIR_15" '.models[0].verifiedstats.pick.prev_month.period')"
-assert_eq "One-month rollover: prev_month runs = old month runs" "5" "$(json_get "$TMPDIR_15" '.models[0].verifiedstats.pick.prev_month.runs')"
-assert_eq "One-month rollover: prev_month score_sum = old month sum" "480" "$(json_get "$TMPDIR_15" '.models[0].verifiedstats.pick.prev_month.score_sum')"
-assert_eq "One-month rollover: month period updated" "2026-05" "$(json_get "$TMPDIR_15" '.models[0].verifiedstats.pick.month.period')"
-assert_eq "One-month rollover: month runs reset to 1" "1" "$(json_get "$TMPDIR_15" '.models[0].verifiedstats.pick.month.runs')"
-assert_eq "One-month rollover: month score_sum = 80" "80" "$(json_get "$TMPDIR_15" '.models[0].verifiedstats.pick.month.score_sum')"
-rm -rf "$TMPDIR_15"
+    }'
+rate "$T15" --skill pick --score 4 --date 2026-05-01 --silent >/dev/null 2>&1
+assert_eq "One-month rollover: prev_month period = old month" "2026-04" "$(mdfix_stat "$T15" '.verifiedstats.pick.prev_month.period')"
+assert_eq "One-month rollover: prev_month runs = old month runs" "5" "$(mdfix_stat "$T15" '.verifiedstats.pick.prev_month.runs')"
+assert_eq "One-month rollover: prev_month score_sum = old month sum" "480" "$(mdfix_stat "$T15" '.verifiedstats.pick.prev_month.score_sum')"
+assert_eq "One-month rollover: month period updated" "2026-05" "$(mdfix_stat "$T15" '.verifiedstats.pick.month.period')"
+assert_eq "One-month rollover: month runs reset to 1" "1" "$(mdfix_stat "$T15" '.verifiedstats.pick.month.runs')"
+assert_eq "One-month rollover: month score_sum = 80" "80" "$(mdfix_stat "$T15" '.verifiedstats.pick.month.score_sum')"
+rm -rf "$T15"
 
 echo "--- Test 16: Multi-month skip zeros prev_month ---"
-TMPDIR_16="$(setup_repo)"
-tmp_json_16="$(mktemp)"
-jq '.models[0].verifiedstats.pick = {
+T16="$(setup_repo)"
+seed "$T16" '.models[0].verifiedstats.pick = {
         "all_time":   {"runs": 5, "score_sum": 400},
         "prev_month": {"period": "2026-01", "runs": 2, "score_sum": 160},
         "month":      {"period": "2026-02", "runs": 3, "score_sum": 240},
         "week":       {"period": "2026-W08", "runs": 1, "score_sum": 80}
-    }' \
-    "$TMPDIR_16/aitasks/metadata/models_claudecode.json" > "$tmp_json_16"
-mv "$tmp_json_16" "$TMPDIR_16/aitasks/metadata/models_claudecode.json"
-(cd "$TMPDIR_16" && git add -A && git commit -m "seed multi-month-skip" --quiet)
-(cd "$TMPDIR_16" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-05-01 --silent >/dev/null 2>&1)
-assert_eq "Multi-month skip: prev_month period zeroed" "" "$(json_get "$TMPDIR_16" '.models[0].verifiedstats.pick.prev_month.period')"
-assert_eq "Multi-month skip: prev_month runs zeroed" "0" "$(json_get "$TMPDIR_16" '.models[0].verifiedstats.pick.prev_month.runs')"
-assert_eq "Multi-month skip: prev_month score_sum zeroed" "0" "$(json_get "$TMPDIR_16" '.models[0].verifiedstats.pick.prev_month.score_sum')"
-assert_eq "Multi-month skip: month period updated" "2026-05" "$(json_get "$TMPDIR_16" '.models[0].verifiedstats.pick.month.period')"
-assert_eq "Multi-month skip: month runs = 1" "1" "$(json_get "$TMPDIR_16" '.models[0].verifiedstats.pick.month.runs')"
-assert_eq "Multi-month skip: month score_sum = 100" "100" "$(json_get "$TMPDIR_16" '.models[0].verifiedstats.pick.month.score_sum')"
-rm -rf "$TMPDIR_16"
+    }'
+rate "$T16" --skill pick --score 5 --date 2026-05-01 --silent >/dev/null 2>&1
+assert_eq "Multi-month skip: prev_month period zeroed" "" "$(mdfix_stat "$T16" '.verifiedstats.pick.prev_month.period')"
+assert_eq "Multi-month skip: prev_month runs zeroed" "0" "$(mdfix_stat "$T16" '.verifiedstats.pick.prev_month.runs')"
+assert_eq "Multi-month skip: prev_month score_sum zeroed" "0" "$(mdfix_stat "$T16" '.verifiedstats.pick.prev_month.score_sum')"
+assert_eq "Multi-month skip: month period updated" "2026-05" "$(mdfix_stat "$T16" '.verifiedstats.pick.month.period')"
+assert_eq "Multi-month skip: month runs = 1" "1" "$(mdfix_stat "$T16" '.verifiedstats.pick.month.runs')"
+assert_eq "Multi-month skip: month score_sum = 100" "100" "$(mdfix_stat "$T16" '.verifiedstats.pick.month.score_sum')"
+rm -rf "$T16"
 
 echo "--- Test 17: Migration from flat seeds prev_month empty ---"
-TMPDIR_17="$(setup_repo)"
-tmp_json_17="$(mktemp)"
-jq '.models[0].verifiedstats.pick = {"runs": 10, "score_sum": 920}' \
-    "$TMPDIR_17/aitasks/metadata/models_claudecode.json" > "$tmp_json_17"
-mv "$tmp_json_17" "$TMPDIR_17/aitasks/metadata/models_claudecode.json"
-(cd "$TMPDIR_17" && git add -A && git commit -m "seed flat" --quiet)
-(cd "$TMPDIR_17" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-04-15 --silent >/dev/null 2>&1)
-assert_eq "Migration flat: all_time runs = 11" "11" "$(json_get "$TMPDIR_17" '.models[0].verifiedstats.pick.all_time.runs')"
-assert_eq "Migration flat: all_time score_sum = 1020" "1020" "$(json_get "$TMPDIR_17" '.models[0].verifiedstats.pick.all_time.score_sum')"
-assert_eq "Migration flat: prev_month period empty" "" "$(json_get "$TMPDIR_17" '.models[0].verifiedstats.pick.prev_month.period')"
-assert_eq "Migration flat: prev_month runs = 0" "0" "$(json_get "$TMPDIR_17" '.models[0].verifiedstats.pick.prev_month.runs')"
-assert_eq "Migration flat: month runs = 1" "1" "$(json_get "$TMPDIR_17" '.models[0].verifiedstats.pick.month.runs')"
-assert_eq "Migration flat: month score_sum = 100" "100" "$(json_get "$TMPDIR_17" '.models[0].verifiedstats.pick.month.score_sum')"
-rm -rf "$TMPDIR_17"
+T17="$(setup_repo)"
+seed "$T17" '.models[0].verifiedstats.pick = {"runs": 10, "score_sum": 920}'
+rate "$T17" --skill pick --score 5 --date 2026-04-15 --silent >/dev/null 2>&1
+assert_eq "Migration flat: all_time runs = 11" "11" "$(mdfix_stat "$T17" '.verifiedstats.pick.all_time.runs')"
+assert_eq "Migration flat: all_time score_sum = 1020" "1020" "$(mdfix_stat "$T17" '.verifiedstats.pick.all_time.score_sum')"
+assert_eq "Migration flat: prev_month period empty" "" "$(mdfix_stat "$T17" '.verifiedstats.pick.prev_month.period')"
+assert_eq "Migration flat: prev_month runs = 0" "0" "$(mdfix_stat "$T17" '.verifiedstats.pick.prev_month.runs')"
+assert_eq "Migration flat: month runs = 1" "1" "$(mdfix_stat "$T17" '.verifiedstats.pick.month.runs')"
+assert_eq "Migration flat: month score_sum = 100" "100" "$(mdfix_stat "$T17" '.verifiedstats.pick.month.score_sum')"
+rm -rf "$T17"
 
 echo "--- Test 18: Migration from bucketed-but-no-prev_month adds empty prev_month ---"
-TMPDIR_18="$(setup_repo)"
-tmp_json_18="$(mktemp)"
-jq '.models[0].verifiedstats.pick = {
+T18="$(setup_repo)"
+seed "$T18" '.models[0].verifiedstats.pick = {
         "all_time": {"runs": 4, "score_sum": 320},
         "month":    {"period": "2026-04", "runs": 1, "score_sum": 80},
         "week":     {"period": "2026-W17", "runs": 1, "score_sum": 80}
-    }' \
-    "$TMPDIR_18/aitasks/metadata/models_claudecode.json" > "$tmp_json_18"
-mv "$tmp_json_18" "$TMPDIR_18/aitasks/metadata/models_claudecode.json"
-(cd "$TMPDIR_18" && git add -A && git commit -m "seed bucketed-no-prev" --quiet)
-(cd "$TMPDIR_18" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-04-29 --silent >/dev/null 2>&1)
-assert_eq "Bucketed-no-prev: all_time runs = 5" "5" "$(json_get "$TMPDIR_18" '.models[0].verifiedstats.pick.all_time.runs')"
-assert_eq "Bucketed-no-prev: prev_month period empty" "" "$(json_get "$TMPDIR_18" '.models[0].verifiedstats.pick.prev_month.period')"
-assert_eq "Bucketed-no-prev: prev_month runs = 0" "0" "$(json_get "$TMPDIR_18" '.models[0].verifiedstats.pick.prev_month.runs')"
-assert_eq "Bucketed-no-prev: month period unchanged" "2026-04" "$(json_get "$TMPDIR_18" '.models[0].verifiedstats.pick.month.period')"
-assert_eq "Bucketed-no-prev: month runs incremented" "2" "$(json_get "$TMPDIR_18" '.models[0].verifiedstats.pick.month.runs')"
-assert_eq "Bucketed-no-prev: month score_sum incremented" "180" "$(json_get "$TMPDIR_18" '.models[0].verifiedstats.pick.month.score_sum')"
-rm -rf "$TMPDIR_18"
+    }'
+rate "$T18" --skill pick --score 5 --date 2026-04-29 --silent >/dev/null 2>&1
+assert_eq "Bucketed-no-prev: all_time runs = 5" "5" "$(mdfix_stat "$T18" '.verifiedstats.pick.all_time.runs')"
+assert_eq "Bucketed-no-prev: prev_month period empty" "" "$(mdfix_stat "$T18" '.verifiedstats.pick.prev_month.period')"
+assert_eq "Bucketed-no-prev: prev_month runs = 0" "0" "$(mdfix_stat "$T18" '.verifiedstats.pick.prev_month.runs')"
+assert_eq "Bucketed-no-prev: month period unchanged" "2026-04" "$(mdfix_stat "$T18" '.verifiedstats.pick.month.period')"
+assert_eq "Bucketed-no-prev: month runs incremented" "2" "$(mdfix_stat "$T18" '.verifiedstats.pick.month.runs')"
+assert_eq "Bucketed-no-prev: month score_sum incremented" "180" "$(mdfix_stat "$T18" '.verifiedstats.pick.month.score_sum')"
+rm -rf "$T18"
 
 # Tests 19-20 pin the verified-score ownership boundary (t1232): the generic
-# accumulator persists an INDEPENDENT verified score for an explain-shadow
-# operation (work-report / trail) even when the model has NO explain key. This is
-# exactly what a "refrain from creating verified entries when explain is absent"
-# accumulator special-case would break; these guards fail loudly if that data is
-# ever silently discarded. Parity of work-report/trail with explain is a
-# seed-authoring convention only (see Test 7 in test_codeagent_{work_report,trail}.sh),
-# NOT a live-file invariant — real per-skill scores are legitimately independent.
+# accumulator persists an INDEPENDENT score for an explain-shadow operation
+# (work-report / trail) even when the model has NO explain key. This is exactly
+# what a "refrain from recording when explain is absent" accumulator special-case
+# would break; these guards fail loudly if that data is ever silently discarded.
+# Parity of work-report/trail with explain is a seed-authoring convention only
+# (see Test 7 in test_codeagent_{work_report,trail}.sh), NOT a live invariant —
+# real per-skill scores are legitimately independent. The score now lives in
+# verifiedstats on the stats branch; the registry's `verified` prior is never
+# written, so no key is added to it either.
 echo "--- Test 19: work-report score persists on a model lacking explain (t1232) ---"
-TMPDIR_19="$(setup_repo)"
-# Drop the explain key so opus4_6 has no parity partner.
-tmp_json_19="$(mktemp)"
-jq 'del(.models[0].verified.explain)' \
-    "$TMPDIR_19/aitasks/metadata/models_claudecode.json" > "$tmp_json_19"
-mv "$tmp_json_19" "$TMPDIR_19/aitasks/metadata/models_claudecode.json"
-(cd "$TMPDIR_19" && git add -A && git commit -m "drop explain key" --quiet)
-(cd "$TMPDIR_19" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill work-report --score 4 --date 2026-03-11 --silent >/dev/null 2>&1)
-assert_eq "work-report verified persisted without explain partner" "80" "$(json_get "$TMPDIR_19" '.models[0].verified["work-report"]')"
-assert_eq "work-report all-time runs = 1" "1" "$(json_get "$TMPDIR_19" '.models[0].verifiedstats["work-report"].all_time.runs')"
-assert_eq "accumulator did NOT fabricate an explain key" "false" "$(json_get "$TMPDIR_19" '.models[0].verified | has("explain")')"
-rm -rf "$TMPDIR_19"
+T19="$(setup_repo)"
+seed "$T19" 'del(.models[0].verified.explain)'
+out19=$(rate "$T19" --skill work-report --score 4 --date 2026-03-11 --silent 2>/dev/null)
+assert_eq "work-report score recorded without explain partner" "UPDATED:claudecode/opus4_6:work-report:80" "$out19"
+assert_eq "work-report all-time runs = 1" "1" "$(mdfix_stat "$T19" '.verifiedstats["work-report"].all_time.runs')"
+assert_eq "accumulator did NOT fabricate an explain key" "false" "$(registry "$T19" '.verified | has("explain")')"
+assert_eq "no work-report prior written to the registry" "false" "$(registry "$T19" '.verified | has("work-report")')"
+rm -rf "$T19"
 
 echo "--- Test 20: trail score persists on a model lacking explain (t1232) ---"
-TMPDIR_20="$(setup_repo)"
-tmp_json_20="$(mktemp)"
-jq 'del(.models[0].verified.explain)' \
-    "$TMPDIR_20/aitasks/metadata/models_claudecode.json" > "$tmp_json_20"
-mv "$tmp_json_20" "$TMPDIR_20/aitasks/metadata/models_claudecode.json"
-(cd "$TMPDIR_20" && git add -A && git commit -m "drop explain key" --quiet)
-(cd "$TMPDIR_20" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill trail --score 4 --date 2026-03-11 --silent >/dev/null 2>&1)
-assert_eq "trail verified persisted without explain partner" "80" "$(json_get "$TMPDIR_20" '.models[0].verified.trail')"
-assert_eq "trail all-time runs = 1" "1" "$(json_get "$TMPDIR_20" '.models[0].verifiedstats.trail.all_time.runs')"
-assert_eq "accumulator did NOT fabricate an explain key" "false" "$(json_get "$TMPDIR_20" '.models[0].verified | has("explain")')"
-rm -rf "$TMPDIR_20"
+T20="$(setup_repo)"
+seed "$T20" 'del(.models[0].verified.explain)'
+out20=$(rate "$T20" --skill trail --score 4 --date 2026-03-11 --silent 2>/dev/null)
+assert_eq "trail score recorded without explain partner" "UPDATED:claudecode/opus4_6:trail:80" "$out20"
+assert_eq "trail all-time runs = 1" "1" "$(mdfix_stat "$T20" '.verifiedstats.trail.all_time.runs')"
+assert_eq "accumulator did NOT fabricate an explain key" "false" "$(registry "$T20" '.verified | has("explain")')"
+assert_eq "no trail prior written to the registry" "false" "$(registry "$T20" '.verified | has("trail")')"
+rm -rf "$T20"
+
+echo "--- Test 20b: the printed average includes the registry's legacy counters ---"
+T20B="$(setup_repo)"
+seed "$T20B" '.models[0].verifiedstats.pick = {"all_time": {"runs": 4, "score_sum": 320}}'
+out20b=$(rate "$T20B" --skill pick --score 5 --date 2026-03-11 --silent 2>/dev/null)
+assert_eq "effective average (320+100)/5 = 84, not the branch-only 100" \
+    "UPDATED:claudecode/opus4_6:pick:84" "$out20b"
+rm -rf "$T20B"
 
 # =====================================================================
-# Local-ref invariant and the partial-result contract (t1658_1)
-#
-# The metadata commit is built in a throwaway clone and pushed straight to
-# origin, so "the update succeeded" and "the commit is on the LOCAL data
-# branch" are two different claims. Everything below asserts the second one.
+# Remote: the store's leased-push path
 # =====================================================================
 
-echo "--- Test 21: successful remote update reaches the LOCAL branch ---"
-TMPDIR_21="$(setup_remote_repo)"
-WORK_21="$TMPDIR_21/work"
-out21=$(cd "$WORK_21" && ./.aitask-scripts/aitask_verified_update.sh \
-    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
-rc21=$?
-assert_eq "remote update reports UPDATED" "UPDATED:claudecode/opus4_6:pick:80" "$out21"
-assert_eq "remote update exits 0" "0" "$rc21"
-assert_eq "nothing left unpulled — the commit is local" "0" \
-    "$(cd "$WORK_21" && git rev-list --count 'HEAD..@{u}' 2>/dev/null)"
-origin_sha_21="$(cd "$WORK_21" && git rev-parse '@{u}')"
-(cd "$WORK_21" && git merge-base --is-ancestor "$origin_sha_21" HEAD 2>/dev/null)
-assert_eq "the pushed commit is an ancestor of local HEAD" "0" "$?"
-rm -rf "$TMPDIR_21"
+echo "--- Test 21: a remote write lands on origin's and the local aitask-stats ---"
+B21="$(setup_remote_stats_repo "$SCRIPT")"
+W21="$B21/work"
+sha21="$(mdfix_registry_sha "$W21")"
+rc=0; out21=$(rate "$W21" --skill pick --score 4 --silent 2>/dev/null) || rc=$?
+assert_eq "remote: UPDATED / exit 0" "UPDATED:claudecode/opus4_6:pick:80|0" "$out21|$rc"
+assert_eq "remote: origin's aitask-stats == local aitask-stats" \
+    "$(git -C "$B21/origin.git" rev-parse -q --verify refs/heads/aitask-stats)" \
+    "$(git -C "$W21" rev-parse -q --verify refs/heads/aitask-stats)"
+assert_eq "remote: origin's blob holds the rating" '{"runs":1,"score_sum":80}' \
+    "$(git -C "$B21/origin.git" show refs/heads/aitask-stats:claudecode.json | jq -c '.models.opus4_6.verifiedstats.pick.all_time')"
+assert_eq "remote: registry file byte-identical" "$sha21" "$(mdfix_registry_sha "$W21")"
+rm -rf "$B21"
 
-echo "--- Test 22: an unrelated dirty file no longer strands the commit ---"
-# This is the reported bug: a dirty data worktree made the compensating
-# `pull --rebase` refuse before it even fetched, so the commit stayed on origin.
-TMPDIR_22="$(setup_remote_repo)"
-WORK_22="$TMPDIR_22/work"
-printf 'unrelated local edit\n' > "$WORK_22/unrelated.txt"
-out22=$(cd "$WORK_22" && ./.aitask-scripts/aitask_verified_update.sh \
-    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
-rc22=$?
-assert_eq "dirty-but-unrelated still reports UPDATED" "UPDATED:claudecode/opus4_6:pick:80" "$out22"
-assert_eq "dirty-but-unrelated still exits 0" "0" "$rc22"
-assert_eq "dirty-but-unrelated: commit reached the local branch" "0" \
-    "$(cd "$WORK_22" && git rev-list --count 'HEAD..@{u}' 2>/dev/null)"
-assert_eq "the unrelated dirty file is untouched" "unrelated local edit" \
-    "$(cat "$WORK_22/unrelated.txt")"
-rm -rf "$TMPDIR_22"
+echo "--- Test 24: unreachable origin — STATS_ERROR, non-zero, nothing recorded ---"
+B24="$(setup_remote_stats_repo "$SCRIPT")"
+W24="$B24/work"
+git -C "$W24" remote set-url origin "$B24/does-not-exist.git"
+rc=0; out24=$(rate "$W24" --skill pick --score 4 --silent 2>/dev/null) || rc=$?
+assert_exit_nonzero_rc "unreachable: exit non-zero" "$rc"
+assert_contains "unreachable: STATS_ERROR names the cause" "STATS_ERROR:unreachable:" "$out24"
+assert_not_contains "unreachable: never claims UPDATED" "UPDATED:" "$out24"
+rm -rf "$B24"
 
-echo "--- Test 23: divergence prevention — a local unpushed commit is published first ---"
-TMPDIR_23="$(setup_remote_repo)"
-WORK_23="$TMPDIR_23/work"
-printf 'local work\n' > "$WORK_23/local_only.txt"
-(cd "$WORK_23" && git add local_only.txt && git commit -m "local unpushed" --quiet)
-out23=$(cd "$WORK_23" && ./.aitask-scripts/aitask_verified_update.sh \
-    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
-rc23=$?
-assert_eq "pre-converge keeps the result a full success" "UPDATED:claudecode/opus4_6:pick:80" "$out23"
-assert_eq "pre-converge keeps exit 0" "0" "$rc23"
-assert_eq "not left ahead" "0" "$(cd "$WORK_23" && git rev-list --count '@{u}..HEAD' 2>/dev/null)"
-assert_eq "not left behind" "0" "$(cd "$WORK_23" && git rev-list --count 'HEAD..@{u}' 2>/dev/null)"
-rm -rf "$TMPDIR_23"
+echo "--- Test 25: positive control — the same run with origin reachable is UPDATED / 0 ---"
+B25="$(setup_remote_stats_repo "$SCRIPT")"
+rc=0; out25=$(rate "$B25/work" --skill pick --score 4 --silent 2>/dev/null) || rc=$?
+assert_eq "reachable: UPDATED / 0" "UPDATED:claudecode/opus4_6:pick:80|0" "$out25|$rc"
+rm -rf "$B25"
 
-echo "--- Test 24: partial result — dirty metadata file yields UPDATED_REMOTE_ONLY / exit 3 ---"
-TMPDIR_24="$(setup_remote_repo)"
-WORK_24="$TMPDIR_24/work"
-# Dirty the very file the update touches: the fast-forward then fails closed,
-# so the commit is on origin but cannot reach the local branch.
-printf '\n' >> "$WORK_24/aitasks/metadata/models_claudecode.json"
-set +e
-out24=$(cd "$WORK_24" && ./.aitask-scripts/aitask_verified_update.sh \
-    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
-rc24=$?
-set -e
-# The exit status is captured SEPARATELY and asserted to be exactly 3 — not
-# merely non-zero, and not inferred from the stdout token: the whole point is
-# that the verdict crossed the function boundary into main().
-assert_eq "partial result exit status is exactly 3" "3" "$rc24"
-assert_eq "partial result token" "UPDATED_REMOTE_ONLY:claudecode/opus4_6:pick:80" "$out24"
-assert_eq "the value is still correct on origin" "80" \
-    "$(cd "$TMPDIR_24" && git --git-dir=origin.git show main:aitasks/metadata/models_claudecode.json | jq -r '.models[0].verified.pick')"
-# The warning must be on stderr only — stdout stays a clean machine channel.
-assert_not_contains "no warning text on stdout" "local data branch" "$out24"
-rm -rf "$TMPDIR_24"
-
-echo "--- Test 25: positive control — the same run with a clean file is UPDATED / 0 ---"
-# Paired with Test 24: the dirty overlap is the ONLY discriminator between them.
-TMPDIR_25="$(setup_remote_repo)"
-WORK_25="$TMPDIR_25/work"
-set +e
-out25=$(cd "$WORK_25" && ./.aitask-scripts/aitask_verified_update.sh \
-    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
-rc25=$?
-set -e
-assert_eq "control: clean file exits 0" "0" "$rc25"
-assert_eq "control: clean file reports UPDATED" "UPDATED:claudecode/opus4_6:pick:80" "$out25"
-rm -rf "$TMPDIR_25"
-
-echo "--- Test 26: the out-param boundary itself ---"
-TMPDIR_26="$(setup_remote_repo)"
-WORK_26="$TMPDIR_26/work"
-boundary_out="$(cd "$WORK_26" && bash -c '
-set -uo pipefail
-SCRIPT_DIR="$PWD/.aitask-scripts"
-SILENT=true
-source .aitask-scripts/lib/terminal_compat.sh
-source .aitask-scripts/lib/task_utils.sh
-source .aitask-scripts/lib/verified_update_lib.sh
-update_model_file() {
-    jq -r --arg m "$2" ".models[] | select(.name==\$m) | .verified[\"$3\"]" "$1"
-}
-ensure_model_exists() { :; }
-_AIT_UPDATE_MODEL_FILE_FN=update_model_file
-_AIT_COMMIT_PREFIX="ait: Update verified score"
-
-# DIRECT call — not inside $( ). This is the shape production uses.
-AIT_METADATA_LOCAL_CONVERGED="PRECALL"
-commit_metadata_update aitasks/metadata/models_claudecode.json \
-    claudecode/opus4_6 pick opus4_6 4 >/dev/null 2>&1
-echo "direct_value=${AIT_METADATA_VALUE:-UNSET}"
-echo "direct_converged=${AIT_METADATA_LOCAL_CONVERGED:-UNSET}"
-
-# NEGATIVE CONTROL — the identical call wrapped in $( ). A subshell discards
-# the assignment, so a future refactor back to a substitution fails HERE
-# instead of silently reporting every partial update as a success.
-AIT_METADATA_LOCAL_CONVERGED="PRECALL"
-_discard="$(commit_metadata_update aitasks/metadata/models_claudecode.json \
-    claudecode/opus4_6 pick opus4_6 5 2>/dev/null)"
-echo "subshell_converged=${AIT_METADATA_LOCAL_CONVERGED:-UNSET}"
-')"
-assert_contains "direct call sets AIT_METADATA_VALUE in the caller scope" "direct_value=80" "$boundary_out"
-assert_contains "direct call sets AIT_METADATA_LOCAL_CONVERGED in the caller scope" \
-    "direct_converged=1" "$boundary_out"
-assert_contains "control: a \$( ) wrapper leaves the verdict at its pre-call value" \
-    "subshell_converged=PRECALL" "$boundary_out"
-rm -rf "$TMPDIR_26"
-
-echo "--- Test 27: non-silent value integrity (no git summary spliced in) ---"
-# git commit writes its summary to STDOUT, and run_git_quiet leaves it
-# unredirected when SILENT=false. Under the old substitution that text became
-# the value.
-TMPDIR_27="$(setup_remote_repo)"
-WORK_27="$TMPDIR_27/work"
-out27=$(cd "$WORK_27" && ./.aitask-scripts/aitask_verified_update.sh \
-    --agent-string claudecode/opus4_6 --skill pick --score 4 2>/dev/null | grep '^UPDATED:')
-value27="${out27##*:}"
-assert_contains_re "non-silent value field is a bare integer" '^[0-9]+$' "$value27"
-rm -rf "$TMPDIR_27"
+echo "--- Test 27: non-silent value integrity (no diagnostics spliced in) ---"
+B27="$(setup_remote_stats_repo "$SCRIPT")"
+out27=$(rate "$B27/work" --skill pick --score 4 2>/dev/null)
+assert_eq "non-silent: the last stdout line is the structured result" \
+    "UPDATED:claudecode/opus4_6:pick:80" "$(printf '%s\n' "$out27" | tail -n 1)"
+assert_contains "non-silent: a human success line precedes it" "verified score to 80" "$out27"
+rm -rf "$B27"
 
 echo "--- Test 28: the local (no-remote) path reports the correct count ---"
-# main() bypasses commit_metadata_update entirely without a remote, so every
-# assertion above leaves this route uncovered — and it is exactly the route the
-# out-param contract can corrupt. The COUNT is the discriminator: a helper that
-# clobbers AIT_METADATA_VALUE still prints UPDATED:, just with an empty value.
-TMPDIR_28="$(setup_repo)"
-set +e
-out28=$(cd "$TMPDIR_28" && ./.aitask-scripts/aitask_verified_update.sh \
-    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
-rc28=$?
-set -e
+T28="$(setup_repo)"
+rc28=0
+out28=$(rate "$T28" --skill pick --score 4 --silent 2>/dev/null) || rc28=$?
 assert_eq "no-remote path exits 0" "0" "$rc28"
 assert_eq "no-remote path carries the correct value" "UPDATED:claudecode/opus4_6:pick:80" "$out28"
-rm -rf "$TMPDIR_28"
+rm -rf "$T28"
 
-echo "--- Test 29: commit_metadata_update_local preserves the value on BOTH returns ---"
-# The early `diff --cached --quiet` return is unreachable from main() —
-# update_model_file always stages a change first — so the contract "sets the
-# verdict, never touches the value" is pinned here, at helper level.
-TMPDIR_29="$(setup_repo)"
-helper_out="$(cd "$TMPDIR_29" && bash -c '
-set -uo pipefail
-SCRIPT_DIR="$PWD/.aitask-scripts"
-SILENT=true
-source .aitask-scripts/lib/terminal_compat.sh
-source .aitask-scripts/lib/task_utils.sh
-source .aitask-scripts/lib/verified_update_lib.sh
-_AIT_COMMIT_PREFIX="ait: Update verified score"
-f=aitasks/metadata/models_claudecode.json
-
-# (a) clean index -> the EARLY return
-AIT_METADATA_VALUE="SENTINEL_A"
-AIT_METADATA_LOCAL_CONVERGED="PRECALL"
-commit_metadata_update_local "$f" claudecode/opus4_6 pick >/dev/null 2>&1
-echo "early_value=${AIT_METADATA_VALUE:-UNSET}"
-echo "early_converged=${AIT_METADATA_LOCAL_CONVERGED:-UNSET}"
-
-# (b) a real staged change -> the COMMITTING return
-printf "\n" >> "$f"
-AIT_METADATA_VALUE="SENTINEL_B"
-AIT_METADATA_LOCAL_CONVERGED="PRECALL"
-commit_metadata_update_local "$f" claudecode/opus4_6 pick >/dev/null 2>&1
-echo "commit_value=${AIT_METADATA_VALUE:-UNSET}"
-echo "commit_converged=${AIT_METADATA_LOCAL_CONVERGED:-UNSET}"
-')"
-assert_contains "early return preserves the caller's value" "early_value=SENTINEL_A" "$helper_out"
-assert_contains "early return still sets the verdict" "early_converged=1" "$helper_out"
-assert_contains "committing return preserves the caller's value" "commit_value=SENTINEL_B" "$helper_out"
-assert_contains "committing return sets the verdict" "commit_converged=1" "$helper_out"
-rm -rf "$TMPDIR_29"
-
-echo "--- Test 30: [post-phase branch_mode_metadata_fixture] the seam in branch mode ---"
-# Every assertion above runs in LEGACY mode, where _ait_data_git is plain `git`
-# in the cwd — so a mode-specific defect in the converge seam would be
-# invisible. This runs the same invariant and outcome assertions through a real
-# .aitask-data worktree with aitasks/ and aiplans/ symlinks, the shape
-# production actually uses.
-TMPDIR_30="$(setup_branch_mode_metadata_repo aitask_verified_update.sh)"
-WORK_30="$TMPDIR_30/work"
-DATA_30="$WORK_30/.aitask-data"
-
-set +e
-out30=$(cd "$WORK_30" && ./.aitask-scripts/aitask_verified_update.sh \
-    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
-rc30=$?
-set -e
-assert_eq "branch mode: reports UPDATED" "UPDATED:claudecode/opus4_6:pick:80" "$out30"
-assert_eq "branch mode: exits 0" "0" "$rc30"
-assert_eq "branch mode: nothing left unpulled on the DATA branch" "0" \
-    "$(git -C "$DATA_30" rev-list --count 'HEAD..@{u}' 2>/dev/null)"
-origin_sha_30="$(git -C "$DATA_30" rev-parse '@{u}')"
-git -C "$DATA_30" merge-base --is-ancestor "$origin_sha_30" HEAD 2>/dev/null
-assert_eq "branch mode: the pushed commit is an ancestor of the local data HEAD" "0" "$?"
-# DISCRIMINATING assertions. `verified.pick` stays 80 either way (the seed
-# value equals the average of one score-4 run), and the ancestry check passes
-# trivially on an untouched branch — so if the fixture silently degraded to
-# legacy mode both would pass vacuously. These two cannot:
-#   - the data branch must have GAINED a commit;
-#   - verifiedstats is absent from the seed, so runs==1 proves the write landed
-#     on the data branch and not on the code checkout.
-assert_eq "branch mode: the data branch gained the metadata commit" "2" \
-    "$(git -C "$DATA_30" rev-list --count HEAD)"
-assert_eq "branch mode: the update wrote verifiedstats on the DATA branch" "1" \
-    "$(jq -r '.models[0].verifiedstats.pick.all_time.runs' "$DATA_30/aitasks/metadata/models_claudecode.json")"
-assert_eq "branch mode: the code checkout has no aitasks/ of its own" "1" \
-    "$([ -L "$WORK_30/aitasks" ] && echo 1 || echo 0)"
-
-# And the partial outcome, in branch mode too.
-printf '\n' >> "$DATA_30/aitasks/metadata/models_claudecode.json"
-set +e
-out30b=$(cd "$WORK_30" && ./.aitask-scripts/aitask_verified_update.sh \
-    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
-rc30b=$?
-set -e
-assert_eq "branch mode: partial result exits 3" "3" "$rc30b"
-assert_contains "branch mode: partial result token" "UPDATED_REMOTE_ONLY:" "$out30b"
-rm -rf "$TMPDIR_30"
-
-echo "--- Test 31: [post-phase converge_race_stress] a competing pusher never strands silently ---"
-# Drives the update against a competing writer injected through the DOCUMENTED
-# AITASK_VERIFIED_UPDATE_BEFORE_PUSH_HOOK seam — deterministic, no sleeping.
-# Every run must end EITHER UPDATED:/0 with the local-ref invariant holding,
-# OR UPDATED_REMOTE_ONLY:/3. Never a silent strand, and never UPDATED: while
-# the commit is missing locally.
-TMPDIR_31="$(setup_remote_metadata_repo aitask_verified_update.sh)"
-WORK_31="$TMPDIR_31/work"
-ORIGIN_31="$TMPDIR_31/origin.git"
-
-cat > "$TMPDIR_31/race_hook.sh" <<'HOOKEOF'
-#!/usr/bin/env bash
-set -euo pipefail
-# Land a competing commit on origin on the first attempt only.
-[[ "${AITASK_VERIFIED_UPDATE_ATTEMPT:-}" != "1" ]] && exit 0
-[[ -f "${AITASK_VERIFIED_UPDATE_HOOK_FLAG:-}" ]] && exit 0
-touch "$AITASK_VERIFIED_UPDATE_HOOK_FLAG"
-tmp="$(mktemp -d)"
-git clone --quiet "$AITASK_VERIFIED_UPDATE_TEST_ORIGIN" "$tmp/repo" >/dev/null 2>&1
-(
-    cd "$tmp/repo"
-    git config user.email "racer@test.com"
-    git config user.name "Racer"
-    echo "competing" > competing.txt
-    git add competing.txt
-    git commit -m "competing writer" --quiet
-    git push --quiet origin HEAD:main
-)
-rm -rf "$tmp"
-HOOKEOF
-chmod +x "$TMPDIR_31/race_hook.sh"
-
-for round in 1 2; do
-    flag_31="$TMPDIR_31/hook_fired_$round"
-    set +e
-    out31=$(cd "$WORK_31" && \
-        AITASK_VERIFIED_UPDATE_BEFORE_PUSH_HOOK="$TMPDIR_31/race_hook.sh" \
-        AITASK_VERIFIED_UPDATE_HOOK_FLAG="$flag_31" \
-        AITASK_VERIFIED_UPDATE_TEST_ORIGIN="$ORIGIN_31" \
-        ./.aitask-scripts/aitask_verified_update.sh \
-        --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
-    rc31=$?
-    set -e
-
-    behind_31="$(cd "$WORK_31" && git rev-list --count 'HEAD..@{u}' 2>/dev/null)"
-    case "$out31" in
-        UPDATED:*)
-            assert_eq "race round $round: UPDATED implies exit 0" "0" "$rc31"
-            # The load-bearing half: UPDATED may NEVER be reported while the
-            # commit is missing from the local branch.
-            assert_eq "race round $round: UPDATED implies the invariant holds" "0" "$behind_31" ;;
-        UPDATED_REMOTE_ONLY:*)
-            assert_eq "race round $round: partial implies exit 3" "3" "$rc31" ;;
-        *)
-            assert_eq "race round $round: outcome is one of the two contract tokens" \
-                "UPDATED|UPDATED_REMOTE_ONLY" "$out31" ;;
-    esac
-    assert_contains "race round $round: the value field is present" ":pick:" "$out31"
-done
-rm -rf "$TMPDIR_31"
-echo "--- Test 32: real entry point from a NON-ROOT cwd (branch mode, t1658_2) ---"
-# The resolution tests in tests/test_task_git.sh cannot see a missing, misplaced
-# or later-regressed `ait_cd_repo_root` — only driving the REAL script from a
-# non-root cwd can. Pre-fix every invocation below died with
-# "Model config not found" (exit 1, empty stdout), because the script has TWO
-# cwd anchors: the relative `aitasks/metadata/models_<agent>.json` and the
-# relative `./ait git` inside verified_update_lib.sh.
-#
-# EACH cwd gets its OWN fixture, and here that is load-bearing in a way it is
-# not for the usage counterpart: this script's stdout value is the ROLLING
-# AVERAGE, which stays 80 on a second run, so stdout alone cannot tell two
-# invocations apart. Only `verifiedstats.pick.all_time.runs` and the commit
-# count discriminate — and both would shift to 2 and 3 on a shared fixture,
-# leaving the second pass asserted against stale numbers or silently vacuous.
-# A fresh fixture keeps both invocations' expected values identical and
-# isolates the one variable under test: the caller's cwd.
-for launch_32 in subdir unrelated; do
-    TMPDIR_32="$(setup_branch_mode_metadata_repo aitask_verified_update.sh)"
-    WORK_32="$TMPDIR_32/work"
-    DATA_32="$WORK_32/.aitask-data"
-    mkdir -p "$WORK_32/website"
-    case "$launch_32" in
-        subdir)    cwd_32="$WORK_32/website" ;;
-        unrelated) cwd_32="/tmp" ;;
-    esac
-
-    set +e
-    out32=$(cd "$cwd_32" && "$WORK_32/.aitask-scripts/aitask_verified_update.sh" \
-        --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
-    rc32=$?
-    set -e
-
-    assert_eq "32/$launch_32: reports UPDATED from a non-root cwd" \
-        "UPDATED:claudecode/opus4_6:pick:80" "$out32"
-    assert_eq "32/$launch_32: exits 0 (not the 'Model config not found' die)" "0" "$rc32"
-
-    # Local-ref convergence, the t1658_1 invariant, still holding off-root.
-    assert_eq "32/$launch_32: nothing left unpulled on the DATA branch" "0" \
-        "$(git -C "$DATA_32" rev-list --count 'HEAD..@{u}' 2>/dev/null)"
-    origin_sha_32="$(git -C "$DATA_32" rev-parse '@{u}')"
-    anc_rc_32=0
-    git -C "$DATA_32" merge-base --is-ancestor "$origin_sha_32" HEAD 2>/dev/null || anc_rc_32=$?
-    assert_eq "32/$launch_32: the pushed commit is an ancestor of the local data HEAD" \
-        "0" "$anc_rc_32"
-
-    # DISCRIMINATING: without the anchoring the script cannot even find its
-    # config, but a fixture that silently degraded to LEGACY mode could still
-    # report UPDATED — these two cannot pass in that case. Both numbers are
-    # correct only on a fresh fixture, which is the second reason for the
-    # per-cwd isolation above.
-    assert_eq "32/$launch_32: the data branch gained exactly one commit" "2" \
-        "$(git -C "$DATA_32" rev-list --count HEAD)"
-    assert_eq "32/$launch_32: verifiedstats landed on the DATA branch" "1" \
-        "$(jq -r '.models[0].verifiedstats.pick.all_time.runs' \
-            "$DATA_32/aitasks/metadata/models_claudecode.json")"
-    assert_eq "32/$launch_32: the code checkout has no aitasks/ of its own" "1" \
-        "$([ -L "$WORK_32/aitasks" ] && echo 1 || echo 0)"
-
-    rm -rf "$TMPDIR_32"
-done
-
-echo "--- Test 33: commit_metadata_update_local is safe on the SHARED index (t1728) ---"
-# The site used to run `./ait git add "$models_file"` and then a bare
-# `./ait git commit`, which commits the WHOLE index. On the shared task-data
-# branch that swallows whatever a concurrent session has staged. Two distinct
-# hazards live at this one call site and each gets its own control, because
-# neither can see the other:
-#   A — the COMMIT's scope: an unrelated staged path must not ride along.
-#   B — the STAGING write: an `add` of the TRACKED target replaces the index
-#       entry another session staged for that same path, and it does so even
-#       when the commit then fails. Control A cannot detect this; it is about a
-#       different path.
-# Both are driven at helper level, the same way Test 29 drives the out-params.
-
-MF="aitasks/metadata/models_claudecode.json"
-
-# --- 33A: an unrelated staged path is neither committed nor unstaged ---------
-TMPDIR_33A="$(setup_repo)"
-(
-    cd "$TMPDIR_33A" || exit 1
-    # A concurrent session's work, staged and not yet committed.
-    printf 'concurrent session work\n' > foreign.txt
-    git add foreign.txt
-    # Our own pending change to the metadata file.
-    printf '\n' >> "$MF"
-)
-out33a="$(cd "$TMPDIR_33A" && bash -c '
-set -uo pipefail
-SCRIPT_DIR="$PWD/.aitask-scripts"
-SILENT=true
-source .aitask-scripts/lib/terminal_compat.sh
-source .aitask-scripts/lib/task_utils.sh
-source .aitask-scripts/lib/verified_update_lib.sh
-_AIT_COMMIT_PREFIX="ait: Update verified score"
-trap "ait_unstage_staged_by_us" EXIT
-commit_metadata_update_local aitasks/metadata/models_claudecode.json claudecode/opus4_6 pick >/dev/null 2>&1
-echo "rc=$?"
-echo "committed=[$(git show --name-only --format= HEAD | tr "\n" " ")]"
-echo "still_staged=[$(git diff --cached --name-only | tr "\n" " ")]"
-')"
-assert_contains "33A: the metadata file IS committed" \
-    "aitasks/metadata/models_claudecode.json" "$(printf '%s\n' "$out33a" | grep '^committed=')"
-assert_not_contains "33A: the foreign staged file is NOT swallowed into the commit" \
-    "foreign.txt" "$(printf '%s\n' "$out33a" | grep '^committed=')"
-assert_contains "33A: the foreign file is still staged afterwards" \
-    "foreign.txt" "$out33a"
-rm -rf "$TMPDIR_33A"
-
-# --- 33B: the TARGET's own staged version survives a failed commit -----------
-# Verified against real git: `add` + a failing `commit -o` leaves the index at
-# the worktree content (the foreign staged version is destroyed), while
-# `commit -o` alone leaves it untouched. That difference is the whole control.
-TMPDIR_33B="$(setup_repo)"
-(
-    cd "$TMPDIR_33B" || exit 1
-    # A concurrent session staged version A of the SAME path...
-    printf '{"models": [], "_marker": "STAGED_BY_OTHER_SESSION"}\n' > "$MF"
-    git add "$MF"
-    # ...and the worktree has since moved on to version B.
-    printf '{"models": [], "_marker": "OUR_WORKTREE_VERSION"}\n' > "$MF"
-    # Force the commit to fail through a documented git seam.
-    mkdir -p .git/hooks
-    printf '#!/bin/sh\nexit 1\n' > .git/hooks/pre-commit
-    chmod +x .git/hooks/pre-commit
-)
-out33b="$(cd "$TMPDIR_33B" && bash -c '
-set -uo pipefail
-SCRIPT_DIR="$PWD/.aitask-scripts"
-SILENT=true
-source .aitask-scripts/lib/terminal_compat.sh
-source .aitask-scripts/lib/task_utils.sh
-source .aitask-scripts/lib/verified_update_lib.sh
-_AIT_COMMIT_PREFIX="ait: Update verified score"
-trap "ait_unstage_staged_by_us" EXIT
-crc=0
-commit_metadata_update_local aitasks/metadata/models_claudecode.json claudecode/opus4_6 pick >/dev/null 2>&1 || crc=$?
-echo "rc=$crc"
-echo "converged=${AIT_METADATA_LOCAL_CONVERGED:-UNSET}"
-echo "staged_now=$(git show :aitasks/metadata/models_claudecode.json | tr -d "\n")"
-')"
-assert_contains "33B: the other session's STAGED version of the target survives" \
-    "STAGED_BY_OTHER_SESSION" "$(printf '%s\n' "$out33b" | grep '^staged_now=')"
-assert_not_contains "33B: our worktree version did not replace it in the index" \
-    "OUR_WORKTREE_VERSION" "$(printf '%s\n' "$out33b" | grep '^staged_now=')"
-# 33C rides on the same fixture: a real commit FAILURE must not be absorbed.
-assert_not_contains "33C: a failed commit does not return 0" "rc=0" "$out33b"
-assert_contains "33C: a failed commit retracts the convergence verdict" \
-    "converged=0" "$out33b"
-rm -rf "$TMPDIR_33B"
-
-# --- 33D: end-to-end — a failed commit must never print UPDATED: ------------
-# The out-param exists so the caller can tell "saved" from "not saved". If the
-# helper absorbed rc 1, aitask_verified_update.sh would take its success branch
-# and announce a score that is on no branch at all.
-TMPDIR_33D="$(setup_repo)"
-(
-    cd "$TMPDIR_33D" || exit 1
-    mkdir -p .git/hooks
-    printf '#!/bin/sh\nexit 1\n' > .git/hooks/pre-commit
-    chmod +x .git/hooks/pre-commit
-)
-set +e
-out33d=$(cd "$TMPDIR_33D" && ./.aitask-scripts/aitask_verified_update.sh \
-    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null)
-rc33d=$?
-set -e
-assert_not_contains "33D: no UPDATED: line when the commit failed" "UPDATED:" "$out33d"
-if [[ "$rc33d" -ne 0 ]]; then
-    TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
-    echo "PASS: 33D: a failed commit exits non-zero"
-else
-    TOTAL=$((TOTAL + 1)); FAIL=$((FAIL + 1))
-    echo "FAIL: 33D: a failed commit exited 0 (out: $out33d)"
-fi
-rm -rf "$TMPDIR_33D"
-
-# --- 33E: the rc-2 path is absorbed and does NOT abort under set -e ---------
-# `ait_commit_paths_staging_untracked` returns 2 for "verified nothing to
-# commit" — a normal outcome. An unabsorbed 2 would kill the caller under
-# `set -euo pipefail`, so the witness is a side effect AFTER the call, not the
-# exit status alone.
-TMPDIR_33E="$(setup_repo)"
-out33e="$(cd "$TMPDIR_33E" && bash -c '
-set -euo pipefail
-SCRIPT_DIR="$PWD/.aitask-scripts"
-SILENT=true
-source .aitask-scripts/lib/terminal_compat.sh
-source .aitask-scripts/lib/task_utils.sh
-source .aitask-scripts/lib/verified_update_lib.sh
-_AIT_COMMIT_PREFIX="ait: Update verified score"
-trap "ait_unstage_staged_by_us" EXIT
-AIT_METADATA_VALUE="SENTINEL"
-commit_metadata_update_local aitasks/metadata/models_claudecode.json claudecode/opus4_6 pick >/dev/null 2>&1
-echo "AFTER_THE_CALL"
-echo "value=${AIT_METADATA_VALUE}"
-echo "converged=${AIT_METADATA_LOCAL_CONVERGED}"
-' 2>&1)"
-assert_contains "33E: nothing-to-commit does not abort the caller under set -e" \
-    "AFTER_THE_CALL" "$out33e"
-assert_contains "33E: nothing-to-commit still reports converged" "converged=1" "$out33e"
-assert_contains "33E: nothing-to-commit preserves the caller's value" "value=SENTINEL" "$out33e"
-rm -rf "$TMPDIR_33E"
-
+echo "--- Test 32: real entry point from a NON-ROOT cwd (t1658_2) ---"
+B32="$(setup_remote_stats_repo "$SCRIPT")"
+W32="$B32/work"
+mkdir -p "$W32/website"
+rc32=0
+out32=$(cd "$W32/website" && "$W32/.aitask-scripts/$SCRIPT" \
+    --agent-string claudecode/opus4_6 --skill pick --score 4 --silent 2>/dev/null) || rc32=$?
+assert_eq "32: reports UPDATED from a non-root cwd" "UPDATED:claudecode/opus4_6:pick:80|0" "$out32|$rc32"
+assert_eq "32: the rating landed in THIS project's store" "1" \
+    "$(git -C "$B32/origin.git" show refs/heads/aitask-stats:claudecode.json 2>/dev/null \
+        | jq -r '.models.opus4_6.verifiedstats.pick.all_time.runs')"
+rm -rf "$B32"
 
 echo "--- Test t1884: resolver fallbacks reach the registry check, not a format error ---"
 # A resolver fallback (claudecode/unregistered_*) parses, has no registry row,
 # and must be refused with an agent-specific registration hint -- never with
 # "Invalid agent string format", and never recorded against another row.
-TMPDIR_FB="$(setup_repo)"
-before_fb="$(cat "$TMPDIR_FB/aitasks/metadata/models_claudecode.json")"
+TFB="$(setup_repo)"
+before_fb="$(cat "$TFB/aitasks/metadata/models_claudecode.json")"
 rc=0
-out_fb=$(cd "$TMPDIR_FB" && ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/unregistered_opus4_6 --skill pick --score 4 --date 2026-03-11 2>&1) || rc=$?
+out_fb=$(cd "$TFB" && "./.aitask-scripts/$SCRIPT" --agent-string claudecode/unregistered_opus4_6 --skill pick --score 4 --date 2026-03-11 2>&1) || rc=$?
 assert_exit_nonzero_rc "verified: fallback string exits non-zero" "$rc"
 assert_not_contains "verified: fallback passes the format check" "Invalid agent string format" "$out_fb"
 assert_contains "verified: fallback is refused as unregistered" "Model 'unregistered_opus4_6' not found" "$out_fb"
 assert_contains "verified: claudecode hint names /aitask-add-model" "/aitask-add-model" "$out_fb"
 assert_eq "verified: registry unchanged after refusal" "$before_fb" \
-    "$(cat "$TMPDIR_FB/aitasks/metadata/models_claudecode.json")"
+    "$(cat "$TFB/aitasks/metadata/models_claudecode.json")"
 
-cat > "$TMPDIR_FB/aitasks/metadata/models_opencode.json" <<'EOF_OC'
+cat > "$TFB/aitasks/metadata/models_opencode.json" <<'EOF_OC'
 { "models": [ { "name": "opencode_foo", "cli_id": "opencode/foo", "notes": "t", "verified": {}, "verifiedstats": {} } ] }
 EOF_OC
 rc=0
-out_oc=$(cd "$TMPDIR_FB" && ./.aitask-scripts/aitask_verified_update.sh --agent-string opencode/unregistered_x --skill pick --score 4 --date 2026-03-11 2>&1) || rc=$?
+out_oc=$(cd "$TFB" && "./.aitask-scripts/$SCRIPT" --agent-string opencode/unregistered_x --skill pick --score 4 --date 2026-03-11 2>&1) || rc=$?
 assert_exit_nonzero_rc "verified: opencode fallback exits non-zero" "$rc"
 assert_contains "verified: opencode hint names /aitask-refresh-code-models" "/aitask-refresh-code-models" "$out_oc"
 assert_not_contains "verified: opencode hint does not offer add-model as the route" "register it with /aitask-add-model" "$out_oc"
 
-cp "$PROJECT_DIR/.aitask-scripts/aitask_resolve_detected_agent.sh" "$TMPDIR_FB/.aitask-scripts/"
+cp "$PROJECT_DIR/.aitask-scripts/aitask_resolve_detected_agent.sh" "$TFB/.aitask-scripts/"
 rc=0
-out_cli=$(cd "$TMPDIR_FB" && ./.aitask-scripts/aitask_verified_update.sh --agent claudecode --cli-id 'claude-opus-9-9[1m]' --skill pick --score 4 --date 2026-03-11 2>&1) || rc=$?
+out_cli=$(cd "$TFB" && "./.aitask-scripts/$SCRIPT" --agent claudecode --cli-id 'claude-opus-9-9[1m]' --skill pick --score 4 --date 2026-03-11 2>&1) || rc=$?
 assert_exit_nonzero_rc "verified: --agent/--cli-id fallback exits non-zero" "$rc"
 assert_not_contains "verified: --cli-id fallback passes the format check" "Invalid agent string format" "$out_cli"
 assert_contains "verified: --cli-id fallback is refused as unregistered" "Model 'unregistered_claude_opus_9_9_1m' not found" "$out_cli"
 assert_eq "verified: registry unchanged after --cli-id refusal" "$before_fb" \
-    "$(cat "$TMPDIR_FB/aitasks/metadata/models_claudecode.json")"
-rm -rf "$TMPDIR_FB"
+    "$(cat "$TFB/aitasks/metadata/models_claudecode.json")"
+assert_eq "verified: nothing recorded on the stats branch" "no" \
+    "$(git -C "$TFB" rev-parse -q --verify refs/heads/aitask-stats >/dev/null && echo yes || echo no)"
+rm -rf "$TFB"
 
-
-# =====================================================================
-# Concurrent writers: compare-and-swap rewrite (t1928)
-# =====================================================================
-
-echo "--- Test t1928a: a refresh swapped in under a stale score writer is kept ---"
-TMPDIR_CA="$(setup_repo)"
-mdfix_write_refresh_hook "$TMPDIR_CA/hook.sh"
-rc=0
-out_ca=$(cd "$TMPDIR_CA" && AIT_CAS_BEFORE_SWAP_HOOK="$TMPDIR_CA/hook.sh" \
-    ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-03-11 2>&1) || rc=$?
-assert_exit_zero_rc "stale writer: exits 0" "$rc"
-assert_contains "stale writer: reports UPDATED with the new value" "UPDATED:claudecode/opus4_6:pick:100" "$out_ca"
-assert_eq "stale writer: refresh's notes kept" "Refreshed by discovery" \
-    "$(json_get "$TMPDIR_CA" '.models[] | select(.name == "opus4_6") | .notes')"
-assert_eq "stale writer: refresh's new row kept" "claude-opus-4-7" \
-    "$(json_get "$TMPDIR_CA" '.models[] | select(.name == "opus4_7") | .cli_id')"
-assert_eq "stale writer: score recorded on top" "100" \
-    "$(json_get "$TMPDIR_CA" '.models[] | select(.name == "opus4_6") | .verified.pick')"
-rm -rf "$TMPDIR_CA"
-
-echo "--- Test t1928b: target renamed between attempts — fails, records nothing ---"
-TMPDIR_CB="$(setup_repo)"
-mdfix_write_rename_hook "$TMPDIR_CB/hook.sh" "$TMPDIR_CB/after_rename.json"
-rc=0
-out_cb=$(cd "$TMPDIR_CB" && AIT_CAS_BEFORE_SWAP_HOOK="$TMPDIR_CB/hook.sh" \
-    ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-03-11 2>&1) || rc=$?
-assert_exit_nonzero_rc "renamed target: exits non-zero" "$rc"
-assert_contains "renamed target: names the cause" "no longer in" "$out_cb"
-assert_not_contains "renamed target: no UPDATED: token" "UPDATED:" "$out_cb"
-assert_not_contains "renamed target: no UPDATED_REMOTE_ONLY: token" "UPDATED_REMOTE_ONLY:" "$out_cb"
-rc=0; cmp -s "$TMPDIR_CB/after_rename.json" "$TMPDIR_CB/aitasks/metadata/models_claudecode.json" || rc=$?
-assert_eq "renamed target: registry is exactly what the rename left" "0" "$rc"
-assert_eq "renamed target: nothing recorded under the new name" "null" \
-    "$(json_get "$TMPDIR_CB" '.models[] | select(.name == "opus4_6_renamed") | .verifiedstats')"
-rm -rf "$TMPDIR_CB"
-
-echo "--- Test t1928c: remote path — a failing update callback reports no success ---"
-TMPDIR_CC="$(setup_remote_metadata_repo aitask_verified_update.sh)"
-WORK_CC="$TMPDIR_CC/work"
-printf 'exit 1\n' > "$TMPDIR_CC/hook.sh"
-cp "$WORK_CC/aitasks/metadata/models_claudecode.json" "$TMPDIR_CC/before.json"
-origin_before_cc="$(git --git-dir="$TMPDIR_CC/origin.git" rev-parse main)"
-rc=0
-out_cc=$(cd "$WORK_CC" && AIT_CAS_BEFORE_SWAP_HOOK="$TMPDIR_CC/hook.sh" \
-    ./.aitask-scripts/aitask_verified_update.sh --agent-string claudecode/opus4_6 --skill pick --score 5 --date 2026-03-11 2>&1) || rc=$?
-assert_exit_nonzero_rc "remote callback failure: exits non-zero" "$rc"
-assert_not_contains "remote callback failure: no UPDATED: token" "UPDATED:" "$out_cc"
-assert_not_contains "remote callback failure: no UPDATED_REMOTE_ONLY: token" "UPDATED_REMOTE_ONLY:" "$out_cc"
-assert_contains "remote callback failure: says nothing was pushed" "nothing was committed or pushed" "$out_cc"
-assert_eq "remote callback failure: origin tip unchanged" "$origin_before_cc" \
-    "$(git --git-dir="$TMPDIR_CC/origin.git" rev-parse main)"
-rc=0; cmp -s "$TMPDIR_CC/before.json" "$WORK_CC/aitasks/metadata/models_claudecode.json" || rc=$?
-assert_eq "remote callback failure: local registry unchanged" "0" "$rc"
-rm -rf "$TMPDIR_CC"
+# The bridge (lib/verified_update_lib.sh model_stats_write) is exercised in
+# full by tests/test_usage_update.sh; here only the verified writer's own use of
+# it: the score is passed through and an unknown average is a recorded success.
+echo "--- Test bridge: the verified writer's CLI call ---"
+TB="$(setup_repo)"
+cat > "$TB/.aitask-scripts/aitask_model_stats.py" <<'PY'
+import sys
+argv = sys.argv[1:]
+score = next((a.split("=", 1)[1] for a in argv if a.startswith("--score=")), "missing")
+sys.stderr.write(f"stub got verb={argv[0]} score={score}\n")
+print("UPDATED:claudecode/opus4_6:pick:unknown")
+PY
+rc=0; outb=$(rate "$TB" --skill pick --score 3 --silent 2>"$TB/err") || rc=$?
+assert_eq "bridge: unknown average is a recorded success" "UPDATED:claudecode/opus4_6:pick:unknown|0" "$outb|$rc"
+assert_contains "bridge: record-verified is called with the raw score" "verb=record-verified score=3" "$(cat "$TB/err")"
+outb_ns=$(rate "$TB" --skill pick --score 3 2>/dev/null)
+assert_contains "bridge: non-silent unknown says the rating was recorded" "current average unavailable" "$outb_ns"
+printf 'import sys\nprint("STATS_ERROR:boom")\nsys.exit(1)\n' > "$TB/.aitask-scripts/aitask_model_stats.py"
+rc=0; outb=$(rate "$TB" --skill pick --score 3 --silent 2>/dev/null) || rc=$?
+assert_eq "bridge: STATS_ERROR passes through, exit non-zero" "STATS_ERROR:boom|1" "$outb|$rc"
+rm -rf "$TB"
 
 echo ""
 echo "==============================="

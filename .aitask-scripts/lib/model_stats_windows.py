@@ -8,8 +8,9 @@ per skill, an `all_time` bucket plus three windowed buckets, each stamped with a
     prev_month  YYYY-MM
     week        YYYY-Www   (writers: `date +%G-W%V` — ISO 8601 week and ISO year)
 
-The writers (`aitask_usage_update.sh`, `aitask_verified_update.sh`) roll those
-buckets over only when they record the NEXT run for that model and skill. A
+The writers (`aitask_usage_update.sh`, `aitask_verified_update.sh`, through
+`lib/model_stats_store.py`) roll those buckets over only when they record the
+NEXT run for that model and skill. A
 model nobody has used for months therefore still carries its old `month` /
 `prev_month` / `week` buckets. So a reader must never trust a bucket's slot
 name. A bucket counts toward a window only when its `period` equals that

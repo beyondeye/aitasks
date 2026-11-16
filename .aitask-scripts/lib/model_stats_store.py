@@ -30,11 +30,13 @@ temp ref), so they do not depend on the configured refspecs either.
 
 Layers
 ------
-- pure: ``bump_usage``, ``record_verified`` (ports of the jq renderers in
-  ``aitask_usage_update.sh`` / ``aitask_verified_update.sh``), ``merge_buckets``,
-  ``merge_stats``, ``parse_blob`` / ``render_blob``;
+- pure: ``bump_usage``, ``record_verified`` (ports of the jq renderers the
+  counter writers used before t1912_4; ``tests/golden/model_stats_parity/``
+  pins them), ``merge_buckets``, ``merge_stats``, ``parse_blob`` /
+  ``render_blob``;
 - write: ``update`` (read-modify-write recomputed on the origin tip on every
-  retry; leased push; fast-forward of the local ref);
+  retry; leased push; fast-forward of the local ref), and ``effective_total``
+  (the reader-visible total right after a write, from that write's own commit);
 - ``refresh`` (best-effort fast-forward of the local ref from origin);
 - loader: ``load_agent_stats`` / ``load_all_stats`` (never fetch).
 
@@ -51,7 +53,7 @@ import re
 import sys
 import time
 import uuid
-from collections import OrderedDict
+from collections import OrderedDict, namedtuple
 from datetime import date
 from pathlib import Path
 
@@ -87,6 +89,10 @@ class StatsError(RuntimeError):
     def __init__(self, reason: str):
         super().__init__(reason)
         self.reason = reason.replace("\n", " ").replace("|", "/")[:200]
+
+
+class TotalUnavailable(StatsError):
+    """A write landed, but its reader-visible total cannot be stated."""
 
 
 class StatsDiverged(StatsError):
@@ -195,8 +201,8 @@ def _stats_map(blob: dict, model: str, key: str) -> dict:
 def bump_usage(blob: dict, model: str, skill: str, today: date):
     """One usage run; returns ``(new_blob, month_runs)``.
 
-    Port of ``render_usage_bump`` (``aitask_usage_update.sh``). The input is not
-    mutated.
+    Port of the former jq ``render_usage_bump`` of ``aitask_usage_update.sh``.
+    The input is not mutated.
     """
     p = current_periods(today)
     blob = copy.deepcopy(blob)
@@ -237,9 +243,10 @@ def record_verified(blob: dict, model: str, skill: str, score_100, today: date):
     """One verified score (already mapped: raw 1-5 x 20); returns
     ``(new_blob, all_time_average)``.
 
-    Port of ``render_verified_update`` (``aitask_verified_update.sh``) without
-    its ``verified[skill]`` write: ``verified`` stays a registry prior on the
-    task-data branch (t1912 decision 4). The input is not mutated.
+    Port of the former jq ``render_verified_update`` of
+    ``aitask_verified_update.sh`` without its ``verified[skill]`` write:
+    ``verified`` stays a registry prior on the task-data branch (t1912
+    decision 4). The input is not mutated.
     """
     if isinstance(score_100, bool) or not isinstance(score_100, (int, float)):
         raise StatsError("malformed_score")
@@ -441,12 +448,24 @@ def _jitter(attempt: int) -> None:
         time.sleep(random.uniform(0.05, 0.4) * attempt)
 
 
-def update(project_root, agent, fn, *, timeout=None, message=None, remote="origin"):
+#: ``update(..., return_commit=True)``: the value ``fn`` returned, the commit
+#: that landed, and what happened to the local ref afterwards (``ADVANCED`` |
+#: ``ALREADY_NEWER`` | ``DIVERGED`` | ``ERROR:<reason>``).
+UpdateResult = namedtuple("UpdateResult", "value commit local_ref")
+
+
+def update(project_root, agent, fn, *, timeout=None, message=None, remote="origin",
+           return_commit=False):
     """Read-modify-write ``<agent>.json``; return ``fn``'s value.
 
     ``fn(blob) -> (new_blob, value)`` runs on the blob read from the base it
     will be committed on, and again from the re-read tip after every lost race.
     Raises ``StatsError`` (``StatsDiverged`` when local and origin diverged).
+
+    Once the leased push reports ``OK`` the write is durable on origin, so
+    nothing after it may raise: a local ref that cannot be fast-forwarded (or a
+    git failure while trying) is reported in ``local_ref``, never as an error.
+    With ``return_commit`` the result is an ``UpdateResult``.
     """
     path = agent_path(agent)
     root = ors.toplevel(project_root)
@@ -461,7 +480,7 @@ def update(project_root, agent, fn, *, timeout=None, message=None, remote="origi
             value, commit = _render(root, local, path, fn, message)
             _test_hook("after_render", attempt=attempt, base=local, commit=commit)
             if ors.cas_local(root, L_REF, commit, local) == "OK":
-                return value
+                return UpdateResult(value, commit, "ADVANCED") if return_commit else value
             last = "local_conflict"
             continue
 
@@ -493,11 +512,18 @@ def update(project_root, agent, fn, *, timeout=None, message=None, remote="origi
             continue
         if status != "OK":
             raise StatsError(status[len("ERROR:"):] if status.startswith("ERROR:") else status)
-        outcome = ors.advance_ref(root, L_REF, commit)
-        if outcome == "DIVERGED":
-            sys.stderr.write(f"model_stats_store: pushed {commit[:12]} but {L_REF} "
-                             "could not be fast-forwarded to it\n")
-        return value
+        # Durable from here on: report local-ref trouble, never raise it.
+        try:
+            outcome = ors.advance_ref(root, L_REF, commit)
+        except Exception as exc:  # noqa: BLE001 - GitError, OSError, anything
+            outcome = "ERROR:" + (" ".join(str(exc).split())[:200] or type(exc).__name__)
+        if outcome == "DIVERGED" or outcome.startswith("ERROR:"):
+            try:
+                sys.stderr.write(f"model_stats_store: pushed {commit[:12]} but {L_REF} "
+                                 f"could not be fast-forwarded to it ({outcome})\n")
+            except Exception:  # noqa: BLE001 - a closed stderr must not undo a push
+                pass
+        return UpdateResult(value, commit, outcome) if return_commit else value
     raise StatsError(last)
 
 
@@ -644,14 +670,26 @@ def metadata_dir(project_root, metadata_path=None) -> Path:
     return Path(project_root) / rel / "metadata"
 
 
-def legacy_models(project_root, agent, metadata_path=None) -> dict:
-    """``{model: {stats_key: ...}}`` from ``models_<agent>.json`` (read now)."""
+def legacy_models(project_root, agent, metadata_path=None, *, strict=False) -> dict:
+    """``{model: {stats_key: ...}}`` from ``models_<agent>.json`` (read now).
+
+    Readers use the lenient default: a missing, unreadable or invalid file reads
+    as no counters. ``strict`` (``effective_total``) keeps only a missing file as
+    "no counters" and raises ``TotalUnavailable`` for anything else, because a
+    total computed without counters that do exist would be a wrong number.
+    """
     path = metadata_dir(project_root, metadata_path) / f"models_{check_agent(agent)}.json"
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
-    except (OSError, ValueError):
+    except FileNotFoundError:
         return {}
+    except (OSError, ValueError) as exc:
+        if strict:
+            raise TotalUnavailable(f"legacy_unreadable:{type(exc).__name__}") from None
+        return {}
+    if strict and not isinstance(data, dict):
+        raise TotalUnavailable("legacy_unreadable:not_an_object")
     rows = data.get("models") if isinstance(data, dict) else None
     out: dict = {}
     for row in rows if isinstance(rows, list) else []:
@@ -676,6 +714,53 @@ def load_agent_stats(project_root, agent, *, metadata_path=None) -> dict:
     if agent in content["markers"]:
         return merge_stats({}, branch)
     return merge_stats(legacy_models(project_root, agent, metadata_path), branch)
+
+
+def effective_total(project_root, agent, model, key, skill, today, committed_models,
+                    commit, *, metadata_path=None):
+    """The total readers now show for one skill, right after a write.
+
+    Computed from the write's own snapshot, never from the loader: the loader is
+    a display path that reads a git failure as "no branch" (legacy-only totals),
+    and the local ref may not even point at the commit just pushed. Inputs:
+
+    - ``committed_models``: the ``models`` map of the blob that ``commit`` holds;
+    - the marker state inside ``commit`` (a failed read raises);
+    - the legacy ``models_<agent>.json`` counters, strictly read, unless marked.
+
+    ``usagestats`` -> runs of the bucket for ``today``'s month; ``verifiedstats``
+    -> the all-time average (jq half-up rounding). Raises ``TotalUnavailable``
+    whenever the honest answer is "unknown" (never 0, never the branch-only
+    value).
+    """
+    if key not in STATS_KEYS:
+        raise TotalUnavailable("unknown_key")
+    try:
+        top = ors.toplevel(project_root)
+        marked = ors.read_file(top, commit, marker_path(agent)) is not None
+    except (ors.GitError, OSError) as exc:
+        raise TotalUnavailable(f"marker_unreadable:{type(exc).__name__}") from None
+    # The registry is looked up under the repository root that `update` wrote
+    # into, never the caller's raw cwd: from a nested directory the latter
+    # would miss the legacy counters and print the branch-only value. An
+    # explicit metadata_path is still used verbatim.
+    legacy = {} if marked else legacy_models(top, agent, metadata_path, strict=True)
+    merged = merge_stats(legacy, committed_models or {})
+    entry = _normalize(((merged.get(model) or {}).get(key) or {}).get(skill))
+    if not entry:
+        raise TotalUnavailable("entry_missing")
+    if key == "usagestats":
+        month = current_periods(today).month
+        for name in ("month", "prev_month"):
+            bucket = entry.get(name)
+            if isinstance(bucket, dict) and bucket.get("period") == month:
+                return _num(bucket.get("runs"))
+        raise TotalUnavailable("period_not_in_view")
+    at = entry.get("all_time") or {}
+    runs = _num(at.get("runs"))
+    if not runs:
+        raise TotalUnavailable("no_runs")
+    return _jq_round(_num(at.get("score_sum")) / runs)
 
 
 def load_all_stats(project_root, *, metadata_path=None) -> dict:

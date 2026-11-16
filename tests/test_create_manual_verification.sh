@@ -360,8 +360,8 @@ HOOKEOF
 # for it could only ever pass vacuously — verified: one written against a
 # *previous* task file passed against the pre-fix code, because the path it
 # staged was not the path the site commits. That hazard is covered where it is
-# reachable, on a pre-existing shared file: tests/test_verified_update.sh
-# Test 33B and tests/test_verification_followup.sh.
+# reachable, on a pre-existing shared file: tests/test_verification_followup.sh
+# ("does not clobber a staged version of the origin plan").
 
 teardown_all() {
     local d

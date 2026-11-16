@@ -141,8 +141,6 @@ KNOWN_UNCOMMITTED: dict[str, str] = {
     ".aitask-scripts/aitask_add_model.sh::cmd_promote_config": "runs inside a task that commits",
     ".aitask-scripts/aitask_opencode_models.sh::merge_with_existing": "runs inside a task that commits",
     # Committed by a different, existing seam.
-    ".aitask-scripts/aitask_verified_update.sh::update_model_file": "verified_update_lib.sh commits",
-    ".aitask-scripts/aitask_usage_update.sh::update_model_file": "verified_update_lib.sh commits",
     ".aitask-scripts/lib/task_utils.sh::add_label_to_file":
         "labels.txt is staged by its callers' _stage_labels gate (create/update)",
     # User layer only — gitignored, must never be committed.

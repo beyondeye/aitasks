@@ -1,54 +1,15 @@
 #!/usr/bin/env bash
 # Shared helpers for aitask_verified_update.sh and aitask_usage_update.sh.
-# Caller scripts must source terminal_compat.sh and task_utils.sh first, must
-# arm `trap 'ait_unstage_staged_by_us' EXIT` before the first call (the commit
-# seam's cleanup is armed by the CALLER by design, so this library cannot
-# clobber a caller's own EXIT handler -- see lib/task_utils.sh), and must set
-# the following globals before invoking commit_metadata_update:
-#   _AIT_UPDATE_MODEL_FILE_FN  — name of the caller's update_model_file function
-#   _AIT_COMMIT_PREFIX         — commit message prefix (e.g. "ait: Update verified score")
-# The caller's update_model_file callback is invoked with positional args:
-#   <models_file> <model_name> <skill_name> <extra>
-# The verified caller consumes <extra> as raw_score; the usage caller ignores it.
+# Caller scripts source terminal_compat.sh and task_utils.sh first (task_utils.sh
+# brings python_resolve.sh, whose resolve_python this file uses).
+#
+# The counters live on the `aitask-stats` plumbing branch and are written by
+# aitask_model_stats.py (lib/model_stats_store.py). Nothing here reads or writes
+# the task-data worktree: no fetch, merge, rebase, push or index change of
+# `aitask-data` (t1912_4).
 
 [[ -n "${_AIT_VERIFIED_UPDATE_LIB_LOADED:-}" ]] && return 0
 _AIT_VERIFIED_UPDATE_LIB_LOADED=1
-
-MAX_REMOTE_RETRIES=5
-# Attempts at each caller's compare-and-swap registry rewrite (lib/registry_cas.sh)
-# before it gives up with nothing recorded. Read by the caller scripts.
-# shellcheck disable=SC2034
-REGISTRY_CAS_ATTEMPTS=5
-
-# --- Out-param interface (the chain does NOT return values via stdout) ---
-#
-# A global assigned inside `$( )` does not cross back to the caller
-# (`FLAG=1; inner() { FLAG=0; echo 80; }; v="$(inner)"` leaves FLAG=1), so the
-# convergence verdict cannot ride back alongside the value. Both are out-params;
-# control flow stays on the exit code.
-#
-# ONLY THE REMOTE PATH PRODUCES A VALUE. main() tests has_remote_tracking
-# itself and, on the local path, already holds the value from update_model_file
-# BEFORE calling commit_metadata_update_local — so that helper must never touch
-# AIT_METADATA_VALUE, including on its early "nothing staged" return.
-AIT_METADATA_VALUE=""            # the new count / score (remote path only)
-AIT_METADATA_LOCAL_CONVERGED=""  # 1 = local branch has the commit, 0 = not on it
-                                 #     (origin-only, or the local commit failed)
-AIT_LAST_PUSH_OUTPUT=""          # git's output from the last push that raced
-
-run_git_quiet() {
-    if [[ "${SILENT:-false}" == "true" ]]; then
-        "$@" >/dev/null 2>&1
-    else
-        "$@"
-    fi
-}
-
-log_info() {
-    if [[ "${SILENT:-false}" == "false" ]]; then
-        info "$@"
-    fi
-}
 
 # How to register a model that is missing from models_<agent>.json. The route
 # is agent-specific: aitask_add_model.sh rejects opencode, whose models are
@@ -60,264 +21,88 @@ model_registration_hint() {
     esac
 }
 
-previous_calendar_month() {
-    local current_month="$1"  # YYYY-MM
-    if date --version >/dev/null 2>&1; then
-        date -d "${current_month}-01 -1 month" "+%Y-%m"
-    else
-        date -j -v-1m -f "%Y-%m-%d" "${current_month}-01" "+%Y-%m"
-    fi
-}
+# Out-param of model_stats_write (a global, because the caller must not run the
+# function in $( ): the CLI's stderr has to reach the caller's stderr).
+MODEL_STATS_LINE=""
 
-has_remote_tracking() {
-    ./ait git remote get-url origin >/dev/null 2>&1 || return 1
-    ./ait git rev-parse --abbrev-ref HEAD >/dev/null 2>&1 || return 1
-}
+# model_stats_write <verb> --agent A --model M --skill S [--opt value ...]
+# (every argument after the verb is an `--option value` pair)
+#
+# Run aitask_model_stats.py <verb> against the repo root (the cwd: the caller
+# anchored it with ait_cd_repo_root). Sets MODEL_STATS_LINE to the CLI's last
+# stdout line, or to a synthesized STATS_ERROR:<reason>, and returns 0 only for
+# an `UPDATED:<A>/<M>:<S>:<value>` line with exit 0. `UPDATED:` always means the
+# write is recorded; <value> is an integer or the literal `unknown` (recorded,
+# but the effective total could not be read).
+#
+#   STATS_DIVERGED:<l>|<r>        -> STATS_ERROR:diverged:<l>|<r>
+#   no CLI / no Python            -> STATS_ERROR:cli_missing / STATS_ERROR:no_python
+#   UPDATED: for another target,
+#   or no recognised line         -> STATS_ERROR:unexpected_output
+#
+# The CLI's stderr is forwarded unconditionally, even for --silent callers: it
+# is quiet on success and carries only real problems (an unavailable total, a
+# local stats ref that could not be advanced after a durable push).
+model_stats_write() {
+    local verb="$1"; shift
+    local cli="$SCRIPT_DIR/aitask_model_stats.py"
+    local py out rc=0 agent="" model="" skill="" opt value
 
-current_task_branch() {
-    # Full ref, never --abbrev-ref: beside a same-named tag it answers
-    # "heads/<b>", which no clone or push can use as a branch (t2132).
-    local ref rc=0
-    ref="$(./ait git symbolic-ref --quiet HEAD)" || rc=$?
-    case "$rc:$ref" in
-        0:refs/heads/?*) printf '%s\n' "${ref#refs/heads/}" ;;
-        0:* | 1:*)
-            die "Data worktree is on a detached HEAD (possibly mid-rebase). Run './ait git-health' for diagnosis, then './ait git rebase --abort' or '--continue' to recover." ;;
-        *)  die "Could not resolve HEAD of the task data worktree (git exited $rc). Run './ait git-health' for diagnosis." ;;
-    esac
-}
-
-current_task_remote() {
-    ./ait git remote get-url origin
-}
-
-configure_clone_identity() {
-    local repo_dir="$1"
-    local user_name=""
-    local user_email=""
-
-    user_name="$(./ait git config --get user.name 2>/dev/null || git config --global --get user.name 2>/dev/null || true)"
-    user_email="$(./ait git config --get user.email 2>/dev/null || git config --global --get user.email 2>/dev/null || true)"
-
-    if [[ -n "$user_name" ]]; then
-        git -C "$repo_dir" config user.name "$user_name"
-    fi
-    if [[ -n "$user_email" ]]; then
-        git -C "$repo_dir" config user.email "$user_email"
-    fi
-}
-
-run_before_push_hook() {
-    local repo_dir="$1"
-    local attempt="$2"
-
-    if [[ -z "${AITASK_VERIFIED_UPDATE_BEFORE_PUSH_HOOK:-}" ]]; then
-        return 0
-    fi
-
-    AITASK_VERIFIED_UPDATE_ATTEMPT="$attempt" \
-    AITASK_VERIFIED_UPDATE_TEMP_REPO="$repo_dir" \
-        run_git_quiet bash "$AITASK_VERIFIED_UPDATE_BEFORE_PUSH_HOOK"
-}
-
-# Only git's own ref-status lines are race evidence. "failed to push some refs"
-# ends EVERY rejected push (hook refusal, ambiguous destination, ...) and a
-# hook's text arrives as "remote: ..." lines that may contain any word, so match
-# the " ! [...]" status line, which a hook can never print (t2134). Retryable:
-# the client-side race (fetch first / non-fast-forward) and the server-side one
-# (a competing push moved the ref before our lock). Older receive-packs report
-# the latter as "failed to update ref", which also covers non-race failures, so
-# it is not retried -- anything unlisted dies with git's text.
-is_retryable_push_error() {
-    local output="$1"
-    printf '%s\n' "$output" | grep -Eq \
-        '^ ! \[rejected\] .* \((fetch first|non-fast-forward)\)[[:space:]]*$|^ ! \[remote rejected\] .* \(incorrect old value provided\)[[:space:]]*$'
-}
-
-# Reconcile the local data branch with its upstream in BOTH directions. Renamed
-# from sync_current_repo_from_remote(): it now pushes as well as pulls, so the
-# old name was untrue.
-converge_current_repo_with_remote() {
-    task_data_converge "${1:-}"
-}
-
-# Local-only commit path. Sets AIT_METADATA_LOCAL_CONVERGED=1 by construction —
-# it commits straight to the local branch — and NEVER touches
-# AIT_METADATA_VALUE, which its caller already holds.
-commit_metadata_update_local() {
-    local models_file="$1"
-    local agent_string="$2"
-    local skill_name="$3"
-
-    AIT_METADATA_LOCAL_CONVERGED=1
-
-    # `./ait git commit` with no `--` pathspec commits the WHOLE index, and the
-    # `add` of a TRACKED path replaces an index entry another session staged --
-    # both fatal on the shared task-data branch (t1728). `./ait git` is
-    # `task_git` in a subprocess, so the same seam serves it: this one stages
-    # only paths git does not track yet and scopes the commit to $models_file.
-    local crc=0
-    ait_commit_paths_staging_untracked \
-        "${_AIT_COMMIT_PREFIX} for ${agent_string} ${skill_name}" \
-        "$models_file" || crc=$?
-
-    # 2 = verified nothing to commit: the local branch already carries what the
-    # caller wanted, so convergence holds. This replaces the old
-    # `diff --cached --quiet` early return, and it is the ONLY status absorbed.
-    # Written as an `if`, never `(( crc == 2 )) && return 0` -- that is a
-    # complete `&&` list, so a false test makes it the failing last command and
-    # `set -e` returns 1 from here.
-    if (( crc == 2 )); then
-        return 0
-    fi
-
-    # Anything else genuinely failed. Propagate it, exactly as the pre-t1728
-    # bare `commit` did as this function's last command, and retract the verdict
-    # first: a caller that saw 0 with CONVERGED=1 would print UPDATED: for a
-    # value that is on no branch at all.
-    if (( crc != 0 )); then
-        AIT_METADATA_LOCAL_CONVERGED=0
-        return "$crc"
-    fi
-
-    return 0
-}
-
-commit_and_push_from_remote_clone() {
-    local models_file="$1"
-    local agent_string="$2"
-    local skill_name="$3"
-    local model_name="$4"
-    local branch="$5"
-    local remote_url="$6"
-    local attempt="$7"
-    local extra_arg="${8:-}"
-
-    local tmpdir clone_dir new_value push_output pushed_sha
-    tmpdir="$(mktemp -d "${TMPDIR:-/tmp}/aitask_metadata_remote.XXXXXX")"
-    clone_dir="$tmpdir/repo"
-
-    AIT_METADATA_VALUE=""
-    AIT_METADATA_LOCAL_CONVERGED=""
-
-    if ! run_git_quiet git clone --quiet --branch "$branch" --single-branch "$remote_url" "$clone_dir"; then
-        rm -rf "$tmpdir"
-        die "Failed to clone task data branch '$branch' from origin"
-    fi
-
-    configure_clone_identity "$clone_dir"
-
-    ensure_model_exists "$clone_dir/$models_file" "$model_name"
-    # The status is checked explicitly: commit_metadata_update runs this whole
-    # function under `set +e`, so a failing callback would otherwise fall
-    # through to the no-change branch below and report success with an empty
-    # value (and the caller would print UPDATED:). Stop before anything is
-    # staged, committed or pushed.
-    if ! new_value="$("$_AIT_UPDATE_MODEL_FILE_FN" "$clone_dir/$models_file" "$model_name" "$skill_name" "$extra_arg")" \
-            || [[ -z "$new_value" ]]; then
-        rm -rf "$tmpdir"
-        die "Failed to update $models_file in the task data clone — nothing was committed or pushed"
-    fi
-
-    git -C "$clone_dir" add "$models_file"
-    if git -C "$clone_dir" diff --cached --quiet -- "$models_file"; then
-        rm -rf "$tmpdir"
-        # Nothing was committed or pushed, so there is no commit that could be
-        # stranded on origin: the invariant holds vacuously.
-        AIT_METADATA_VALUE="$new_value"
-        AIT_METADATA_LOCAL_CONVERGED=1
-        return 0
-    fi
-
-    if ! run_git_quiet git -C "$clone_dir" commit -m "${_AIT_COMMIT_PREFIX} for ${agent_string} ${skill_name}"; then
-        rm -rf "$tmpdir"
-        die "Failed to commit metadata update"
-    fi
-
-    run_before_push_hook "$clone_dir" "$attempt"
-
-    # Qualified destination: a bare "HEAD:<b>" is ambiguous on an origin that
-    # also carries tag <b> ("dst refspec <b> matches more than one") (t2132).
-    if push_output="$(git -C "$clone_dir" push --quiet origin "HEAD:refs/heads/${branch}" 2>&1)"; then
-        # Capture the pushed commit BEFORE the clone is destroyed — it is the
-        # subject of the local-ref invariant below.
-        pushed_sha="$(git -C "$clone_dir" rev-parse HEAD 2>/dev/null || true)"
-        rm -rf "$tmpdir"
-
-        converge_current_repo_with_remote "metadata update"
-
-        # Evaluate the invariant as a RUNTIME FACT on the local ref, not
-        # inferred from TASK_CONVERGE_STATUS: a status token describes the
-        # mechanism, this ancestry check describes whether the commit is
-        # actually here.
-        if [[ -n "$pushed_sha" ]] && _ait_data_git merge-base --is-ancestor "$pushed_sha" HEAD 2>/dev/null; then
-            AIT_METADATA_LOCAL_CONVERGED=1
-        else
-            AIT_METADATA_LOCAL_CONVERGED=0
-            warn "metadata commit ${pushed_sha:-<unknown>} is on origin/${branch} but not on the local data branch (converge: ${TASK_CONVERGE_STATUS:-none}/${TASK_CONVERGE_REASON:-none}) — recover with './ait sync'"
+    # Every option of these verbs takes a value, and each pair is forwarded as
+    # ONE `--opt=value` token. A separate value that starts with `-` (a skill
+    # such as `-custom`, which the writers always accepted) would otherwise be
+    # read by argparse as an option of its own. The target is recorded here for
+    # the echo check below.
+    local -a fwd=()
+    while (( $# > 0 )); do
+        opt="$1"
+        if (( $# < 2 )); then
+            MODEL_STATS_LINE="STATS_ERROR:usage:${opt} requires a value"
+            return 2
         fi
-
-        AIT_METADATA_VALUE="$new_value"
-        return 0
-    fi
-
-    rm -rf "$tmpdir"
-
-    if is_retryable_push_error "$push_output"; then
-        AIT_LAST_PUSH_OUTPUT="$push_output"
-        log_info "Metadata update raced with another push; retrying (${attempt}/${MAX_REMOTE_RETRIES})"
-        return 10
-    fi
-
-    die "Failed to push metadata update: $push_output"
-}
-
-commit_metadata_update() {
-    local models_file="$1"
-    local agent_string="$2"
-    local skill_name="$3"
-    local model_name="$4"
-    local extra_arg="${5:-}"
-
-    # Out-params: read by the caller scripts' main(), which shellcheck cannot see
-    # from inside this library.
-    # shellcheck disable=SC2034
-    AIT_METADATA_VALUE=""
-    # shellcheck disable=SC2034
-    AIT_METADATA_LOCAL_CONVERGED=""
-    AIT_LAST_PUSH_OUTPUT=""
-
-    if ! has_remote_tracking; then
-        # Same rule as commit_metadata_update_local: no value is produced here.
-        commit_metadata_update_local "$models_file" "$agent_string" "$skill_name"
-        return 0
-    fi
-
-    local branch remote_url attempt rc
-    branch="$(current_task_branch)"
-    remote_url="$(current_task_remote)"
-
-    # Pre-converge ONCE, before the first clone. Divergence forms when the temp
-    # clone is cut from an origin tip that lacks local's unpushed commits, so
-    # publishing local's half first (or fast-forwarding onto origin's) keeps the
-    # clone's base current. A branch already diverged on entry is reported by
-    # task_data_converge and the update proceeds anyway — the usage/score bump
-    # must not be lost — but its result will be partial, not success.
-    converge_current_repo_with_remote "metadata update (pre-converge)"
-
-    for attempt in $(seq 1 "$MAX_REMOTE_RETRIES"); do
-        set +e
-        commit_and_push_from_remote_clone "$models_file" "$agent_string" "$skill_name" "$model_name" "$branch" "$remote_url" "$attempt" "$extra_arg"
-        rc=$?
-        set -e
-
-        if [[ $rc -eq 0 ]]; then
-            return 0
-        fi
-        if [[ $rc -ne 10 ]]; then
-            return "$rc"
-        fi
+        value="$2"
+        shift 2
+        case "$opt" in
+            --agent) agent="$value" ;;
+            --model) model="$value" ;;
+            --skill) skill="$value" ;;
+        esac
+        fwd+=("${opt}=${value}")
     done
 
-    die "Failed to update metadata after ${MAX_REMOTE_RETRIES} retries due to concurrent pushes. Last push error: ${AIT_LAST_PUSH_OUTPUT}"
+    MODEL_STATS_LINE=""
+    if [[ ! -f "$cli" ]]; then
+        MODEL_STATS_LINE="STATS_ERROR:cli_missing"
+        return 1
+    fi
+    py="$(resolve_python 2>/dev/null || true)"
+    if [[ -z "$py" ]]; then
+        MODEL_STATS_LINE="STATS_ERROR:no_python"
+        return 1
+    fi
+
+    out="$("$py" "$cli" "$verb" "${fwd[@]}" "--root=$PWD")" || rc=$?
+    MODEL_STATS_LINE="$(printf '%s\n' "$out" | tail -n 1)"
+
+    case "$MODEL_STATS_LINE" in
+        UPDATED:*)
+            local want="UPDATED:${agent}/${model}:${skill}:" value
+            value="${MODEL_STATS_LINE#"$want"}"
+            if (( rc == 0 )) && [[ "$MODEL_STATS_LINE" == "$want"* ]] \
+                    && [[ "$value" =~ ^([0-9]+|unknown)$ ]]; then
+                return 0
+            fi
+            MODEL_STATS_LINE="STATS_ERROR:unexpected_output"
+            ;;
+        STATS_DIVERGED:*)
+            MODEL_STATS_LINE="STATS_ERROR:diverged:${MODEL_STATS_LINE#STATS_DIVERGED:}"
+            ;;
+        STATS_ERROR:*)
+            ;;
+        *)
+            MODEL_STATS_LINE="STATS_ERROR:unexpected_output"
+            ;;
+    esac
+    (( rc != 0 )) || rc=1
+    return "$rc"
 }

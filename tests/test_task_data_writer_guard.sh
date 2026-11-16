@@ -267,11 +267,19 @@ echo "--- B: audited, deliberately NOT guarded ---"
 # Metadata-only writers: the corruption class is a lost list entry, not a lost
 # task status, and aitask_pick_own.sh runs on EVERY pick — guarding it would make
 # a wedged worktree block task selection outright.
+# The counter writers write no task data at all: they record on the aitask-stats
+# plumbing branch (t1912_4), so a wedged data worktree cannot be corrupted by
+# them and must not block them.
 for ng in aitask_pick_own aitask_usage_update aitask_verified_update aitask_add_model; do
+    case "$ng" in
+        aitask_usage_update|aitask_verified_update)
+            ng_why="writes no task data (aitask-stats store, t1912_4)" ;;
+        *)  ng_why="metadata only, by decision" ;;
+    esac
     # `grep -c` PRINTS 0 and EXITS 1 on no-match, so `|| echo 0` would append a
     # second line. Count the matching lines instead, which is 0 either way.
     ng_hits="$(grep -c 'assert_task_data_writable' "$PROJECT_DIR/.aitask-scripts/$ng.sh" 2>/dev/null || true)"
-    assert_eq "audited-not-guarded: $ng.sh (metadata only, by decision)" \
+    assert_eq "audited-not-guarded: $ng.sh ($ng_why)" \
         "0" "${ng_hits:-0}"
 done
 # Drafts under aitasks/new/ are gitignored and never committed — the one path

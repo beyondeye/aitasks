@@ -25,9 +25,9 @@ Bumps `usagestats[skill]` for the current model/skill regardless of `enableFeedb
    ./.aitask-scripts/aitask_usage_update.sh --agent-string "<detected_agent_string>" --skill "<skill_name>" --silent
    ```
 
-   - On success (`UPDATED:<agent>/<model>:<skill>:<runs>` line, exit 0): continue.
-   - On `UPDATED_REMOTE_ONLY:<agent>/<model>:<skill>:<runs>` (exit 3): the run **is** recorded on origin, but the local data branch does not have that commit yet. Tell the user the count is recorded remotely and that `./ait sync` brings it local, then **continue** — a partial metadata update must not fail the workflow.
-   - On failure: warn the user `usage update failed: <error>` and continue. Do NOT abort the workflow — usage tracking is best-effort.
+   - On success (`UPDATED:<agent>/<model>:<skill>:<runs>` line, exit 0): continue. `<runs>` may be the literal `unknown` — the run **is** recorded, only its current total could not be read; that is still a success.
+   - On `STATS_ERROR:<reason>` (non-zero exit): warn the user `usage not recorded: <reason>` and continue.
+   - On any other failure: warn the user `usage update failed: <error>` and continue. Do NOT abort the workflow — usage tracking is best-effort.
 
 
 ## Step 1 — Satisfaction question (disabled by profile)

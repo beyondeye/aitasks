@@ -7,6 +7,15 @@ Verbs (single-line structured stdout, diagnostics on stderr):
                   -> UPDATED:<A>/<M>:<S>:<month runs>
   record-verified --agent A --model M --skill S --score 1-5 [--date YYYY-MM-DD]
                   -> UPDATED:<A>/<M>:<S>:<all-time average, 0-100>
+
+                  UPDATED: always means the write is recorded. The value is the
+                  total every reader now shows (legacy file counters + branch,
+                  or the branch alone once the agent is migrated), computed from
+                  the commit just written. It is the literal `unknown` when that
+                  total cannot be stated (stderr says why); the write still
+                  stands and the exit status is 0. A local aitask-stats ref that
+                  could not be advanced after a successful push is likewise a
+                  stderr report, not a failure.
   refresh         [--timeout SECONDS]
                   -> REFRESHED:<sha> | REFRESH_SKIPPED:<reason> |
                      STATS_DIVERGED:<local>|<remote>      (always exit 0)
@@ -25,6 +34,7 @@ current directory); nothing here touches the task-data worktree.
 from __future__ import annotations
 
 import argparse
+import copy
 import json
 import os
 import re
@@ -37,7 +47,11 @@ sys.path.insert(0, os.path.join(_HERE, "lib"))
 import model_stats_store as mss  # noqa: E402
 
 MODEL_RE = re.compile(r"[a-z0-9_]+")
-SKILL_RE = re.compile(r"[A-Za-z0-9][A-Za-z0-9_.-]*")
+# Any non-empty skill the counter writers have always accepted (it is only ever
+# a JSON key), so routing them through this CLI narrows nothing (t1912_4). The
+# one refusal is a control character: it would split the single-line
+# `UPDATED:<agent>/<model>:<skill>:<value>` result every caller parses.
+SKILL_RE = re.compile(r"[^\x00-\x1f\x7f]+")
 DATE_RE = re.compile(r"\d{4}-\d{2}-\d{2}")
 
 
@@ -74,29 +88,64 @@ def _target(args):
         raise UsageError(f"invalid --skill: {args.skill!r}")
 
 
+def _warn(text: str) -> None:
+    try:
+        sys.stderr.write(f"model-stats: {text}\n")
+    except Exception:  # noqa: BLE001 - reporting must never undo a recorded write
+        pass
+
+
+def _write(args, key, render, message) -> int:
+    """Run one counter write and print its UPDATED: line.
+
+    Everything after ``mss.update`` returns runs on a write that is already
+    durable, so no failure there may become a failure exit or read as "not
+    recorded": local-ref trouble and an unavailable total are stderr reports.
+    """
+    today = _today(args.date)
+    committed = {}
+
+    def fn(blob):
+        new_blob, value = render(blob, today)
+        # The last call is the committed attempt: update() returns right after
+        # that attempt's push (or local CAS) succeeds.
+        committed["models"] = copy.deepcopy(new_blob.get("models") or {})
+        return new_blob, value
+
+    res = mss.update(args.root, args.agent, fn, message=message, return_commit=True)
+    head = f"UPDATED:{args.agent}/{args.model}:{args.skill}:"
+    try:
+        if res.local_ref == "DIVERGED" or res.local_ref.startswith("ERROR:"):
+            _warn(f"recorded on origin, but the local {mss.L_REF} was not advanced "
+                  f"({res.local_ref}); run 'aitask_model_stats.py refresh' or './ait sync'")
+        total = mss.effective_total(args.root, args.agent, args.model, key, args.skill,
+                                    today, committed.get("models"), res.commit)
+        text = f"{head}{total}"
+    except Exception as exc:  # noqa: BLE001 - see the docstring
+        reason = exc.reason if isinstance(exc, mss.StatsError) else type(exc).__name__
+        _warn(f"recorded, but the effective total is unavailable ({reason})")
+        text = f"{head}unknown"
+    _line(text)
+    return 0
+
+
 def cmd_bump_usage(args) -> int:
     _target(args)
-    today = _today(args.date)
-    value = mss.update(
-        args.root, args.agent,
-        lambda blob: mss.bump_usage(blob, args.model, args.skill, today),
-        message=f"ait: Update usage count {args.agent}/{args.model} {args.skill}")
-    _line(f"UPDATED:{args.agent}/{args.model}:{args.skill}:{value}")
-    return 0
+    return _write(
+        args, "usagestats",
+        lambda blob, today: mss.bump_usage(blob, args.model, args.skill, today),
+        f"ait: Update usage count {args.agent}/{args.model} {args.skill}")
 
 
 def cmd_record_verified(args) -> int:
     _target(args)
     if not re.fullmatch(r"[1-5]", args.score or ""):
         raise UsageError("--score must be an integer from 1 to 5")
-    today = _today(args.date)
     mapped = int(args.score) * 20
-    value = mss.update(
-        args.root, args.agent,
-        lambda blob: mss.record_verified(blob, args.model, args.skill, mapped, today),
-        message=f"ait: Update verified score {args.agent}/{args.model} {args.skill}")
-    _line(f"UPDATED:{args.agent}/{args.model}:{args.skill}:{value}")
-    return 0
+    return _write(
+        args, "verifiedstats",
+        lambda blob, today: mss.record_verified(blob, args.model, args.skill, mapped, today),
+        f"ait: Update verified score {args.agent}/{args.model} {args.skill}")
 
 
 def cmd_refresh(args) -> int:

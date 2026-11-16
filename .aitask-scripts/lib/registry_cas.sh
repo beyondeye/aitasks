@@ -2,13 +2,13 @@
 # registry_cas.sh - optimistic compare-and-swap rewrite of a shared file (t1928).
 # Source this file from aitask scripts; do not execute directly.
 #
-# The model registries are read-modify-written by three writers that never
-# coordinated: the OpenCode discovery refresh (aitask_opencode_models.sh) and
-# the two counter writers (aitask_usage_update.sh, aitask_verified_update.sh).
-# Each one rendered the new file from what it had read and then replaced the
-# file, so a write landing in between was silently discarded — in EITHER order:
-# a counter bump erased by the refresh, or the refresh's rows erased by a
-# counter writer that had read the registry before the refresh swapped in.
+# A model registry can be read-modify-written by writers that never coordinate:
+# the OpenCode discovery refresh (aitask_opencode_models.sh) against any other
+# registry rewrite (the t1912_5 stats-key strip is one). A writer that renders
+# the new file from what it had read and then replaces the file silently
+# discards a write that landed in between — in EITHER order. (The usage /
+# verified counter writers used to be two such writers; since t1912_4 they
+# record on the aitask-stats branch and never write the registry.)
 #
 # ait_cas_rewrite closes that by rendering from a byte SNAPSHOT and swapping only
 # if the live file still matches the snapshot:

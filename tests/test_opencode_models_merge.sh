@@ -3,8 +3,9 @@
 # it does not regenerate across a refresh (t1919).
 #
 # Discovery owns name/cli_id/notes/status. Everything else on an existing row —
-# verified, verifiedstats, usagestats, any future counter — is written by other
-# updaters (aitask_usage_update.sh, aitask_verified_update.sh) and must survive,
+# verified, legacy verifiedstats / usagestats counters (present until the t1912_5
+# migration strips them; the counter writers no longer write the registry since
+# t1912_4), any future field — belongs to someone else and must survive,
 # including a write that lands while discovery is still running.
 #
 # Runs the real script against a stub `opencode` on PATH that prints canned

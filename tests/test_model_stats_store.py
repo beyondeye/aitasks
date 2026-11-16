@@ -656,7 +656,9 @@ class TestCliValidation(IsolatedGit):
         cases = [
             ("bump-usage", "--agent", "Claude", "--model", "m", "--skill", "pick"),
             ("bump-usage", "--agent", "claudecode", "--model", "M-1", "--skill", "pick"),
-            ("bump-usage", "--agent", "claudecode", "--model", "m", "--skill", "a:b"),
+            ("bump-usage", "--agent", "claudecode", "--model", "m", "--skill", "a\nb"),
+            ("bump-usage", "--agent", "claudecode", "--model", "m", "--skill", "a\tb"),
+            ("bump-usage", "--agent", "claudecode", "--model", "m", "--skill", ""),
             ("bump-usage", "--agent", "claudecode", "--model", "m", "--skill", "pick",
              "--date", "20261112"),
             ("record-verified", "--agent", "claudecode", "--model", "m", "--skill", "pick",
@@ -812,6 +814,217 @@ class TestOverlay(IsolatedGit):
                              capture_output=True, text=True)
         self.assertEqual(bad.returncode, 2)
         self.assertTrue(bad.stdout.startswith("STATS_ERROR:usage:"), bad.stdout)
+
+
+def _load_cli():
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("aitask_model_stats_cli", CLI)
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod
+
+
+class TestEffectiveTotal(IsolatedGit):
+    """The writers' printed value is the reader-visible total, from the write's
+    own commit; once a write is durable nothing may turn it into a failure
+    (t1912_4)."""
+
+    MODEL = "opus"
+
+    def setUp(self):
+        super().setUp()
+        self.cli = _load_cli()
+
+    def run_cli(self, *args):
+        import contextlib
+        import io
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            rc = self.cli.main(list(args))
+        return rc, out.getvalue(), err.getvalue()
+
+    def rate(self, root, score, day="2026-11-12"):
+        return self.run_cli("record-verified", "--root", str(root), "--agent", "claudecode",
+                            "--model", self.MODEL, "--skill", "pick", "--score", str(score),
+                            "--date", day)
+
+    def use(self, root, day="2026-11-12"):
+        return self.run_cli("bump-usage", "--root", str(root), "--agent", "claudecode",
+                            "--model", self.MODEL, "--skill", "pick", "--date", day)
+
+    def legacy_rating(self, root, runs=1, score_sum=20):
+        write_legacy(root, [{"name": self.MODEL, "verified": {"pick": 20},
+                             "verifiedstats": {"pick": {
+                                 "all_time": {"runs": runs, "score_sum": score_sum}}}}])
+
+    @staticmethod
+    def branch_runs(root, key="verifiedstats", ref=mss.L_REF):
+        sha = ors.resolve(ors.toplevel(root), ref)
+        blob = mss.parse_blob(ors.read_file(ors.toplevel(root), sha, "claudecode.json"))
+        return blob["models"]["opus"][key]["pick"]["all_time"]["runs"]
+
+    def mark(self, root):
+        top = ors.toplevel(root)
+        base = ors.resolve(top, mss.L_REF)
+        commit = ors.build_commit(top, base, {mss.marker_path("claudecode"): b"{}\n"},
+                                  "marker", ident=mss.IDENT)
+        self.assertEqual(ors.cas_local(top, mss.L_REF, commit, base), "OK")
+
+    # ------------------------------------------------------------ totals
+    def test_legacy_plus_branch_is_the_printed_average(self):
+        root = self.repo("v", remote=False)
+        self.legacy_rating(root)                       # 1 run, 20
+        rc, out, _ = self.rate(root, 5)                # + 100
+        self.assertEqual((rc, out), (0, "UPDATED:claudecode/opus:pick:60\n"))
+
+    def test_legacy_usage_same_month_is_summed(self):
+        root = self.repo("u", remote=False)
+        write_legacy(root, [{"name": self.MODEL, "usagestats": {"pick": usage_entry(3)}}])
+        rc, out, _ = self.use(root)
+        self.assertEqual((rc, out), (0, "UPDATED:claudecode/opus:pick:4\n"))
+
+    def test_marker_in_the_written_commit_ignores_legacy(self):
+        root = self.repo("m", remote=False)
+        self.legacy_rating(root)
+        self.mark(root)
+        rc, out, _ = self.rate(root, 5)
+        self.assertEqual((rc, out), (0, "UPDATED:claudecode/opus:pick:100\n"))
+
+    def test_the_fail_soft_loader_is_never_consulted(self):
+        # The loader reads a git failure as "no branch" (legacy-only totals);
+        # making it explode proves the total does not come from it.
+        root = self.repo("s", remote=False)
+        self.legacy_rating(root)
+        boom = mock.Mock(side_effect=AssertionError("loader consulted"))
+        with mock.patch.object(mss, "_branch_content", boom), \
+                mock.patch.object(mss, "load_agent_stats", boom):
+            rc, out, err = self.rate(root, 5)
+        self.assertEqual((rc, out), (0, "UPDATED:claudecode/opus:pick:60\n"), err)
+
+    def test_total_ignores_a_local_ref_left_behind(self):
+        root = self.repo("l")
+        self.legacy_rating(root)
+        with mock.patch.object(ors, "advance_ref", return_value="DIVERGED"):
+            rc, out, err = self.rate(root, 5)
+        self.assertEqual((rc, out), (0, "UPDATED:claudecode/opus:pick:60\n"))
+        self.assertIn("was not advanced (DIVERGED)", err)
+        self.assertIsNone(ors.resolve(ors.toplevel(root), mss.L_REF))
+
+    # ------------------------------------------------ unavailable totals
+    def assert_recorded_unknown(self, root, rc, out, err):
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out, "UPDATED:claudecode/opus:pick:unknown\n")
+        self.assertNotEqual(out, "UPDATED:claudecode/opus:pick:100\n")  # branch-only
+        self.assertIn("effective total is unavailable", err)
+        self.assertEqual(self.branch_runs(root), 1)   # the write itself stands
+
+    def test_unreadable_marker_is_unknown(self):
+        root = self.repo("a", remote=False)
+        self.legacy_rating(root)
+        real = ors.read_file
+
+        def read_file(repo, commit, path):
+            if path == mss.marker_path("claudecode"):
+                raise ors.GitError("simulated ls-tree failure")
+            return real(repo, commit, path)
+
+        with mock.patch.object(ors, "read_file", read_file):
+            rc, out, err = self.rate(root, 5)
+        self.assert_recorded_unknown(root, rc, out, err)
+
+    def test_invalid_legacy_file_is_unknown(self):
+        root = self.repo("b", remote=False)
+        meta = root / "aitasks" / "metadata"
+        meta.mkdir(parents=True)
+        (meta / "models_claudecode.json").write_text("{ not json")
+        rc, out, err = self.rate(root, 5)
+        self.assert_recorded_unknown(root, rc, out, err)
+
+    def test_any_failure_in_the_total_is_unknown(self):
+        root = self.repo("c", remote=False)
+        self.legacy_rating(root)
+        with mock.patch.object(mss, "merge_stats", side_effect=RuntimeError("boom")):
+            rc, out, err = self.rate(root, 5)
+        self.assert_recorded_unknown(root, rc, out, err)
+
+    def test_backdated_write_outside_the_view_is_unknown_never_zero(self):
+        root = self.repo("d", remote=False)
+        write_legacy(root, [{"name": self.MODEL, "usagestats": {"pick": {
+            "all_time": {"runs": 5},
+            "prev_month": {"period": "2026-10", "runs": 2},
+            "month": {"period": "2026-11", "runs": 3},
+            "week": {"period": "2026-W46", "runs": 3}}}}])
+        rc, out, err = self.use(root, day="2026-08-03")
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out, "UPDATED:claudecode/opus:pick:unknown\n")
+        self.assertEqual(self.branch_runs(root, "usagestats"), 1)
+
+    # ---------------------------------------------- post-push boundary
+    def _post_push_failure(self, exc):
+        root = self.repo("p")
+        with mock.patch.object(ors, "advance_ref", side_effect=exc):
+            rc, out, err = self.rate(root, 4)
+        self.assertEqual(rc, 0, err)
+        self.assertEqual(out, "UPDATED:claudecode/opus:pick:80\n")
+        self.assertIn("was not advanced (ERROR:", err)
+        self.assertNotIn("STATS_ERROR", out)
+        # Exactly one increment on origin: one commit (the root), runs = 1.
+        self.assertEqual(git(self.remote, "rev-list", "--count", "refs/heads/aitask-stats"), "1")
+        self.assertEqual(self.origin_blob()["models"]["opus"]["verifiedstats"]["pick"]
+                         ["all_time"], {"runs": 1, "score_sum": 80})
+        self.assertIsNone(ors.resolve(ors.toplevel(root), mss.L_REF))
+        # A later normal write builds on origin: no double count, no loss.
+        rc, out, err = self.rate(root, 5)
+        self.assertEqual((rc, out), (0, "UPDATED:claudecode/opus:pick:90\n"), err)
+        self.assertEqual(self.origin_blob()["models"]["opus"]["verifiedstats"]["pick"]
+                         ["all_time"], {"runs": 2, "score_sum": 180})
+
+    def test_post_push_git_error_is_a_recorded_success(self):
+        self._post_push_failure(ors.GitError("simulated update-ref failure"))
+
+    def test_post_push_os_error_is_a_recorded_success(self):
+        self._post_push_failure(OSError("simulated fork failure"))
+
+    def test_nested_cwd_without_root_reads_the_repository_registry(self):
+        # --root defaults to the cwd; update() resolves it to the toplevel, and
+        # the legacy registry must be read from that same root.
+        root = self.repo("nested", remote=False)
+        self.legacy_rating(root)                       # 1 run, 20
+        nested = root / "website" / "deep"
+        nested.mkdir(parents=True)
+        old = os.getcwd()
+        os.chdir(nested)
+        try:
+            rc, out, err = self.run_cli(
+                "record-verified", "--agent", "claudecode", "--model", self.MODEL,
+                "--skill", "pick", "--score", "5", "--date", "2026-11-12")
+        finally:
+            os.chdir(old)
+        self.assertEqual((rc, out), (0, "UPDATED:claudecode/opus:pick:60\n"), err)
+
+    def test_every_skill_the_writers_accepted_is_accepted(self):
+        # The counter writers took any non-empty skill (a JSON key); the CLI they
+        # now route through must not narrow that. Echoed verbatim.
+        root = self.repo("skills", remote=False)
+        skills = ["custom/skill", "a:b", "two words", "*glob[x]", "ñandú", ".dot",
+                  "batch-review", "x|y"]
+        for skill in skills:
+            rc, out, err = self.run_cli(
+                "record-verified", "--root", str(root), "--agent", "claudecode",
+                "--model", self.MODEL, "--skill", skill, "--score", "4")
+            self.assertEqual((rc, out), (0, f"UPDATED:claudecode/opus:{skill}:80\n"),
+                             (skill, err))
+        stats = mss.load_agent_stats(root, "claudecode")["opus"]["verifiedstats"]
+        self.assertEqual(sorted(stats), sorted(skills))
+
+    def test_no_remote_cas_failure_is_still_an_error(self):
+        # Without a remote the local ref IS the store: a failed CAS means the
+        # write did not land, so it must stay a failure.
+        root = self.repo("n", remote=False)
+        with mock.patch.object(ors, "cas_local", side_effect=ors.GitError("locked")):
+            rc, out, _ = self.rate(root, 4)
+        self.assertEqual(rc, 1)
+        self.assertTrue(out.startswith("STATS_ERROR:"), out)
 
 
 if __name__ == "__main__":

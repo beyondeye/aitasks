@@ -57,15 +57,17 @@ echo "=== Test: --agent/--cli-id resolves and updates ==="
 run_update --agent claudecode --cli-id claude-opus-4-6 --skill test_414_flags --score 5
 assert_exit_zero_rc "agent/cli-id exits 0" "$RC"
 assert_contains "agent/cli-id resolves to UPDATED" "UPDATED:claudecode/opus4_6:test_414_flags:100" "$OUT"
-assert_eq "agent/cli-id score written to the fixture registry" "100" \
+assert_eq "agent/cli-id score recorded in the fixture's stats store" "100" \
+    "$(mdfix_stat "$REPO" '.verifiedstats.test_414_flags.all_time.score_sum')"
+assert_eq "agent/cli-id run wrote no verified prior to the registry" "null" \
     "$(registry_get '.models[0].verified.test_414_flags')"
 
 echo "=== Test: --agent-string backward compat ==="
 run_update --agent-string claudecode/opus4_6 --skill test_414_flags --score 4
 assert_exit_zero_rc "agent-string exits 0" "$RC"
 assert_contains "agent-string still works" "UPDATED:claudecode/opus4_6:test_414_flags:90" "$OUT"
-assert_eq "agent-string run added to the fixture registry" "2" \
-    "$(registry_get '.models[0].verifiedstats.test_414_flags.all_time.runs')"
+assert_eq "agent-string run added to the fixture's stats store" "2" \
+    "$(mdfix_stat "$REPO" '.verifiedstats.test_414_flags.all_time.runs')"
 
 # Every rejection below must leave the registry byte-identical.
 BEFORE="$(cat "$REGISTRY")"

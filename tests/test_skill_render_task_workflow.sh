@@ -396,6 +396,29 @@ done
 assert_not_contains "satisfaction-feedback true: no disabled note" \
     'feedback questions disabled' "$SF_TRUE"
 
+# The stats writers record on the aitask-stats branch (t1912_4): the partial
+# UPDATED_REMOTE_ONLY outcome is gone, a store failure is STATS_ERROR (warn and
+# continue), and `unknown` is a recorded success — in every arm, including the
+# usage-only render of a feedback-disabled profile.
+for arm in default fast remote true; do
+    case "$arm" in
+        default) sf="$DEFAULT_SF" ;;
+        true)    sf="$SF_TRUE" ;;
+        *)       sf="$($RENDER "$WORKFLOW_DIR/satisfaction-feedback.md" "$PROFILES_DIR/$arm.yaml" claude 2>&1)" ;;
+    esac
+    assert_not_contains "satisfaction-feedback $arm: no UPDATED_REMOTE_ONLY" \
+        'UPDATED_REMOTE_ONLY' "$sf"
+    assert_contains "satisfaction-feedback $arm: STATS_ERROR handled" \
+        'STATS_ERROR:<reason>' "$sf"
+    assert_contains "satisfaction-feedback $arm: unknown total is a recorded success" \
+        'may be the literal `unknown`' "$sf"
+done
+for arm in default true; do
+    if [[ "$arm" == default ]]; then sf="$DEFAULT_SF"; else sf="$SF_TRUE"; fi
+    assert_contains "satisfaction-feedback $arm: unknown rating average is recorded" \
+        ':<skill>:unknown` (exit 0) — the rating **is** recorded' "$sf"
+done
+
 # === Test 3b: rendered SKILL.md must NOT include Step 3b refresh (t777_26) ===
 
 echo "=== Test 3b: SKILL.md rendered output has no Step 3b refresh ==="
