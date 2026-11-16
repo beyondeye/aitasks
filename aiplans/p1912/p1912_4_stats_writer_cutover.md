@@ -488,3 +488,190 @@ Post-Implementation per task-workflow (current branch, no worktree).
 
 ### Planned mitigations
 - timing: pre-phase | name: freeze_parity_golden | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: deleting the jq renderers removes the port-parity proof | desc: capture the live jq writers' per-step value+bucket into tests/golden/model_stats_parity/steps.tsv before any writer edit; rewrite the parity test to golden-only after
+
+## Implementation notes (progress, deviations, evidence)
+
+- **Pre-phase freeze_parity_golden — done** (commit `5e33fad89`). The capture
+  ran against the live jq writers at `25cc60714` and produced 22 rows; the
+  runtime counter matched. `tests/test_model_stats_parity.sh` is now
+  golden-only and compares against a 22-label manifest. Negative controls:
+  corrupting one bucket in a copy of the golden fails exactly that assertion
+  (1 failure), and dropping one row fails the manifest and row-count
+  assertions. The golden-only rewrite also found a bash pitfall: `read` with
+  `IFS=$'\t'` collapses the empty `score_100` column of usage rows (tab is IFS
+  whitespace), so the fields are split in Python and joined with `\x1f`.
+- **Step 1, red run** against the pre-cutover writers (8 of 21 failed):
+  - HEAD, the index hash, the clone's `origin/aitask-data` tracking ref and
+    origin's `aitask-data` tip all moved;
+  - the git log showed `-C .aitask-data fetch`,
+    `-C .aitask-data merge --ff-only … origin/aitask-data` (pre- and
+    post-converge, for both writers) and
+    `push origin HEAD:refs/heads/aitask-data` from the temp clone;
+  - the registry gained `usagestats` and `verifiedstats`;
+  - no `aitask-stats` push happened.
+
+  `status --porcelain` stayed equal, because the ff-only merge carried the
+  dirty files across. After the cutover: 22/22 green, including a third run
+  launched from `aitasks/metadata` (a symlink into `.aitask-data`).
+- **Step 3, pre-fix controls.** The new `TestEffectiveTotal` (12 tests) was
+  run against HEAD `5e33fad89`'s store and CLI in a scratch worktree: 10
+  failed. The post-push `GitError` injection gave exit 1 (`STATS_ERROR`), as
+  the reviewer described. Two tests passed pre-fix, and are meant to: the
+  marker case (branch-only, the same as before) and the no-remote CAS failure
+  (it must remain an error).
+- **Deviation:** the non-root cwd tests (usage 17, verified 32) use the new
+  `setup_remote_stats_repo` (subdir and unrelated cwd) instead of
+  `sync_fixture`. The branch-mode, inside-the-data-worktree case lives in the
+  acceptance test, which already uses the real branch-mode layout.
+- **Deviation:** the fixture tests pin cleanliness with
+  `status --porcelain --untracked-files=no` plus an unchanged HEAD. The CLI's
+  `lib/__pycache__` is untracked noise in fixtures that have no `.gitignore`.
+- **Not covered:** `STATS_ERROR:no_python` (forcing `resolve_python` to fail
+  would mean faking `$HOME`, `AIT_PYTHON` and `PATH` together). The branch is
+  three lines next to `cli_missing`, which is tested.
+- `test_metadata_writer_inventory.py` currently fails one tripwire on
+  `.aitask-scripts/lib/sitrep_crash.py`. That file holds another session's
+  uncommitted work and was dirty before this task started. Neither stats
+  writer is flagged after their pins were removed.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-16)
+- **Requested by user (two blocking findings, both confirmed):**
+  1. `effective_total` read the legacy registry under the caller's raw
+     `project_root`, while `update` writes into the resolved toplevel. A CLI
+     run from a nested cwd without `--root` therefore printed the branch-only
+     value: `:100` instead of `:60`.
+  2. The CLI's `SKILL_RE` (`[A-Za-z0-9][A-Za-z0-9_.-]*`) narrowed the writers'
+     public interface. `--skill custom/skill` used to record and now returned
+     `STATS_ERROR:usage:…` with exit 2.
+- **Changes made:**
+  1. `effective_total` reads the legacy registry under `top` (the resolved
+     toplevel); an explicit `metadata_path` is still used verbatim.
+  2. `SKILL_RE` is now `[^\x00-\x1f\x7f]+`. That accepts any non-empty skill,
+     with one stated exception: control characters, which would split the
+     single-line `UPDATED:` result every caller parses (the old writers
+     emitted a broken line in that case). The t1912_1
+     `TestCliValidation` case that pinned `a:b` as invalid now pins `a\nb`,
+     `a\tb` and the empty skill.
+- **Tests:**
+  - `test_nested_cwd_without_root_reads_the_repository_registry` and
+    `test_every_skill_the_writers_accepted_is_accepted` in
+    `test_model_stats_store.py`;
+  - writer-level compatibility loops: `test_usage_update.sh` 11c (6 skills)
+    and `test_verified_update.sh` 8b (4 skills).
+
+  Pre-fix control, in a scratch worktree with only the two fixes reverted:
+  both new store tests fail, with exactly the reported symptoms (`:100` vs
+  `:60`, and `STATS_ERROR:usage:invalid --skill: 'custom/skill'`).
+- **Files affected:** `.aitask-scripts/lib/model_stats_store.py`,
+  `.aitask-scripts/aitask_model_stats.py`, `tests/test_model_stats_store.py`,
+  `tests/test_usage_update.sh`, `tests/test_verified_update.sh`.
+
+### Change Request 2 (2026-11-16)
+- **Requested by user (blocking, confirmed):** `model_stats_write` forwarded
+  `--skill` and its value as separate argv entries, so argparse read a skill
+  that starts with `-` as an option. With `--skill -custom` the old writer gave
+  `UPDATED:…:-custom:1`; the new one gave `STATS_ERROR:usage:argument --skill:
+  expected one argument`.
+- **Changes made:** the bridge now forwards every `--opt value` pair as one
+  `--opt=value` token, and `--root=$PWD` the same way. argparse always binds a
+  `=`-attached value, even one like `-h` or `--skill=x`. The target echo check
+  uses the values recorded while forwarding. A trailing option with no value
+  returns `STATS_ERROR:usage:`.
+- **Tests:**
+  - `test_usage_update.sh` 11c adds `-custom`, `--looks-like-a-flag`, `-h`,
+    `a=b` and `--skill=x`;
+  - `test_verified_update.sh` 8b adds `-custom` and `--score`;
+  - the verified bridge stub reads `--score=`.
+
+  Pre-fix control, with the bridge reverted to separate-argument forwarding
+  in a scratch worktree: all four option-looking skills fail with the
+  reported `STATS_ERROR`.
+- **Files affected:** `.aitask-scripts/lib/verified_update_lib.sh`,
+  `tests/test_usage_update.sh`, `tests/test_verified_update.sh`.
+
+## Final Implementation Notes
+- **Actual work done:** the cutover landed as planned.
+  - **Writers.** `aitask_usage_update.sh` and `aitask_verified_update.sh` keep
+    their CLI, validation, read-only registry check and registration hint.
+    They write through `aitask_model_stats.py bump-usage` / `record-verified`
+    via `model_stats_write`, the shared bridge that is now the only content of
+    `lib/verified_update_lib.sh` apart from `model_registration_hint`.
+    - Deleted: the clone/push path, both converges, the `registry_cas.sh`
+      counter rewrite, the jq renderers, the EXIT/unstage traps and
+      `UPDATED_REMOTE_ONLY`.
+    - `verified` is never written.
+  - **Output contract.** `UPDATED:<agent>/<model>:<skill>:<value>` always means
+    recorded. `<value>` is the **effective** total, the one readers show (user
+    decision), or `unknown`. A failed write prints `STATS_ERROR:<reason>` with
+    a non-zero exit.
+  - **Store / CLI.**
+    - `update(..., return_commit=True)` returns
+      `UpdateResult(value, commit, local_ref)`. Nothing after a push `OK` can
+      raise.
+    - New `effective_total` is computed from the committed blob, the marker
+      in that commit and a strict legacy read under the resolved toplevel.
+    - `TotalUnavailable` is new, and `legacy_models(strict=True)`.
+    - `SKILL_RE` was widened to any non-empty skill without control
+      characters.
+  - **satisfaction-feedback.md:** handles `STATS_ERROR` (warn and continue)
+    and `:unknown` (recorded, no retry), and drops `UPDATED_REMOTE_ONLY`.
+    Rerendered; 3 goldens and 3 tracked remote renders updated.
+  - **Tests:**
+    - new `test_stats_writers_leave_task_data.sh` (the acceptance test);
+    - 14 new store tests (`TestEffectiveTotal`);
+    - the frozen jq parity golden plus the golden-only parity test;
+    - rewritten usage, verified and flags tests and the fixture;
+    - `test_metadata_partial_sync_recovery.sh` retired;
+    - pins and comments updated in five other files.
+- **Deviations from plan:**
+  - Both review rounds (Post-Review Changes 1 and 2).
+  - Non-root cwd tests use `setup_remote_stats_repo`. The inside-the-data-
+    worktree case is in the acceptance test.
+  - The fixture cleanliness checks ignore untracked `__pycache__`.
+  - `STATS_ERROR:no_python` is not tested.
+  - The bridge forwards `--opt=value` tokens.
+- **Issues encountered:**
+  - The bash `IFS=$'\t'` collapse of empty TSV fields (fixed by splitting in
+    Python).
+  - A `git rm` staged a deletion into the shared index; it was unstaged at
+    once, and the deletion is committed by path.
+  - The full Python suite verdict is **FAILED** with 2 failures, neither from
+    this change:
+    - `test_metadata_writer_inventory::test_no_unclassified_file_writes_metadata`
+      fails identically at HEAD `5e33fad89` without this change;
+    - `test_minimonitor_concern_action::…test_enter_failure_names_the_leftover_text_and_disarms`
+      sits under another session's uncommitted monitor edits; it passes in
+      isolation, and its id no longer exists in the current file.
+- **Key decisions:**
+  - The effective total never comes from the fail-soft loader, and never
+    falls back to the branch-only value.
+  - Once a write is durable, any reporting problem is `:unknown` or a stderr
+    note, never a failure exit.
+  - The CLI's stderr is forwarded even under `--silent`.
+  - No whitelist entries for `aitask_model_stats.py`: skills invoke only the
+    two writers.
+  - No port tasks: `.agents/` / `.opencode/` are renders of the same source.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/sitrep_crash.py:1 — t2307's commit 87ecc9799 left a metadata-targeting write unclassified in tests/test_metadata_writer_inventory.py (NewWriterTripwire fails at HEAD)`
+  - `.aitask-scripts/aitask_model_stats.py:211 — export/show default --root to the raw cwd and read the legacy registry under it (load_agent_stats does not resolve the toplevel), so run from a nested directory they show branch-only counters; the writers and readers pass the repo root, so only direct CLI use is affected`
+- **Notes for sibling tasks:**
+  - **t1912_5 (migration):**
+    - Writers now only ever add branch counters; the registry's stats keys
+      are frozen legacy, waiting for the strip.
+    - `effective_total` reads the marker from the commit just written, so
+      once a marker lands the printed total becomes branch-only with no
+      writer change.
+    - `registry_cas.sh` stays for `aitask_opencode_models.sh` and the strip.
+    - The parity golden (`tests/golden/model_stats_parity/steps.tsv`) pins
+      the bucket ports that `merge_buckets` builds on.
+  - **t1912_6 (docs):**
+    - The writers' `--help` text now states the storage and result contract.
+    - `aidocs/framework/adding_a_new_codeagent.md` L315-316 and
+      `model_reference_locations.md` rows for the two writers, plus their
+      retired tests, are for you to update.
+  - **t1912_7 (retrospective):** after this commit no stats write touches the
+    `.aitask-data` reflog.
+  - **t2288:** the converge is gone; the re-homed `task-data-push.md` sites
+    are now the only publication of those commits.
