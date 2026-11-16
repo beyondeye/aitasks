@@ -270,10 +270,37 @@ NEXT_STEPS = {
         "Refresh has no automatic check for this item. Press  {k_ask}  to ask the "
         "sitrep agent to look at its sources ( >q {cid} <question> ), or press  "
         "{k_dismiss}  to dismiss it."),
+    "recover": (
+        "Recover: {title}{outcome}",
+        "Press  {k_board}  to show t{pick_id} in the board, or  {k_ask}  to ask the "
+        "sitrep agent about it ( >q {cid} <question> )."),
     "raw": (
         "{kind} / {state}: {title}",
         "No guidance for this kind of item — read its context below."),
 }
+
+#: A crash-recovery item's ("What to do", "How") per category -- the label of
+#: its outcome (`sitrep_crash.format_outcome`). An outcome with no known label
+#: uses NEXT_STEPS["recover"]. The stale-lock unlock command is SHOWN, never run.
+RECOVER_STEPS = {
+    "crashed": (
+        "Recover: {title}{outcome}",
+        "Resume: press  {k_pick}  to launch  /aitask-pick {pick_id}  (reclaim → crash "
+        "recovery survey). Do not git restore / git stash the tree: the crashed "
+        "agent's work may survive in it."),
+    "orphan": (
+        "Recover: {title}{outcome}",
+        "Resume or clean up: press  {k_pick}  to launch  /aitask-pick {pick_id} , or  "
+        "{k_board}  to show it in the board."),
+    "stale_lock": (
+        "Recover: {title}{outcome}",
+        "Check the holder, then release the lock yourself:  ait lock --unlock {pick_id}  "
+        "(shown, never run). Refresh ( {k_refresh} ) re-checks it once the lock is gone: "
+        "done when the task is no longer Implementing, otherwise it becomes an orphan "
+        "to resume."),
+}
+#: The recovery categories `p` may launch /aitask-pick for.
+RECOVER_PICKABLE = ("crashed", "orphan")
 
 _TRIAGE_PREFIX = "Triage wrap-up of "
 _TRIAGE_RE = re.compile(r"^Triage wrap-up of (t[0-9]+(?:_[0-9]+)?)\b")
@@ -283,7 +310,7 @@ _XREF_RE = re.compile(r"^([^#\s]+)#([0-9]+(?:_[0-9]+)?)\Z")
 
 def refresh_checks(store: "st.TodoStore | None") -> dict:
     """``{item num: check}`` for the items refresh re-checks (task / push /
-    trail), from ``sitrep_refresh.select_targets`` -- the refresh's OWN rule,
+    trail / recovery), from ``sitrep_refresh.select_targets`` -- the refresh's OWN rule,
     so the guidance never promises a check refresh does not make. A failure is
     ``{}``: every watch / unknown item then gets the manual guidance."""
     if store is None:
@@ -310,6 +337,8 @@ def classify(item: "st.Item", refresh_check: "str | None" = None) -> str:
             return "triage"
         return "decide"
     if item.kind == "task":
+        if st.parse_recover_ref(item.ref or ""):
+            return "recover"
         if _LOCAL_REF_RE.match(item.ref or ""):
             return "pick"
         if _XREF_RE.match(item.ref or ""):
@@ -322,6 +351,20 @@ def classify(item: "st.Item", refresh_check: "str | None" = None) -> str:
     return "raw"
 
 
+def recover_category(item: "st.Item | None") -> str:
+    """The category of a crash-recovery item (`crashed`, `orphan`,
+    `stale_lock`), read from its outcome label; "" for any other item or an
+    unparseable outcome. Display and gating only."""
+    if item is None or item.kind != "task" or not st.parse_recover_ref(item.ref or ""):
+        return ""
+    try:
+        from sitrep_crash import parse_outcome  # lazy: it pulls in the detector's libs
+    except Exception:  # noqa: BLE001 - guidance is decoration
+        return ""
+    label, _evidence = parse_outcome(item.outcome or "")
+    return label if label in RECOVER_STEPS else ""
+
+
 def _fields(item: "st.Item") -> dict:
     title, ref, outcome = item.title, item.ref or "", item.outcome or ""
     m = _TRIAGE_RE.match(title)
@@ -332,8 +375,11 @@ def _fields(item: "st.Item") -> dict:
         rest = title[len(ref) + 1:]
     pick_id = project = ""
     lm, xm = _LOCAL_REF_RE.match(ref), _XREF_RE.match(ref)
+    recover_id = st.parse_recover_ref(ref)
     if lm:
         pick_id = lm.group(1)
+    elif recover_id:
+        pick_id = recover_id
     elif xm:
         project, pick_id = xm.group(1), xm.group(2)
     push = st.parse_push_ref(ref)
@@ -358,6 +404,8 @@ def next_step(item: "st.Item", refresh_check: "str | None" = None,
     try:
         key = classify(item, refresh_check)
         what, how = NEXT_STEPS[key]
+        if key == "recover":
+            what, how = RECOVER_STEPS.get(recover_category(item), (what, how))
         fields = _fields(item)
         effective = {**DEFAULT_KEYS, **(keys or {})}
         return NextStep(key, what.format(**fields),
@@ -1086,14 +1134,38 @@ class RefreshReport:
         """Both the exit status AND the last final line must say so."""
         return self.rc == 0 and self.final_kind in ("REFRESHED", "REFRESH_NONE")
 
+    def _warn_count(self, head: str) -> int:
+        """`<n>` of the `REFRESH_WARN:<head>|<n> …` lines, summed."""
+        n = 0
+        for w in self.warns:
+            name, _, rest = w.partition("|")
+            if name == head:
+                m = re.match(r"^\s*([0-9]+)", rest)
+                n += int(m.group(1)) if m else 1
+        return n
+
+    @property
+    def partial(self) -> bool:
+        """The run succeeded but did not decide everything it should have:
+        some items were not verified, or the budget ran out before some."""
+        return self.ok and bool(self._warn_count("unverified")
+                                or self._warn_count("budget_exhausted"))
+
     def verdict(self) -> str:
         if not self.ok:
             return f"Refresh failed: {self.reason or 'unknown'}"
         if self.final_kind == "REFRESH_NONE":
             return f"Nothing to refresh ({self.reason or 'none'})"
         c = dict(self.counts)
-        return (f"Refreshed: {c.get('checked', '0')} checked, "
+        text = (f"Refreshed: {c.get('checked', '0')} checked, "
                 f"{c.get('changed', '0')} changed")
+        unverified = self._warn_count("unverified")
+        if unverified:
+            text += f", {unverified} not verified"
+        not_reached = self._warn_count("budget_exhausted")
+        if not_reached:
+            text += f", {not_reached} not reached"
+        return text
 
 
 def parse_refresh_output(rc: int, out: str) -> RefreshReport:
@@ -1134,11 +1206,14 @@ def task_ref_id(item: "st.Item | None") -> "str | None":
     """The local task id (``"12"`` / ``"12_3"``) a TASK item names, else None.
 
     Kind must be ``task``: a triage item's title and ref name a task too, but
-    it is not a pick (t2211_3 user decision). Cross-repo refs are None."""
+    it is not a pick (t2211_3 user decision). Cross-repo refs are None. A
+    crash-recovery item (``recover:t<N>``) names its task too (t2299_3)."""
     if item is None or item.kind != "task":
         return None
     m = _LOCAL_REF_RE.match(item.ref or "")
-    return m.group(1) if m else None
+    if m:
+        return m.group(1)
+    return st.parse_recover_ref(item.ref or "")   # a crash-recovery item names its task
 
 
 _GIT_CAP = 5.0

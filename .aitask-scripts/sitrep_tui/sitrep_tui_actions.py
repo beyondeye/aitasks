@@ -52,6 +52,7 @@ from agent_command_screen import build_pick_screen
 from guarded_dismiss import GuardedModalScreen, is_active_screen
 from monitor.sitrep_close import (
     HARVEST_ALL_TIMEOUT,
+    HARVEST_CRASHED_TIMEOUT,
     SITREP_OPEN_TIMEOUT,
     run_owned_group,
 )
@@ -162,6 +163,53 @@ def summarize_harvest_all(rc: int, out: str) -> tuple:
     if harvested:
         return True, f"Harvested: {added} added, {existing} existing", lines
     return True, "Nothing new to harvest", lines
+
+
+def summarize_crashed(rc: int, out: str) -> tuple:
+    """``(ok, verdict, detail lines)`` for `aitask_sitrep_harvest.sh crashed`
+    (its header is the contract). Not ok on a non-zero exit, a runner
+    ``ERROR:`` line, ``CRASH_FAILED:`` or a missing final line."""
+    lines = []
+    runner_error = final = failed = ""
+    counts = {}
+    for raw in (out or "").splitlines():
+        line = raw.strip()
+        if line.startswith("ERROR:"):
+            runner_error = line[len("ERROR:"):]
+            continue
+        head, sep, rest = line.partition(":")
+        if not sep:
+            continue
+        parts = rest.split("|")
+        if head == "CRASHED":
+            final = head
+            counts = dict(p.partition("=")[::2] for p in parts)
+        elif head == "CRASH_NONE":
+            final = head
+        elif head == "CRASH_FAILED":
+            final, failed = head, rest
+        elif head == "CRASH_WARN":
+            lines.append(f"recovery warning: {parts[0]} {rest.partition('|')[2]}".rstrip())
+        elif head == "CRASH_ITEM" and len(parts) >= 4 and parts[2] in ("added", "reopened"):
+            lines.append(f"recovery: {parts[0]} {parts[3]} ({parts[2]})")
+    if runner_error:
+        lines.append(f"recovery: {runner_error}")
+    if failed or runner_error or rc != 0 or not final:
+        why = failed or runner_error or (f"exit {rc}" if rc != 0 else "no result")
+        return False, f"Recovery check failed: {why}", lines
+    if final == "CRASH_NONE":
+        return True, "Recovery: nothing in flight", lines
+    c = {k: _int(counts.get(k)) for k in ("crashed", "orphans", "stale_locks", "added",
+                                          "reopened", "warned")}
+    if not (c["crashed"] or c["orphans"] or c["stale_locks"]):
+        verdict = "Recovery: nothing crashed"
+    else:
+        verdict = (f"Recovery: {c['crashed']} crashed, {c['orphans']} orphans, "
+                   f"{c['stale_locks']} stale locks ({c['added']} new, "
+                   f"{c['reopened']} reopened)")
+    if c["warned"]:
+        verdict += f", {c['warned']} warned"
+    return True, verdict, lines
 
 
 def _int(value) -> int:
@@ -621,8 +669,10 @@ class SitrepActionsMixin:
         if item is None or self.store is None or self.todo_error:
             return False
         if action == "pick_task":
-            return (model.classify(item, self._checks.get(item.num)) == "pick"
-                    and model.task_ref_id(item) is not None)
+            key = model.classify(item, self._checks.get(item.num))
+            pickable = key == "pick" or (
+                key == "recover" and model.recover_category(item) in model.RECOVER_PICKABLE)
+            return pickable and model.task_ref_id(item) is not None
         if action == "open_in_board":
             return model.task_ref_id(item) is not None
         if action == "open_in_trails":
@@ -727,6 +777,13 @@ class SitrepActionsMixin:
             rc, out = await self._runner([HARVEST_SH, "all", "--root", self.root],
                                          HARVEST_ALL_TIMEOUT)
             h_ok, h_verdict, h_lines = summarize_harvest_all(rc, out)
+            # The crash detector (t2299_3) runs between the two, so the
+            # recovery items it writes are re-checked by this same refresh.
+            # Each step stands alone: a failed harvest or detector run never
+            # stops the next one.
+            rc_c, out_c = await self._runner([HARVEST_SH, "crashed", "--root", self.root],
+                                             HARVEST_CRASHED_TIMEOUT)
+            c_ok, c_verdict, c_lines = summarize_crashed(rc_c, out_c)
             # Refresh runs even after a failed harvest: it re-checks the items
             # already in the store and needs nothing from this harvest.
             rc2, out2 = await self._runner(
@@ -735,17 +792,20 @@ class SitrepActionsMixin:
             report = model.parse_refresh_output(rc2, out2)
         finally:
             self._harvest_inflight = False
-        ok = h_ok and report.ok
+        ok = h_ok and c_ok and report.ok
         self._last_refresh = (_dt.datetime.now().strftime("%H:%M"), ok)
         await self._poll_store()
         self._render_header()
         self.refresh_bindings()
-        verdicts = [h_verdict, report.verdict()]
+        verdicts = [h_verdict, c_verdict, report.verdict()]
+        lines = h_lines + c_lines + refresh_lines(report)
         if show_panel:
-            self.push_screen(ResultDialog("Harvest + refresh", verdicts,
-                                          h_lines + refresh_lines(report), failed=not ok))
+            self.push_screen(ResultDialog("Harvest + refresh", verdicts, lines, failed=not ok))
         else:
-            self.notify(" · ".join(verdicts), severity="information" if ok else "warning",
+            # A partial refresh (items not verified or not reached) is a
+            # warning even though the run itself succeeded.
+            quiet = ok and not report.partial
+            self.notify(" · ".join(verdicts), severity="information" if quiet else "warning",
                         markup=False)
 
     # -- dismiss -------------------------------------------------------------------

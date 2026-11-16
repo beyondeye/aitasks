@@ -397,8 +397,51 @@ class NextStepTests(_Case, unittest.TestCase):
                 self.assertEqual(raw.what, f"{kw.get('kind', 'question')} / "
                                            f"{kw.get('state', 'open')}: Odd")
                 seen.add(raw.key)
+        rec = model.next_step(_item(kind="task", ref="recover:t42", title="Recover t42 x",
+                                    outcome="mystery · ?"))
+        self.assertEqual((rec.key, rec.what), ("recover", "Recover: Recover t42 x — mystery · ?"))
+        self.assertIn("show t42 in the board", rec.how)
+        seen.add(rec.key)
         self.assertEqual(seen, set(model.NEXT_STEPS),
                          "every table row is reachable and every key is in the table")
+
+    def test_recovery_guidance_per_category(self):
+        """t2299_3: the What / How of a crash-recovery item follow the
+        category of its outcome; the keys named are the EFFECTIVE ones."""
+        cases = {
+            "crashed": ["Resume: press  p  to launch  /aitask-pick 42 ",
+                        "crash recovery survey", "Do not git restore / git stash"],
+            "orphan": ["Resume or clean up: press  p  to launch  /aitask-pick 42 ",
+                       "b  to show it in the board"],
+            "stale_lock": ["ait lock --unlock 42 ", "shown, never run", "( r )",
+                           "done when the task is no longer Implementing",
+                           "otherwise it becomes an orphan to resume"],
+        }
+        for cat, hows in cases.items():
+            with self.subTest(category=cat):
+                item = _item(kind="task", ref="recover:t42", title=f"Recover t42 ({cat})",
+                             outcome=f"{cat} · evidence")
+                self.assertEqual(model.classify(item), "recover")
+                self.assertEqual(model.recover_category(item), cat)
+                step = model.next_step(item)
+                self.assertEqual(step.what, f"Recover: Recover t42 ({cat}) — {cat} · evidence")
+                for how in hows:
+                    self.assertIn(how, step.how)
+        crashed = _item(kind="task", ref="recover:t42_3", title="R", outcome="crashed · x")
+        remapped = model.next_step(crashed, keys={"k_pick": "F5"})
+        self.assertIn("press  F5  to launch  /aitask-pick 42_3 ", remapped.how)
+        # an unparseable outcome: the generic text, no pick promise
+        odd = model.next_step(_item(kind="task", ref="recover:t42", title="R", outcome=""))
+        self.assertEqual(odd.key, "recover")
+        self.assertNotIn("/aitask-pick", odd.how)
+        self.assertEqual(model.recover_category(_item(kind="task", ref="t42",
+                                                      outcome="crashed · x")), "")
+        # the task id is the recover ref's (pick, board, metadata columns)
+        self.assertEqual(model.task_ref_id(crashed), "42_3")
+        # only an OPEN recover item is a recovery step
+        done = _item(kind="task", ref="recover:t42", state="done", title="R",
+                     outcome="recovered · x")
+        self.assertEqual(model.classify(done), "done")
 
     def test_watch_and_unknown_guidance_follow_what_refresh_checks(self):
         self.assertEqual(self.checks.get(self.ids["trailwatch"]), "trail")

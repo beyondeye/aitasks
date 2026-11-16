@@ -71,6 +71,11 @@ SITREP_SH = _SCRIPT_DIR / "aitask_sitrep.sh"
 HARVEST_ONE_TIMEOUT = 150.0
 #: Budget for the maintenance `all` pass (every record still holding text).
 HARVEST_ALL_TIMEOUT = 300.0
+#: Budget for ONE `crashed --root <r>` detector pass (t2299_3), shared by the
+#: monitor tick and the sitrep TUI's `r`. Measured (t2299_2): a steady pass
+#: ~0.75 s; a cold one ~0.4 s per newly stored item (2 writer calls each), so
+#: this covers a first pass over ~250 crashed tasks.
+HARVEST_CRASHED_TIMEOUT = 120.0
 #: Live-pane capture depth: the freeze engine's default (`frozen.capture_max_lines`
 #: in `agent_freeze`), so a live harvest sees what a freeze would have kept.
 HARVEST_CAPTURE_LINES = 50000

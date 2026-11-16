@@ -51,6 +51,10 @@ class _Host(AgentMarksMixin):
         self.ran.append((Path(str(script)).name, tuple(args), timeout))
         return 0, "REFRESHED:checked=0|changed=0|stale=0|kept=0|unknown=0"
 
+    async def _run_sitrep_harvest(self, args, *, stdin=None, timeout):
+        self.ran.append(("aitask_sitrep_harvest.sh", tuple(args), timeout))
+        return 0, "CRASH_NONE:nothing_inflight"
+
 
 def _store(root: str) -> None:
     os.makedirs(os.path.join(root, ".aitask-sitrep"), exist_ok=True)
@@ -138,6 +142,83 @@ class SitrepRefreshJobTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(host.ran), 1)
 
 
+class CrashDetectJobTests(unittest.IsolatedAsyncioTestCase):
+    """`_maybe_detect_sitrep_crashes` (t2299_3): the crash detector per store root."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        base = self._tmp.name
+        self.a, self.b, self.none = (os.path.join(base, n) for n in ("ra", "rb", "rc"))
+        for r in (self.a, self.b, self.none):
+            os.makedirs(r)
+        _store(self.a)
+        _store(self.b)
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def host(self, roots):
+        h = _Host(roots)
+        h._sitrep_crash_inflight = False
+        h._sitrep_crash_due_at = 0.0
+        return h
+
+    async def test_one_run_per_store_root_and_none_without_a_store(self):
+        h = self.host({"s1": self.a, "s2": self.a, "s3": self.none, "s4": self.b, "s5": None})
+        await h._maybe_detect_sitrep_crashes()
+        self.assertEqual(
+            h.ran,
+            [("aitask_sitrep_harvest.sh", ("crashed", "--root", r),
+              monitor_shared._SITREP_CRASH_TIMEOUT) for r in sorted([self.a, self.b])])
+
+    async def test_the_shared_timeout_constant(self):
+        from monitor import sitrep_close
+        self.assertEqual(monitor_shared._SITREP_CRASH_TIMEOUT,
+                         sitrep_close.HARVEST_CRASHED_TIMEOUT)
+
+    async def test_not_due_inside_the_startup_grace(self):
+        h = self.host({"s1": self.a})
+        before = time.monotonic()
+        h._init_agent_marks()
+        self.assertGreaterEqual(h._sitrep_crash_due_at,
+                                before + monitor_shared._MARKS_PURGE_STARTUP_GRACE)
+        self.assertFalse(h._sitrep_crash_inflight)
+        await h._maybe_detect_sitrep_crashes()
+        self.assertEqual(h.ran, [])
+
+    async def test_runs_never_stack_and_reschedule(self):
+        h = self.host({"s1": self.a})
+        h._sitrep_crash_inflight = True
+        await h._maybe_detect_sitrep_crashes()
+        self.assertEqual(h.ran, [])
+        h._sitrep_crash_inflight = False
+        before = time.monotonic()
+        await h._maybe_detect_sitrep_crashes()
+        await h._maybe_detect_sitrep_crashes()
+        self.assertEqual(len(h.ran), 1, "a second pass ran before it was due")
+        self.assertGreaterEqual(h._sitrep_crash_due_at,
+                                before + monitor_shared._MARKS_PURGE_INTERVAL)
+
+    async def test_a_raising_root_does_not_stop_the_others(self):
+        h = self.host({"s1": self.a, "s2": self.b})
+        calls = []
+
+        async def boom(args, *, stdin=None, timeout):
+            calls.append(args[2])
+            raise RuntimeError("detector exploded")
+
+        h._run_sitrep_harvest = boom
+        await h._maybe_detect_sitrep_crashes()
+        self.assertEqual(calls, sorted([self.a, self.b]))
+        self.assertFalse(h._sitrep_crash_inflight)
+
+    async def test_independent_of_the_refresh_flag(self):
+        h = self.host({"s1": self.a})
+        h._sitrep_refresh_inflight = True
+        await h._maybe_detect_sitrep_crashes()
+        self.assertEqual(len(h.ran), 1)
+
+
 class DispatchTests(unittest.TestCase):
     def test_the_maintenance_worker_awaits_it_after_the_sessions_purge(self):
         src = inspect.getsource(AgentMarksMixin._dispatch_refresh_maintenance)
@@ -145,10 +226,19 @@ class DispatchTests(unittest.TestCase):
         self.assertLess(src.index("_maybe_purge_sessions()"),
                         src.index("_maybe_refresh_sitrep()"))
 
+    def test_harvest_then_detect_then_refresh(self):
+        src = inspect.getsource(AgentMarksMixin._dispatch_refresh_maintenance)
+        self.assertLess(src.index("_maybe_harvest_sitrep()"),
+                        src.index("_maybe_detect_sitrep_crashes()"))
+        self.assertLess(src.index("_maybe_detect_sitrep_crashes()"),
+                        src.index("_maybe_refresh_sitrep()"))
+
     def test_class_level_floors_exist_for_new_built_hosts(self):
         host = AgentMarksMixin.__new__(AgentMarksMixin)
         self.assertFalse(host._sitrep_refresh_inflight)
         self.assertEqual(host._sitrep_refresh_due_at, 0.0)
+        self.assertFalse(host._sitrep_crash_inflight)
+        self.assertEqual(host._sitrep_crash_due_at, 0.0)
 
 
 if __name__ == "__main__":

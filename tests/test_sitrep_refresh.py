@@ -766,13 +766,19 @@ class Targets(unittest.TestCase):
         got = [(t.num, t.check) for t in sr.select_targets(s)]
         self.assertEqual(got, [(1, "task"), (2, "task"), (7, "push"), (9, "trail"), (11, "task")])
 
-    def test_a_recovery_item_is_not_a_task_target(self):
-        # t2299_1: a recover: item's state comes from the crash detector, never
-        # from the task's status; t2299_3 gives it its own check.
-        s = _store_with(_item(1, ref="recover:t10"), _item(2, ref="t10"),
-                        _item(3, ref="recover:t11", state="unknown"))
-        got = [(t.num, t.check) for t in sr.select_targets(s)]
-        self.assertEqual(got, [(2, "task")])
+    def test_a_recovery_item_gets_its_own_check_and_recorded_incarnation(self):
+        # A recover: item's state comes from the recovery decision table, never
+        # from the task's status (t2299_3): check="recovery", never "task".
+        s = _store_with(
+            _item(1, ref="recover:t10"), _item(2, ref="t10"),
+            _item(3, ref="recover:t11", state="unknown"),
+            _item(4, ref="recover:t12", state="done"),
+            _item(5, ref="recover:t13", state="dismissed"),
+            contexts={1: st.ContextEntry("b", [("task", "t10"), ("incarnation", "0123456789ab")]),
+                      3: st.ContextEntry("b", [("task", "t11")])})
+        got = [(t.num, t.check, t.incarnation) for t in sr.select_targets(s)]
+        self.assertEqual(got, [(1, "recovery", "0123456789ab"), (2, "task", ""),
+                               (3, "recovery", "")])
 
     def test_order_is_oldest_check_first(self):
         ts = [sr.Target(n, n, "task", "open", "", c, "task") for n, c in
@@ -872,6 +878,221 @@ class StreamToBatch(unittest.TestCase):
         s = self.feed("ROOT:/r", "TARGETS:1", "START:c1|1|task|open|")
         with self.assertRaises(sr.ProtocolError):
             s.close(interrupted=False, budget=5)
+
+
+# --- recovery targets (t2299_3) --------------------------------------------------
+
+import sitrep_crash as sc  # noqa: E402
+
+_REC = "0123456789ab"
+
+
+def _v(row, category, stored, item_state, evidence="ev"):
+    return sc.Verdict(row, category, stored, item_state, evidence)
+
+
+class RecoveryVerdictMapping(unittest.TestCase):
+    """Every decision row onto refresh's Verdict (open / done / unknown, or the
+    two never-written words)."""
+
+    ROWS = (
+        (1, "unreadable", False, "", "unverified"),
+        (2, "other_host", False, "unknown", "unknown"),
+        (3, "alive", False, "done", "done"),
+        (4, "unknown", False, "unknown", "unknown"),
+        (5, "stale_lock", True, "open", "open"),
+        (6, "crashed", True, "open", "open"),
+        (7, "stale_lock", True, "open", "open"),
+        (8, "orphan", True, "open", "open"),
+        (9, "recovered", False, "done", "done"),
+    )
+
+    def test_every_row_from_open_and_unknown(self):
+        for row, cat, stored, item_state, want in self.ROWS:
+            v = _v(row, cat, stored, item_state)
+            key = _REC if stored else None
+            for old in ("open", "unknown"):
+                got = sr.recovery_refresh_verdict(v, key, _REC, old, "some other outcome")
+                self.assertEqual(got.state, want, (row, old))
+                self.assertEqual(got.outcome, v.outcome, (row, old))
+
+    def test_an_unreadable_input_is_never_done_or_unknown(self):
+        got = sr.recovery_refresh_verdict(_v(1, "unreadable", False, "", "unreadable: x"),
+                                          None, _REC, "open", "crashed · y")
+        self.assertEqual(got.state, "unverified")
+        self.assertNotIn(got.state, ("done", "unknown", "open"))
+
+    def test_an_equal_verdict_is_unchanged(self):
+        v = _v(6, "crashed", True, "open", "holder pid 9 is gone")
+        got = sr.recovery_refresh_verdict(v, _REC, _REC, "open", v.outcome)
+        self.assertEqual((got.state, got.outcome), ("unchanged", v.outcome))
+        v = _v(4, "unknown", False, "unknown", "liveness unknown")
+        got = sr.recovery_refresh_verdict(v, None, _REC, "unknown", v.outcome)
+        self.assertEqual(got.state, "unchanged")
+
+    def test_a_new_episode_belongs_to_the_detector(self):
+        v = _v(6, "crashed", True, "open")
+        got = sr.recovery_refresh_verdict(v, "fedcba987654", _REC, "open", "x")
+        self.assertEqual((got.state, got.outcome), ("unverified", sr.NEW_EPISODE))
+        # a state-only row carries no key: never an episode question
+        got = sr.recovery_refresh_verdict(_v(3, "alive", False, "done"), None, _REC, "open", "x")
+        self.assertEqual(got.state, "done")
+
+    def test_no_recorded_incarnation_writes_nothing(self):
+        for row, cat, stored, item_state, _want in self.ROWS[1:]:
+            got = sr.recovery_refresh_verdict(_v(row, cat, stored, item_state),
+                                              _REC if stored else None, "", "open", "x")
+            self.assertEqual(got.state, "unverified", row)
+
+
+class RecoveryCheck(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp, True)
+        self._saved = (sc.read_locks, sc.read_active_tasks, sc._LIVENESS, sc._LOCAL_HOST)
+        sc._LOCAL_HOST = "here"
+
+        def restore():
+            sc.read_locks, sc.read_active_tasks, sc._LIVENESS, sc._LOCAL_HOST = self._saved
+        self.addCleanup(restore)
+
+    def target(self, state="open", outcome="", incarnation=_REC):
+        return sr.Target(7, 3, "task", state, outcome, "2026-11-01T00:00:00Z", "recovery",
+                         ref="recover:t10", incarnation=incarnation)
+
+    def test_unreadable_inputs_are_unverified_for_every_target(self):
+        calls = []
+
+        def boom(root):
+            calls.append(root)
+            raise sc.SourceError("lock_tree_unreadable")
+        sc.read_locks = boom
+        checker = sr.Checker(self.tmp)
+        for _ in range(2):
+            v = checker.check(self.target())
+            self.assertEqual(v.state, "unverified")
+            self.assertIn("lock_tree_unreadable", v.outcome)
+        self.assertEqual(len(calls), 1, "the inputs are read once per run")
+
+    def test_a_dead_holder_on_an_implementing_task(self):
+        lock = sc.LockRec("10", {"task_id": "10", "hostname": "here", "pid": "4242",
+                                 "pid_starttime": "1", "pid_starttime_kind": "proc"})
+        sc.read_locks = lambda root: {"10": lock}
+        sc.read_active_tasks = lambda root: {"10": sc.TaskRec("10", "active", status="Implementing")}
+        sc._LIVENESS = lambda pid, start, kind: "dead"
+        key = sc.episode_key("10", lock, _REC)
+        v = sr.Checker(self.tmp).check(self.target(incarnation=key))
+        self.assertEqual(v.state, "open")
+        self.assertEqual(v.outcome, "crashed · holder pid 4242 is gone")
+        # the same facts against the stored outcome: nothing to write
+        v2 = sr.Checker(self.tmp).check(self.target(outcome=v.outcome, incarnation=key))
+        self.assertEqual(v2.state, "unchanged")
+        # a recorded incarnation from an older claim: the detector's
+        v3 = sr.Checker(self.tmp).check(self.target(incarnation=_REC))
+        self.assertEqual((v3.state, v3.outcome), ("unverified", sr.NEW_EPISODE))
+
+
+class AttemptLedger(unittest.TestCase):
+    def rt(self, n, check, checked_at):
+        return sr.Target(n, n, "task", "open", "", checked_at, check)
+
+    def test_recovery_targets_order_by_attempt_not_checked_at(self):
+        ts = [self.rt(1, "recovery", "never"), self.rt(2, "task", "2026-11-02T00:00:00Z"),
+              self.rt(3, "recovery", "2020-01-01T00:00:00Z"), self.rt(4, "recovery", "never")]
+        attempts = {1: "2026-11-03T00:00:00Z", 3: "2026-11-01T00:00:00Z"}
+        got = [t.num for t in sr.order_targets(ts, attempts)]
+        self.assertEqual(got, [4, 3, 2, 1])
+
+    def test_without_a_ledger_recovery_orders_by_checked_at(self):
+        ts = [self.rt(1, "recovery", "2026-11-03T00:00:00Z"),
+              self.rt(2, "task", "2026-11-02T00:00:00Z")]
+        self.assertEqual([t.num for t in sr.order_targets(ts)], [2, 1])
+
+    def test_merge_stamps_reached_and_prunes_old(self):
+        old = {1: "2026-11-01T00:00:00Z", 2: "2026-11-09T00:00:00Z", 3: "2026-11-15T00:00:00Z"}
+        got = sr.merge_attempts(old, [3, 4], "2026-11-16T00:00:00Z")
+        self.assertEqual(got, {2: "2026-11-09T00:00:00Z", 3: "2026-11-16T00:00:00Z",
+                               4: "2026-11-16T00:00:00Z"})
+
+    def test_read_never_raises_and_drops_bad_entries(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        p = os.path.join(d, "a.json")
+        self.assertEqual(sr.read_attempts(p), {})          # absent
+        self.assertEqual(sr.read_attempts(""), {})
+        for text in ("garbage", "[]", '{"version": 2, "attempts": {}}',
+                     '{"version": 1, "attempts": []}', "\xff"):
+            with open(p, "w", encoding="utf-8") as fh:
+                fh.write(text)
+            self.assertEqual(sr.read_attempts(p), {}, text)
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write('{"version": 1, "attempts": {"3": "2026-11-16T00:00:00Z", '
+                     '"0": "2026-11-16T00:00:00Z", "x": "2026-11-16T00:00:00Z", '
+                     '"5": "yesterday", "6": 7}}')
+        self.assertEqual(sr.read_attempts(p), {3: "2026-11-16T00:00:00Z"})
+        # a key past int()'s digit limit, and nesting past the JSON parser's
+        # recursion limit, are malformed too -- never an exception
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write('{"version": 1, "attempts": {"%s": "2026-11-16T00:00:00Z", '
+                     '"4": "2026-11-16T00:00:00Z"}}' % ("1" * 4500))
+        self.assertEqual(sr.read_attempts(p), {4: "2026-11-16T00:00:00Z"})
+        with open(p, "w", encoding="utf-8") as fh:
+            fh.write("[" * 200000)
+        self.assertEqual(sr.read_attempts(p), {})
+
+    def test_write_round_trip(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        p = os.path.join(d, "aitask-sitrep", "refresh_attempts.json")
+        sr.write_attempts(p, {5: "2026-11-16T00:00:00Z", 2: "2026-11-15T00:00:00Z"})
+        self.assertEqual(sr.read_attempts(p), {2: "2026-11-15T00:00:00Z", 5: "2026-11-16T00:00:00Z"})
+        self.assertEqual(os.listdir(os.path.dirname(p)), ["refresh_attempts.json"])
+
+    def test_the_path_lives_under_the_git_common_dir(self):
+        d = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, d, True)
+        subprocess.run(["git", "init", "-q", d], check=True)
+        got = sr.attempts_path(d)
+        self.assertEqual(got, os.path.join(os.path.realpath(d), ".git", "aitask-sitrep",
+                                           "refresh_attempts.json"))
+        self.assertIsNone(sr.attempts_path(os.path.join(d, "missing")))
+
+
+class RecoveryStream(unittest.TestCase):
+    def feed(self, *lines):
+        s = sr.Stream()
+        for ln in lines:
+            s.feed(ln)
+        return s
+
+    def test_skip_states_only_after_a_recovery_start(self):
+        s = self.feed("ROOT:/r", "ATTEMPTS:/r/.git/aitask-sitrep/refresh_attempts.json",
+                      "TARGETS:2",
+                      "START:c1|1|recovery|open|crashed · x", "VERDICT:c1|unchanged|crashed · x",
+                      "START:c2|2|recovery|open|crashed · y", "VERDICT:c2|unverified|unreadable: z")
+        self.assertEqual(s.attempts, "/r/.git/aitask-sitrep/refresh_attempts.json")
+        lines = s.close(interrupted=False, budget=5)
+        self.assertEqual([(ln.state, ln.skipped) for ln in lines],
+                         [("unchanged", True), ("unverified", True)])
+        for kind in ("task", "action", "watch"):
+            for word in sr.SKIP_STATES:
+                with self.assertRaises(sr.ProtocolError, msg=(kind, word)):
+                    self.feed("ROOT:/r", "TARGETS:1", f"START:c1|1|{kind}|open|",
+                              f"VERDICT:c1|{word}|x")
+
+    def test_attempts_line_only_between_root_and_targets(self):
+        for bad in (["ATTEMPTS:/x"],
+                    ["ROOT:/r", "TARGETS:1", "ATTEMPTS:/x"],
+                    ["ROOT:/r", "ATTEMPTS:relative/x"],
+                    ["ROOT:/r", "ATTEMPTS:/x", "ATTEMPTS:/y"]):
+            with self.assertRaises(sr.ProtocolError, msg=bad):
+                self.feed(*bad)
+
+    def test_an_interrupted_recovery_target_is_unverified(self):
+        s = self.feed("ROOT:/r", "TARGETS:2", "START:c4|9|recovery|open|crashed · x")
+        (ln,) = s.close(interrupted=True, budget=8)
+        self.assertEqual((ln.state, ln.skipped, ln.interrupted), ("unverified", True, True))
+        self.assertEqual(ln.outcome, "check did not finish within the 8s budget")
 
 
 if __name__ == "__main__":

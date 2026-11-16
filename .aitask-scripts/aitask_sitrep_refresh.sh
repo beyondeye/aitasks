@@ -19,8 +19,10 @@
 # the ordering rule are documented in lib/sitrep_refresh.py's module docstring.
 #
 # Output (free text always LAST):
-#   REFRESH_ITEM:c<N>|<kind>|<old>-><new>|applied|stale|kept|not_found|dry_run|<outcome>
+#   REFRESH_ITEM:c<N>|<kind>|<old>-><new>|applied|stale|kept|not_found|dry_run|unchanged|unverified|<outcome>
 #   REFRESH_WARN:budget_exhausted|<n> not reached
+#   REFRESH_WARN:unverified|<n> not verified
+#   REFRESH_WARN:attempts_unwritable|<reason>
 #   REFRESHED:checked=<n>|changed=<c>|stale=<s>|kept=<k>|unknown=<u>   final, exit 0
 #   REFRESH_NONE:no_store|no_targets                                 final, exit 0
 #   REFRESH_FAILED:<reason>                                          final, exit 1
@@ -34,6 +36,15 @@
 # counts lines whose state or outcome differ (the checked_at stamp alone is not
 # a change). Nothing is ever created: a root without an established store is
 # REFRESH_NONE:no_store.
+# <kind> is the item kind, or `recovery` for a crash-recovery item
+# (ref=recover:t<N>). A recovery item is written only when its state or outcome
+# changes: `unchanged` = the verdict equals the stored one; `unverified` = the
+# check could not decide (an unreadable input, an error, a timeout, the
+# deadline, or a new episode that the crash detector owns). Neither is written,
+# so the item keeps its rev and its checked_at ("evidence last changed").
+# Recovery targets take turns by the refresh's own attempt ledger,
+# <git common dir>/aitask-sitrep/refresh_attempts.json: advisory, not store
+# data. A lost stamp (`attempts_unwritable`) only makes a target look older.
 #
 # Exit codes: 0 success (incl. NONE), 1 failed (nothing written), 2 usage or a
 # `..` root (refused before any filesystem access).

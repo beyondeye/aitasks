@@ -79,9 +79,10 @@ def tearDownModule():  # noqa: N802
 
 
 class Runner:
-    """The app's runner seam: records every argv; canned answers by script
-    basename (a list is consumed in order, a callable is called with the
-    argv), everything else runs FOR REAL with the app's own cwd/env rule."""
+    """The app's runner seam: records every argv; canned answers by
+    ``"<script basename> <verb>"`` first, then by script basename (a list is
+    consumed in order, a callable is called with the argv), everything else
+    runs FOR REAL with the app's own cwd/env rule."""
 
     def __init__(self, root: str, canned: "dict | None" = None):
         self.root = root
@@ -92,7 +93,8 @@ class Runner:
         argv = [str(a) for a in argv]
         self.calls.append(argv)
         name = Path(argv[0]).name
-        answer = self.canned.get(name)
+        verb = argv[1] if len(argv) > 1 else ""
+        answer = self.canned.get(f"{name} {verb}", self.canned.get(name))
         if isinstance(answer, list) and answer:
             answer = answer.pop(0)
         if callable(answer):
@@ -415,11 +417,15 @@ _HARVEST_OK = ("HARVEST_ITEM:rec1|c90|added|task|t50\n"
                "HARVESTED:rec3|added=0|existing=2\n")
 _REFRESH_OK = ("REFRESH_ITEM:c1|task|open->done|applied|status: Done\n"
                "REFRESHED:checked=3|changed=1|stale=0|kept=0|unknown=0\n")
+_CRASH_OK = ("CRASH_ITEM:t42|c91|added|crashed\n"
+             "CRASH_SKIP:t43|alive\n"
+             "CRASHED:crashed=1|orphans=0|stale_locks=0|skipped=1|added=1|reopened=0|warned=0\n")
 
 
 class HarvestRefreshTests(_Case):
     async def test_a_key_run_shows_both_verdicts_and_the_lines(self):
         runner = Runner(self.root, {"aitask_sitrep_harvest.sh": (0, _HARVEST_OK),
+                                    "aitask_sitrep_harvest.sh crashed": (0, _CRASH_OK),
                                     "aitask_sitrep_refresh.sh": (0, _REFRESH_OK)})
         app = self.make_app(runner)
         async with app.run_test(size=SIZE) as pilot:
@@ -431,15 +437,21 @@ class HarvestRefreshTests(_Case):
             self.assertIn("Harvested: 1 added, 2 existing", body, "summed over records")
             self.assertIn("Refreshed: 3 checked, 1 changed", body)
             self.assertIn("harvested: c90 task", body)
+            self.assertIn("Recovery: 1 crashed, 0 orphans, 0 stale locks (1 new, 0 reopened)",
+                          body)
+            self.assertIn("recovery: t42 crashed (added)", body)
             self.assertIn("refreshed c1: task|open->done|applied|status: Done", body)
             header = str(app.screen_stack[0].query_one("#st-header").content)
             self.assertIn("refreshed", header)
             self.assertIn(" ok", header)
+        # harvest -> crash detector -> refresh, each on the TUI's root
         self.assertEqual(runner.calls[0][1:], ["all", "--root", self.root])
-        self.assertEqual(runner.calls[1][1:], ["--root", self.root, "--budget", "60"])
+        self.assertEqual(runner.calls[1][1:], ["crashed", "--root", self.root])
+        self.assertEqual(runner.calls[2][1:], ["--root", self.root, "--budget", "60"])
 
     async def test_r_works_from_the_details_that_advertise_it(self):
         runner = Runner(self.root, {"aitask_sitrep_harvest.sh": (0, _HARVEST_OK),
+                                    "aitask_sitrep_harvest.sh crashed": (0, _CRASH_OK),
                                     "aitask_sitrep_refresh.sh": (0, _REFRESH_OK)})
         app = self.make_app(runner)
         async with app.run_test(size=SIZE) as pilot:
@@ -455,6 +467,7 @@ class HarvestRefreshTests(_Case):
             await pilot.pause()
             self.assertIs(app.screen, screen, "back on the same details")
         self.assertEqual(runner.names(), ["aitask_sitrep_harvest.sh",
+                                          "aitask_sitrep_harvest.sh",
                                           "aitask_sitrep_refresh.sh"])
 
     async def test_failures_are_reported_never_as_ok(self):
@@ -482,7 +495,8 @@ class HarvestRefreshTests(_Case):
             await release.wait()
             return (0, _HARVEST_OK)
 
-        runner = Runner(self.root, {"aitask_sitrep_harvest.sh": slow,
+        runner = Runner(self.root, {"aitask_sitrep_harvest.sh all": slow,
+                                    "aitask_sitrep_harvest.sh crashed": (0, _CRASH_OK),
                                     "aitask_sitrep_refresh.sh": (0, _REFRESH_OK)})
         app = self.make_app(runner)
         async with app.run_test(size=SIZE) as pilot:
@@ -495,17 +509,23 @@ class HarvestRefreshTests(_Case):
             release.set()
             await self.until(pilot, lambda: isinstance(app.screen, actions.ResultDialog),
                              "the panel")
-        self.assertEqual(runner.names().count("aitask_sitrep_harvest.sh"), 1)
+        self.assertEqual([c[1] for c in runner.calls
+                          if Path(c[0]).name == "aitask_sitrep_harvest.sh"],
+                         ["all", "crashed"], "one harvest + one detector run")
 
     async def test_startup_runs_once_and_only_toasts(self):
-        runner = Runner(self.root, {"aitask_sitrep_harvest.sh": (0, ""),
+        runner = Runner(self.root, {"aitask_sitrep_harvest.sh all": (0, ""),
+                                    "aitask_sitrep_harvest.sh crashed":
+                                        (0, "CRASH_NONE:nothing_inflight\n"),
                                     "aitask_sitrep_refresh.sh": (0, "REFRESH_NONE:no_targets\n")})
         app = self.make_app(runner, startup_harvest=True)
         async with app.run_test(size=SIZE) as pilot:
             await self.until(pilot, lambda: self.toast_with("Nothing new to harvest"), "toast")
             self.assertTrue(self.toast_with("Nothing to refresh (no_targets)"))
+            self.assertTrue(self.toast_with("Recovery: nothing in flight"))
             self.assertTrue(app._is_main_screen(app.screen), "no panel at startup")
         self.assertEqual(runner.names(), ["aitask_sitrep_harvest.sh",
+                                          "aitask_sitrep_harvest.sh",
                                           "aitask_sitrep_refresh.sh"])
 
     def test_refresh_parser(self):
@@ -533,6 +553,201 @@ class HarvestRefreshTests(_Case):
             0, "HARVEST_REVIEW:rec|c7|added|case=ab|banner\nHARVESTED:rec|added=0|existing=0\n")
         self.assertTrue(ok)
         self.assertIn("kept for review: c7 (the full output is in the store)", lines)
+
+
+class CrashDetectorStepTests(_Case):
+    """t2299_3: `r` runs harvest all -> crashed -> refresh, and reports all three."""
+
+    async def run_r(self, canned):
+        runner = Runner(self.root, canned)
+        app = self.make_app(runner)
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            await pilot.press("r")
+            await self.until(pilot, lambda: isinstance(app.screen, actions.ResultDialog),
+                             "the panel")
+            body = app.screen.body_text()
+            failed = app.screen.has_class("-failed")
+        return runner, body, failed
+
+    async def test_refresh_runs_after_a_failed_detector_run(self):
+        runner, body, failed = await self.run_r({
+            "aitask_sitrep_harvest.sh all": (0, _HARVEST_OK),
+            "aitask_sitrep_harvest.sh crashed": (1, "CRASH_FAILED:harvest_lock_busy\n"),
+            "aitask_sitrep_refresh.sh": (0, _REFRESH_OK)})
+        self.assertEqual([Path(c[0]).name for c in runner.calls],
+                         ["aitask_sitrep_harvest.sh", "aitask_sitrep_harvest.sh",
+                          "aitask_sitrep_refresh.sh"])
+        self.assertIn("Recovery check failed: harvest_lock_busy", body)
+        self.assertIn("Refreshed: 3 checked, 1 changed", body)
+        self.assertTrue(failed)
+
+    async def test_detector_and_refresh_run_after_a_failed_harvest(self):
+        runner, body, failed = await self.run_r({
+            "aitask_sitrep_harvest.sh all": (1, "HARVEST_FAILED:rec2|lock_busy\n"),
+            "aitask_sitrep_harvest.sh crashed": (0, _CRASH_OK),
+            "aitask_sitrep_refresh.sh": (0, _REFRESH_OK)})
+        self.assertEqual([c[1] for c in runner.calls], ["all", "crashed", "--root"])
+        for verdict in ("Harvest failed", "Recovery: 1 crashed", "Refreshed: 3 checked"):
+            self.assertIn(verdict, body)
+        self.assertTrue(failed)
+
+    async def test_a_partial_refresh_toasts_as_a_warning(self):
+        partial = ("REFRESH_WARN:unverified|1 not verified\n"
+                   "REFRESH_ITEM:c7|recovery|open->open|unverified|check error: OSError\n"
+                   "REFRESHED:checked=1|changed=0|stale=0|kept=0|unknown=0\n")
+        runner = Runner(self.root, {"aitask_sitrep_harvest.sh all": (0, ""),
+                                    "aitask_sitrep_harvest.sh crashed": (0, _CRASH_OK),
+                                    "aitask_sitrep_refresh.sh": (0, partial)})
+        app = self.make_app(runner, startup_harvest=True)
+        severities = []
+        real = app.notify
+
+        def notify(message, *a, **k):
+            severities.append((str(message), k.get("severity")))
+            return real(message, *a, **k)
+
+        app.notify = notify
+        async with app.run_test(size=SIZE) as pilot:
+            await self.until(pilot, lambda: any("not verified" in m for m, _ in severities),
+                             "the toast")
+        msg, severity = next((m, sv) for m, sv in severities if "not verified" in m)
+        self.assertIn("Refreshed: 1 checked, 0 changed, 1 not verified", msg)
+        self.assertEqual(severity, "warning")
+
+    def test_partial_refresh_report(self):
+        rep = model.parse_refresh_output(0, "REFRESH_WARN:unverified|2 not verified\n"
+                                            "REFRESHED:checked=2|changed=0|stale=0|kept=0|"
+                                            "unknown=0\n")
+        self.assertTrue(rep.ok)
+        self.assertTrue(rep.partial)
+        self.assertEqual(rep.verdict(), "Refreshed: 2 checked, 0 changed, 2 not verified")
+        rep = model.parse_refresh_output(0, "REFRESH_WARN:budget_exhausted|3 not reached\n"
+                                            "REFRESHED:checked=1|changed=1|stale=0|kept=0|"
+                                            "unknown=0\n")
+        self.assertTrue(rep.partial)
+        self.assertIn("3 not reached", rep.verdict())
+        full = model.parse_refresh_output(0, _REFRESH_OK)
+        self.assertFalse(full.partial)
+        self.assertEqual(full.verdict(), "Refreshed: 3 checked, 1 changed")
+        failed = model.parse_refresh_output(1, "REFRESH_WARN:unverified|1 not verified\n"
+                                               "REFRESH_FAILED:lock_busy\n")
+        self.assertFalse(failed.partial, "a failed run is a failure, not a partial one")
+
+    def test_crashed_summary(self):
+        ok, verdict, lines = actions.summarize_crashed(0, _CRASH_OK)
+        self.assertEqual((ok, verdict),
+                         (True, "Recovery: 1 crashed, 0 orphans, 0 stale locks (1 new, 0 reopened)"))
+        self.assertEqual(lines, ["recovery: t42 crashed (added)"])
+        ok, verdict, lines = actions.summarize_crashed(0, (
+            "CRASH_WARN:t9|unreadable: lock t9_lock.yaml: no task_id\n"
+            "CRASH_ITEM:t3|c4|unchanged|orphan\n"
+            "CRASH_ITEM:t5|c6|reopened|stale_lock\n"
+            "CRASHED:crashed=0|orphans=1|stale_locks=1|skipped=0|added=0|reopened=1|warned=1\n"))
+        self.assertTrue(ok)
+        self.assertEqual(verdict, "Recovery: 0 crashed, 1 orphans, 1 stale locks "
+                                  "(0 new, 1 reopened), 1 warned")
+        self.assertEqual(lines, ["recovery warning: t9 unreadable: lock t9_lock.yaml: no task_id",
+                                 "recovery: t5 stale_lock (reopened)"])
+        self.assertEqual(actions.summarize_crashed(
+            0, "CRASHED:crashed=0|orphans=0|stale_locks=0|skipped=2|added=0|reopened=0|"
+               "warned=0\n")[:2], (True, "Recovery: nothing crashed"))
+        self.assertEqual(actions.summarize_crashed(0, "CRASH_NONE:nothing_inflight\n")[:2],
+                         (True, "Recovery: nothing in flight"))
+        for rc, out, why in ((1, "CRASH_FAILED:no_lock_ref\n", "no_lock_ref"),
+                             (1, "ERROR:aitask_sitrep_harvest.sh timed out after 120s",
+                              "aitask_sitrep_harvest.sh timed out after 120s"),
+                             (0, "", "no result"),
+                             (2, "CRASHED:crashed=0\n", "exit 2")):
+            ok, verdict, _ = actions.summarize_crashed(rc, out)
+            self.assertEqual((ok, verdict), (False, f"Recovery check failed: {why}"), out)
+
+
+class RecoverPickTests(_Case):
+    """t2299_3: `p` on a crashed / orphan recovery item opens /aitask-pick <N>;
+    a stale lock shows its unlock command and nothing runs it."""
+
+    def recover_item(self, tid: str, category: str, inc: str) -> int:
+        ctx = (f"- background: recovery fixture\n"
+               f"- origin: task=t{tid} incarnation={inc}\n")
+        out = self.writer("recovery-apply", "--ref", f"recover:t{tid}", "--expect-rev", "absent",
+                          "--incarnation", inc, "--state", "open",
+                          "--outcome", f"{category} · fixture evidence",
+                          "--title", f"Recover t{tid} ({category})", "--group", "now",
+                          "--checked-at", "now", "--context-file", "-", stdin=ctx)
+        self.assertTrue(out.startswith("ADDED:c"), out)
+        return int(out.split(":")[1].split("|")[0][1:])
+
+    async def test_p_on_crashed_and_orphan_opens_the_pick_dialog(self):
+        crashed = self.recover_item("42", "crashed", "0123456789ab")
+        orphan = self.recover_item("43_2", "orphan", "89abcdef0123")
+        fake = types.SimpleNamespace(full_command="agent-cmd")
+        cfg = alu.TmuxLaunchConfig(session="s", window="w", new_session=False,
+                                   new_window=True)
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            for num, tid in ((crashed, "42"), (orphan, "43_2")):
+                self.select(app, num)
+                with mock.patch.object(actions.alu, "focus_existing_agent_window",
+                                       return_value=False) as focus, \
+                        mock.patch.object(actions, "build_pick_screen",
+                                          return_value=fake) as build, \
+                        mock.patch.object(actions.alu, "launch_in_tmux",
+                                          return_value=(1, None)) as launch, \
+                        mock.patch.object(actions.alu, "maybe_spawn_minimonitor"):
+                    self.assertTrue(self.shown(app, "pick_task"), tid)
+                    with mock.patch.object(app, "push_screen") as push:
+                        app.action_pick_task()
+                    focus.assert_called_once_with(tid, Path(self.root))
+                    build.assert_called_once_with(Path(self.root), tid, narrow=True)
+                    push.call_args[0][1](cfg)       # control: unchanged -> launched
+                    launch.assert_called_once_with("agent-cmd", cfg)
+                self.assertTrue(self.toast_with(f"Launched /aitask-pick {tid}"))
+
+    async def test_the_pick_callback_rechecks_the_recovery_category(self):
+        num = self.recover_item("42", "crashed", "0123456789ab")
+        fake = types.SimpleNamespace(full_command="agent-cmd")
+        cfg = alu.TmuxLaunchConfig(session="s", window="w", new_session=False,
+                                   new_window=True)
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            self.select(app, num)
+            with mock.patch.object(actions.alu, "focus_existing_agent_window",
+                                   return_value=False), \
+                    mock.patch.object(actions, "build_pick_screen", return_value=fake), \
+                    mock.patch.object(actions.alu, "launch_in_tmux",
+                                      return_value=(1, None)) as launch:
+                with mock.patch.object(app, "push_screen") as push:
+                    app.action_pick_task()
+                callback = push.call_args[0][1]
+                # while the dialog is open the item becomes a stale lock
+                self.writer("set-state", f"c{num}", "open", "--checked-at", "now",
+                            "--outcome", "stale_lock · holder gone; task archived Done")
+                await app._poll_store()
+                callback(cfg)
+                launch.assert_not_called()
+            self.assertTrue(self.toast_with("changed while the dialog was open"))
+
+    async def test_p_is_refused_on_a_stale_lock_and_how_shows_the_unlock(self):
+        num = self.recover_item("44", "stale_lock", "0123456789ab")
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            self.select(app, num)
+            self.assertFalse(self.shown(app, "pick_task"))
+            with mock.patch.object(actions, "build_pick_screen") as build:
+                app.action_pick_task()
+                build.assert_not_called()
+            self.assertTrue(self.toast_with(f"Pick does not apply to c{num}"))
+            screen = await self.open_details(app, pilot, num)
+            how = screen.body_text(model.resolve_now())
+            self.assertIn("ait lock --unlock 44 ", how)
+            self.assertIn("shown, never run", how)
+        self.assertFalse(any("lock" in Path(c[0]).name for c in self.runner.calls),
+                         "nothing runs the unlock")
+        self.assertFalse(any("--unlock" in c for c in self.runner.calls))
 
 
 # -- bindings --------------------------------------------------------------------

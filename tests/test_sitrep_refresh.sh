@@ -20,6 +20,12 @@
 #   12  progress across bounded runs: no starvation behind expensive items
 #   13  interrupted before the first VERDICT, with concurrent edits
 #   14  the worker dies with its parent (an external kill of the run)
+#   15  crash-recovery items (t2299_3): written only on change, rows 3/9 -> done,
+#       stale locks byte-stable across alternated refresh / `harvest crashed`
+#       passes, an unreadable lock and a new episode -> unverified (no write),
+#       a dismissal during the write is never overwritten
+#   16  recovery fairness: a stalled recovery check never starves the others
+#       (the attempt ledger), with a delete-the-ledger negative control
 #
 # Bodies run in the main shell (no subshell asserts), so the plain counters
 # are enough.
@@ -67,7 +73,10 @@ export GIT_AUTHOR_NAME=t GIT_AUTHOR_EMAIL=t@t GIT_COMMITTER_NAME=t GIT_COMMITTER
 export GIT_CONFIG_NOSYSTEM=1
 unset TMUX TMUX_PANE AITASK_SITREP_DIR AITASK_SITREP_PAUSE_FIFO AITASK_SITREP_LOCK_TIMEOUT \
       AITASK_SITREP_REFRESH_PAUSE_FIFO AITASK_SITREP_REFRESH_ARTIFACT_SH \
-      AITASK_SITREP_REFRESH_BATCH_LOG AITASK_SITREP_REFRESH_BUDGET TASK_DIR
+      AITASK_SITREP_REFRESH_BATCH_LOG AITASK_SITREP_REFRESH_BUDGET TASK_DIR \
+      AITASK_SITREP_REFRESH_STALL_REF AITASK_SITREP_CRASH_FAULT AITASK_SITREP_CRASH_PAUSE_FIFO
+export AITASKS_AGENT_SESSIONS_FILE="$TMP/agent_sessions.json"
+export TZ=UTC
 
 FIFO="$TMP/pause.fifo"
 REAL_GIT="$(command -v git)"
@@ -682,6 +691,275 @@ done
 unshim git
 assert_eq "the orphaned worker group is gone within 4 s" "yes" "$gone"
 assert_eq "... nothing written" "$before" "$(cat "$R14/.aitask-sitrep/todo.md")"
+fi
+
+# --- crash-recovery helpers (minimal copies of tests/test_sitrep_crash.sh) ----
+
+HV="$PROJECT_DIR/.aitask-scripts/aitask_sitrep_harvest.sh"
+PID_ANCHOR="$PROJECT_DIR/.aitask-scripts/lib/pid_anchor.sh"
+HOST="$(hostname)"
+
+publish() {   # publish <root>: $TMP/locks/<name>/ -> refs/remotes/origin/aitask-locks
+    local root="$1" d f entries="" oid tree commit
+    d="$TMP/locks/$(basename "$root")"
+    mkdir -p "$d"
+    for f in "$d"/*_lock.yaml; do
+        [[ -e "$f" ]] || continue
+        oid="$(git -C "$root" hash-object -w "$f")"
+        entries+="100644 blob $oid"$'\t'"$(basename "$f")"$'\n'
+    done
+    tree="$(printf '%s' "$entries" | git -C "$root" mktree)"
+    commit="$(git -C "$root" commit-tree "$tree" -m locks)"
+    git -C "$root" update-ref refs/remotes/origin/aitask-locks "$commit"
+}
+rec_root() {   # rec_root <name> -> new_root plus aiplans/ and an (empty) lock ref
+    local d
+    d="$(new_root "$1")"
+    mkdir -p "$d/aiplans"
+    publish "$d"
+    printf '%s' "$d"
+}
+setlock() {   # setlock <root> <id> <host> <pid|""> [start] [kind]
+    { printf 'task_id: %s\nlocked_by: a@b\nlocked_at: 2026-11-03 08:00\nhostname: %s\n' "$2" "$3"
+      [[ -n "$4" ]] && printf 'pid: %s\npid_starttime: %s\npid_starttime_kind: %s\n' \
+          "$4" "${5:-1}" "${6:-proc}"; } > "$TMP/locks/$(basename "$1")/t$2_lock.yaml"
+    publish "$1"
+}
+rawlock() { printf '%s' "$3" > "$TMP/locks/$(basename "$1")/t$2_lock.yaml"; publish "$1"; }
+unlock() { rm -f "$TMP/locks/$(basename "$1")/t$2_lock.yaml"; publish "$1"; }
+dead_pid() { sleep 0 & local p=$!; wait "$p" 2>/dev/null; printf '%s' "$p"; }
+live() {   # live -> LIVE_PID, LIVE_KIND, LIVE_START (a running sleep)
+    sleep 300 &
+    LIVE_PID=$!
+    BG_PIDS+=("$LIVE_PID")
+    read -r LIVE_KIND LIVE_START <<<"$(source "$PID_ANCHOR"; get_pid_identity "$LIVE_PID")"
+}
+crashed() {   # crashed <root> -> COUT, CRC (the real detector, under the harvest mutex)
+    CRC=0
+    COUT="$("$HV" crashed --root "$1" 2>"$TMP/cerr")" || CRC=$?
+}
+rcid() { sed -n "s/^- \(c[0-9]*\) | .* | ref=recover:t$2 | .*/\1/p" "$1/.aitask-sitrep/todo.md"; }
+item_block() {   # the item line plus its context block, verbatim
+    line_of "$1" "$2"
+    awk -v h="### $2" '$0 == h {p=1; print; next} p && /^### / {p=0} p' \
+        "$1/.aitask-sitrep/todo.md"
+}
+todo_sum() { cksum < "$1/.aitask-sitrep/todo.md"; }
+ledger_of() { printf '%s' "$1/.git/aitask-sitrep/refresh_attempts.json"; }
+
+# =============================================================================
+if want 15; then
+echo "=== Test 15: crash-recovery items ==="
+# (a) a crashed item: refresh writes nothing when the verdict is the stored one
+R15="$(rec_root r15)"
+task "$R15" 40 Implementing
+setlock "$R15" 40 "$HOST" "$(dead_pid)"
+crashed "$R15"
+assert_eq "the detector stored t40" "0" "$CRC"
+C40="$(rcid "$R15" 40)"
+assert_contains "... as crashed" "crashed · holder pid" "$(outc "$R15" "$C40")"
+before="$(cat "$R15/.aitask-sitrep/todo.md")"
+refresh "$R15"
+assert_eq "refresh exits 0" "0" "$RC"
+assert_contains "the recovery item is reported unchanged" \
+    "REFRESH_ITEM:$C40|recovery|open->open|unchanged|crashed · holder pid" "$OUT"
+assert_contains "... nothing changed" "REFRESHED:checked=1|changed=0|stale=0|kept=0|unknown=0" "$OUT"
+assert_eq "todo.md byte-identical (no rev, no checked_at stamp)" "$before" \
+    "$(cat "$R15/.aitask-sitrep/todo.md")"
+[[ -s "$(ledger_of "$R15")" ]] && ok=yes || ok=no
+assert_eq "... but the attempt ledger records the attempt" "yes" "$ok"
+assert_contains "... stamped with the run time" "\"${C40#c}\": \"2026-11-03T10:00:00Z\"" \
+    "$(cat "$(ledger_of "$R15")")"
+# a malformed ledger never stops the run: a key past int()'s digit limit, then
+# nesting past the JSON parser's limit -- the ordinary reminder is still checked
+task "$R15" 70 Ready
+C70="$(add_item "$R15" task "t70" --ref t70)"
+for bad in "{\"version\": 1, \"attempts\": {\"$(head -c 4500 /dev/zero | tr '\0' 1)\": \"2026-11-03T10:00:00Z\"}}" \
+           "$(head -c 200000 /dev/zero | tr '\0' '[')"; do
+    printf '%s' "$bad" > "$(ledger_of "$R15")"
+    refresh "$R15"
+    assert_eq "a malformed ledger: refresh exits 0" "0" "$RC"
+    assert_contains "... the ordinary reminder is still checked" \
+        "REFRESH_ITEM:$C70|task|" "$OUT"
+    assert_contains "... and the recovery item too" "REFRESH_ITEM:$C40|recovery|" "$OUT"
+done
+assert_contains "... the ledger is rewritten valid" '"version": 1' "$(cat "$(ledger_of "$R15")")"
+wr "$R15" dismiss "$C70" --outcome "test: done with it" >/dev/null
+# (b) row 9: the lock is released and the task is no longer Implementing -> done
+unlock "$R15" 40
+task "$R15" 40 Ready
+refresh "$R15"
+assert_eq "row 9 -> done" "done" "$(st_of "$R15" "$C40")"
+assert_contains "... with the shared outcome" "recovered · recovered: Ready" "$(outc "$R15" "$C40")"
+assert_eq "... applied" "applied" "$(item_res "$C40")"
+done_sum="$(todo_sum "$R15")"
+for _ in 1 2; do refresh "$R15"; crashed "$R15"; done
+assert_eq "... further refresh / crashed passes leave it unchanged" "$done_sum" "$(todo_sum "$R15")"
+
+# (c) row 3: a live session reclaims the task -> done
+R15c="$(rec_root r15c)"
+task "$R15c" 41 Implementing
+setlock "$R15c" 41 "$HOST" "$(dead_pid)"
+crashed "$R15c"
+C41="$(rcid "$R15c" 41)"
+live
+setlock "$R15c" 41 "$HOST" "$LIVE_PID" "$LIVE_START" "$LIVE_KIND"
+refresh "$R15c"
+assert_eq "row 3 (a live reclaim) -> done" "done" "$(st_of "$R15c" "$C41")"
+assert_eq "... alive" "alive · held by a live session" "$(outc "$R15c" "$C41")"
+
+# (d) stale locks stay open and byte-stable across alternated passes
+R15d="$(rec_root r15d)"
+task "$R15d" 42 Done
+archive "$R15d" 42 Done
+task "$R15d" 43 Done
+setlock "$R15d" 42 "$HOST" "$(dead_pid)"
+setlock "$R15d" 43 "$HOST" "$(dead_pid)"
+crashed "$R15d"
+C42="$(rcid "$R15d" 42)"; C43="$(rcid "$R15d" 43)"
+assert_eq "archived Done under a dead lock -> stale_lock" \
+    "stale_lock · holder gone; task archived Done" "$(outc "$R15d" "$C42")"
+assert_eq "active Done under a dead lock -> stale_lock" \
+    "stale_lock · holder gone; task Done" "$(outc "$R15d" "$C43")"
+refresh "$R15d"
+first="$(todo_sum "$R15d")"
+o42="$(outc "$R15d" "$C42")"
+stable=yes
+for _ in 1 2 3; do
+    refresh "$R15d"; [[ "$(todo_sum "$R15d")" == "$first" ]] || stable=no
+    crashed "$R15d"; [[ "$(todo_sum "$R15d")" == "$first" ]] || stable=no
+done
+assert_eq "three refresh / crashed alternations: todo.md byte-stable" "yes" "$stable"
+assert_eq "... the outcome byte-identical" "$o42" "$(outc "$R15d" "$C42")"
+assert_eq "... still open" "open" "$(st_of "$R15d" "$C42")"
+# released -> done; further passes leave it unchanged
+unlock "$R15d" 42
+refresh "$R15d"
+assert_eq "a released stale lock -> done" "done" "$(st_of "$R15d" "$C42")"
+assert_eq "... recovered" "recovered · recovered: archived Done" "$(outc "$R15d" "$C42")"
+after="$(todo_sum "$R15d")"
+for _ in 1 2; do refresh "$R15d"; crashed "$R15d"; done
+assert_eq "... and stays put across passes" "$after" "$(todo_sum "$R15d")"
+
+# (e) an unreadable lock blob: unverified, the item byte-identical
+R15e="$(rec_root r15e)"
+task "$R15e" 44 Implementing
+setlock "$R15e" 44 "$HOST" "$(dead_pid)"
+crashed "$R15e"
+C44="$(rcid "$R15e" 44)"
+block="$(item_block "$R15e" "$C44")"
+rawlock "$R15e" 44 $'hostname: x\nno task id here\n'
+refresh "$R15e"
+assert_eq "an unreadable lock -> unverified" "unverified" "$(item_res "$C44")"
+assert_contains "... warned" "REFRESH_WARN:unverified|1 not verified" "$OUT"
+assert_eq "... the item line and its context byte-identical" "$block" "$(item_block "$R15e" "$C44")"
+# the task file unreadable as well (no status): still nothing written
+task "$R15e" 44 ""
+refresh "$R15e"
+assert_eq "an unreadable task -> unverified" "unverified" "$(item_res "$C44")"
+assert_eq "... still byte-identical" "$block" "$(item_block "$R15e" "$C44")"
+
+# (f) a new episode (another crashed claim): refresh leaves it to the detector
+R15f="$(rec_root r15f)"
+task "$R15f" 45 Implementing
+setlock "$R15f" 45 "$HOST" "$(dead_pid)"
+crashed "$R15f"
+C45="$(rcid "$R15f" 45)"
+block="$(item_block "$R15f" "$C45")"
+setlock "$R15f" 45 "$HOST" "$(dead_pid)" 2
+refresh "$R15f"
+assert_eq "a new episode -> unverified" "unverified" "$(item_res "$C45")"
+assert_contains "... named" "new episode — the crash detector updates it" "$OUT"
+assert_eq "... the item byte-identical" "$block" "$(item_block "$R15f" "$C45")"
+crashed "$R15f"
+assert_contains "the detector takes the new episode" "CRASH_ITEM:t45|$C45|applied|crashed" "$COUT"
+refresh "$R15f"
+assert_eq "... after which refresh agrees" "unchanged" "$(item_res "$C45")"
+
+# (g) a dismissal while refresh is parked before its write is never overwritten
+R15g="$(rec_root r15g)"
+task "$R15g" 46 Implementing
+setlock "$R15g" 46 "$HOST" "$(dead_pid)"
+crashed "$R15g"
+C46="$(rcid "$R15g" 46)"
+unlock "$R15g" 46
+task "$R15g" 46 Ready
+reset_fifo
+AITASK_SITREP_REFRESH_PAUSE_FIFO="$FIFO" "$RF" --root "$R15g" >"$TMP/bg.out" 2>"$TMP/bg.err" &
+pid=$!; BG_PIDS+=("$pid")
+wait_reached refresh:before_write
+wr "$R15g" dismiss "$C46" --outcome "user: handled by hand" >/dev/null
+echo go >&7
+wait_done "$pid"
+OUT="$(cat "$TMP/bg.out")"
+assert_eq "dismissed meanwhile -> stale (rev checked first)" "stale" "$(item_res "$C46")"
+assert_eq "... the dismissal stands" "dismissed" "$(st_of "$R15g" "$C46")"
+fi
+
+# =============================================================================
+if want 16; then
+echo "=== Test 16: a stalled recovery check never starves the others ==="
+R16="$(rec_root r16)"
+for i in 50 51 52; do
+    task "$R16" "$i" Implementing
+    setlock "$R16" "$i" "$HOST" "$(dead_pid)"
+done
+crashed "$R16"
+A="$(rcid "$R16" 50)"; B="$(rcid "$R16" 51)"; C="$(rcid "$R16" 52)"
+task "$R16" 60 Ready
+T="$(add_item "$R16" task "t60" --ref t60)"
+assert_eq "A has the lowest item number" "c1" "$A"
+ablock="$(item_block "$R16" "$A")"
+reached=()   # reached[run] = "B C T" subset that got a REFRESH_ITEM
+chks=()
+run16() {   # run16 <n>: one bounded run with A's check stalled
+    RC=0
+    OUT="$(AITASK_SITREP_NOW="2026-11-03T12:0$1:00Z" AITASK_SITREP_REFRESH_STALL_REF="recover:t50" \
+        timeout 23 "$RF" --root "$R16" --budget 8 2>"$TMP/err")" || RC=$?
+    local got="" x
+    for x in "$B" "$C" "$T"; do
+        printf '%s\n' "$OUT" | grep -q "^REFRESH_ITEM:$x|" && got+="$x "
+    done
+    reached[$1]="$got"
+    chks[$1]="$(chk "$R16" "$T")"
+    assert_contains "run $1: A is reported unverified" "REFRESH_ITEM:$A|recovery|open->open|unverified|" "$OUT"
+    assert_contains "run $1: ... and warned" "REFRESH_WARN:unverified|1 not verified" "$OUT"
+    assert_eq "run $1: A's item and context never written" "$ablock" "$(item_block "$R16" "$A")"
+}
+for n in 1 2 3 4; do run16 "$n"; done
+for x in "$B" "$C" "$T"; do
+    [[ " ${reached[1]}${reached[2]} " == *" $x "* ]] && ok=yes || ok=no
+    assert_eq "$x got a turn in runs 1-2" "yes" "$ok"
+    [[ " ${reached[3]}${reached[4]} " == *" $x "* ]] && ok=yes || ok=no
+    assert_eq "$x got a turn in runs 3-4" "yes" "$ok"
+done
+[[ "${chks[2]}" > "2026-11-03T12:00:00Z" ]] && ok=yes || ok=no
+assert_eq "T's checked_at advanced in runs 1-2 (${chks[2]})" "yes" "$ok"
+[[ "${chks[4]}" > "${chks[2]}" ]] && ok=yes || ok=no
+assert_eq "... and again in runs 3-4 (${chks[4]})" "yes" "$ok"
+# Negative control: without the ledger A sorts as `never` every time, goes
+# first and stalls -- B and C never get a turn. The ledger is what moves A.
+for n in 5 6; do
+    rm -f "$(ledger_of "$R16")"
+    run16 "$n"
+done
+for x in "$B" "$C"; do
+    [[ " ${reached[5]}${reached[6]} " == *" $x "* ]] && ok=no || ok=yes
+    assert_eq "negative control: $x is starved without the ledger" "yes" "$ok"
+done
+# A steady pass, stall removed, clock advanced: recovery items untouched,
+# their ledger stamps advance (T's own checked_at moves by design).
+rblocks="$(for x in "$A" "$B" "$C"; do item_block "$R16" "$x"; done)"
+AITASK_SITREP_NOW="2026-11-03T13:00:00Z" refresh "$R16" --budget 30
+for x in "$A" "$B" "$C"; do
+    assert_eq "steady pass: $x unchanged" "unchanged" "$(item_res "$x")"
+done
+assert_eq "... the recovery items and contexts byte-identical" "$rblocks" \
+    "$(for x in "$A" "$B" "$C"; do item_block "$R16" "$x"; done)"
+led="$(cat "$(ledger_of "$R16")")"
+for x in "$A" "$B" "$C"; do
+    assert_contains "... $x's attempt stamp advanced" "\"${x#c}\": \"2026-11-03T13:00:00Z\"" "$led"
+done
 fi
 
 echo ""

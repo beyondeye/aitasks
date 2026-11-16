@@ -591,6 +591,7 @@ _SITREP_REFRESH_TIMEOUT = _SITREP_REFRESH_BUDGET + 15.0
 #: (t2175_5, `monitor/sitrep_close.py`); the maintenance `all` pass reuses both.
 from monitor.sitrep_close import (  # noqa: E402
     HARVEST_ALL_TIMEOUT as _HARVEST_ALL_TIMEOUT,
+    HARVEST_CRASHED_TIMEOUT as _SITREP_CRASH_TIMEOUT,
     SITREP_HARVEST_SH as _SITREP_HARVEST_SH,
     run_owned_group,
 )
@@ -680,6 +681,8 @@ class AgentMarksMixin:
     _sitrep_refresh_due_at: float = 0.0
     _sitrep_harvest_inflight: bool = False
     _sitrep_harvest_due_at: float = 0.0
+    _sitrep_crash_inflight: bool = False
+    _sitrep_crash_due_at: float = 0.0
     #: The off-pump user-refresh worker (t2037_3, `_dispatch_scan_refresh`):
     #: one in flight, `_scan_again` asks it for one more round, and
     #: `_scan_rerun` re-dispatches it after a round the refresh guard turned away.
@@ -733,9 +736,11 @@ class AgentMarksMixin:
                 await self._maybe_offer_concerns()
                 await self._maybe_purge_marks()
                 await self._maybe_purge_sessions()
-                # Harvest BEFORE refresh, so items harvested in a pass are
-                # refreshed in the same pass (t2175_5).
+                # Harvest and crash detection BEFORE refresh, so the items
+                # harvested or detected in a pass are refreshed in the same
+                # pass (t2175_5, t2299_3).
                 await self._maybe_harvest_sitrep()
+                await self._maybe_detect_sitrep_crashes()
                 await self._maybe_refresh_sitrep()
             finally:
                 # In a `finally` so a raising or cancelled maintenance pass
@@ -778,6 +783,11 @@ class AgentMarksMixin:
             time.monotonic() + _MARKS_PURGE_STARTUP_GRACE
         )
         self._sitrep_harvest_inflight: bool = False
+        # The sitrep crash detector (t2299_3): same cadence and grace.
+        self._sitrep_crash_due_at: float = (
+            time.monotonic() + _MARKS_PURGE_STARTUP_GRACE
+        )
+        self._sitrep_crash_inflight: bool = False
         # Guards the whole trailing-maintenance worker (concerns + purge), which
         # `_refresh_data` dispatches rather than awaits (t1598). Distinct from
         # `_marks_purge_inflight`: that one only covers the purge, and
@@ -1822,6 +1832,46 @@ class AgentMarksMixin:
         finally:
             self._sitrep_harvest_inflight = False
             self._sitrep_harvest_due_at = (
+                time.monotonic() + _MARKS_PURGE_INTERVAL
+            )
+
+    async def _maybe_detect_sitrep_crashes(self) -> None:
+        """Run the sitrep crash detector over each observed store root (t2299_3).
+
+        One ``aitask_sitrep_harvest.sh crashed --root <r>`` per distinct project
+        root of this tick's sessions that already has a sitrep store (a root
+        without one spawns nothing). The detector holds the harvest mutex, so
+        it runs in its own process group through :meth:`_run_sitrep_harvest`.
+        Same scheduling contract as :meth:`_maybe_refresh_sitrep`, and it runs
+        between the harvest and the refresh in `_maintenance`. Advisory only:
+        it never reclaims, unlocks or edits a task. Failures are swallowed per
+        root -- the next pass re-reads.
+        """
+        if self._sitrep_crash_inflight:
+            return
+        if time.monotonic() < self._sitrep_crash_due_at:
+            return
+        self._sitrep_crash_inflight = True
+        try:
+            roots = _sitrep_store_roots(
+                self._root_for_session(s) for s in list(self._session_root_map)
+            )
+            for root in roots:
+                try:
+                    await self._run_sitrep_harvest(
+                        ["crashed", "--root", root],
+                        timeout=_SITREP_CRASH_TIMEOUT)
+                except asyncio.CancelledError:
+                    raise
+                except Exception:  # noqa: BLE001 - one root never stops the rest
+                    pass
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - maintenance must never break a tick
+            pass
+        finally:
+            self._sitrep_crash_inflight = False
+            self._sitrep_crash_due_at = (
                 time.monotonic() + _MARKS_PURGE_INTERVAL
             )
 

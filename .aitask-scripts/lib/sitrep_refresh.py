@@ -19,7 +19,10 @@ TARGETS (exhaustive). Only items whose state is ``open`` or ``unknown``; a
   ``unknown`` (cross-repo ids stay unverified unless the registry resolves
   them);
 * ``kind=action`` with ref ``push:<branch>@<sha>`` -- git, in the canonical root;
-* ``kind=watch`` with ``trail:`` context sources -- the trail artifact.
+* ``kind=watch`` with ``trail:`` context sources -- the trail artifact;
+* ``kind=task`` with ref ``recover:t<N>[_<M>]`` -- a crash-recovery item
+  (t2299): the lock and task facts of the canonical root, through
+  ``sitrep_crash``'s strict readers and its ordered decision table.
 
 Everything else (``kind=question`` triage items, agent action/watch items with
 none of these anchors, items without a ref) is NOT a target and is left
@@ -49,6 +52,19 @@ irreversible (done items are not re-checked):
   The trail item is done only when every entry landed. This is deliberately
   NOT the task-item rule: a folded task's own reminder closes on Folded, its
   trail entry does not.
+* recovery: ``sitrep_crash.recovery_verdict`` -- the SAME table the
+  ``harvest crashed`` detector uses, so both write the same state and the same
+  outcome (``format_outcome``) for the same facts. Stored rows (stale_lock,
+  crashed, orphan) stay ``open``; rows 2 and 4 (other host, liveness unknown)
+  are ``unknown``; rows 3 and 9 (live claim, no lock and not Implementing) are
+  ``done``. A recovery item is written ONLY when its state or outcome changes,
+  because its ``checked_at`` means "evidence last changed" (the detector's
+  rule). Nothing is written -- the line is ``unverified`` -- when an input is
+  unreadable (row 1, the inputs as a whole, a check exception, a timeout, the
+  deadline), when the item has no recorded incarnation, or when a stored row's
+  episode key differs from the recorded one: that evidence belongs to a new
+  claim whose context only the detector writes (``recovery-apply``). A done
+  item is never reopened here; reopening is the detector's.
 
 CONCURRENCY. The worker reads one snapshot (``load_todo_for_read``, no lock --
 the writer's atomic rename gives a whole generation) and every batch line
@@ -80,13 +96,36 @@ ties by id). Every reached target -- finished, or interrupted by the deadline
 the next run starts with the targets this one did not reach and an expensive
 item rotates to the back instead of starving the others.
 
+A recovery item's ``checked_at`` moves only with its evidence, so its turn
+comes from the refresh's own ATTEMPT LEDGER instead:
+``<git common dir>/aitask-sitrep/refresh_attempts.json``
+(``{"version": 1, "attempts": {"<item num>": "<YYYY-MM-DDTHH:MM:SSZ>"}}``).
+The same rule applies -- every reached recovery target, finished or
+interrupted, gets the run's stamp, and ordering reads that stamp in place of
+``checked_at`` -- whenever the run reached the write step (never on
+``--dry-run`` or a failure). Entries older than ``ATTEMPT_MAX_AGE_DAYS`` are
+pruned. The ledger is a scheduling hint, not store data: it lives outside the
+store, and a missing, unreadable or lost entry only makes a target look older
+("never"), so it can delay nothing. Without a git common dir there is no
+ledger and recovery targets order by ``checked_at``.
+
 WORKER LINE PROTOCOL (one record per line, flushed; free text always LAST):
     ROOT:<canonical root>                     (the whole remainder)
+    ATTEMPTS:<ledger path>                    (optional, before TARGETS)
     NONE:no_store | NONE:no_targets
     TARGETS:<n>
     START:c<N>|<snapshot rev>|<kind>|<old state>|<old outcome>
     VERDICT:c<N>|<new state>|<outcome>        (only for the open START)
     FAILED:<reason>
+
+``<kind>`` is ``recovery`` for a recovery target (the item kind otherwise). Its
+VERDICT state may also be ``unchanged`` or ``unverified``: the parent leaves
+those lines out of the batch (nothing is written) and reports them under that
+word.
+
+TEST SEAM (test-only): AITASK_SITREP_REFRESH_STALL_REF=<ref> makes the
+recovery check of that ref sleep for an hour, so the deadline kill can be
+exercised on a recovery target.
 
 START carries the CAS token, so a target interrupted before its VERDICT is
 written with the rev the worker observed -- never a re-read one.
@@ -101,6 +140,8 @@ from __future__ import annotations
 
 import argparse
 import dataclasses
+import datetime as _dt
+import json
 import math
 import os
 import re
@@ -131,6 +172,13 @@ GIT_CAP = 20.0
 DRIFT_CAP = 15.0
 MAX_FOLD_HOPS = 5
 MAX_WAVE_TITLE = 60
+ATTEMPT_MAX_AGE_DAYS = 7
+ATTEMPTS_REL = os.path.join("aitask-sitrep", "refresh_attempts.json")
+# The VERDICT states a recovery target may carry instead of a written state.
+SKIP_STATES = ("unchanged", "unverified")
+_TS_RE = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z\Z")
+# An item number (bounded: a huge digit string would exceed int()'s limit).
+_ATTEMPT_KEY_RE = re.compile(r"^[1-9][0-9]{0,17}\Z")
 
 # The task-status vocabulary -- what aitask_update.sh / aitask_pick_own.sh
 # accept. A record whose status is missing or outside it is unreadable.
@@ -215,9 +263,10 @@ class Target:
     state: str
     outcome: str
     checked_at: str
-    check: str            # task | push | trail
+    check: str            # task | push | trail | recovery
     ref: str = ""
     trails: tuple = ()
+    incarnation: str = ""  # recovery: the episode key the item's context records
 
 
 def select_targets(store: st.TodoStore) -> list:
@@ -230,8 +279,9 @@ def select_targets(store: st.TodoStore) -> list:
                     outcome=it.outcome, checked_at=it.checked_at, ref=it.ref)
         if it.kind == "task" and st.parse_recover_ref(it.ref):
             # A crash-recovery item is not a task reminder: its state comes
-            # from the recovery detector, never from the task's status.
-            # t2299_3 gives it its own check="recovery".
+            # from the recovery decision table, never from the task's status.
+            recorded = st.context_incarnation(store.contexts.get(num)) or ""
+            out.append(Target(check="recovery", incarnation=recorded, **base))
             continue
         if it.kind == "task" and it.ref and not it.ref.startswith("push:"):
             out.append(Target(check="task", **base))
@@ -245,9 +295,91 @@ def select_targets(store: st.TodoStore) -> list:
     return out
 
 
-def order_targets(targets: list) -> list:
-    """Oldest check first: `never`, then ascending ISO stamp; ties by id."""
-    return sorted(targets, key=lambda t: (t.checked_at != "never", t.checked_at, t.num))
+def order_targets(targets: list, attempts=None) -> list:
+    """Oldest check first: `never`, then ascending ISO stamp; ties by id.
+
+    A recovery target's key is its last ATTEMPT from the ledger (`attempts`,
+    {item num: stamp}; a missing entry is `never`), not its `checked_at`,
+    which moves only with its evidence. `attempts=None` (no ledger) keys it on
+    `checked_at` like every other target."""
+    def key(t):
+        if attempts is not None and t.check == "recovery":
+            stamp = attempts.get(t.num, "never")
+        else:
+            stamp = t.checked_at
+        return (stamp != "never", stamp, t.num)
+    return sorted(targets, key=key)
+
+
+# --- the recovery attempt ledger ----------------------------------------------
+
+def attempts_path(root: str):
+    """The ledger path under the root's git common dir, or None (not git, or
+    the probe failed -- recovery targets then order by `checked_at`)."""
+    try:
+        rc, out = _git(root, "rev-parse", "--git-common-dir")
+    except subprocess.TimeoutExpired:
+        return None
+    common = out.strip()
+    if rc != 0 or not common:
+        return None
+    if not os.path.isabs(common):
+        common = os.path.join(root, common)
+    return os.path.join(os.path.realpath(common), ATTEMPTS_REL)
+
+
+def read_attempts(path) -> dict:
+    """{item num: stamp}. Never raises: an absent, unreadable or malformed
+    ledger is {}, and a malformed entry is dropped on its own -- a scheduling
+    hint must never stop a refresh."""
+    if not path:
+        return {}
+    try:
+        with open(path, encoding="utf-8") as fh:
+            doc = json.load(fh)
+    except Exception:  # noqa: BLE001 - OSError, bad JSON, RecursionError, ...
+        return {}
+    if not isinstance(doc, dict) or doc.get("version") != 1:
+        return {}
+    raw = doc.get("attempts")
+    if not isinstance(raw, dict):
+        return {}
+    out = {}
+    for k, v in raw.items():
+        if not (isinstance(k, str) and _ATTEMPT_KEY_RE.match(k)
+                and isinstance(v, str) and _TS_RE.match(v)):
+            continue
+        try:
+            out[int(k)] = v
+        except ValueError:
+            continue
+    return out
+
+
+def _days_before(ts: str, days: int) -> str:
+    t = _dt.datetime.strptime(ts, "%Y-%m-%dT%H:%M:%SZ") - _dt.timedelta(days=days)
+    return t.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def merge_attempts(old: dict, reached, ts: str,
+                   max_age_days: int = ATTEMPT_MAX_AGE_DAYS) -> dict:
+    """The ledger after a run at `ts` that reached `reached` (item nums,
+    finished OR interrupted). Entries older than `max_age_days` are pruned: a
+    pruned entry reads `never` again, which can only move its target forward."""
+    floor = _days_before(ts, max_age_days)
+    out = {n: s for n, s in old.items() if s >= floor}
+    for n in reached:
+        out[n] = ts
+    return out
+
+
+def write_attempts(path: str, attempts: dict) -> None:
+    """Atomic replace through `atomic_write` (stage beside the target, then
+    rename). Raises OSError."""
+    from atomic_write import atomic_write_text
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    doc = {"version": 1, "attempts": {str(n): attempts[n] for n in sorted(attempts)}}
+    atomic_write_text(path, json.dumps(doc, indent=1, sort_keys=True) + "\n")
 
 
 # --- task lookup --------------------------------------------------------------
@@ -690,6 +822,28 @@ def trail_verdict(doc: dict, entry_state, drift: str, owner: str = "") -> Verdic
     return Verdict("open" if any_open else "unknown", outcome)
 
 
+NEW_EPISODE = "new episode — the crash detector updates it"
+
+
+def recovery_refresh_verdict(v, key, recorded: str, old_state: str,
+                             old_outcome: str) -> Verdict:
+    """Map a `sitrep_crash.Verdict` onto a refresh verdict for a recovery item.
+
+    `key` is the freshly derived episode key (None for a row that is not
+    stored); `recorded` the item's recorded incarnation. `unverified` and
+    `unchanged` are never written (module docstring, "recovery")."""
+    if v.row == 1:
+        return Verdict("unverified", v.outcome)
+    if not recorded:
+        return Verdict("unverified", "no recorded incarnation")
+    if v.stored and key != recorded:
+        return Verdict("unverified", NEW_EPISODE)
+    state = "open" if v.stored else v.item_state
+    if (state, v.outcome) == (old_state, old_outcome):
+        return Verdict("unchanged", v.outcome)
+    return Verdict(state, v.outcome)
+
+
 # --- the worker ---------------------------------------------------------------
 
 class Checker:
@@ -697,6 +851,8 @@ class Checker:
         self.root = root
         self.projects = Projects(root)
         self._indexes = {root: TaskIndex(root)}
+        self._recovery = None       # (locks, active tasks), read once per run
+        self._recovery_error = ""
 
     def index(self, root: str) -> TaskIndex:
         if root not in self._indexes:
@@ -709,7 +865,42 @@ class Checker:
         if t.check == "push":
             branch, sha = st.parse_push_ref(t.ref)
             return push_verdict(self.root, branch, sha)
-        return self.check_trail(t.trails)
+        if t.check == "trail":
+            return self.check_trail(t.trails)
+        if t.check == "recovery":
+            return self.check_recovery(t)
+        return Verdict("unknown", f"unsupported check {t.check}")
+
+    def recovery_inputs(self):
+        """(locks, active tasks) through sitrep_crash's strict readers, read
+        ONCE per run on the first recovery target. A failure is remembered:
+        every recovery target of the run is then unverified."""
+        import sitrep_crash as sc   # lazy: sitrep_crash imports this module
+        if self._recovery is None and not self._recovery_error:
+            try:
+                self._recovery = (sc.read_locks(self.root), sc.read_active_tasks(self.root))
+            except subprocess.TimeoutExpired:
+                self._recovery_error = "timed out"
+            except Exception as exc:  # noqa: BLE001 - SourceError and any other
+                self._recovery_error = clean_text(str(exc) or type(exc).__name__)
+        return sc, self._recovery
+
+    def check_recovery(self, t: Target) -> Verdict:
+        seam = os.environ.get("AITASK_SITREP_REFRESH_STALL_REF", "")
+        if seam and seam == t.ref:
+            time.sleep(3600)
+        sc, inputs = self.recovery_inputs()
+        if inputs is None:
+            return Verdict("unverified", fit_outcome(
+                [f"inputs unreadable: {self._recovery_error}"]))
+        locks, active = inputs
+        tid = st.parse_recover_ref(t.ref)
+        lock = locks.get(tid)
+        task = active.get(tid) or sc.read_inactive_task(self.root, tid, self.index(self.root))
+        live = sc.liveness_of(lock) if lock is not None and lock.state == "ok" else ""
+        v = sc.recovery_verdict(lock, task, live)
+        key = sc.episode_key(tid, lock, t.incarnation) if v.stored else None
+        return recovery_refresh_verdict(v, key, t.incarnation, t.state, t.outcome)
 
     def check_task(self, ref: str) -> Verdict:
         m = st.XREF_RE.match(ref)
@@ -803,7 +994,7 @@ def cmd_worker(args) -> int:
     import sitrep_harvest
     _watch_parent(args.parent if args.parent else os.getppid())
     try:
-        root, _is_git = sitrep_harvest.canonical_root(os.path.abspath(args.root))
+        root, is_git = sitrep_harvest.canonical_root(os.path.abspath(args.root))
     except sitrep_harvest.HarvestFailure as e:
         _emit(f"FAILED:root:{e}")
         return 0
@@ -817,21 +1008,33 @@ def cmd_worker(args) -> int:
     except st.FormatError as e:
         _emit(f"FAILED:store_unusable:{clean_text(e)}")
         return 0
-    targets = order_targets(select_targets(snapshot))
+    targets = select_targets(snapshot)
     if not targets:
         _emit("NONE:no_targets")
         return 0
+    attempts = None
+    if is_git and any(t.check == "recovery" for t in targets):
+        ledger = attempts_path(root)
+        if ledger:
+            _emit(f"ATTEMPTS:{ledger}")
+            attempts = read_attempts(ledger)
+    targets = order_targets(targets, attempts)
     _emit(f"TARGETS:{len(targets)}")
     os.chdir(root)  # the artifact CLI and trail libs are cwd-relative
     checker = Checker(root)
     for t in targets:
-        _emit(f"START:c{t.num}|{t.rev}|{t.kind}|{t.state}|{t.outcome}")
+        recovery = t.check == "recovery"
+        # A failed recovery check writes nothing (`unverified`): unreadable
+        # evidence says nothing about the task (module docstring, "recovery").
+        failed = "unverified" if recovery else "unknown"
+        _emit(f"START:c{t.num}|{t.rev}|{'recovery' if recovery else t.kind}|"
+              f"{t.state}|{t.outcome}")
         try:
             v = checker.check(t)
         except subprocess.TimeoutExpired:
-            v = Verdict("unknown", "timed out")
+            v = Verdict(failed, "timed out")
         except Exception as exc:  # noqa: BLE001 - one target never ends the run
-            v = Verdict("unknown", f"check error: {type(exc).__name__}")
+            v = Verdict(failed, f"check error: {type(exc).__name__}")
         _emit(f"VERDICT:c{t.num}|{v.state}|{fit_outcome([v.outcome])}")
     return 0
 
@@ -853,6 +1056,11 @@ class Line:
     outcome: str = ""
     interrupted: bool = False
 
+    @property
+    def skipped(self) -> bool:
+        """A recovery line that is reported but never written."""
+        return self.state in SKIP_STATES
+
 
 class Stream:
     """The parent's view of the worker's line stream (pure, unit-tested)."""
@@ -862,6 +1070,7 @@ class Stream:
         self.none = ""
         self.failed = ""
         self.targets = 0
+        self.attempts = ""       # the recovery attempt ledger's path, if any
         self.lines = []          # finished Line records
         self.open = None         # the START without a VERDICT yet
 
@@ -869,6 +1078,9 @@ class Stream:
         tag, _, rest = raw.partition(":")
         if tag == "ROOT" and not self.root:
             self.root = rest
+        elif (tag == "ATTEMPTS" and self.root and not self.attempts and not self.targets
+              and os.path.isabs(rest)):
+            self.attempts = rest
         elif tag == "NONE" and self.root:
             self.none = rest
         elif tag == "FAILED":
@@ -887,7 +1099,10 @@ class Stream:
             parts = rest.split("|", 2)
             if self.open is None or len(parts) != 3 or parts[0] != f"c{self.open.num}":
                 raise ProtocolError(f"VERDICT without its START: {raw!r}")
-            if parts[1] not in ("open", "done", "unknown"):
+            allowed = ("open", "done", "unknown")
+            if self.open.kind == "recovery":
+                allowed += SKIP_STATES
+            if parts[1] not in allowed:
                 raise ProtocolError(f"bad VERDICT state {raw!r}")
             self.open.state, self.open.outcome = parts[1], parts[2]
             self.lines.append(self.open)
@@ -896,13 +1111,14 @@ class Stream:
             raise ProtocolError(f"unexpected worker line {raw!r}")
 
     def close(self, interrupted: bool, budget: float) -> list:
-        """The batch lines: finished verdicts, plus the target the deadline
-        interrupted (written unknown, with ITS snapshot rev)."""
+        """The reported lines: finished verdicts, plus the target the deadline
+        interrupted (written unknown, with ITS snapshot rev -- or, for a
+        recovery target, `unverified` and not written)."""
         out = list(self.lines)
         if self.open is not None:
             if not interrupted:
                 raise ProtocolError(f"worker ended with c{self.open.num} open")
-            self.open.state = "unknown"
+            self.open.state = "unverified" if self.open.kind == "recovery" else "unknown"
             self.open.outcome = f"check did not finish within the {budget:g}s budget"
             self.open.interrupted = True
             out.append(self.open)
@@ -1084,13 +1300,18 @@ def cmd_run(args) -> int:
     if not lines:
         print("REFRESH_FAILED:deadline")
         return 1
-    batch = "".join(f"c{ln.num}|{ln.rev}|{ln.state}|{ts}|{ln.outcome}\n" for ln in lines)
+    # Skipped recovery lines (`unchanged` / `unverified`) are reported, never
+    # written: their item keeps its evidence stamp and its rev.
+    written = [ln for ln in lines if not ln.skipped]
+    batch = "".join(f"c{ln.num}|{ln.rev}|{ln.state}|{ts}|{ln.outcome}\n" for ln in written)
     log = os.environ.get("AITASK_SITREP_REFRESH_BATCH_LOG", "")
     if log:
         with open(log, "w", encoding="utf-8") as fh:
             fh.write(batch)
     if args.dry_run:
-        results = {ln.num: "dry_run" for ln in lines}
+        results = {ln.num: "dry_run" for ln in written}
+    elif not written:
+        results = {}
     else:
         paused = bool(os.environ.get("AITASK_SITREP_REFRESH_PAUSE_FIFO"))
         _pause("refresh:before_write")
@@ -1099,8 +1320,22 @@ def cmd_run(args) -> int:
         except WorkerFailure as e:
             print(f"REFRESH_FAILED:{e}")
             return 1
+    if stream.attempts and not args.dry_run:
+        reached = [ln.num for ln in lines if ln.kind == "recovery"]
+        try:
+            write_attempts(stream.attempts,
+                           merge_attempts(read_attempts(stream.attempts), reached, ts))
+        except OSError as e:
+            print(f"REFRESH_WARN:attempts_unwritable|{clean_text(e.strerror or e)}")
+    unverified = sum(1 for ln in lines if ln.state == "unverified")
+    if unverified:
+        print(f"REFRESH_WARN:unverified|{unverified} not verified")
     counts = dict(checked=len(lines), changed=0, stale=0, kept=0, unknown=0)
     for ln in lines:
+        if ln.skipped:
+            print(f"REFRESH_ITEM:c{ln.num}|{ln.kind}|{ln.old_state}->{ln.old_state}|"
+                  f"{ln.state}|{ln.outcome}")
+            continue
         res = results.get(ln.num, "not_found")
         print(f"REFRESH_ITEM:c{ln.num}|{ln.kind}|{ln.old_state}->{ln.state}|{res}|{ln.outcome}")
         if res in ("applied", "dry_run"):
