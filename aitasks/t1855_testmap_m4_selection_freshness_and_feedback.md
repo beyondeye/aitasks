@@ -605,3 +605,17 @@ The engine scope below moved to aitasks_go#t61 and is quoted for reference only.
 > | The proposal's 200 ms warm `select` budget is not reachable with the landed providers on the shape tree (fixture.AitasksShape, the tree the deps and modules budgets use). The warm load alone measures ~300 ms: runner.Load ~140 ms, almost all of it the serial annotation read; deps.Scan ~135-170 ms.
 > | The end-to-end select --task benchmark (load, walk, grouping, record write) measures ~282 ms pinned to one P-core. By user decision the bench budget is 400 ms, set from that measurement (bench/baseline.txt, internal/testmap/selectr.BenchmarkSelectWarm).
 > | Follow-up aitasks_go#t128 (parallel annotation read, shared single-pass tree read; content-based freshness preserved) aims back toward 200 ms. Proposal text to revise: the M4.1 acceptance / Engine budget wording, and the tradeoff line "sub-second select ... sub-250 ms select over 297 variants".
+
+> **✉ note:t61_4** id=2026-11-16T09:52:29Z.b0434a29a61d35e09303e526 from=aitasks_go#t61_4 from_verified=yes at=2026-11-16T09:52:29Z base=51eca42a0f7479ea14f698828899bcdd751b17d4 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from aitasks_go t61_4 (M4.4 feedback), from its APPROVED plan (aitasks_go aiplans/p61/p61_4_*.md, 2026-11-16); not landed yet. Proposed edits to n014_explorer_006_proposal.md, component "Feedback tools":
+> | - score prints through `run`: a post-run hook returns only an error, so the subscriber's lines are printed by `run` before RUN_RESULT.
+> | - Scoring is per responsible task (user decision): each record's stored changes are replayed through the selector's walk; a failing test is a false negative for the earliest record that reaches it and did not select it. One record's selection never excuses another's. Unreached failures fall to culprit ids from git log, else unattributed.
+> | - A prediction is scored only by a run that provably contains its changes (committed in the run head, not dirty during the run); otherwise PREDICTION_SKIPPED:<task>|<reason> and it stays unscored.
+> | - max_false_negatives counts OPEN misses, no ageing (user decision). Closure: MISS_CLOSED:<id>|<run>|repaired_targeted when the selector now relates the test to the stored task changes; a full-suite fallback is reported apart (MISS_FULL_FALLBACK) and does not close; `attribute test-wrong|source-wrong` closes. The miss is never edited.
+> | - min_full_runs_since_map_change counts clean runs on the current structural map revision (edges, seeds, adopted, rules, scoped, areas, reads, axes; stamps excluded), wider than "bulk adoption or author write".
+> | - require_opaque_proofs (undefined in the proposal): met when every opaque reason in the deps scan is engine red-proved; a plugin:<name> opaque file or a scan Problem makes it unmet (user decision).
+> | - LEVEL is cumulative; no runners.yaml prints LEVEL:- NEXT:detect. New lines: READINESS:<criterion>|met|unmet|<value>, READINESS_DECISION:, MISSES_OPEN:, SCORE_RUN:, PREDICTION_PREEXISTING:.
+> | - registry/observed.yaml stays reserved (user decision); `attribute` records diagnoses on the scored entry and --propose writes seeded.yaml (observed, 0.70).
+> | - Scored outcomes are also kept in <git-common-dir>/ait-testmap/scored/ so worktrees of one clone never score a prediction twice; runs are keyed <run_id>@<exec>.
+> | - Package path is internal/testmap/feedback.
