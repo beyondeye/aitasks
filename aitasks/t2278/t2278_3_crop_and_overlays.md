@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2278
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 18:12
-updated_at: 2026-11-16 11:37
+updated_at: 2026-11-16 12:37
 ---
 
 ## Context
@@ -85,3 +86,8 @@ See `aiplans/p2278/p2278_3_crop_and_overlays.md`.
   board_card_annotated` passes in fresh sessions.
 - Open the two staged images: callout numbers sit on the zones the page text
   names, and the cropped card has no window chrome.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-16T10:37:11Z status=pass attempt=1 type=human
