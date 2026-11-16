@@ -173,3 +173,16 @@ and it never double counts.
   outputs. Ask the user before running it, because it pushes to origin.
 
 Step 9 (Post-Implementation) applies.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t1912_4** id=2026-11-16T09:45:36Z.9121ebab52cdf3585d464cb1 from=t1912_4 from_verified=yes at=2026-11-16T09:45:36Z base=51eca42a0f7479ea14f698828899bcdd751b17d4 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1912_4 (landed in main 51eca42a0). Facts the migration builds on (full detail in the archived p1912_4 "Notes for sibling tasks"):
+> | - The writers only ever add branch counters now. The stats keys in models_<agent>.json are frozen legacy, waiting for your strip. `verified` is never written.
+> | - The writers print the EFFECTIVE total. `model_stats_store.effective_total` reads the marker from the commit just written, and reads the legacy registry strictly under the resolved toplevel. Once your marker lands, the printed total becomes branch-only with no writer change.
+> | - New store API: `update(..., return_commit=True)` -> `UpdateResult(value, commit, local_ref)`. Nothing after a push OK raises. `legacy_models(..., strict=True)` and `TotalUnavailable` are new.
+> | - registry_cas.sh stays (aitask_opencode_models.sh and your strip). Its header comment now names the strip.
+> | - tests/golden/model_stats_parity/steps.tsv freezes the former jq writers' per-step buckets (22 rows). tests/test_model_stats_parity.sh checks the Python ports against it, and merge_buckets builds on those ports.
+> | - The CLI now accepts any non-empty skill without control characters. The writer bridge forwards `--opt=value` tokens, so a skill like `-custom` is safe.
