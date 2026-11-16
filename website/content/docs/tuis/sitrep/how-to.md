@@ -14,7 +14,7 @@ The list is grouped by what you can do now. **Now** (the agent and the monitor c
 Each row has five columns:
 
 - **Item**: the item's id, such as `c12`.
-- **Checked**: how long ago the item's live state was last checked, or `—` when it never was.
+- **Checked**: how long ago the item's live state was last checked, or `—` when it never was. For a crashed-agent item ("Recover t42 …") it is how long ago its evidence last changed, so an old time there does not mean the item needs a re-check.
 - **Pri/Eff**: the priority and effort of the task an item names, such as `hi/med`. It is blank for items that name no task.
 - **Created**: when that task was created. Today's tasks show the time, older ones the date.
 - **What to do**: one line saying what the item needs from you, such as "Triage t2175_2's wrap-up: …", "Pick t2182 (status: Ready): …" or "Waiting on: … — nothing to do now".
@@ -38,9 +38,9 @@ Press **Escape** to go back. Press **l** on the main list for the **Q&A log**: e
 
 ### How to Collect New Wrap-ups and Re-check the List
 
-When the TUI starts, it collects every finished agent's wrap-up that is not in the list yet and then re-checks the items it can verify: whether a task is still open, whether a push reached the remote, how far a trail has progressed. It reports the result in a short message.
+When the TUI starts, it collects every finished agent's wrap-up that is not in the list yet, looks for tasks whose agent crashed (see [How to Resume Crashed Work](#how-to-resume-crashed-work)), and then re-checks the items it can verify: whether a task is still open, whether a push reached the remote, how far a trail has progressed, whether a crashed task is still abandoned. It reports the result in a short message, shown as a warning when some items could not be verified.
 
-Press **r** to do it again, on the main list or in an item's details. A panel then shows what the collection added and what the re-check changed. Only one run happens at a time, so **r** is greyed out while one is in progress. The header shows when the last run ended and whether it had errors.
+Press **r** to do it again, on the main list or in an item's details. A panel then shows what the collection added, what the crash check found, and what the re-check changed. Each of the three steps runs even when the one before it failed. Only one run happens at a time, so **r** is greyed out while one is in progress. The header shows when the last run ended and whether it had errors.
 
 The list on screen also follows every other change to the list, for example one the sitrep agent just wrote, within a few seconds, and keeps your selection.
 
@@ -48,13 +48,25 @@ The list on screen also follows every other change to the list, for example one 
 
 These keys work on the highlighted row of the main list and in an item's details. Each key is shown only for the items it fits.
 
-- **p** — open [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}) for the task in a new agent window, through the usual launch dialog. It is shown only on open task items of this repository. If an agent window for that task is already running, the TUI switches to it instead.
+- **p** — open [`/aitask-pick`]({{< relref "/docs/skills/aitask-pick" >}}) for the task in a new agent window, through the usual launch dialog. It is shown only on open task items of this repository, including crashed and orphan items (not stale-lock items). If an agent window for that task is already running, the TUI switches to it instead.
 - **b** — show the task's card in the [board]({{< relref "/docs/tuis/board" >}}). A running board in the project's session focuses the card. Otherwise a board is started.
 - **z** — show the task in [`ait trails`]({{< relref "/docs/tuis/trails" >}}), with its card focused. It is shown only for a task that is in at least one trail. When the task is in several trails, a picker asks which one.
 - **P** — show the push command for a push reminder, with a **Copy** button. The TUI never runs it. The reminder closes by itself once a re-check finds the commit on the remote.
-- **x** — dismiss the item. You must give a reason, which is kept as the item's outcome. A dismissed item stays dismissed: later collections and re-checks never bring it back.
+- **x** — dismiss the item. You must give a reason, which is kept as the item's outcome. A dismissed item stays dismissed: later collections and re-checks never bring it back. The one exception is a crashed-agent item, which comes back when the task is claimed again and that new claim crashes too.
 
 If the item changed while you were looking at it, for example because a re-check updated it, the key does nothing on the old view: the TUI refreshes the details and asks you to press the key again. For a dismissal, the dialog opens again and names the change.
+
+### How to Resume Crashed Work
+
+After a tmux or machine crash, the list holds one "Recover t42 …" item per task whose agent is gone. The [Crashed agents]({{< relref "/docs/workflows/sitrep" >}}#crashed-agents) section of the workflow explains the three kinds (crashed, orphan, stale lock).
+
+1. Press **Enter** on the item. An item shown as unknown is one whose task is now held on another machine or by an agent whose state cannot be checked: its title and details describe the earlier crash, not the current state. **What to do** names the kind, and the title and outcome summarize the evidence: the phase the agent died in, the plan's state, the attributed files and any overlap with another task. The links open the task, its plan and the full record of what was found.
+2. Read the **How** line before you touch the working tree. When it or that record warns about surviving work or uncommitted files with no known owner, leave them alone: no `git restore`, `git stash` or checkout.
+3. To resume a crashed or orphan item, press **p**. The pick asks whether to reclaim the task and resumes from its last recorded checkpoint. With several crashed items, press **n** (or type `>p` to the agent) for the order to resume them in.
+4. For a stale lock, check who holds the lock, then run the `ait lock --unlock <N>` command its **How** line shows. The TUI never runs it. After the next **r**, the item closes when the task is no longer `Implementing`, or becomes an orphan to resume.
+5. To dismiss an item you will not resume, press **x**. It stays dismissed until the task is claimed again and that claim crashes too.
+
+The **w** key does not apply to crashed-agent items. For a summary of all of them, type `>w crashed-agents` to the agent.
 
 ### How to Hand Work to the Sitrep Agent
 

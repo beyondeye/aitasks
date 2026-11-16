@@ -28,9 +28,9 @@ keys below apply.
 | `s` | Situation | Show or hide the situation text | Always |
 | `f` | Labels | Open the label filter | Some task in the list has a label, or a filter is on |
 | `F` | Clear filter | Clear the label filter | A filter is on |
-| `r` | Refresh | Collect new wrap-ups, then re-check the list | Always; greyed out while a run is in progress |
+| `r` | Refresh | Collect new wrap-ups, run the crash check, then re-check the list | Always; greyed out while a run is in progress |
 | `x` | Dismiss | Dismiss the item, with a reason | The item is open or unknown |
-| `p` | Pick | Launch `/aitask-pick` for the item's task, or switch to its running agent window | An open task item that names a task of this repository |
+| `p` | Pick | Launch `/aitask-pick` for the item's task, or switch to its running agent window | An open task item that names a task of this repository; for a crash-recovery item, only the `crashed` and `orphan` categories |
 | `b` | Board | Show the item's task in the board | The item names a task of this repository |
 | `z` | Trails | Show the item's task in `ait trails` | The task is known to be in at least one trail |
 | `P` | Push cmd | Show the push command, with a Copy button | The item is a push reminder |
@@ -38,7 +38,7 @@ keys below apply.
 | `A` | Respawn agent | Start the sitrep agent again beside the TUI | The agent is not running |
 | `t` | Triage | Request: `>t c<N>` | The agent runs, and the item is an open triage or unparsed-output review item |
 | `a` | Ask agent | Request: `>q c<N> <question>` (asks for the question first) | The agent runs, and an item is highlighted |
-| `w` | Situation text | Request: `>w <theme>` | The agent runs, and the item's context names a work area (theme) |
+| `w` | Situation text | Request: `>w <theme>` | The agent runs, and the item's context names a work area (theme). Never on a crash-recovery item, whose context names none: type `>w crashed-agents` to the agent instead |
 | `T` | Trail refresh | Request: `>tr c<N>` | The agent runs, and the item is an open watch that refresh checks through its trail |
 | `n` | Pick advice | Request: `>p` | The agent runs |
 | `j` | (hidden) | TUI switcher | Always |
@@ -139,7 +139,7 @@ shows its count, `(0)` included.
 | Column | Shows |
 |--------|-------|
 | Item | The item id (`c<N>`) |
-| Checked | `—` (never checked), `just now`, `Nm ago`, `Nh ago`, `Nd ago`, `Ny ago`, `long ago`; `invalid` for an unreadable time, `future` for one more than a minute ahead |
+| Checked | `—` (never checked), `just now`, `Nm ago`, `Nh ago`, `Nd ago`, `Ny ago`, `long ago`; `invalid` for an unreadable time, `future` for one more than a minute ahead. For a crash-recovery item it is the age of its evidence: the crash check and the re-check write it only when the evidence changes |
 | Pri/Eff | The task's priority and effort as `hi`, `med` or `lo` (other values cut to three letters, an empty one `?`), e.g. `hi/med`; `—` when the task file is not found; blank for an item that names no task of this repository |
 | Created | The task's `created_at`: `HH:MM` when it is today (`today` for a date without a time), `MM-DD` in the current year, `YYYY-MM-DD` otherwise; `—` when the file is missing or has no `created_at`, `?` when it cannot be read; blank for an item that names no task of this repository |
 | What to do | The item's "What to do" line (below), cut to the pane's width |
@@ -160,11 +160,20 @@ and state. The keys named are the default ones; a rebind changes them.
 | Open task without a task reference | `Pick: <title>` | Pick it with `/aitask-pick <id>` |
 | Open push reminder | `Do: <title>` | Push it yourself; `P` shows the command; a re-check closes it once the commit is on the remote |
 | Other open action | `Do: <title>` | Do it yourself; `x` dismisses it with a reason |
+| Open crash-recovery item, `crashed` | `Recover: <title> — crashed · <evidence>` | `p` launches `/aitask-pick <N>` (reclaim, then the crash-recovery survey). Do not `git restore` / `git stash` the tree: the crashed agent's work may survive in it |
+| Open crash-recovery item, `orphan` | `Recover: <title> — orphan · <evidence>` | `p` launches `/aitask-pick <N>`, or `b` shows it in the board |
+| Open crash-recovery item, `stale_lock` | `Recover: <title> — stale_lock · <evidence>` | Check the holder, then release the lock yourself: `ait lock --unlock <N>` (shown, never run). `r` re-checks it once the lock is gone: done when the task is no longer `Implementing`, otherwise it becomes an orphan |
+| Open crash-recovery item, other outcome | `Recover: <title> — <outcome>` | `b` shows the task in the board, `a` asks the agent |
 | Open watch checked through a trail | `Waiting on: <title> — nothing to do now` | `r` re-checks its trail; `T` has the agent refresh the trail (`>tr c<N>`) |
 | Other open watch | `Waiting on: <title> — nothing to do now` | Refresh does not check it; `a` asks the agent, `x` dismisses it |
 | Done / dismissed | `Done: <title>` / `Dismissed: <title>`, with the outcome | Nothing to do |
 | Unknown, re-checkable | `Unknown — needs a re-check: <title>` | `r` re-checks it |
 | Unknown, not re-checkable | `Unknown — needs a re-check: <title>` | `a` asks the agent to look at its sources, or `x` dismisses it |
+
+A crash-recovery item that becomes unknown uses the **Unknown, re-checkable**
+row. That happens when its task's lock is now held on another host (outcome
+`other_host · …`) or by a holder whose liveness cannot be checked (`unknown ·
+…`). Its title and survey still describe the earlier crash.
 
 The **How** lines name the request keys even while the agent is not running;
 the keys themselves appear only once it runs.
@@ -287,10 +296,25 @@ reading its whole input box first; treat `unknown` as possibly sent; and after
 | `b` / `z` outside an aitasks tmux session | `Not in an aitasks tmux session — run: ./ait board --focus <id>` / `… run: ./ait trails --trail <handle> --task <id>` |
 | No tmux session runs the project | "No tmux session runs this project — start one with: ait ide" |
 
-The collect-and-re-check panel has one line for each half: `Harvested: N added,
-M existing`, `Nothing new to harvest` or `Harvest failed: <why>`, then
-`Refreshed: N checked, M changed`, `Nothing to refresh (<reason>)` or
-`Refresh failed: <reason>`. The re-check runs even when the collection failed.
+The collect-and-re-check panel has one line for each of its three steps, in
+order:
+
+1. The collection: `Harvested: N added, M existing`, `Nothing new to harvest`
+   or `Harvest failed: <why>`.
+2. The crash check: `Recovery: nothing in flight`, `Recovery: nothing crashed`,
+   `Recovery: N crashed, N orphans, N stale locks (N new, N reopened)` (with
+   `, N warned` when some tasks could not be read and were left as they were),
+   or `Recovery check failed: <why>`. Below the verdicts, one
+   `recovery: t<N> <category> (added)` or `(reopened)` line per new or reopened
+   item, and one `recovery warning: t<N> <reason>` line per task it could not
+   read.
+3. The re-check: `Refreshed: N checked, M changed`, with `, N not verified` and
+   `, N not reached` when some items could not be decided or the time budget ran
+   out, `Nothing to refresh (<reason>)` or `Refresh failed: <reason>`.
+
+Each step runs even when the one before it failed. At startup the same three
+verdicts appear as one message, shown as a warning when a step failed or the
+re-check was partial.
 
 ## Timing
 
@@ -302,8 +326,9 @@ M existing`, `Nothing new to harvest` or `Harvest failed: <why>`, then
 - Collect-and-re-check runs once at startup (reported in a short message, no
   panel) and on `r`.
 - While `ait monitor` or a minimonitor runs, it harvests every frozen agent's
-  capture that is not in a list yet, each into its own repository's list, and
-  then re-checks the list of every repository it shows that has one. It does
+  capture that is not in a list yet, each into its own repository's list, then
+  runs the crash check and re-checks the list of every repository it shows that
+  has one. It does
   this every 10 minutes, the first time a minute after it starts; a failed pass
   is retried on the next one.
 

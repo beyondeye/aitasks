@@ -177,11 +177,13 @@ The sync only ever fast-forwards. If your local merge target has commits the rem
 - **Decline does not touch your worktree.** "Pick a different task" reverts task metadata and releases the lock. Uncommitted files in the worktree, and the worktree directory itself, are left alone. Decide explicitly whether to keep them.
 - **macOS portability.** The identity token comes from `/proc/<pid>/stat` on Linux (`pid_starttime_kind: proc`) and, on macOS, from the kernel's process-info call read through the framework's Python (`pid_starttime_kind: bsdinfo`). Both have sub-second resolution, so both can prove a live holder. When neither is available — a process owned by another user, or no usable Python — the token falls back to `ps -o lstart=` (`pid_starttime_kind: ps`). That has only one-second resolution and cannot rule out a PID recycled within the same second, so a *matching* `ps` token yields "unknown" rather than "alive". Crash detection itself is unaffected by the fallback: a crashed agent's PID is absent, which is decided before any token is compared.
 - **A planned shutdown does not need this procedure.** Press **Z** in `ait monitor` or `ait minimonitor` to [freeze every agent]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}) before you stop tmux or reboot: each agent ends cleanly, and its record and captured output are kept. Afterwards, an agent whose session id was recorded can be restored into that session; one without — or an agent whose CLI cannot resume — comes back by re-picking its task instead. Crash recovery is for the shutdown you did not choose.
+- **Find every crashed task at once.** After a crash that took down many agents, [sitrep]({{< relref "/docs/workflows/sitrep" >}}#crashed-agents) lists every task whose agent is gone, with each one's phase, plan state and surviving files, and suggests an order to resume them in. Pressing `p` on one of its items runs this same recovery.
 - **Cross-host reclaim is the same procedure.** Multi-PC reclaim (`LOCK_RECLAIM:`) shares the survey block, the option list, and the decline cleanup with same-host crash recovery. Only the question wording differs.
 
 ## See also
 
 - [Concepts: Locks](../../concepts/locks/) — what the task lock is for
+- [Sitrep: Crashed agents]({{< relref "/docs/workflows/sitrep" >}}#crashed-agents) — every crashed task in one list
 - [Gate rules: the ledger]({{< relref "/docs/development/gates" >}}#the-ledger) — the `## Gate Runs` ledger a resumed task is re-entered from
 - [Parallel Development](../parallel-development/) — the broader concurrency picture this fits into
 - [`/aitask-pick`](../../skills/aitask-pick/) — the skill that runs the recovery

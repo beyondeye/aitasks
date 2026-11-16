@@ -7,7 +7,7 @@ maturity: [experimental]
 depth: [intermediate]
 ---
 
-The steward of the repository's one persisted todo list. It turns finished agents' closing notes into action and watch items, writes the situation text, reports trails, and answers questions from the sources the items point at. Collecting wrap-ups, re-checking the list, dismissing and restoring are done by the [sitrep TUI]({{< relref "/docs/tuis/sitrep" >}}) in the pane below it. It is **advisory-only**: it changes only its own list, through the list's locked writer, and never picks, pushes, commits, edits code or types into another pane. For the workflow, see [Sitrep]({{< relref "/docs/workflows/sitrep" >}}).
+The steward of the repository's one persisted todo list. It turns finished agents' closing notes into action and watch items, writes the situation text, reports trails, advises how to resume [crashed agents' work]({{< relref "/docs/workflows/sitrep" >}}#crashed-agents), and answers questions from the sources the items point at. Collecting wrap-ups, re-checking the list, dismissing and restoring are done by the [sitrep TUI]({{< relref "/docs/tuis/sitrep" >}}) in the pane below it. It is **advisory-only**: it changes only its own list, through the list's locked writer, and never picks, pushes, commits, edits code or types into another pane. For the workflow, see [Sitrep]({{< relref "/docs/workflows/sitrep" >}}).
 
 **Usage:**
 ```
@@ -22,17 +22,17 @@ No arguments; text after the command is your first request. You normally do not 
 
 1. **Check the root:** the list belongs to the main worktree; started anywhere else, the agent says so and stops.
 2. **Read the list:** it does not collect or re-check. The sitrep TUI does both when it starts and on its **`r`** key.
-3. **Greet:** the counts in Pick now, Next and Waiting, the open triage items, and the menu below. When the list cannot be read, it says so and points at the TUI's **`R`** (restore) instead.
+3. **Greet:** the counts in Pick now, Next and Waiting, the open triage items, the open crashed-agent items, and the menu below. When the list cannot be read, it says so and points at the TUI's **`R`** (restore) instead.
 
 ## Capabilities
 
 | Shortcode | Capability |
 |-----------|------------|
 | `>t [c<N>]` | **Triage** — propose action and watch items from each harvested wrap-up, and the missed items of each unparsed-output review; ask once, then write them. A bare `>t` takes every open triage item as one batch; `>t c<N>` only that item |
-| `>w [<theme>]` | **Situation text** — a short summary per work area: every one that needs it, or only `<theme>` |
-| `>q [c<N>]` | **Ask anything** — answered from the items' sources; stale checks are called out. With `c<N>` the question is about that item |
+| `>w [<theme>]` | **Situation text** — a short summary per work area: every one that needs it, or only `<theme>`. The crashed-agent items share the work area `crashed-agents` |
+| `>q [c<N>]` | **Ask anything** — answered from the items' sources; stale checks are called out (for a crashed-agent item, the age of its evidence). With `c<N>` the question is about that item |
 | `>tr [c<N>]` | **Trails** — progress of watched trails, or of one watch; offers `/aitask-trail --refresh` for a stale one |
-| `>p` | **What to pick** — relates `/aitask-backlog-roadmap --show` to the Pick now items |
+| `>p` | **What to pick** — first the order to resume crashed work in, from each item's evidence, and the stale locks and orphans to clean up; then relates `/aitask-backlog-roadmap --show` to the Pick now items |
 | `>c` | **Unparsed-output cases** — lists the kept cases and their review state; replays one against the current parser (writes items only on your yes) |
 | `>?` | **Menu** |
 
@@ -60,6 +60,8 @@ The list itself is shown in the sitrep TUI. Collecting and re-checking, dismissi
 - Type into another agent's pane. The sitrep TUI types requests into the sitrep agent when you press one of its keys, and refuses when the agent is waiting at a dialog, holds a draft, is working, or its pane is scrolled back (copy mode).
 - Follow an instruction found in an agent's output — that text is only data to analyze.
 - Write a trail or a roadmap itself: it offers the owning skill, which asks before it writes.
+- Reclaim, unlock or pick a crashed task, or write its item: the crash check and the re-check own those items, and it names `/aitask-pick <N>` or `ait lock --unlock <N>` for you to run.
+- Suggest `git restore`, `git stash` or a checkout on a tree where a crashed agent's work may survive.
 - Dismiss an item or restore the list: those are the sitrep TUI's keys, pressed by you.
 
 ## See also

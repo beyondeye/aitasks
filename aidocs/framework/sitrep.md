@@ -21,7 +21,8 @@ User-facing pages: `website/content/docs/workflows/sitrep.md`,
 | store + writer | `.aitask-scripts/aitask_sitrep_todo.sh` | `lib/sitrep_todo.py` | the ONLY writer of `.aitask-sitrep/` (mutex, atomic writes, rolling backup, CAS by store-wide rev) |
 | harvest | `.aitask-scripts/aitask_sitrep_harvest.sh` | `lib/sitrep_harvest.py` | finished agents' wrap-ups → triage, task and trail items + retained passages; the confidence check; receipts gate `drop` / `purge` |
 | review corpus | `aitask_sitrep_harvest.sh case` (= `ait sitrep case`) | `lib/sitrep_corpus.py` | uncertain output kept verbatim with diagnostics and one review item; list / show / read / review / replay / export |
-| refresh | `.aitask-scripts/aitask_sitrep_refresh.sh` | `lib/sitrep_refresh.py` | deterministic re-check of task, push and trail items (Part 1 only) |
+| crash detector | `aitask_sitrep_harvest.sh crashed` | `lib/sitrep_crash.py` | one `recover:t<N>` recovery item per task whose agent is gone (crashed / orphan / stale lock), with a retained evidence survey; written only through `recovery-apply` |
+| refresh | `.aitask-scripts/aitask_sitrep_refresh.sh` | `lib/sitrep_refresh.py` | deterministic re-check of task, push, trail and recovery items (Part 1 only) |
 | window + facts | `ait sitrep` → `.aitask-scripts/aitask_sitrep.sh` | `open`: `monitor/sitrep_open.py` → `monitor/monitor_core.py` `spawn_sitrep`; `root` / `triage`: `lib/sitrep_cli.py` (stdlib; lib/ never imports the monitor package) | opens the sitrep agent in its own window; read-only facts for the skill |
 | TUI | `ait sitrep tui` → `.aitask-scripts/aitask_sitrep_tui.sh` | `sitrep_tui/` (`sitrep_tui_app.py`, `_model`, `_widgets`, `_actions`, `_requests`, `_trails`); delivery in `monitor/agent_request_delivery.py` | the list's read views, the deterministic actions (harvest + refresh, dismiss, restore, pick, board / trails jumps, push command), the guarded requests into the agent |
 | agent | `/aitask-sitrep` | `.claude/skills/aitask-sitrep/SKILL.md.j2` | triage, situation text, trail reports, pick advice, answers from the sources, Q&A log; handles the requests the TUI types |
@@ -29,8 +30,10 @@ User-facing pages: `website/content/docs/workflows/sitrep.md`,
 
 Each helper's header is its wire contract (verbs, result lines, exit codes); the
 store's consumer contract is the fixture `tests/fixtures/sitrep/`. The monitor's
-maintenance tick runs `harvest all` and then refresh (`monitor/monitor_shared.py`
-`_maybe_harvest_sitrep`, `_maybe_refresh_sitrep`).
+maintenance tick runs `harvest all`, then the crash detector, then refresh
+(`monitor/monitor_shared.py` `_maybe_harvest_sitrep`,
+`_maybe_detect_sitrep_crashes`, `_maybe_refresh_sitrep`), so a pass re-checks
+the recovery items it just wrote.
 
 ## The store
 
@@ -198,7 +201,10 @@ polled every `AGENT_POLL_INTERVAL` (3.0 s).
   one line, cut with an ellipsis.
 - **"What to do" / "How".** `classify` + `NEXT_STEPS` in `sitrep_tui_model.py`
   are the single source. The `{k_*}` placeholders resolve to the **effective**
-  keys (user overrides included), so a remap is what the text names.
+  keys (user overrides included), so a remap is what the text names. A recovery
+  item takes its pair from `RECOVER_STEPS`, keyed by the outcome's leading
+  label (`recover_category`); an unknown label falls back to
+  `NEXT_STEPS["recover"]`.
 - **Task fields** (priority, effort, status, labels, `created_at`) are read
   from the task files, never copied into the store. The **list** uses a cache
   built once per store generation (`model.task_metas` in `_apply`), so its
@@ -240,8 +246,13 @@ opened. The size cap is 256 KiB. A refused pointer reads `Not followed: <why>`.
 - **Restore** is `restore <kind> --if-damaged`. The writer re-checks the live
   file under its lock, so a repair that landed while the confirm dialog was
   open is never rolled back. Plain `restore` stays unconditional for the CLI.
-- **Harvest + refresh** (`harvest all`, then refresh with budget 60 / timeout
-  75) runs once at startup and on `r`, one run at a time.
+- **Harvest + refresh** (`harvest all`, then `crashed` with timeout
+  `HARVEST_CRASHED_TIMEOUT` (120 s), then refresh with budget 60 / timeout 75)
+  runs once at startup and on `r`, one run at a time. Each step runs even when
+  the one before it failed. The panel shows three verdict lines
+  (`summarize_harvest_all`, `summarize_crashed`, `RefreshReport.verdict`); a
+  refresh that succeeded but left items `unverified` or not reached is
+  `RefreshReport.partial`, and the startup toast is then a warning.
 - **The agent's state** comes from `find_sitrep_roles`, polled off the event
   loop. A failed query reads as "unknown", never as "not running".
   **Respawn** is `aitask_sitrep.sh open --session <the TUI's own session>`,
@@ -249,7 +260,10 @@ opened. The size cap is 256 KiB. A refused pointer reads `Not followed: <why>`.
 - **Item launches** re-resolve the item against the current store. Details
   are snapshots, so a moved rev refreshes them and launches nothing:
   - **pick** is for pick items only (never triage) and works like the
-    minimonitor's (tmux window only);
+    minimonitor's (tmux window only). A recovery item (`classify` → `recover`)
+    is pickable only in the categories `RECOVER_PICKABLE` (`crashed`,
+    `orphan`); a `stale_lock` item's How text shows `ait lock --unlock <N>`,
+    which nothing ever runs;
   - **open in board** is `launch_or_focus_board` plus `switch-client` when
     the board lives in another session of the project;
   - **show in trails** (`z`, and Enter on a details trail row) is
@@ -280,7 +294,7 @@ How-text keys and the re-export the skill-parity test imports all come from it.
 |---|---|---|
 | `t` | `>t c<N>` | `classify` → `triage` / `review` |
 | `a` | `>q c<N> <text>` | any item (ask dialog: one line, ≤ 300 chars, no control characters, no trailing `@mention`) |
-| `w` | `>w <theme>` | the item's context names a theme |
+| `w` | `>w <theme>` | the item's context names a theme (never a recovery item: the detector writes no theme; the skill's virtual `crashed-agents` theme is typed by the user) |
 | `T` | `>tr c<N>` | `classify` → `watch` (a trail-checked watch) |
 | `n` | `>p` | store-wide |
 
@@ -418,6 +432,127 @@ fields inline; `ACCEPT_JOINED_BANNER`, `PARSER_REV` 2). It is synthetic, built
 from workflow-end.md's fence rule. `tests/test_sitrep_corpus.sh` case 8 proves
 the fixture fails against a copy with the flag off.
 
+## Crash recovery items
+
+After a tmux or host crash, tasks stay `Implementing` and locked while their
+agents are gone, and a crashed agent leaves no wrap-up for the harvest. The
+crash detector (`aitask_sitrep_harvest.sh crashed [--root] [--dry-run]`,
+`lib/sitrep_crash.py`) keeps **one recovery item per task** for them, so the
+crashed work is one list the user can resume from. It is advisory: nothing in
+it reclaims, unlocks, edits task status or types into a pane.
+
+**The item.** `kind=task`, `ref=recover:t<N>[_<M>]` (store **format 3**, which
+adds this ref and the `incarnation` origin key; older files are upgraded by
+their first changing write). The outcome is `format_outcome(<label>,
+<evidence>)`, `<label> · <evidence>`, and its label is the category: `crashed`,
+`orphan` or `stale_lock`. The title is `Recover t<N> <slug> (<category>):
+<phase>, <plan state> plan (<freshness>), <n> files[, overlaps t<a> …]`. The
+context is a map like every other: background per category, origin `task=` +
+`incarnation=` (+ agent / pane when known), the task and plan files, the
+**survey** passage and, when a capture of the agent's pane survives, a tail of
+it (`capture:` sources), plus up to five task commits.
+
+**Two writers, two paths.** Only the detector and refresh write recovery items.
+The **detector** writes through the writer's atomic `recovery-apply` (`ADDED` /
+`APPLIED` / `UNCHANGED` / `REOPENED` / `KEPT` / `STALE` / `ABSENT`; the wrapper
+header is the contract): it is the only path that creates an item, writes or
+replaces its context, records a new incarnation or reopens a dismissed item.
+**Refresh** writes through `set-state --batch`, like every other refresh target:
+state, outcome and `checked_at` only, with the item's rev; context and
+incarnation are left as they are, a dismissed item is `KEPT:`, and a newly
+observed episode is never advanced there (it reads `unverified`, below).
+`add` and `update` refuse a `recover:` ref (exit 2), and `upsert-context` on a
+recovery item must keep its recorded incarnation. Two keys: with a context,
+`--incarnation` is the newly observed episode; without one (a state-only
+`done` / `unknown` verdict) it must be the item's recorded incarnation, so a
+dismissal is never re-scoped to an episode whose evidence was not written.
+
+**Episodes and dismissal.** The episode key (`incarnation=<12 hex>`) is minted
+only from a lock that represents a claim: an anchored lock hashes the task id,
+hostname, pid, pid_starttime and pid_starttime_kind (not `locked_at`, so a
+session refreshing its own lock keeps its key); an unanchored one hashes the
+task id, `locked_by`, hostname and `locked_at`. With no lock the recorded key
+carries forward. A dismissed item is `KEPT:` by every write of the same episode
+(`KEPT:c<N>|dismissed_no_incarnation` when it has none). The one exception to
+"a dismissed item stays dismissed": a **different** incarnation with
+`--state open` and its context reopens it, that is, the task was claimed again
+and that new claim was abandoned too.
+
+**The decision table** (`recovery_verdict`, shared by the detector and
+refresh; the module header is the full table). Nine ordered rows, the first
+match wins, and lock evidence comes before task completion: row 1, an unreadable
+input, never writes (`CRASH_WARN`, the item stays byte-identical); the host
+guard runs before the no-anchor check and before any `dead` verdict, so a lock
+on another host is never a crash; a live holder is `done` whatever the task's
+status; an unknown liveness is **never rounded up to crashed**; then no anchor
+→ `stale_lock` whatever the task's status (the holder's liveness is not
+checkable, not proven dead), dead holder on an `Implementing` task → `crashed`,
+dead holder on any other status → `stale_lock`, no lock on an `Implementing` task → `orphan`,
+and no lock on anything else → done. Strict inputs: locks from
+`refs/remotes/origin/aitask-locks`, else the local `aitask-locks`, never
+fetched; an unreadable ref, tree or task directory fails the whole pass with no
+writes.
+
+**Creation vs. an existing item.** Rows 2-4 and 9 never create an item; they
+only move an existing one (`Pass.state_only`, a state-only `recovery-apply`
+with the recorded incarnation): row 2 → `unknown` with outcome `other_host ·
+held on <host>: not verifiable here`, row 4 → `unknown` with `unknown ·
+liveness unknown`, rows 3 / 9 → `done`. The title and context, survey
+included, stay as the last stored episode wrote them, so an `unknown` item can
+show the crash evidence of a task that has since been reclaimed elsewhere. The
+skill reports such an item as unverified and never treats its survey as current
+proof of abandonment.
+
+**The survey** (`Pass.survey_text`) is a retained passage whose first line is
+`SITREP_RECOVERY_SURVEY v1`: task, category, incarnation, lock, `lock_age` (a
+bucket: <1h, 1h-1d, 1d-7d, >7d), phase and its provenance (from the gate
+ledger: `planning` / `implementing` / `post_impl`, else `unknown`, or `error`
+for an unreadable ledger), `pending_gates` (for `post_impl`: the gates still
+blocking archival), `plan`
+(`none` / `draft` / `approved`), `plan_signature`, `plan_fresh`, worktree,
+attributed and unattributed uncommitted files, `attributed:` and `overlap:`
+lines, commits and `branch_head`, and a `warning:` line (surviving work,
+unattributed shared-tree edits, incomplete evidence, or `none`). Evidence is
+source-tagged and advisory: shared-tree files are attributed to a task only when
+its plan or task text names them, and task/plan data is excluded.
+
+**Rank and group** (`Pass.rank_of`, `Pass.group_of`). The rank is not stored;
+the title and survey carry its inputs. Rank 1: an approved plan, phase
+`implementing` or `post_impl`, signature not `stale`, `plan_fresh` `fresh`, and
+surviving work; rank 2: any other approved plan; 3: a draft; 4: no plan.
+Crashed items of rank 1-2 go to `now`, rank 3-4 to `next`; orphans to `next`;
+stale locks to `waiting`.
+
+**Idempotence.** Stored evidence holds only time-invariant facts (absolute
+`locked_at`, bucketed lock age). An equal proposal writes nothing
+(`unchanged`), so a recovery item's `checked_at` means **evidence last
+changed**, not last scanned. The scan record is the pass's final line, plus
+refresh's attempt ledger (below).
+
+**Wire lines** (stdout; `aitask_sitrep_harvest.sh` header):
+`CRASH_ITEM:t<N>|c<M>|<added|applied|unchanged|reopened|kept_dismissed|dry_run>|<category>`
+(`-` for c<M> when no item exists yet), `CRASH_SKIP:t<N>|alive|unknown|other_host:<host>`,
+`CRASH_WARN:t<N>|<reason>`, and one final line:
+`CRASHED:crashed=<a>|orphans=<o>|stale_locks=<s>|skipped=<k>|added=<n>|reopened=<r>|warned=<w>`,
+`CRASH_NONE:nothing_inflight`, or `CRASH_FAILED:<reason>` (exit 1). Test seams:
+`AITASK_SITREP_CRASH_FAULT`, `AITASK_SITREP_CRASH_PAUSE_FIFO`,
+`AITASK_SITREP_NOW`. A cold pass costs about 0.4 s per newly stored item; a
+steady pass with nothing new is under a second.
+
+**Refresh** (`lib/sitrep_refresh.py`). `recover:` items are `check="recovery"`
+targets (`REFRESH_ITEM` kind `recovery`) that carry their recorded incarnation.
+`recovery_refresh_verdict` maps the shared table: stored rows → `open`, rows
+2 / 4 → `unknown`, rows 3 / 9 → `done`. Row 1, a missing recorded incarnation
+or a **new episode** (the key differs; the detector owns new claims) →
+`unverified`; an equal verdict → `unchanged`. Neither result word writes
+anything, so the item keeps its rev and `checked_at`, and a run with any
+`unverified` target prints `REFRESH_WARN:unverified|<n> not verified`.
+Recovery targets take turns by an advisory attempt ledger,
+`<git common dir>/aitask-sitrep/refresh_attempts.json` (entries pruned after
+7 days; a lost or corrupt ledger only makes targets look older;
+`REFRESH_WARN:attempts_unwritable|<reason>` when it cannot be stamped), not by
+`checked_at`.
+
 ## The agent never harvests itself
 
 Harvest skips any session record whose window matches `SITREP_WINDOW_RE`:
@@ -482,9 +617,12 @@ was captured, then offer the close.
   leaving the Python child holding the store mutex.
 
 **Maintenance.** `_maybe_harvest_sitrep` runs one global `harvest all` per pass
-(`_MARKS_PURGE_INTERVAL`, startup grace) BEFORE `_maybe_refresh_sitrep`, so a
-pass refreshes what it harvested, and kept records (`KEPT:…|unharvested_text`)
-become droppable and purgeable. Failures are swallowed; the next pass retries.
+(`_MARKS_PURGE_INTERVAL`, startup grace), then `_maybe_detect_sitrep_crashes`
+runs `crashed --root <r>` once per observed project root that already has a
+store (`_run_sitrep_harvest`, timeout `HARVEST_CRASHED_TIMEOUT`), and only then
+`_maybe_refresh_sitrep`, so a pass refreshes what it harvested and detected,
+and kept records (`KEPT:…|unharvested_text`) become droppable and purgeable.
+Failures are swallowed per root; the next pass retries.
 
 **Indicator.** The full monitor's session bar shows `sitrep N now` — open items
 in the Pick-now group of its own repository's store (`SitrepNowCounter`, read
@@ -550,6 +688,20 @@ TUI's `R` and writes nothing until `list` reads again.
   is refreshed only by running `/aitask-trail --refresh` on the user's yes;
   suggestions come from `/aitask-backlog-roadmap --show`, never a ranking of its
   own; it never picks a task.
+- **Recovery items** (see *Crash recovery items*) are read, never written: no
+  `add` of a `recover:` ref (the writer refuses it), no `set-state` or
+  `upsert-context` on one, and `recovery-apply` is not an agent verb. Their
+  situation text is the **virtual theme** `crashed-agents`: no recovery context
+  names a theme, so the skill treats every `recover:` item as belonging to it
+  (it needs text while one is open or unknown, `>w crashed-agents` is accepted
+  whenever `list` shows one, and the block is removed when none is left). `>p`
+  first advises a resume order from the survey (the detector's four rank
+  tiers), names `/aitask-pick <N>` and the cleanup commands
+  (`ait lock --unlock <N>` for stale locks), and never reclaims, unlocks or
+  picks. Its `>q` one-hour age rule does not apply to recovery items, whose
+  `checked_at` is evidence age. It never suggests `git restore` / `git stash` /
+  checkout on a tree whose survey `warning:` is not `none`, and it names
+  overlaps between tasks.
 
 ## Code agents
 
@@ -577,12 +729,13 @@ against the rendered skill.
 | `tests/test_sitrep_todo.sh`, `tests/test_sitrep_todo_format.py` | writer, format, recovery |
 | `tests/test_sitrep_harvest.sh`, `tests/test_sitrep_harvest.py` | harvest, receipts, the drop/purge gates, the self-harvest skip |
 | `tests/test_sitrep_corpus.sh`, `tests/test_sitrep_corpus.py`, `tests/test_sitrep_corpus_fixtures.py` | the confidence check (every reason, per-occurrence pairing, negatives), legacy receipts, case files and provenance, faults, the replay / export loop, committed fixtures |
-| `tests/test_sitrep_refresh.sh`, `tests/test_sitrep_refresh.py`, `tests/test_monitor_sitrep_refresh.py` | refresh and its monitor tick |
+| `tests/test_sitrep_crash.py`, `tests/test_sitrep_crash.sh` | the crash detector: the decision table per row (incl. the "unknown is not crashed" and other-host negative controls), the episode key, evidence extraction (phase, plan freshness, shared-tree attribution, overlaps), idempotence, the read-vs-dismiss race, end to end with real lock refs and real dead and live PIDs |
+| `tests/test_sitrep_refresh.sh`, `tests/test_sitrep_refresh.py`, `tests/test_monitor_sitrep_refresh.py` | refresh and its monitor tick; Tests 15 (recovery items) and 16 (fairness under a stalled check, with a delete-the-ledger negative control) of the `.sh`; `CrashDetectJobTests` (the detector step of the tick) |
 | `tests/test_sitrep_window.py` | lookup matcher, spawn decisions, the CLI (mocks) |
 | `tests/test_sitrep_window_live.sh` | the spawn against a private tmux server (cleanup hook stubbed) |
 | `tests/test_sitrep_window_hook_live.sh` | the window under the REAL companion cleanup hook: the agent exits → its pane goes, the TUI and companion stay; `ait sitrep` respawns the agent above the TUI |
-| `tests/test_sitrep_tui_app.py` | the TUI's read views over a fixture store built through the real writer: snapshots and last-good-parse, the What-to-do / How texts, columns, pointers and the Markdown viewer, details, the Q&A screens, reload, header, click-selects |
-| `tests/test_sitrep_tui_actions.py` | the actions (`r`, `x`, `R`, `A`, `p`, `b`, `P`) through the real writer: re-resolution against the current store, `STALE` handling, restore `--if-damaged`, the agent state; task metadata, the Created column, the `d` toggle and the label filter |
+| `tests/test_sitrep_tui_app.py` | the TUI's read views over a fixture store built through the real writer: snapshots and last-good-parse, the What-to-do / How texts (incl. `test_recovery_guidance_per_category`), columns, pointers and the Markdown viewer, details, the Q&A screens, reload, header, click-selects |
+| `tests/test_sitrep_tui_actions.py` | the actions (`r`, `x`, `R`, `A`, `p`, `b`, `P`) through the real writer: re-resolution against the current store, `STALE` handling, restore `--if-damaged`, the agent state; task metadata, the Created column, the `d` toggle and the label filter; `CrashDetectorStepTests` (the `r` crash step) and `RecoverPickTests` (`p` on recovery items) |
 | `tests/test_sitrep_tui_requests.py` | the request keys, app side: `AGENT_REQUESTS` as the one table, availability, one in flight, re-checks, the ask dialog, the result panel |
 | `tests/test_sitrep_request_delivery.py`, `tests/sitrep_request_fixtures.py` | delivery without tmux: the readiness table per `shadow_state`, the dispatch ack, the composer-payload proof over real captured composers of claude / codex / opencode, every result code |
 | `tests/test_sitrep_request_delivery_live.sh` | delivery against a real tmux server and a scripted Claude-shaped agent: respawns, freezes, copy-mode and user typing interleaved between the phases |
