@@ -670,15 +670,43 @@ def metadata_dir(project_root, metadata_path=None) -> Path:
     return Path(project_root) / rel / "metadata"
 
 
+def _registry_root(project_root):
+    """The root ``models_<agent>.json`` is read under.
+
+    The same toplevel the branch read uses (``_layout``), so a nested directory
+    reads its repository's registry rather than ``<nested>/<TASK_DIR>/metadata``
+    — otherwise the branch and the legacy counters would come from two
+    different places and a nested caller would see branch-only values (t2315).
+    Outside a git work tree there is no toplevel, and the raw root is used, so
+    legacy-only reads keep working there.
+    """
+    try:
+        return _layout(project_root)[0]
+    except (ors.GitError, OSError):
+        return project_root
+
+
 def legacy_models(project_root, agent, metadata_path=None, *, strict=False) -> dict:
     """``{model: {stats_key: ...}}`` from ``models_<agent>.json`` (read now).
 
     Readers use the lenient default: a missing, unreadable or invalid file reads
-    as no counters. ``strict`` (``effective_total``) keeps only a missing file as
-    "no counters" and raises ``TotalUnavailable`` for anything else, because a
-    total computed without counters that do exist would be a wrong number.
+    as no counters. ``strict`` keeps only a missing file as "no counters" and
+    raises ``TotalUnavailable`` for anything else, because a total computed
+    without counters that do exist would be a wrong number. ``project_root`` is
+    resolved with ``_registry_root``; an explicit ``metadata_path`` is verbatim.
     """
-    path = metadata_dir(project_root, metadata_path) / f"models_{check_agent(agent)}.json"
+    root = project_root if metadata_path is not None else _registry_root(project_root)
+    return _read_legacy(root, agent, metadata_path, strict=strict)
+
+
+def _read_legacy(root, agent, metadata_path=None, *, strict=False) -> dict:
+    """``legacy_models`` with ``root`` used verbatim (no git resolution).
+
+    For callers that already hold the repository toplevel (``effective_total``):
+    re-resolving it through ``_layout`` would cost a fresh writer process three
+    more ``rev-parse`` calls for an answer it already has.
+    """
+    path = metadata_dir(root, metadata_path) / f"models_{check_agent(agent)}.json"
     try:
         with open(path, encoding="utf-8") as fh:
             data = json.load(fh)
@@ -742,9 +770,12 @@ def effective_total(project_root, agent, model, key, skill, today, committed_mod
         raise TotalUnavailable(f"marker_unreadable:{type(exc).__name__}") from None
     # The registry is looked up under the repository root that `update` wrote
     # into, never the caller's raw cwd: from a nested directory the latter
-    # would miss the legacy counters and print the branch-only value. An
-    # explicit metadata_path is still used verbatim.
-    legacy = {} if marked else legacy_models(top, agent, metadata_path, strict=True)
+    # would miss the legacy counters and print the branch-only value. The
+    # loaders follow the same rule (`_registry_root`); here `top` is already
+    # resolved (a failed resolution is TotalUnavailable above, never the
+    # loaders' raw-root fallback), so it is read verbatim with no second
+    # lookup. An explicit metadata_path is still used verbatim.
+    legacy = {} if marked else _read_legacy(top, agent, metadata_path, strict=True)
     merged = merge_stats(legacy, committed_models or {})
     entry = _normalize(((merged.get(model) or {}).get(key) or {}).get(skill))
     if not entry:
@@ -767,7 +798,8 @@ def load_all_stats(project_root, *, metadata_path=None) -> dict:
     """``{agent: load_agent_stats(...)}`` over branch agents and models_*.json."""
     content = _branch_content(project_root)
     agents = set(content["agents"]) | set(content["markers"])
-    meta = metadata_dir(project_root, metadata_path)
+    root = project_root if metadata_path is not None else _registry_root(project_root)
+    meta = metadata_dir(root, metadata_path)
     try:
         for entry in os.listdir(meta):
             if entry.startswith("models_") and entry.endswith(".json"):

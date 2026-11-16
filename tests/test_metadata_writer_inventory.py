@@ -211,6 +211,13 @@ PINNED_FILES = frozenset(
     # the relations store's runtime files under `<git-common-dir>/aitask-relations/`
     # (outbox entries, `.err` sidecars, `fetched_at`) and git refs (t1981_1).
     ".aitask-scripts/lib/relations_store.py",
+    # Reads `aitasks/metadata/gates.yaml` (the gate registry, passed to
+    # gate_ledger.read_task_gate_state) and writes nothing under it. Its only
+    # write primitive is pause_point()'s `<fifo>.reached` sidecar, a test-only
+    # seam (AITASK_SITREP_CRASH_PAUSE_FIFO); every durable write goes through
+    # the sitrep store (.aitask-sitrep). Unclassified since it was added in
+    # t2299_2 (f9b5888cd); classified in t2315.
+    ".aitask-scripts/lib/sitrep_crash.py",
     ".aitask-scripts/lib/artifact_backends/dir.sh",
     # Release-issue ledger callers (t2261). Each writes only temporary capture
     # files for a helper's one-line result; every durable ledger write is

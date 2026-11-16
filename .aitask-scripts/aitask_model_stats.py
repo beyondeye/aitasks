@@ -29,7 +29,9 @@ Verbs (single-line structured stdout, diagnostics on stderr):
 
 Failures: STATS_ERROR:usage:<msg> (exit 2), STATS_ERROR:<reason> (exit 1),
 STATS_DIVERGED:<local>|<remote> (exit 1). Every verb takes --root (default: the
-current directory); nothing here touches the task-data worktree.
+current directory); a directory inside a repository means that repository: the
+stats branch and the legacy models_<agent>.json registry are both read at its
+toplevel. Nothing here touches the task-data worktree.
 """
 from __future__ import annotations
 

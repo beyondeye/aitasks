@@ -558,6 +558,27 @@ class TestLoader(IsolatedGit):
             got = mss.load_agent_stats(a, "claudecode", metadata_path=meta)
             self.assertEqual(got["opus"]["usagestats"]["pick"]["all_time"], {"runs": 5001})
 
+    def test_nested_root_reads_the_repository_registry(self):
+        # The branch is read at the toplevel, so the legacy registry must be
+        # too: from <repo>/website/deep both come from the repository (t2315).
+        root = self.repo("p", remote=False)
+        write_legacy(root, [{"name": "opus", "usagestats": {"pick": usage_entry(4)}}])
+        # codex exists ONLY in the root registry (no branch data, no marker), so
+        # load_all_stats can discover it solely through its models_*.json
+        # listing; claudecode is also on the branch and would be found anyway.
+        write_legacy(root, [{"name": "gpt5", "usagestats": {"pick": usage_entry(7)}}],
+                     agent="codex")
+        self.bump(root)
+        nested = root / "website" / "deep"
+        nested.mkdir(parents=True)
+        self.assertEqual((self.runs(root), self.runs(nested)), (5, 5))
+        everything = mss.load_all_stats(nested)
+        self.assertEqual(set(everything), {"claudecode", "codex"})
+        self.assertEqual(everything["codex"]["gpt5"]["usagestats"]["pick"]["all_time"],
+                         {"runs": 7})
+        self.assertEqual(
+            everything["claudecode"]["opus"]["usagestats"]["pick"]["all_time"], {"runs": 5})
+
     def test_git_failure_reads_as_legacy_only(self):
         plain = self.tmp / "not-a-repo"
         write_legacy(plain, [{"name": "opus", "usagestats": {"pick": usage_entry(4)}}])
@@ -1001,6 +1022,65 @@ class TestEffectiveTotal(IsolatedGit):
         finally:
             os.chdir(old)
         self.assertEqual((rc, out), (0, "UPDATED:claudecode/opus:pick:60\n"), err)
+
+    def test_total_reads_the_resolved_root_without_a_second_lookup(self):
+        # effective_total already holds the toplevel; its legacy read must use it
+        # verbatim, not re-resolve it through _layout (3 more rev-parse calls in
+        # a fresh writer process, whose _layout_cache is empty) (t2315).
+        root = self.repo("onelookup", remote=False)
+        self.legacy_rating(root)
+        committed = {}
+
+        def fn(blob):
+            new, value = mss.record_verified(blob, self.MODEL, "pick", 100, D("2026-11-12"))
+            committed["m"] = new["models"]
+            return new, value
+
+        res = mss.update(root, "claudecode", fn, return_commit=True)
+        calls = []
+        real = ors.git
+
+        def spy(repo, *args, **kw):
+            calls.append(args)
+            return real(repo, *args, **kw)
+
+        mss._layout_cache.clear()
+        with mock.patch.object(ors, "git", spy):
+            total = mss.effective_total(root, "claudecode", self.MODEL, "verifiedstats",
+                                        "pick", D("2026-11-12"), committed["m"], res.commit)
+        self.assertEqual(total, 60)                    # legacy 20 + branch 100, 2 runs
+        rev_parse = [a for a in calls if a[:1] == ("rev-parse",)]
+        self.assertEqual(rev_parse, [("rev-parse", "--show-toplevel")], calls)
+
+    def test_nested_cwd_export_and_show_read_the_repository_registry(self):
+        # The display verbs, run from a nested cwd without --root, show the
+        # repository's legacy counters merged with the branch, not the branch
+        # alone (t2315).
+        root = self.repo("nested_display", remote=False)
+        self.legacy_rating(root)                       # legacy: 1 run, 20
+        rc, out, err = self.rate(root, 5)              # branch: 1 run, 100
+        self.assertEqual(rc, 0, err)
+        # A legacy-only agent: reachable only through the registry listing.
+        write_legacy(root, [{"name": "gpt5", "usagestats": {"pick": usage_entry(7)}}],
+                     agent="codex")
+        nested = root / "website" / "deep"
+        nested.mkdir(parents=True)
+        old = os.getcwd()
+        os.chdir(nested)
+        try:
+            rc_e, out_e, err_e = self.run_cli("export", "--agent", "claudecode")
+            rc_s, out_s, err_s = self.run_cli("show")
+        finally:
+            os.chdir(old)
+        self.assertEqual(rc_e, 0, err_e)
+        exported = json.loads(out_e)
+        self.assertEqual(exported["models"]["opus"]["verifiedstats"]["pick"]["all_time"],
+                         {"runs": 2, "score_sum": 120})
+        self.assertEqual(rc_s, 0, err_s)
+        lines = out_s.splitlines()
+        self.assertIn("claudecode/opus verifiedstats pick all_time=2 avg=60", lines)
+        self.assertIn("MARKER:codex:no", lines)
+        self.assertIn("codex/gpt5 usagestats pick all_time=7", lines)
 
     def test_every_skill_the_writers_accepted_is_accepted(self):
         # The counter writers took any non-empty skill (a JSON key); the CLI they
