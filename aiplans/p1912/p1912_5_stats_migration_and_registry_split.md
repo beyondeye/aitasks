@@ -800,6 +800,239 @@ New `tests/test_setup_model_stats_migration.sh` sources
   - `--sync-seed` strips;
   - the setup / upgrade hook and `AIT_STATS_MIGRATE=0`.
 
+## Implementation notes (progress, deviations, evidence)
+
+### Pre-phase 1 [store_write_regression_baseline]: done
+
+| suite | before | after Step 1 | after the render_blob / lazy-import changes |
+|---|---|---|---|
+| test_model_stats_store.py | 64 passed | 64 passed | 64 passed |
+| test_model_stats_parity.sh | 47/47 | 47/47 | 47/47 |
+| test_model_stats_refresh_routes.sh | 27/27 | 27/27 | 27/27 |
+| test_usage_update.sh | 111/111 | 111/111 | 111/111 |
+| test_verified_update.sh | 135/135 | 135/135 | 135/135 |
+| test_verified_update_flags.sh | 20/20 | 20/20 | 20/20 |
+| test_stats_writers_leave_task_data.sh | 22/22 | 22/22 | 22/22 |
+
+Every file kept its result.
+
+### Steps 1-5: done
+
+- `lib/model_stats_store.py`:
+  - `write` (multi-path, `None` = no-op with an ff-only advance of the read
+    ref), with `update` as an adapter;
+  - the publication gate (`unpublished_markers`, `HELD_LOCAL`);
+  - `publish`;
+  - `marker_blob` / `parse_marker` / `MarkerUnpublishable`;
+  - `registry_counters` (shared by the loader and the absorb);
+  - `absorb_models`.
+- `lib/model_stats_strip.jq`, `lib/model_stats_migrate.py`,
+  `aitask_model_stats_strip.sh`, and `aitask_model_stats.py migrate
+  [--agent] [--dry-run] [--timeout]`.
+
+**Deviations (found by the tests):**
+
+- **Parity: skill order.** The first parity run failed. A migrated agent's
+  skills came back alphabetical, because `render_blob` used `sort_keys` and
+  `merge_stats` sorts, whereas before the cutover the overlay readers showed
+  the registry's skill order.
+  - Fix: `render_blob` keeps key order.
+  - The absorb uses the new `absorb_models`: values equal `merge_stats`, and
+    the order is the overlay readers' `_overlay_key` rule.
+  - The golden now reproduces byte for byte. The parity test was its own
+    pre-fix control.
+- **Marker validation ordering.** A published marker's strip lands on the
+  task-data branch before the marker reaches `aitask-stats`. So the source
+  must be pinned **after** the marker is read:
+  - the marker branch of step 2 re-pins before validating;
+  - the global pre-check reads the stats side first.
+  - Found by the two-clones test, which had failed with
+    `marker_not_in_source`.
+- **`strip_unpublished` vs `marker_not_in_source`.** "Unpublished" requires
+  that origin's task-data tip is an ancestor of the local data branch.
+  Otherwise (unrelated or diverged history) the result is
+  `marker_not_in_source`.
+- **Lazy import.** `aitask_model_stats.py` imports `model_stats_migrate`
+  inside `cmd_migrate`. The writer test scaffolds copy only the store's
+  files, and the writers must not depend on the one-time migration module (a
+  top-level import broke 160 writer assertions).
+- `tests/test_model_stats_migrate.py`: 35 tests covering the plan's Tests
+  1-20 plus the dry run. The fixtures mirror the real layout (an `aitasks`
+  symlink into `.aitask-data`). The parity case runs the capture with the
+  real HOME, because `ait codeagent list-models` resolves the framework venv
+  there, as `test_stats_readers_golden.py` does.
+
+### Pre-phase 2 [setup_install_suite_baseline]: done
+
+- **List** (41 files): `grep -l 'install.sh\|aitask_setup.sh' tests/*.sh`,
+  filtered to files that execute `install.sh --dir`, setup `main` or
+  `ait setup`. The exact list and both per-file summaries are in the
+  session's scratch `setup_base_frozen/summary.txt` / `setup_after/summary.txt`.
+- **Before Step 6:** 39 pass. Two failed before any change of mine:
+  - `test_frozen_agents_acceptance.sh` (rc 2): it refuses to run inside tmux;
+  - `test_setup_pip_install_guards.sh` (rc 1): C4 "mutation no-ops exactly
+    the four post-repair re-checks", expected 4 got 5; 107/108.
+- **After Steps 6-7:** every file has the identical exit status (a diff of the
+  per-file rc lists is empty). The pip guard is still 107/108 on the same
+  assertion. No fixture needed `AIT_STATS_MIGRATE=0`.
+
+### Steps 6-7: done
+
+- `setup_model_stats_migration` in `aitask_setup.sh`:
+  - called in `main` right after `setup_lock_branch`;
+  - called in `install.sh`'s existing-install block after
+    `commit_installed_data_files` (`declare -F` guard);
+  - never fatal; `AIT_STATS_MIGRATE=0` opts out;
+  - an already-migrated project prints one summary line.
+- Registry split:
+  - `aitask_add_model.sh`: both new-row templates drop `verifiedstats`;
+  - `aitask_opencode_models.sh`: the new-row default drops it, the merge
+    comment is corrected, and `--sync-seed` writes through the strip filter;
+  - `seed/models_*.json` stripped (22 / 14 / 139 `verified` priors kept);
+  - `aitask_install_merge.py`: appended seed rows drop the stats keys;
+  - `config_utils.import_all_configs`: a registry payload never brings the
+    bundle's counters, and the destination's own legacy counters are carried
+    onto same-named rows in both modes, because the models list is replaced
+    wholesale. A mutation control (the strip stubbed to identity) fails both
+    new tests;
+  - `aitask-refresh-code-models/SKILL.md` text (no template; the wrappers
+    only point at it; skill verify OK);
+  - writer inventory: the strip helper is WIRED (`aitask_task_commit.sh`) and
+    `model_stats_migrate.py` is PINNED.
+- **Scaffold rule:** `test_opencode_models_{merge,reserved}.sh` copy
+  `lib/model_stats_strip.jq` into their fixtures, because the script now reads
+  it on `--sync-seed`.
+- Updated or new suites, all passing:
+  - `test_opencode_models_merge.sh` 34/34;
+  - `test_opencode_models_reserved.sh` 22/22;
+  - `test_install_merge.sh` 38/38;
+  - `test_add_model.sh` 142/142;
+  - `test_config_utils*.py` 75;
+  - `test_setup_model_stats_migration.sh` 24/24 (new);
+  - `test_metadata_writer_inventory.py` OK.
+
+### Setup hook moved after the venv (found by the full-flow check)
+
+The full `install.sh --dir` → `ait setup` flow, under a scratch HOME, is in
+the scratch `fullflow.sh`. Its first run showed that a **fresh** `ait setup`
+printed nothing for the migration:
+- At `setup_lock_branch` time the framework venv does not exist yet, and the
+  resolved `python3` shim points into it, so the CLI died with no status line.
+- **Fix:** call the hook after `setup_python_venv` /
+  `setup_artifact_fetch_exclusion`.
+- A run with **no** status line now warns "did not complete — retried on the
+  next …". Test 5 of `test_setup_model_stats_migration.sh` pins it (25/25).
+
+Rerun results:
+- **No remote:** first setup `MIGRATED` ×3 (empty baselines). Legacy counters
+  committed afterwards are post-cutover residue (`discarded … 47 runs`). The
+  second setup prints "already on the aitask-stats branch". The registry has
+  0 stats keys and all three markers exist.
+- **Bare-origin variant:** the same outcomes. In remote mode the residue strip
+  lands on origin, and the local worktree keeps its keys until sync.
+- The first run's upgrade path (counters present **before** any baseline)
+  absorbed 47 runs.
+- The 41-file setup/install set was rerun after the move: identical exit
+  statuses.
+
+### Verification
+
+- Python suite: `PYTHON SUITE: PASSED (runner=pytest, exit=0)`
+  (12466 passed, 6 skipped; serial carve-out 39 passed).
+- shellcheck: the new helper is clean apart from the repo-wide SC1091 infos.
+  `aitask_setup.sh` / `install.sh` have the same finding count as HEAD (25 /
+  4, none in the new code).
+- `aitask_skill_verify.sh`: OK.
+
+### Real migration on this repo (user-approved)
+
+- Dry run first (`--dry-run`; all refs confirmed unchanged):
+  - claudecode absorb_runs=3237;
+  - codex 109;
+  - opencode 4;
+  - no markers, no baselines, residue 0.
+- Real run (2026-11-16 17:58):
+  - `MIGRATED:claudecode|83057108898b4f7601955e996f7b3f5ff9b26c67|3237`
+  - `MIGRATED:codex|65cb169f820c3a3f847b519b526426a679051cc4|109`
+  - `MIGRATED:opencode|785e8d75e6fb950f2850c310e6261d4bed2a3489|4`
+- `show` totals equal the pre-run snapshot line for line, except
+  `claudecode/opus5_5 usagestats pick` 433 → 434. That is a concurrent usage
+  bump by another session (aitask-stats `5c0f5d355`, 17:48, after the
+  snapshot at `a008bc26a`).
+- Origin's `aitask-data` registries hold 0 stats keys, and its history holds
+  exactly one `Kind: baseline` per agent.
+- The local and origin `aitask-stats` tips are equal (`da5797df6`).
+- A second `migrate` run gives `MIGRATE_NOOP` ×3.
+- The local `.aitask-data` files keep their keys until the next `./ait sync`
+  (by design, the remote mode never touches the worktree; the readers ignore
+  them because the markers exist).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-16)
+
+- **Requested by user:** four confirmed findings.
+  1. The strip helper's rollback compared against a post-swap sample of the
+     live registry, so a competing edit could be "restored" away.
+  2. A registry deleted after its baseline strip orphaned the stripped
+     counters: the `no_registry` skip ran before `find_baseline`, and default
+     discovery listed only current registries.
+  3. The `marker_not_in_source` advice ("discard the local aitask-stats
+     history") would lose writes held locally.
+  4. `merge_json_models` copied a seed verbatim when the destination was
+     missing.
+- **Changes made:**
+  1. The renderer captures its exact output into `WROTE_COPY` before the
+     swap and checks that it hashes to `--expect-stripped-blob`. The post-swap
+     `cp` is gone, and the rollback restores only over those captured bytes.
+  2. `find_baseline` runs first. `no_registry` is returned only when there is
+     no baseline either. `discover_agents` = registries at the tip plus every
+     agent with a baseline in its history.
+  3. The diagnostic says to KEEP the local history and account for every
+     counter written after the offline marker, and states that a plain reset
+     plus re-run is NOT lossless. There is still no automatic repair.
+  4. A destination created from a seed that carries stats keys is
+     sanitized. A clean seed is still a byte copy.
+- **Tests:**
+  - `test_failed_commit_never_restores_over_a_competing_edit`;
+  - `TestDeletedRegistryAfterStrip` (explicit agent, default discovery, and
+    the no-baseline skip control);
+  - stderr assertions on the CLI's `marker_not_in_source` advice;
+  - the missing-destination and clean-seed byte-copy cases in
+    `test_install_merge.sh`.
+  - **Pre-fix controls:** run against a scratch copy of the framework with
+    the old migrate code. The two deleted-registry tests fail and the
+    positive control passes. (The competing-edit control in that first round
+    was **not** valid; see Change Request 2.)
+
+### Change Request 2 (2026-11-16)
+
+- **Requested by user:** the competing-edit regression injected its edit
+  through `AIT_STATS_STRIP_AFTER_REWRITE_HOOK`. In the exact pre-fix helper
+  that hook runs **after** the post-swap `cp "$DEST" "$WROTE_COPY"`, so the
+  edit missed the vulnerable window and the old rollback already preserved
+  it.
+  - My Change Request 1 "pre-fix control" had moved the hook before that
+    `cp`, so it was not the pre-fix helper. The claim that this test failed
+    against the pre-fix helper was wrong.
+- **Changes made:** the regression now injects the edit with a one-shot
+  `mv` shim on PATH. The shim performs the real rename of
+  `ait_atomic_commit` (`mv -f tmp dest`), then edits the registry, so the
+  edit lands at the earliest point after the swap whatever the helper does
+  next. The test also asserts that the shim fired.
+- **Control:** the exact pre-fix helper (the current file with only the
+  capture reverted, i.e. the original renderer plus the post-swap `cp` at its
+  original place, before the hook):
+  - against it the test **FAILS**: the competing edit is lost and the
+    original bytes are restored;
+  - against the current helper it **PASSES**.
+- **Files affected:** `tests/test_model_stats_migrate.py`.
+- **Files affected:** `.aitask-scripts/aitask_model_stats_strip.sh`,
+  `.aitask-scripts/lib/model_stats_migrate.py`,
+  `.aitask-scripts/aitask_install_merge.py`,
+  `tests/test_model_stats_migrate.py` (39 tests), `tests/test_install_merge.sh`
+  (41).
+
 ## Step 9
 
 Post-Implementation per task-workflow (child task: archive, plan notes for
@@ -878,3 +1111,97 @@ t1912_6 / t1912_7).
 - timing: pre-phase | name: store_write_regression_baseline | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: write-loop generalisation regressing the live writers | desc: per-file results of the store/parity/refresh/writer suites before and after the mss.write refactor
 - timing: pre-phase | name: setup_install_suite_baseline | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: setup/upgrade hook breaking unrelated setup/install suites | desc: per-file results of every setup-main / install.sh test before and after the hook lands
 - timing: post-phase | name: migrate_dry_run_preview | type: feature | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: one-way real-repo migration push | desc: migrate --dry-run reporting per-agent baseline/absorb/residue without writing; previewed on this repo before the real run
+
+## Final Implementation Notes
+
+- **Actual work done:** the whole plan (Steps 1-8), all three inline
+  mitigations, and the user-approved real migration of this repo.
+  - **Store** (`lib/model_stats_store.py`):
+    - `write` (multi-path; a `None` render is a no-op with an ff-only advance
+      of the read ref), with `update` as a thin adapter;
+    - the publication gate (`unpublished_markers`; ordinary writers hold
+      unvalidated local-only markers of any agent locally:
+      `HELD_LOCAL:<agents>`, still `UPDATED:`);
+    - `publish`, `MarkerUnpublishable`, `marker_blob` / `parse_marker`;
+    - `registry_counters` (one reading of legacy counters, shared by the
+      loader and the absorb) and `absorb_models` (order-preserving);
+    - `render_blob` now keeps key order.
+  - **Migration:** `lib/model_stats_migrate.py` plus `aitask_model_stats.py
+    migrate [--agent] [--dry-run] [--timeout]` (lazy import).
+    - One leased baseline commit per agent is the cutover point. It is an
+      empty commit when the source has no counters.
+    - The trailer scan has no pathspec.
+    - `MarkerGate` validates against the separate tip V.
+    - A global pre-check runs over every local-only marker.
+    - The stats side is read before the data pin.
+    - Residue strips are never absorbed.
+    - A missing registry never hides a pending baseline (`discover_agents`).
+  - **No-remote:** `aitask_model_stats_strip.sh` (CAS rewrite through
+    `lib/model_stats_strip.jq`, a scoped commit with trailers, identity by
+    `Stats-Migration-Id`, the resume rule for a killed strip, rollback only
+    over the bytes it rendered).
+  - **Hooks:** `setup_model_stats_migration` in `ait setup` (after the venv)
+    and in `install.sh`'s upgrade block. Never fatal; `AIT_STATS_MIGRATE=0`.
+  - **Registry split:** add_model, opencode (the new-row default, a
+    `--sync-seed` strip, and a corrected comment), seeds stripped,
+    install-merge (appended rows and seed-created registries), config import
+    (no bundle counters; the destination's own counters are carried), and
+    the refresh-code-models SKILL text.
+- **Deviations from plan:**
+  - **Order:** `render_blob` no longer sorts, and the absorb uses
+    `absorb_models` (the overlay readers' order). Without this the parity
+    golden broke: skills came out alphabetical.
+  - **Marker validation:** the source is re-pinned after reading a marker,
+    and the pre-check reads stats before pinning.
+  - `strip_unpublished` requires origin's data tip to be an ancestor of the
+    local data branch.
+  - **Setup hook:** called after `setup_python_venv`, not next to
+    `setup_lock_branch`. On a fresh machine the framework Python does not
+    exist that early. Found by the full `install.sh → ait setup` flow.
+  - **Review rounds:** planning took four rounds and implementation two;
+    the Post-Review Changes above record them.
+- **Issues encountered:**
+  - The writer scaffolds copy only the store files. A top-level import of the
+    migration module broke 160 assertions; fixed with a lazy import.
+  - Two opencode scaffolds needed `lib/model_stats_strip.jq`.
+  - A test-fixture HOME isolation hid the framework venv from `ait codeagent
+    list-models` in the parity capture; the capture uses the real HOME, as
+    the golden test does.
+  - My first competing-edit pre-fix control was not the exact old helper.
+    The user caught it, and the test now injects at the rename (Change
+    Request 2).
+- **Key decisions:**
+  - Remote mode never touches `.aitask-data`'s worktree, index or local
+    branch ref. The local file keeps its keys until `./ait sync`, and the
+    readers ignore them once marked.
+  - The import carries destination counters rather than dropping them,
+    because until the absorb they are the only copy.
+  - The hard cutover is unchanged: post-baseline counters are residue and
+    never absorbed.
+  - `marker_not_in_source` fails closed. Its advice requires keeping the
+    local history, since it may hold held-local writes. Automatic repair is
+    out of scope.
+- **Upstream defects identified:**
+  - `tests/test_setup_pip_install_guards.sh — C4 assertion "the mutation no-ops exactly the four post-repair re-checks" fails at HEAD before this change (expected 4, got 5; 107/108)`
+- **Notes for sibling tasks:**
+  - **t1912_6 (docs):**
+    - Document `ait setup` / `ait upgrade` running the one-time migration;
+      its result lines; `AIT_STATS_MIGRATE=0`; and that deferrals are
+      retried.
+    - The registry keeps only `verified` priors; seeds carry no counters.
+    - Config export carries no stats once migrated, and import strips bundle
+      counters (keeping the destination's own unmigrated ones).
+    - `--sync-seed` strips.
+    - Ordinary writers may print "recorded locally only" after an offline
+      migration.
+    - `aitask_model_stats.py migrate --dry-run` is a preview.
+    - aidocs `model_reference_locations.md` / `adding_a_new_codeagent.md`
+      need the new files (`model_stats_migrate.py`, `model_stats_strip.jq`,
+      `aitask_model_stats_strip.sh`).
+  - **t1912_7 (retrospective):** this repo migrated at 2026-11-16 17:58.
+    - The strips are `83057108` (claudecode), `65cb169f` (codex) and
+      `785e8d75` (opencode).
+    - From now on `models_*.json` stats keys on origin mean an older
+      framework (residue, stripped by the next setup/upgrade).
+    - The other machine's next `ait setup` / `ait upgrade` reports
+      `MIGRATE_NOOP` (it converges its local stats ref).
