@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2299
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 12:54
-updated_at: 2026-11-16 09:06
+updated_at: 2026-11-16 11:35
 ---
 
 ## Context
@@ -140,3 +141,8 @@ Never `git restore` / `git stash` / checkout: the shared tree holds other tasks'
 > | The details are in lib/sitrep_crash.py's header and in the archived plan's "Notes for sibling tasks".
 
 > **👁 note:read** id=2026-11-16T07:05:18Z.33b6af8e63567cd26cfe77ff by=t2299_3 at=2026-11-16T07:05:18Z mode=explicit ids=2026-11-15T19:52:36Z.4eaa83e815f2e2aaf87f7ec1
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-16T09:35:49Z status=pass attempt=1 type=human
