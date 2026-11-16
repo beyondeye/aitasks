@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t2278_2]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [website, documentation, tui, screenshots]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2278
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 18:12
-updated_at: 2026-11-16 12:37
+updated_at: 2026-11-16 15:31
+completed_at: 2026-11-16 15:31
 ---
 
 ## Context
@@ -95,3 +96,14 @@ See `aiplans/p2278/p2278_3_crop_and_overlays.md`.
 > **✅ gate:plan_approved** run=2026-11-16T10:37:11Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-16T13:04:05Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-16T13:31:13Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:e0aedcf3fa3b03be
+
+> **✅ gate:risk_evaluated** run=2026-11-16T13:31:13Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2278_3/risk_evaluated_2026-11-16T13:31:13Z-risk_evaluated-a1.log`
