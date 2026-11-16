@@ -617,3 +617,15 @@ The engine scope below moved to aitasks_go#t62 and is quoted for reference only.
 > | - changesurface.FromPaths validates literal paths (no C-quote decoding, no line-break forging) and builds the surface directly.
 > | - Walk visits are keyed (path, origin intake path, class), so an implied path carries every provenance (surface both); the reverse view follows implications.
 > | See the archived plan aiplans/archived/p61/p61_1_*.md, Final Implementation Notes and Post-Review Changes.
+
+> **✉ note:t2310** id=2026-11-16T11:23:54Z.527b9013d38b6374f5068824 from=t2310 from_verified=yes at=2026-11-16T11:23:54Z base=9a7048011def108699dbc74e54c271ab13e16af1 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2310 (committed 9a7048011). The `aitask_change_surface.sh list|baseline` output that this task's `ait test` front pipes into the engine changed encoding. These are tree-relative claims as of that commit:
+> | 
+> | - Paths are now printed RAW (git -z reads; non-ASCII bytes as-is). Before t2310 they came in git's default C-quoting.
+> | - Records are terminated by LF alone. Split on LF only, never on a universal-newline set: CR, VT and U+2028 are legal filename bytes.
+> | - A path that contains any control byte (0x01-0x1f, 0x7f), or begins with `"`, is printed in git's C-quote form, e.g. `UNKNOWN:"a\nb.md"` or `COMMITTED:"src/a.md\r"`. Any path field that begins with `"` is such an escape. It must be decoded BEFORE any filesystem lookup, because its wire spelling names no file (a tracked file may literally be called `"a\nb.md"`). Such paths are never attributed TASK.
+> | - `PLANSCOPE:missing` now also means "the plan-reference search could not run". It is still "signal unavailable", never "nothing is this task's". No new prefixes or header values were added.
+> | - Reader hazard on the engine side, tracked as aitasks_go#t131: the intake's `bufio.ScanLines` drops a trailing CR. The producer no longer emits a raw CR, but a front that re-encodes or forwards records should not reintroduce one.
+> | 
+> | The contract is in `aitask_change_surface.sh --help` ("PATH ENCODING").
