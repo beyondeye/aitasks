@@ -10,48 +10,6 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {
-        "pick": {
-          "all_time": {
-            "runs": 7,
-            "score_sum": 700
-          },
-          "prev_month": {
-            "period": "",
-            "runs": 0,
-            "score_sum": 0
-          },
-          "month": {
-            "period": "2026-07",
-            "runs": 7,
-            "score_sum": 700
-          },
-          "week": {
-            "period": "2026-W31",
-            "runs": 5,
-            "score_sum": 500
-          }
-        }
-      },
-      "usagestats": {
-        "pick": {
-          "all_time": {
-            "runs": 7
-          },
-          "prev_month": {
-            "period": "",
-            "runs": 0
-          },
-          "month": {
-            "period": "2026-07",
-            "runs": 7
-          },
-          "week": {
-            "period": "2026-W31",
-            "runs": 5
-          }
-        }
       }
     },
     {
@@ -65,86 +23,6 @@
         "explore": 100,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {
-        "explore": {
-          "all_time": {
-            "runs": 1,
-            "score_sum": 100
-          },
-          "prev_month": {
-            "period": "",
-            "runs": 0,
-            "score_sum": 0
-          },
-          "month": {
-            "period": "2026-07",
-            "runs": 1,
-            "score_sum": 100
-          },
-          "week": {
-            "period": "2026-W29",
-            "runs": 1,
-            "score_sum": 100
-          }
-        },
-        "pick": {
-          "all_time": {
-            "runs": 4,
-            "score_sum": 400
-          },
-          "prev_month": {
-            "period": "",
-            "runs": 0,
-            "score_sum": 0
-          },
-          "month": {
-            "period": "2026-07",
-            "runs": 4,
-            "score_sum": 400
-          },
-          "week": {
-            "period": "2026-W30",
-            "runs": 4,
-            "score_sum": 400
-          }
-        }
-      },
-      "usagestats": {
-        "explore": {
-          "all_time": {
-            "runs": 1
-          },
-          "prev_month": {
-            "period": "",
-            "runs": 0
-          },
-          "month": {
-            "period": "2026-07",
-            "runs": 1
-          },
-          "week": {
-            "period": "2026-W29",
-            "runs": 1
-          }
-        },
-        "pick": {
-          "all_time": {
-            "runs": 5
-          },
-          "prev_month": {
-            "period": "",
-            "runs": 0
-          },
-          "month": {
-            "period": "2026-07",
-            "runs": 5
-          },
-          "week": {
-            "period": "2026-W30",
-            "runs": 4
-          }
-        }
       }
     },
     {
@@ -157,8 +35,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "gpt5_5",
@@ -167,103 +44,6 @@
       "verified": {
         "pick": 99,
         "explore": 100
-      },
-      "verifiedstats": {
-        "pick": {
-          "all_time": {
-            "runs": 35,
-            "score_sum": 3480
-          },
-          "prev_month": {
-            "period": "2026-06",
-            "runs": 26,
-            "score_sum": 2580
-          },
-          "month": {
-            "period": "2026-07",
-            "runs": 8,
-            "score_sum": 800
-          },
-          "week": {
-            "period": "2026-W27",
-            "runs": 9,
-            "score_sum": 900
-          }
-        },
-        "explore": {
-          "all_time": {
-            "runs": 3,
-            "score_sum": 300
-          },
-          "prev_month": {
-            "period": "",
-            "runs": 0,
-            "score_sum": 0
-          },
-          "month": {
-            "period": "2026-07",
-            "runs": 3,
-            "score_sum": 300
-          },
-          "week": {
-            "period": "2026-W28",
-            "runs": 1,
-            "score_sum": 100
-          }
-        }
-      },
-      "usagestats": {
-        "wrap": {
-          "all_time": {
-            "runs": 2
-          },
-          "prev_month": {
-            "period": "2026-05",
-            "runs": 1
-          },
-          "month": {
-            "period": "2026-06",
-            "runs": 1
-          },
-          "week": {
-            "period": "2026-W26",
-            "runs": 1
-          }
-        },
-        "pick": {
-          "all_time": {
-            "runs": 39
-          },
-          "prev_month": {
-            "period": "2026-06",
-            "runs": 28
-          },
-          "month": {
-            "period": "2026-07",
-            "runs": 8
-          },
-          "week": {
-            "period": "2026-W27",
-            "runs": 10
-          }
-        },
-        "explore": {
-          "all_time": {
-            "runs": 3
-          },
-          "prev_month": {
-            "period": "",
-            "runs": 0
-          },
-          "month": {
-            "period": "2026-07",
-            "runs": 3
-          },
-          "week": {
-            "period": "2026-W28",
-            "runs": 1
-          }
-        }
       }
     },
     {
@@ -276,8 +56,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "gpt5_4_mini",
@@ -289,8 +68,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "gpt5_3codex",
@@ -302,8 +80,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "gpt5_3codex_spark",
@@ -315,8 +92,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "gpt5_2",
@@ -328,22 +104,19 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "gpt6_sol",
       "cli_id": "gpt-6-sol",
       "notes": "Flagship GPT-6 model for the most demanding coding, agentic, and research work",
-      "verified": {},
-      "verifiedstats": {}
+      "verified": {}
     },
     {
       "name": "gpt6_luna",
       "cli_id": "gpt-6-luna",
       "notes": "Fast and affordable GPT-6 model for clear, repeatable coding tasks and high-volume workflows",
-      "verified": {},
-      "verifiedstats": {}
+      "verified": {}
     },
     {
       "name": "gpt6_1_sol",
@@ -351,63 +124,19 @@
       "notes": "Latest GPT-6.1 workhorse model for coding and everyday agentic work",
       "verified": {
         "changelog": 80
-      },
-      "verifiedstats": {
-        "changelog": {
-          "all_time": {
-            "runs": 1,
-            "score_sum": 80
-          },
-          "prev_month": {
-            "period": "",
-            "runs": 0,
-            "score_sum": 0
-          },
-          "month": {
-            "period": "2026-11",
-            "runs": 1,
-            "score_sum": 80
-          },
-          "week": {
-            "period": "2026-W46",
-            "runs": 1,
-            "score_sum": 80
-          }
-        }
-      },
-      "usagestats": {
-        "changelog": {
-          "all_time": {
-            "runs": 1
-          },
-          "prev_month": {
-            "period": "",
-            "runs": 0
-          },
-          "month": {
-            "period": "2026-11",
-            "runs": 1
-          },
-          "week": {
-            "period": "2026-W46",
-            "runs": 1
-          }
-        }
       }
     },
     {
       "name": "gpt6_1_terra",
       "cli_id": "gpt-6.1-terra",
       "notes": "GPT-6.1 Terra Codex model, successor to GPT-5.6 Terra",
-      "verified": {},
-      "verifiedstats": {}
+      "verified": {}
     },
     {
       "name": "gpt6_astra",
       "cli_id": "gpt-6-astra",
       "notes": "Frontier-intelligence GPT-6 model for the most demanding work",
-      "verified": {},
-      "verifiedstats": {}
+      "verified": {}
     }
   ]
 }
