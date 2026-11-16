@@ -3,15 +3,15 @@ priority: medium
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Done
 labels: [sitrep, crash_recovery]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
-children_to_implement: [t2299_4]
 created_at: 2026-11-15 11:50
-updated_at: 2026-11-16 12:57
+updated_at: 2026-11-16 17:08
+completed_at: 2026-11-16 17:08
 ---
 
 ## Goal
