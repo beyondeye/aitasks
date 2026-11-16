@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2299
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-16 17:20
-updated_at: 2026-11-16 18:11
+updated_at: 2026-11-16 18:23
 ---
 
 ## Context
@@ -53,3 +54,8 @@ Pressing `w` on a crash-recovery item (any state the other request keys accept) 
 - `tests/test_sitrep_tui_actions.py` (or the requests app tests): the `w` binding is available on a recovery item while the agent runs.
 - `bash tests/test_sitrep_skill_contract.sh`, `bash tests/test_skill_render_aitask_sitrep.sh`, `./.aitask-scripts/aitask_skill_verify.sh`.
 - `cd website && python3 check_links.py --build`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-16T16:23:29Z status=pass attempt=1 type=human
