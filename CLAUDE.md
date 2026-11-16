@@ -59,15 +59,17 @@ The carved modules are:
 - `tests/test_codebrowser_startup_focus_live.py`
 - `tests/test_minimonitor_bottom_pin_live.py`
 - `tests/test_minimonitor_width_pin_live.py`
+- `tests/test_screenshots_session_live.py`
 <!-- serial-carve-out:end -->
 
 Each boots a real TUI in a tmux pane under a hard wall-clock boot budget that
 **fails rather than skips**, and a loaded worker pool turns that budget into a
 flake. `test_board_header_row_live.py` additionally runs against the real repo
-and takes `.git/index.lock`; the other four stay off it — two boot their own
-synthetic projects, and the two `test_minimonitor_*_pin_live.py` modules each
-drive an app whose tmux-facing startup is stubbed, twice per run (the fix and
-its pre-fix control).
+and takes `.git/index.lock`; the other five stay off it — three boot their own
+synthetic projects (`test_screenshots_session_live.py` builds a fresh sample
+project per session, on a private `ait_shots_<id>` socket), and the two
+`test_minimonitor_*_pin_live.py` modules each drive an app whose tmux-facing
+startup is stubbed, twice per run (the fix and its pre-fix control).
 `--dist loadfile` is mandatory: ~39 modules chdir the process, and the default
 `--dist load` splits a single file's tests across workers.
 

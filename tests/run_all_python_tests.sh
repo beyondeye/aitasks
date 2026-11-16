@@ -98,6 +98,10 @@ export PYTHONUNBUFFERED=1
 # pane TWICE (the fix and its pre-fix negative control), grows each window and
 # polls the companion's width against a deadline, so it needs the same
 # undisturbed boot budget.
+# test_screenshots_session_live.py boots the real `ait board` in a tmux pane
+# about twenty times (the docs-screenshot session primitives, recipe replay and
+# repair), each on its own synthetic project and its own private socket, with
+# bounded waits that FAIL rather than skip. Same budget rationale.
 #
 # This list is DOCUMENTED in CLAUDE.md's `### Testing` section, inside the
 # `serial-carve-out:begin`/`:end` marker block, and the two are kept in agreement
@@ -108,7 +112,8 @@ export PYTHONUNBUFFERED=1
 SERIAL_CARVE_OUT=(test_board_header_row_live.py test_board_startup_focus_live.py
                   test_codebrowser_startup_focus_live.py
                   test_minimonitor_bottom_pin_live.py
-                  test_minimonitor_width_pin_live.py)
+                  test_minimonitor_width_pin_live.py
+                  test_screenshots_session_live.py)
 
 is_carved() {
     local base="${1##*/}" c

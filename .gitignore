@@ -86,3 +86,6 @@ website/.hugo_build.lock
 !.claude/skills/task-workflow-remote-/
 !.agents/skills/task-workflow-remote-codex-/
 !.opencode/skills/task-workflow-remote-/
+
+# Docs screenshot tool: sessions and staged batches (per-checkout, never committed)
+website/screenshots/.staging/

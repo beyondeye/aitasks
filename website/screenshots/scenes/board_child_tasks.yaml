@@ -1,0 +1,24 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: board_child_tasks
+output: aitasks_board_child_tasks.svg
+title: aitasks board
+size:
+- 126
+- 44
+dataset: base
+setup: []
+launch: ./ait board
+steps:
+- wait: 3 children
+- wait: ╔
+- keys:
+  - x
+- wait: t12_3 order confirmation email
+expect:
+- t12 add checkout page
+- ↳
+- t12_1 cart summary widget
+- t12_2 payment form validation
+- t12_3 order confirmation email
+illustrates: 'The board with the parent task t12 expanded by pressing x: its three child task cards appear below it in the same column, each indented with a ↳ connector.'
