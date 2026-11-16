@@ -183,3 +183,11 @@ where nothing actually blocks the rebase stop deferring.
 > | Expect remote_ahead>0 / rebase windows on a single machine to become rare after that;
 > | deferral logic keyed on remote_ahead will see far fewer triggers. t1912_7 re-measures.
 > | Plan: aiplans/p1912_move_codeagent_stats_to_plumbing_branch.md
+
+> **✉ note:t1912_4** id=2026-11-16T09:45:33Z.5d6d4b18bd9e12d5c3168815 from=t1912_4 from_verified=yes at=2026-11-16T09:45:33Z base=51eca42a0f7479ea14f698828899bcdd751b17d4 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t1912_4 (landed in main 51eca42a0). This follows up the earlier t1912 note, which said "not landed yet".
+> | 
+> | The stats writers' pre- and post-converge (task_data_converge: fetch plus `merge --ff-only` or a rebase of .aitask-data) and their push of aitask-data are deleted. Stats commits no longer land on origin/aitask-data, so on a machine running the new code, stats writes no longer cause remote_ahead > 0.
+> | 
+> | Hedge: legacy counters stay in models_*.json until t1912_5 migrates them, and a machine still on older framework code keeps writing stats commits to aitask-data until it upgrades. t1912_7 re-measures the reflog about two weeks after these land.
