@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: risk_mitigation
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 22:31
-updated_at: 2026-11-15 22:36
+updated_at: 2026-11-16 09:07
 ---
 
 ## Origin
@@ -47,3 +48,8 @@ guarded dispatch through the helper's transport callable:
   t2001/t2009 supersession invariants pinned by `tests/test_submit_labels_pinned.py`;
 - if the prompt write also moves to `guarded_paste_text`, re-run t1525's drain measurement
   (the write transport changes).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-16T07:07:37Z status=pass attempt=1 type=human
