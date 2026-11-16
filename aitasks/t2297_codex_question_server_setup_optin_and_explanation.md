@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [codex, workflow]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2281
 created_at: 2026-11-13 14:20
-updated_at: 2026-11-13 14:20
+updated_at: 2026-11-16 17:12
 ---
 
 ## Origin
