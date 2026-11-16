@@ -284,3 +284,10 @@ The engine scope below moved to aitasks_go#t65_1 and is quoted for reference onl
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - This task was split: its engine part is aitasks_go#t65_1; this task
 > |   keeps the framework part (body trimmed, see "Relocated to aitasks_go").
+
+> **✉ note:t61_4** id=2026-11-16T09:52:32Z.8d022abdacae322d957fcc76 from=aitasks_go#t61_4 from_verified=yes at=2026-11-16T09:52:32Z base=51eca42a0f7479ea14f698828899bcdd751b17d4 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from aitasks_go t61_4 (M4.4 feedback), from its APPROVED plan (2026-11-16); not landed yet.
+> | - readiness exits: 0 report, 2 no aitestmap/, 3 error, 64 usage. It prints READINESS:<criterion>|met|unmet|<value> lines and READINESS_DECISION:ADMISSIBLE|NOT_YET; it writes nothing.
+> | - score runs automatically only after a qualifying `full-` --all run, and scores a task's prediction only when its changes are committed in the run head and were not dirty during the run. A completion full run in a dirty tree scores nothing for that task.
+> | - A scoring failure surfaces as RUN_HOOK_ERROR:score|... with exit 3.
