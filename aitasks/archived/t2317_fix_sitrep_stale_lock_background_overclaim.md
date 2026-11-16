@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [sitrep, crash_recovery]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2299
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-16 17:08
-updated_at: 2026-11-16 17:32
+updated_at: 2026-11-16 17:48
+completed_at: 2026-11-16 17:48
 ---
 
 ## Origin
@@ -50,3 +51,14 @@ Mind the idempotence rule (the module header): changing the background changes e
 > **✅ gate:plan_approved** run=2026-11-16T15:32:44Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-16T15:36:42Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-16T15:48:31Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:34ef1a73fb329083
+
+> **✅ gate:risk_evaluated** run=2026-11-16T15:48:31Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2317/risk_evaluated_2026-11-16T15:48:31Z-risk_evaluated-a1.log`
