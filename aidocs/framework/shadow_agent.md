@@ -839,9 +839,10 @@ latch, the bounded-capture residual), not the full list:
    *Review-loop event log* below. Before t1606 the reason existed only in a
    ~5s toast, which is why a live, non-reproducible auto-disarm left nothing
    to diagnose.
-7. **Single-line literal injection only** (`send_keys -l` + `Enter` through
-   the tmux gateway; no bracketed paste), with a **wall-clock drain between the
-   two keystrokes**. `review_loop.COMPOSER_DRAIN_SECONDS` separates the literal
+7. **Single-line literal injection only** (`send_keys -l` through the tmux
+   gateway, no bracketed paste; then an `Enter` sent as a **guarded, acked
+   dispatch**, see item 9), with a **wall-clock drain between the two
+   keystrokes**. `review_loop.COMPOSER_DRAIN_SECONDS` separates the literal
    write, the Enter, and the capture that verifies the submission. It is not
    cosmetic: with the two `send_keys` calls adjacent, codex-cli coalesces the
    input burst and consumes the Enter **as text** — the prompt is left
@@ -873,8 +874,10 @@ latch, the bounded-capture residual), not the full list:
    (`agent_request_delivery.deliver_sitrep_request`, phase 3), so a fix to one
    path cannot miss the other. It returns a neutral outcome; each caller maps
    it onto its own vocabulary. `_submit_shadow_prompt` supplies only the
-   transport (`send_keys`), the drain seam and the supersession checkpoint,
-   and keeps the `HOLD_*` / `DISARM_*` codes below:
+   transport, the drain seam and the supersession checkpoint, and keeps the
+   `HOLD_*` / `DISARM_*` codes below. Both paths use the same transport for
+   the Enter: `monitor_core.guarded_send_key`, the guarded, acked dispatch
+   described under the pane-mode bullet below (t2309).
 
    - **Before each Enter** it authorises an *action*, so it fails **closed**.
      `SHADOW_BUSY` **and an exact composer payload** authorise the keystroke,
@@ -989,11 +992,41 @@ latch, the bounded-capture residual), not the full list:
      mode without submitting.
 
      **The loop never cancels the user's mode** (no `send-keys -X cancel`, no
-     `copy-mode -q`): they are reading the shadow. **Accepted residual:** a
-     mode entered in the one round trip between the read and the `send-keys`
-     is not closed — an atomic `if-shell -F` form would need the prompt quoted
-     into a tmux command string and would lose the send rc. It stays
-     identifiable from the event log (see below).
+     `copy-mode -q`): they are reading the shadow.
+
+     **The Enter is re-checked by tmux itself (t2309).** A Python read leaves
+     one round trip before the key in which the user can still enter a mode.
+     So the Enter is not a plain `send-keys`. It is
+     `monitor_core.guarded_send_key`, the sitrep path's transport: one
+     `if-shell -F` whose condition is the shadow **run** (unfrozen, the same
+     `pane_pid`, the same server generation) **and** `#{pane_in_mode} == 0`.
+     The run is read in `_fire_shadow_recheck` before the write, so it is the
+     run the prompt was typed into. A per-dispatch nonce stamped into a pane
+     option tells "the branch ran" from "it did not". The dispatch runs
+     synchronously, so no await separates the checkpoint from the key, or the
+     dispatch from the fatal codes it can return:
+
+     | guarded Enter answer | outcome | why |
+     |---|---|---|
+     | `skipped` / `in_mode` | **hold** `HOLD_PRE_ENTER_IN_MODE` | a mode entered after the pre-Enter read; the prompt is in the composer and nothing was submitted, so this is the same hold and the same release as the read-time row above |
+     | `skipped` / `identity_changed` | **disarm** `DISARM_SHADOW_RUN_CHANGED` | the run the prompt was typed into is gone (frozen, restarted, replaced): a verified absence |
+     | `unknown` (no ack read back) | **disarm** `DISARM_ENTER_UNACKNOWLEDGED` | the Enter may have gone; a hold could re-fire a duplicate round |
+     | `failed` (nothing dispatched) | **disarm** `DISARM_ENTER_SEND_FAILED` | the prompt is still in the composer |
+
+     Reading the run before the write adds two pre-write holds, both with
+     nothing written. A **frozen** shadow (`HOLD_SHADOW_FROZEN`) keeps its
+     `@aitask_shadow_target` across the stand-in `respawn-pane -k` (measured),
+     so the loop still finds it, but it is a viewer, not an agent. An
+     **unreadable** run (`HOLD_SHADOW_IDENTITY_UNREADABLE`) authorises no
+     binding, so it fails closed. Restoring a frozen shadow respawns a new run,
+     which the next fire reads afresh.
+
+     **Accepted residual (the write only):** a mode entered in the one round
+     trip between the pre-write read and the literal `send-keys -l` is not
+     closed. An atomic form needs the paste transport
+     (`guarded_paste_text`), and moving the write onto it changes what the
+     drain of item 7 was measured against. It stays identifiable from the
+     event log (see below).
 
    **Supersession is checked before any outcome is decided, not only before
    a keystroke.** `_service_review_loop` disarms on every `failed` delivery
@@ -1091,10 +1124,15 @@ agent beside the old shadow.
 An event a **delivery** ends in — not an absence teardown — also carries that
 delivery's own diagnostics: `pre_enter_verdict` (the readiness verdict read
 before the Enter), `pane_in_mode` (`1` / `0` / `unreadable`) and `pane_mode`
-(e.g. `copy-mode`). They are what tells a READY `text_not_in_composer` from a
-WORKING one, and a pane that was in a mode from one that was not — the
-distinctions the original reports of t2001 could not make. `--loop-log` prints
-them beside the identities.
+(e.g. `copy-mode`). When the guarded Enter did not send, the event also
+carries `enter_dispatch`, its answer (`skipped:in_mode`,
+`skipped:identity_changed`, `unknown`, `failed:malformed`). A
+`HOLD_PRE_ENTER_IN_MODE` with `pane_in_mode=0` and
+`enter_dispatch=skipped:in_mode` is a mode entered after the read. These
+fields tell a READY `text_not_in_composer` from a WORKING one, and a pane
+that was in a mode from one that was not, which are the distinctions the
+original reports of t2001 could not make. `--loop-log` prints them beside the
+identities.
 
 Recording never raises: an unwritable store returns `False` and the disarm
 **or hold** toast gains a `(not recorded)` suffix, so a silently broken log

@@ -339,11 +339,14 @@ def format_event(event: dict) -> str:
         message,
     ]
     context = []
-    # The last three are a delivery's own diagnostics (t2001): which pre-Enter
-    # verdict decided the outcome, and whether the pane was in a tmux mode.
+    # The last four are a delivery's own diagnostics: which pre-Enter verdict
+    # decided the outcome and whether the pane was in a tmux mode (t2001), and
+    # what the guarded Enter dispatch answered when it did not send (t2309:
+    # `skipped:in_mode` = a mode entered after the pre-Enter read).
     for key in ("agent", "shadow_agent", "shadow_pane", "session", "window",
                 "state", "rounds_fired", "project_root",
-                "pre_enter_verdict", "pane_in_mode", "pane_mode"):
+                "pre_enter_verdict", "pane_in_mode", "pane_mode",
+                "enter_dispatch"):
         if event.get(key) not in (None, ""):
             context.append(f"{key}={event[key]}")
     line = "  ".join(bits)

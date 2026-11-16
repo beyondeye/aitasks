@@ -67,7 +67,10 @@ from monitor.monitor_core import (  # noqa: E402
 from monitor import review_loop  # noqa: E402  (auto-recheck decision core, t1159_2)
 # The one guarded submit loop, shared with the sitrep request delivery (t2275).
 from monitor import agent_submit  # noqa: E402
-from monitor.monitor_core import DISPATCH_FAILED, DISPATCH_SENT  # noqa: E402
+# The shadow recheck's guarded Enter (t2309) resolves its collaborators through
+# this module attribute at call time (run identity, guarded dispatch, nonce), so
+# a test or mutant that patches one of them reaches the real decision.
+from monitor import monitor_core  # noqa: E402
 from monitor import review_loop_log  # noqa: E402  (durable disarm/hold record, t1606)
 from monitor.tmux_control import TmuxControlState  # noqa: E402
 import agent_marks  # noqa: E402
@@ -6077,9 +6080,28 @@ class MiniMonitorApp(
         # mode, and holds; the first tick after the user leaves the mode
         # delivers. The one gate is the mode itself.
         #
-        # Accepted residual: a mode entered between this read and the
-        # `send_keys` below (one round trip) is not closed. The pre-Enter read
-        # and the Fix-5 record fields make it identifiable from the log.
+        # Accepted residual (the WRITE only): a mode entered between this read
+        # and the `send_keys -l` below (one round trip) is not closed. The
+        # pre-Enter read and the Fix-5 record fields make it identifiable from
+        # the log. The Enter's equivalent gap IS closed: it is a guarded,
+        # acked dispatch whose condition includes "not in a mode" (t2309).
+        #
+        # The shadow RUN is read first (t2309): the guarded Enter binds to it,
+        # so a run replaced between this write and that Enter skips instead of
+        # pressing Enter into another process. A new await, so supersession is
+        # re-checked after it. A frozen shadow keeps its binding across the
+        # stand-in respawn (measured), so it is still "the shadow" here — but a
+        # viewer, never a composer: hold, nothing written.
+        rc, out = await monitor.tmux_run_async(
+            ["display-message", "-p", "-t", shadow_pane,
+             monitor_core.RUN_IDENTITY_FORMAT], timeout=3.0)
+        identity = monitor_core.parse_run_identity(rc, out, shadow_pane)
+        if not ctrl.delivery_valid(token):
+            return "not_ready", review_loop.HOLD_DELIVERY_SUPERSEDED
+        if identity is None:
+            return "not_ready", review_loop.HOLD_SHADOW_IDENTITY_UNREADABLE
+        if identity.frozen_record:
+            return "not_ready", review_loop.HOLD_SHADOW_FROZEN
         in_mode, mode_name = await query_pane_mode(monitor, shadow_pane)
         self._loop_delivery_detail = _pane_mode_detail(in_mode, mode_name)
         if not ctrl.delivery_valid(token):
@@ -6091,10 +6113,11 @@ class MiniMonitorApp(
         if not monitor.send_keys(shadow_pane, prompt, literal=True):
             return "failed", review_loop.DISARM_PROMPT_WRITE_FAILED
         return await self._submit_shadow_prompt(
-            monitor, shadow_pane, shadow_key, prompt, token)
+            monitor, shadow_pane, shadow_key, prompt, token, identity)
 
     async def _submit_shadow_prompt(
         self, monitor, shadow_pane: str, shadow_key: str, prompt: str, token,
+        identity,
     ) -> tuple[str, str]:
         """Submit an already-written recheck prompt, and VERIFY that it went.
 
@@ -6105,10 +6128,26 @@ class MiniMonitorApp(
         the mode read, the Enter, the post-Enter read and the bounded retry are
         ``agent_submit.submit_typed_text`` -- the same implementation the
         sitrep request delivery uses, so a fix to one cannot miss the other.
-        This method supplies the transport (``send_keys``), the drain seam and
-        the supersession checkpoint, and maps the neutral outcomes onto the
-        loop's ``HOLD_*`` / ``DISARM_*`` codes. Everything below describes
-        the contract that mapping keeps.
+        This method supplies the transport, the drain seam and the
+        supersession checkpoint, and maps the neutral outcomes onto the loop's
+        ``HOLD_*`` / ``DISARM_*`` codes. Everything below describes the
+        contract that mapping keeps.
+
+        **The transport is the guarded, acked Enter (t2309)** --
+        ``monitor_core.guarded_send_key`` bound to ``identity``, the shadow run
+        read before the write: ONE ``if-shell -F`` whose condition is that run
+        (unfrozen, same ``pane_pid``, same server) AND the pane not in a tmux
+        mode, acked by a per-dispatch nonce -- the sitrep path's transport.
+        It runs SYNCHRONOUSLY (no ``asyncio.to_thread``), so no await separates
+        the checkpoint from the key, nor the dispatch from the fatal codes it
+        can return (the caller disarms on those with no lifecycle check). Its
+        results map: ``skipped``/``in_mode`` -> ``HOLD_PRE_ENTER_IN_MODE`` (the
+        mode entered after the pre-Enter read: the prompt is in the composer,
+        nothing submitted -- the t2001 residual, closed); ``skipped`` because
+        the run changed -> ``DISARM_SHADOW_RUN_CHANGED``; ``unknown`` (no ack
+        read back: it may have gone) -> ``DISARM_ENTER_UNACKNOWLEDGED``;
+        ``failed`` (nothing dispatched) -> ``DISARM_ENTER_SEND_FAILED``. Each
+        carries ``enter_dispatch`` on its record.
 
         **Why this exists (t1525).** The two `send_keys` calls used to be
         adjacent, and codex-cli coalesces that input burst: the Enter is
@@ -6222,10 +6261,13 @@ class MiniMonitorApp(
             return None
 
         async def send_enter():
-            # No await in here, so nothing separates the checkpoint from the key.
-            if monitor.send_keys(shadow_pane, "Enter"):
-                return DISPATCH_SENT, ""
-            return DISPATCH_FAILED, "send_keys"
+            # Synchronous dispatch, no await in here: nothing separates the
+            # checkpoint from the key (t2001), and nothing separates the
+            # dispatch from the fatal codes mapped below, so none can be stale
+            # (t2009). The mode is ALSO re-checked by tmux itself, atomically
+            # with the keystroke (t2309).
+            return monitor_core.guarded_send_key(
+                monitor, identity, "Enter", monitor_core.new_dispatch_nonce())
 
         out = await agent_submit.submit_typed_text(
             monitor, shadow_pane, shadow_key, prompt, send_enter=send_enter,
@@ -6292,7 +6334,24 @@ class MiniMonitorApp(
         if kind == agent_submit.PRE_IN_MODE:
             return "not_ready", review_loop.HOLD_PRE_ENTER_IN_MODE
         if kind == agent_submit.ENTER_NOT_SENT:
-            # Genuine transport failure after a successful write: the text IS
+            state, reason = out.enter
+            self._loop_delivery_detail["enter_dispatch"] = (
+                f"{state}:{reason}" if reason else state)
+            if (state == monitor_core.DISPATCH_SKIPPED
+                    and reason == monitor_core.SKIP_IN_MODE):
+                # A mode entered after the pre-Enter read (t2309, the closed
+                # t2001 residual). Same situation and release as the pre-read
+                # in-mode hold: the prompt is in the composer, nothing sent.
+                return "not_ready", review_loop.HOLD_PRE_ENTER_IN_MODE
+            if state == monitor_core.DISPATCH_SKIPPED:
+                # The run the prompt was typed into is gone (frozen, restarted
+                # or replaced): a verified absence, so disarm.
+                return "failed", review_loop.DISARM_SHADOW_RUN_CHANGED
+            if state == monitor_core.DISPATCH_UNKNOWN:
+                # The Enter may have gone. A hold could re-fire a duplicate
+                # round; disarm visibly instead.
+                return "failed", review_loop.DISARM_ENTER_UNACKNOWLEDGED
+            # Nothing was dispatched after a successful write: the text IS
             # sitting in the composer, so the leftover-text message is true.
             return "failed", review_loop.DISARM_ENTER_SEND_FAILED
         if kind == agent_submit.POST_UNVERIFIED:

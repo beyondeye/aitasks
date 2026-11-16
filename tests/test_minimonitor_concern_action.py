@@ -2060,6 +2060,7 @@ class BlockEvidenceCouplingTests(unittest.TestCase):
 # ===========================================================================
 
 import os as _os
+import re as _re
 
 sys.path.insert(0, _os.path.dirname(_os.path.abspath(__file__)))
 
@@ -2138,6 +2139,29 @@ class _LoopFakeMon(_FakeMon):
         # Called with the fake BEFORE each mode reply is built, so a test can
         # flip the mode, or disarm/re-arm, inside that await.
         self.on_mode_query = None
+        # Called with the fake AFTER each mode reply is built (t2309).
+        self.after_mode_reply = None
+        # --- run-identity + guarded-Enter model (t2309) ---
+        # The delivery reads the shadow RUN before the write and presses Enter
+        # through `monitor_core.guarded_send_key`: one `if-shell -F` whose
+        # condition this fake EVALUATES against its own state (frozen record,
+        # the run's pane_pid, the server pid, the mode depth), exactly the
+        # terms tmux evaluates, then an acked read-back. `run_pid` is the
+        # process now in the pane: change it after the identity read to model
+        # a respawned/replaced shadow.
+        self.shadow_pid = "4242"
+        self.run_pid = "4242"
+        self.server_pid = "777"
+        self.frozen = ""
+        self.identity_rc = 0
+        self.identity_queries = 0
+        self.on_identity_query = None
+        # Per guarded Enter: True = the ack read-back finds nothing (the key's
+        # fate is unknown, though it was evaluated normally).
+        self.ack_lost: list = []
+        self.enter_dispatches = 0
+        self.enter_skips = 0
+        self._ack = ""
 
     async def tmux_run_async(self, args, timeout=5.0):
         self.async_calls.append(args)
@@ -2148,6 +2172,15 @@ class _LoopFakeMon(_FakeMon):
             if self.on_capture is not None:
                 self.on_capture()
             return (self.capture_rc, self._capture_tail())
+        if args[0] == "display-message" and args[-1] == mc.RUN_IDENTITY_FORMAT:
+            # The shadow run identity, read before the write (t2309): not a
+            # mode query, so `mode_queries` stays an exact count.
+            self.identity_queries += 1
+            if self.on_identity_query is not None:
+                self.on_identity_query(self)
+            pane = args[args.index("-t") + 1]
+            return (self.identity_rc,
+                    f"{pane}\t{self.run_pid}\t{self.server_pid}\t{self.frozen}\t\n")
         if args[0] == "display-message" and "pane_width" in args[-1]:
             # The composer proof's width read: not a mode query (t2275).
             pane = args[args.index("-t") + 1]
@@ -2159,12 +2192,57 @@ class _LoopFakeMon(_FakeMon):
             if self.on_mode_query is not None:
                 self.on_mode_query(self)
             pane = args[args.index("-t") + 1]
-            return (self.mode_rc,
-                    f"{pane}\t{self.pane_in_mode}\t{self.mode_name}\n")
+            reply = (self.mode_rc,
+                     f"{pane}\t{self.pane_in_mode}\t{self.mode_name}\n")
+            if self.after_mode_reply is not None:
+                # AFTER the answer is fixed: a mode entered here is one the
+                # read did not see -- the one-round-trip race (t2309).
+                self.after_mode_reply(self)
+            return reply
         return (0, "")
 
     def in_mode(self):
         return self.pane_in_mode not in ("", "0")
+
+    def _guard_holds(self, cond):
+        """Evaluate a `monitor_core.dispatch_condition` the way tmux would."""
+        m_pid = _re.search(r"#\{==:#\{pane_pid\},([0-9]+)\}", cond)
+        m_srv = _re.search(r"#\{==:#\{pid\},([0-9]+)\}", cond)
+        assert m_pid and m_srv and "#{==:#{@aitask_frozen},}" in cond \
+            and mc.PANE_NOT_IN_MODE in cond, cond
+        return (not self.frozen and m_pid.group(1) == self.run_pid
+                and m_srv.group(1) == self.server_pid and not self.in_mode())
+
+    def tmux_run(self, args, timeout=5.0):
+        # The guarded Enter (t2309): if-shell, ack read-back, unset, reason.
+        if args[0] == "if-shell":
+            pane = args[args.index("-t") + 1]
+            cond, on_true = args[-3], args[-2]
+            assert on_true.startswith(f"send-keys -t {pane} Enter ;"), args
+            nonce = _re.search(r"@aitask_dispatch_ack ([0-9a-f]+):sent", on_true).group(1)
+            self.enter_dispatches += 1
+            lost = self.ack_lost.pop(0) if self.ack_lost else False
+            if self._guard_holds(cond):
+                self.sent.append((pane, "Enter", False))
+                if not self.swallow_enter:
+                    self.composer_text = ""
+                    self.submitted = True
+                self._ack = "" if lost else f"{nonce}:sent"
+            else:
+                self.enter_skips += 1
+                self._ack = "" if lost else f"{nonce}:skipped"
+            return 0, ""
+        if args[0] == "display-message" and args[-1] == mc.DISPATCH_ACK_FORMAT:
+            pane = args[args.index("-t") + 1]
+            return 0, f"{pane}\t{self.server_pid}\t{self._ack}\n"
+        if args[0] == "set-option" and mc.DISPATCH_ACK_OPTION in args:
+            self._ack = ""
+            return 0, ""
+        if args[0] == "display-message":            # the skip reason
+            pane = args[args.index("-t") + 1]
+            return 0, (f"{pane}\t{self.run_pid}\t{self.server_pid}\t{self.frozen}"
+                       f"\t{self.pane_in_mode}\n")
+        return super().tmux_run(args, timeout)
 
     def _capture_tail(self):
         if self.composer_text:              # composer holds unsubmitted text
@@ -2869,14 +2947,20 @@ class ReviewLoopFireTests(unittest.TestCase):
         self.assertEqual(app._loop_banner_text, "")
         self.assertTrue(any("disarmed" in m for m, _s in app.spy_notify))
 
-    def test_enter_failure_names_the_leftover_text_and_disarms(self):
+    def test_an_unacknowledged_enter_disarms_and_says_so(self):
+        """The guarded Enter's ack could not be read back (t2309): the key may
+        or may not have gone. Disarm visibly — a hold could re-fire a
+        duplicate round — and say the outcome is unknown, never "left in the
+        composer" (that is only true when nothing was dispatched)."""
         app, mon, _ = self._armed()
-        mon.send_results = [True, False]
+        mon.ack_lost = [True]
         _tick(app, 3)
-        self.assertEqual(len(mon.sent), 2)
+        self.assertEqual(mon.enter_dispatches, 1)
         self.assertFalse(app._review_loop.armed)
-        self.assertTrue(any("left in the shadow composer" in m
+        self.assertTrue(any("could not confirm the Enter reached the shadow" in m
                             for m, _s in app.spy_notify), app.spy_notify)
+        self.assertFalse(any("left in the shadow composer" in m
+                             for m, _s in app.spy_notify), app.spy_notify)
 
     # --- verified submission (t1525) ---------------------------------------
     #
@@ -4761,6 +4845,104 @@ class ShadowPaneModeGuardTests(_LoopEventStoreMixin, unittest.TestCase):
         self.assertEqual(holds[0]["pane_in_mode"], "unreadable")
         self.assertEqual(holds[0]["pre_enter_verdict"], _rl.SHADOW_BUSY)
 
+    # --- the guarded Enter (t2309) -------------------------------------------
+    #
+    # The pre-Enter read cannot close a mode entered in the one round trip
+    # between it and the keystroke (the t2001 residual). The Enter is now ONE
+    # guarded `if-shell` whose condition carries "not in a mode" and the run
+    # identity read before the write, so tmux re-checks both atomically.
+
+    def test_a_mode_entered_between_the_read_and_the_enter_withholds_it(self):
+        """The closed residual. The pre-Enter read answers "not in a mode",
+        and the user enters copy-mode right after it. Pre-t2309 the plain
+        `send_keys` Enter went into the mode (copy-pipe-and-cancel)."""
+        app, mon, _ = self._armed()
+
+        def _scroll_back_after_the_read(m):
+            if m.mode_queries == 2:          # 1 = pre-write, 2 = pre-Enter
+                m.pane_in_mode, m.mode_name = "1", "copy-mode"
+                m.after_mode_reply = None
+        mon.after_mode_reply = _scroll_back_after_the_read
+        _tick(app, 6)
+        self.assertEqual(mon.swallowed_by_mode, 0, "an Enter reached the mode")
+        self.assertEqual(_enters(mon), 0, mon.sent)
+        self.assertEqual(_literal_writes(mon), 1, mon.sent)
+        self.assertTrue(mon.composer_text.startswith("refetch and recheck"),
+                        mon.composer_text)
+        self.assertTrue(mon.in_mode(), "the user's mode was cancelled")
+        self.assertTrue(app._review_loop.armed)
+        holds = self._holds()
+        self.assertEqual([e["reason"] for e in holds],
+                         [_rl.HOLD_PRE_ENTER_IN_MODE])
+        # The read DID say "not in a mode": the dispatch is what caught it.
+        self.assertEqual(holds[0]["pane_in_mode"], "0")
+        self.assertEqual(holds[0]["enter_dispatch"], "skipped:in_mode")
+        self.assertEqual(app._loop_banner_text,
+                         _rl.loop_hold_banner(_rl.HOLD_PRE_ENTER_IN_MODE))
+
+        # Same release as the pre-read hold: BUSY holds without re-writing;
+        # the user clears the composer and leaves the mode; it re-fires.
+        _tick(app, 4)
+        self.assertEqual(_literal_writes(mon), 1, mon.sent)
+        mon.pane_in_mode, mon.mode_name = "0", ""
+        mon.composer_text = ""
+        _advance_past_settle(app)
+        _tick(app, 3)
+        self.assertEqual(_literal_writes(mon), 2, mon.sent)
+        self.assertEqual(_enters(mon), 1, mon.sent)
+        self.assertEqual(app._review_loop.rounds_fired, 1)
+
+    def test_a_shadow_run_replaced_before_the_enter_disarms(self):
+        """The shadow is respawned between the write and the Enter: the run
+        the prompt was typed into is gone, so the Enter must not go to the
+        new process — a verified absence, so disarm."""
+        app, mon, _ = self._armed()
+
+        def _respawn_after_the_read(m):
+            if m.mode_queries == 2:
+                m.run_pid = "5151"
+                m.after_mode_reply = None
+        mon.after_mode_reply = _respawn_after_the_read
+        _tick(app, 6)
+        self.assertEqual(_enters(mon), 0, mon.sent)
+        self.assertEqual(mon.enter_skips, 1)
+        self.assertFalse(app._review_loop.armed)
+        events = self.reasons(mm.review_loop_log.KIND_DISARM)
+        self.assertEqual(events, [_rl.DISARM_SHADOW_RUN_CHANGED])
+        recorded = [e for e in self.recorded()
+                    if e["kind"] == mm.review_loop_log.KIND_DISARM]
+        self.assertEqual(recorded[0]["enter_dispatch"], "skipped:identity_changed")
+
+    def test_a_frozen_shadow_gets_no_keys_and_holds(self):
+        """A frozen shadow keeps its binding across the stand-in respawn, so
+        the loop still sees it — but it is a viewer: nothing is written."""
+        app, mon, _ = self._armed()
+        mon.frozen = "rec-1"
+        _tick(app, 6)
+        self.assertEqual(mon.sent, [])
+        self.assertGreater(mon.identity_queries, 0, "the identity read never ran")
+        self.assertTrue(app._review_loop.armed)
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_HOLD),
+                         [_rl.HOLD_SHADOW_FROZEN])
+        self.assertEqual(app._loop_banner_text,
+                         _rl.loop_hold_banner(_rl.HOLD_SHADOW_FROZEN))
+        # Restored (a fresh, unfrozen run): the next fire delivers.
+        mon.frozen, mon.run_pid = "", "6161"
+        _tick(app, 2)
+        self.assertEqual(_literal_writes(mon), 1, mon.sent)
+        self.assertEqual(_enters(mon), 1, mon.sent)
+
+    def test_an_unreadable_shadow_identity_holds_and_writes_nothing(self):
+        """The identity authorises the Enter's binding, so it fails closed."""
+        app, mon, _ = self._armed()
+        mon.identity_rc = 1
+        _tick(app, 6)
+        self.assertEqual(mon.sent, [])
+        self.assertTrue(app._review_loop.armed)
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_HOLD),
+                         [_rl.HOLD_SHADOW_IDENTITY_UNREADABLE])
+        self.assertEqual(self.reasons(mm.review_loop_log.KIND_DISARM), [])
+
     def _fatal_verdict_row(self, tail, verdict):
         """Fix 5: the record alone must tell READY from WORKING.
 
@@ -4843,6 +5025,19 @@ class SupersessionDuringDeliveryAwaitsTests(_LoopEventStoreMixin,
                 if fake.mode_queries == 1:
                     rearm()
             m.on_mode_query = hook
+        gen = self._run_until_rearmed(app, mon, install)
+        self.assertEqual(mon.sent, [])
+        self._assert_fresh_arm_survived(app, gen)
+
+    def test_rearm_at_the_identity_read_writes_nothing(self):
+        """The shadow-run read before the write is a new await (t2309)."""
+        app, mon, _ = self._armed()
+
+        def install(m, _ctrl, rearm):
+            def hook(fake):
+                if fake.identity_queries == 1:
+                    rearm()
+            m.on_identity_query = hook
         gen = self._run_until_rearmed(app, mon, install)
         self.assertEqual(mon.sent, [])
         self._assert_fresh_arm_survived(app, gen)

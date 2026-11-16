@@ -115,6 +115,14 @@ DISARM_PROMPT_WRITE_FAILED = "prompt_write_failed"
 DISARM_ENTER_SEND_FAILED = "enter_send_failed"
 DISARM_SUBMIT_UNCONFIRMED = "submit_unconfirmed"
 DISARM_TEXT_NOT_IN_COMPOSER = "text_not_in_composer"
+# The Enter is a guarded, acked dispatch (t2309: `monitor_core.guarded_send_key`,
+# bound to the shadow RUN read before the write). It skipped because that run is
+# no longer there -- frozen, restarted or replaced since the write -- or its ack
+# could not be read back, so whether it went is unknown. Both disarm: the first
+# is a verified absence of the run the prompt was typed into; the second could
+# have submitted, and a hold would invite a duplicate round.
+DISARM_SHADOW_RUN_CHANGED = "shadow_run_changed"
+DISARM_ENTER_UNACKNOWLEDGED = "enter_unacknowledged"
 
 # Non-fatal: the delivery is aborted, the loop stays armed.
 HOLD_PRE_ENTER_DIALOG = "pre_enter_dialog"
@@ -138,6 +146,12 @@ HOLD_PRE_ENTER_MODE_UNREADABLE = "pre_enter_mode_unreadable"
 # without re-writing (the HOLD_PRE_ENTER_IN_MODE argument).
 HOLD_PRE_ENTER_COMPOSER_CHANGED = "pre_enter_composer_changed"
 HOLD_PRE_ENTER_COMPOSER_UNPROVABLE = "pre_enter_composer_unprovable"
+# The shadow's run identity is read before the write (t2309), because the
+# guarded Enter binds to it. A frozen shadow keeps its `@aitask_shadow_target`
+# across the stand-in respawn, so the loop still sees it -- but it is a viewer,
+# not an agent. Both hold with nothing written; every tick re-reads the run.
+HOLD_SHADOW_FROZEN = "shadow_frozen"
+HOLD_SHADOW_IDENTITY_UNREADABLE = "shadow_identity_unreadable"
 
 #: The single source of user-facing prose for every reason code.
 #:
@@ -171,6 +185,12 @@ LOOP_REASON_MESSAGES: dict[str, str] = {
     DISARM_TEXT_NOT_IN_COMPOSER:
         "the recheck prompt is not in the shadow composer — nothing was "
         "submitted",
+    DISARM_SHADOW_RUN_CHANGED:
+        "the shadow pane's agent run changed before the Enter (frozen, "
+        "restarted or replaced) — the recheck was not submitted to it",
+    DISARM_ENTER_UNACKNOWLEDGED:
+        "could not confirm the Enter reached the shadow — the recheck may or "
+        "may not have been submitted; check its composer",
     HOLD_PRE_ENTER_DIALOG:
         "shadow showed a dialog before the Enter — nothing sent",
     HOLD_PRE_ENTER_UNREADABLE:
@@ -197,6 +217,11 @@ LOOP_REASON_MESSAGES: dict[str, str] = {
     HOLD_PRE_ENTER_COMPOSER_UNPROVABLE:
         "could not prove the shadow composer holds exactly the recheck "
         "prompt — nothing submitted; check its composer",
+    HOLD_SHADOW_FROZEN:
+        "the shadow pane is frozen — restore it and the recheck goes out; "
+        "nothing written",
+    HOLD_SHADOW_IDENTITY_UNREADABLE:
+        "could not read the shadow pane's agent run — nothing written",
 }
 
 #: Short banner wording for the holds that get a visible banner, budgeted
@@ -222,6 +247,9 @@ LOOP_HOLD_BANNERS: dict[str, str] = {
         "⟳ holding: Enter withheld (shadow composer changed) — check its composer",
     HOLD_PRE_ENTER_COMPOSER_UNPROVABLE:
         "⟳ holding: Enter withheld (composer unprovable) — check its composer",
+    HOLD_SHADOW_FROZEN: "⟳ holding: shadow frozen — restore it to resume",
+    HOLD_SHADOW_IDENTITY_UNREADABLE:
+        "⟳ holding: shadow run unreadable — will retry",
 }
 
 

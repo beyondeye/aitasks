@@ -28,7 +28,11 @@ ONE implementation of that loop. It owns mechanics only and returns a neutral
    alone only says the composer holds SOME text -- the user's words appended
    to ours, or a draft typed after a real submit, would be submitted;
 5. ``send_enter()``, the caller's transport, returning a ``monitor_core``
-   dispatch ``(state, reason)``;
+   dispatch ``(state, reason)``. Both callers use the guarded, acked
+   ``monitor_core.guarded_send_key`` bound to the run identity they read before
+   typing (the minimonitor since t2309), so tmux re-checks "same run, not in a
+   mode" atomically with the keystroke; any result but ``sent`` is
+   ``ENTER_NOT_SENT`` with that ``(state, reason)`` on ``SubmitOutcome.enter``;
 6. the post-Enter read, which only decides what to CLAIM about a key already
    sent: READY / WORKING is a submit; any other non-BUSY verdict is
    unverified; BUSY is a swallowed Enter -- retried -- ONLY when the composer
