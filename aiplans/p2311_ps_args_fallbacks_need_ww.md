@@ -146,3 +146,39 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `-ww` added to the five production `ps` readers
+  (`aitask_questions/owner.py` `_argv`, `monitor/monitor_core.py`
+  `_is_companion_process`, `lib/pid_anchor.sh` `get_pid_exe`,
+  `lib/agent_keys.py` `_own_command` / `_child_commands`) and to the six
+  test-side readers listed in step 3. New `tests/test_ps_args_full_width.py`
+  (real procps, `/proc` read patched to fail, `COLUMNS=80`) and
+  `FullWidthCommTest` in `tests/test_agent_keys.py` (a stub `ps`/`pgrep` that
+  emulates a width-limited `ps`). Both were red before the fix and green
+  after, and both positive controls pass.
+- **Deviations from plan:** The user's plan review caught a gap: the first
+  audit grep was anchored on a literal `"ps"` and missed `agent_keys.py`,
+  which runs `ps` through `shutil.which`. The audit was re-run by field token
+  and both readers were added, with the stub test. During implementation the
+  stub first ran with `PATH=<stubdir>` only, so its own `tr`/`cut` were not
+  found and it printed nothing. That made the positive control pass on empty
+  output. Fixed by putting the stub dir first in front of the real `PATH`,
+  and the control now requires a non-empty `/opt/p…` line.
+- **Issues encountered:** `tests/test_monitor_harvest_close_live.sh` refuses
+  to run inside tmux (it fires raw `tmux` with no socket), so it was not run.
+  Its only change is one `ps` argv.
+- **Key decisions:** The BSD ps behaviour under `COLUMNS` on a pipe was not
+  measured (no macOS host). The comments say so, and the macOS change is
+  framed as hardening. `test_goengines_export_integrity.sh:448` was left
+  alone because its output only decorates a debug log, and
+  `test_monitor_status_restart.py` was left alone because it drives a fake
+  `run_ps`.
+- **Upstream defects identified:** None
+- **Verification run:** `test_ps_args_full_width.py` and
+  `test_agent_keys.py` (31 tests, also under pytest: 34 passed),
+  `test_aitask_questions` 41, `test_monitor_companion_filter` 40,
+  `test_sync_action_runner` 102, `test_monitor_status_server_live` 13,
+  `test_minimonitor_concern_smoke` 20 all passed. `test_kill_agent_run_guarded.sh`
+  and `test_kill_agent_pane_smart.sh` passed. `shellcheck pid_anchor.sh` was
+  clean, and `get_pid_exe $$` printed `/usr/bin/bash`.
