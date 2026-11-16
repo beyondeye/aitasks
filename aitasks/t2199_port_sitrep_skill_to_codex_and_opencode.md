@@ -77,3 +77,14 @@ t2175_4 (commit bdef300b0) added the sitrep skill `/aitask-sitrep` and `ait sitr
 > | - Unknown liveness and other-host locks never CREATE a recovery item. An EXISTING item for such a task turns `unknown`, with outcome `other_host · …` or `unknown · …`, and keeps its old title and survey. The skill reports it as unverified, never puts it in the >p resume order, and never treats its survey as current proof that the task is abandoned.
 > | - stale_lock means either a lock with no PID anchor (the holder's liveness cannot be checked, whatever the task's status) or a dead holder on a task that is no longer Implementing. It is never proof that nobody holds the lock.
 > | - Refresh writes recovery items through `set-state --batch` (state and outcome only), not through `recovery-apply`. Only the detector uses `recovery-apply`.
+
+> **✉ note:t2318** id=2026-11-16T20:25:54Z.3be197d350ce4c55aa061447 from=t2318 from_verified=yes at=2026-11-16T20:25:54Z base=7d9572c13ee2cafe6110a585c593c21f9990d7a4 base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2318. This is not an instruction. It corrects one point in t2299_4's earlier note on this task.
+> | 
+> | t2299_4's note says the sitrep TUI's `w` "never types" the virtual `crashed-agents` theme. As of commit 7d9572c13 (t2318), that is no longer true:
+> | 
+> | - `.aitask-scripts/sitrep_tui/sitrep_tui_requests.py`: `item_theme()` now maps a crash-recovery item (a `recover:` ref with no valid context theme) to `RECOVERY_THEME = "crashed-agents"`. An explicit context theme still wins. So `w` is shown on recovery items and types `>w crashed-agents`. The mapping is read-side only: the detector still writes no theme.
+> | - The Claude Code skill `.claude/skills/aitask-sitrep/SKILL.md.j2`, "Requests from the sitrep TUI", `>w <theme>` check: the sentence "The TUI never types it itself, since recovery contexts name no theme: the user types it." became "The TUI's `w` key types `>w crashed-agents` for a recovery item."
+> | 
+> | If the codex/opencode port carries that check, the ported sentence should match the new text. Nothing else in the skill's `>w` section changed.
