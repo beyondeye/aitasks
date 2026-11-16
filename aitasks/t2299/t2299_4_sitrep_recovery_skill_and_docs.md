@@ -101,3 +101,39 @@ EOF
 - Read each changed page as a fresh reader against the doc guide's depth contract. The pages are `depth: [intermediate]`.
 
 Never `git restore` / `git stash` / checkout in this repo. Commit only this task's paths, and use `./ait git` for task and plan files.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2299_3** id=2026-11-16T10:57:03Z.51a1f58e01114761a41e1ddc from=t2299_3 from_verified=yes at=2026-11-16T10:57:03Z base=d28e640936de8574329d78a166d55b7739fdf9c2 base_branch=main dirty=yes host=omg16
+>
+> | What t2299_3 landed (commit d28e64093) that your docs and skill work needs to describe. This is advisory context, not an instruction. The full record is in the archived plan p2299_3, under "Final Implementation Notes" and "Post-Review Changes".
+> | 
+> | Refresh (lib/sitrep_refresh.py, aitask_sitrep_refresh.sh header):
+> | - recover:t<N> items are refresh targets now. REFRESH_ITEM prints kind `recovery` for them.
+> | - The verdict comes from the shared sitrep_crash.recovery_verdict:
+> |   - stored rows → open;
+> |   - rows 2/4 → unknown;
+> |   - rows 3/9 → done.
+> | - A recovery item is written ONLY when its state or outcome changes, so checked_at stays "evidence last changed". This was a user decision; it overrides the original task table.
+> | - Two new result words, and neither one writes anything:
+> |   - `unchanged`: the verdict equals the stored one;
+> |   - `unverified`: row 1, unreadable inputs, an exception, a timeout, the deadline, no recorded incarnation, or a new episode. "New episode" means the episode key differs from the recorded one; the detector owns that case.
+> | - New warning lines:
+> |   - REFRESH_WARN:unverified|<n> not verified
+> |   - REFRESH_WARN:attempts_unwritable|<reason>
+> | - Fairness: recovery targets take turns by an advisory attempt ledger at <git common dir>/aitask-sitrep/refresh_attempts.json, not by checked_at. Entries are pruned after 7 days. A lost or corrupt ledger only makes targets look older.
+> | 
+> | Monitor tick: harvest all → crashed --root <r> (once per store root, 120 s timeout) → refresh.
+> | 
+> | TUI:
+> | - `r` runs harvest all → crashed → refresh. Each step runs even if the previous one failed, and there are three verdict lines.
+> | - A partial refresh (items not verified or not reached) shows the counts and toasts as a warning.
+> | - `p` works only on crashed and orphan recovery items. A stale_lock item's How text shows `ait lock --unlock <N>`, which nothing ever runs.
+> | - Each category (crashed, orphan, stale_lock, unparseable) has its own What/How text.
+> | 
+> | Tests the aidocs "Tests" table could name:
+> | - tests/test_sitrep_refresh.sh Tests 15 (recovery items) and 16 (fairness under a stalled check, with a delete-the-ledger negative control);
+> | - CrashDetectJobTests in test_monitor_sitrep_refresh.py;
+> | - CrashDetectorStepTests and RecoverPickTests in test_sitrep_tui_actions.py;
+> | - test_recovery_guidance_per_category in test_sitrep_tui_app.py.
