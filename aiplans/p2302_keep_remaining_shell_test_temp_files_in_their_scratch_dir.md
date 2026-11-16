@@ -335,3 +335,57 @@ Post-implementation: current-branch mode. Commit the code
 
 ### Planned mitigations
 - timing: pre-phase | name: shared_file_gate | type: chore | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — concurrent edits to shared test files | desc: Before editing each target test, and again before commit, check git status/diff for foreign hunks; skip and report any owned file; commit named paths only
+
+## Final Implementation Notes
+
+- **Actual work done:** New `tests/lib/run_tmpdir.sh` (`run_tmpdir_init <label>
+  [<parent>]`, which exports `TMPDIR` and unsets an inherited
+  `AITASKS_LOCK_DIR`, plus `run_tmpdir_cleanup`). Adopted in 54 shell tests:
+  - 9 under their existing root (pattern A).
+  - 23 via `CLEANUP_DIRS` plus an early-exit trap (pattern B).
+  - 16 with their own trap (pattern C).
+  - The special cases: tmux live, chatlink_relay, task_commit_scoped,
+    task_data_writer_guard, skill_template, the registry_lock re-exec owner, and
+    the codex keep-on-FAIL trap.
+
+  Strict mode (`AIT_TMPDIR_GUARD_STRICT=1`) is added to `run_shell_test.sh`,
+  with an inspection-attested `_TG_LEFTOVER_COUNT` in `tmpdir_guard.sh`.
+  Section (n) of `tests/test_tmpdir_guard.sh` pins its behaviour. CLAUDE.md
+  gained one paragraph.
+- **Deviations from plan:**
+  - `test_anchor_create`, `test_characterize_batch_label_frontmatter` and
+    `test_label_autoadd` do NOT add the root to `CLEANUP_DIRS`. Their
+    `teardown_all` runs `[[ -d "$d" ]] && rm -rf "$d"` under `set -e`, so a
+    root removed first made the loop's last test false, and the suite exited 1
+    with every assertion passing. Instead `teardown_all` calls
+    `run_tmpdir_cleanup` after its loop.
+  - The strict cases were added to `tests/test_tmpdir_guard.sh` so they stay
+    durable; the plan had them as manual checks only.
+- **Issues encountered:**
+  - 4b's pre-fix control could not use "X is non-empty": with an override the
+    lock subdirs are released and nothing remains. The control uses X's mtime
+    (bumped by any create/remove) instead. Pre-fix: touched. Post-fix: untouched
+    and empty, for all 4 suites, including the two deliberate-override suites.
+  - Early-stop injections need 10ms polling: the suites finish in about 1s.
+- **Verification results:**
+  - Baseline: 52 files with leftovers. After the fix, all 54 edited files exit 0
+    under strict mode, which means zero leftovers, and each file's own summary
+    line is identical to the baseline.
+  - Plain runs of 9 sampled files add nothing to `/tmp`.
+  - 4c: normal, TERM-child (two delays) and group-INT runs all leave `B` empty.
+    Pre-fix: `tmp.*` left in all cases.
+  - 4d: TERM during Part 1 → rc 143 and `C` empty. Pre-fix: `chatlink_test_*`
+    leaked.
+  - The codex stub runs: PASS removes the results dir; FAIL keeps it and prints
+    its path.
+  - `test_asserts_counters` 28/28 and `test_tmpdir_guard` 75/75 pass.
+  - shellcheck: the only additions are SC1091 info notes on the new `source`
+    lines.
+- **Not changed / observed:**
+  - `test_verified_update` was already clean.
+  - `test_applink_tunnel` leaves a stray process in its group; the guard stops
+    it. This predates the change and is out of scope.
+  - `registry_lock_acquire`/`release` clobber a caller's EXIT trap in
+    production. Offered as an upstream follow-up.
+  - `tests/test_setup_questions_server.sh` carries another session's
+    uncommitted edits and was not touched.
