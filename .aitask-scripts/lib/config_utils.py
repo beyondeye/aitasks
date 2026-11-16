@@ -17,6 +17,7 @@ from __future__ import annotations
 import copy
 import json
 import os
+import re
 import stat
 import tempfile
 from datetime import datetime, timezone
@@ -612,6 +613,58 @@ def _check_type_conflicts(existing: Any, incoming: Any, path: tuple[str, ...]) -
             )
 
 
+_REGISTRY_NAME_RE = re.compile(r"models_[a-z][a-z0-9]*(?:\.local)?\.json")
+_REGISTRY_STATS_KEYS = ("usagestats", "verifiedstats")
+
+
+def _registry_rows(data: Any):
+    """The row list of a registry payload (``{"models": [...]}`` or a bare list)."""
+    if isinstance(data, dict) and isinstance(data.get("models"), list):
+        return data["models"]
+    if isinstance(data, list):
+        return data
+    return None
+
+
+def _registry_without_bundle_stats(name: str, data: Any, target: Path) -> Any:
+    """A ``models_*.json`` payload whose rows carry no counters of the bundle's.
+
+    The ``usagestats`` / ``verifiedstats`` counters are owned by the stats
+    migration (t1912_5) and live on the aitask-stats branch, so an import never
+    brings a bundle's counters in (an older export still carries them). The
+    destination's own legacy counters are carried onto the same-named payload
+    rows instead: before the migration has absorbed them they are the only copy,
+    and the models list is replaced as a whole in both import modes. Anything
+    that is not a registry, or not a readable one, passes through unchanged.
+    """
+    if not _REGISTRY_NAME_RE.fullmatch(name):
+        return data
+    rows = _registry_rows(data)
+    if rows is None:
+        return data
+    keep: dict = {}
+    try:
+        existing = _read_destination(target)
+    except Exception:  # noqa: BLE001 - a broken destination keeps nothing
+        existing = _ABSENT
+    for row in (_registry_rows(existing) or []) if existing is not _ABSENT else []:
+        if isinstance(row, dict) and isinstance(row.get("name"), str):
+            stats = {k: row[k] for k in _REGISTRY_STATS_KEYS if k in row}
+            if stats:
+                keep[row["name"]] = stats
+    new_rows = []
+    for row in rows:
+        if isinstance(row, dict):
+            row = {k: v for k, v in row.items() if k not in _REGISTRY_STATS_KEYS}
+            carried = keep.get(row.get("name"))
+            if carried:
+                row.update(copy.deepcopy(carried))
+        new_rows.append(row)
+    if isinstance(data, dict):
+        return {**data, "models": new_rows}
+    return new_rows
+
+
 def _merge_file(name: str, existing: Any, incoming: Any) -> Any:
     """Resolve one whole file's merge, or raise ConfigMergeError.
 
@@ -720,6 +773,7 @@ def import_all_configs(
 
         # Destination reads happen only after the skips above: a file the caller
         # excluded must never be able to fail the import.
+        data = _registry_without_bundle_stats(name, data, target)
         merged = _merge_file(name, _read_destination(target), data) if merge else data
         plan.append((name, target, _render_json(merged)))
 

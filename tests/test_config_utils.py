@@ -450,6 +450,44 @@ class TestExportImport(unittest.TestCase):
             data = json.load(f)
         self.assertEqual(data, {"a": 1})
 
+    def _registry_bundle(self):
+        bundle_row = {"name": "opus", "cli_id": "c", "notes": "bundle",
+                      "verified": {"pick": 90},
+                      "usagestats": {"pick": {"all_time": {"runs": 50}}},
+                      "verifiedstats": {"pick": {"all_time": {"runs": 5, "score_sum": 450}}}}
+        new_row = {"name": "fresh", "cli_id": "f", "verifiedstats": {}}
+        return {"files": {"models_claudecode.json": {"models": [bundle_row, new_row]}}}
+
+    def test_import_never_brings_bundle_stats_counters(self):
+        # t1912_5: the counters live on aitask-stats; a pre-migration export
+        # still carries them, and importing it must not re-add them.
+        dest = self.d / "dest"
+        dest.mkdir()
+        import_all_configs(bundle=self._registry_bundle(), metadata_dir=dest)
+        rows = json.loads((dest / "models_claudecode.json").read_text())["models"]
+        for row in rows:
+            self.assertNotIn("usagestats", row)
+            self.assertNotIn("verifiedstats", row)
+        self.assertEqual(rows[0]["verified"], {"pick": 90})
+        self.assertEqual(rows[0]["notes"], "bundle")
+
+    def test_import_keeps_destination_legacy_counters(self):
+        # Until the migration absorbed them, the destination's counters are the
+        # only copy: carried onto the same-named row, in both import modes.
+        for merge in (False, True):
+            dest = self.d / f"dest{int(merge)}"
+            dest.mkdir()
+            own = {"models": [{"name": "opus", "cli_id": "c", "notes": "local",
+                               "usagestats": {"pick": {"all_time": {"runs": 7}}}}]}
+            (dest / "models_claudecode.json").write_text(json.dumps(own))
+            import_all_configs(bundle=self._registry_bundle(), metadata_dir=dest,
+                               overwrite=True, merge=merge)
+            rows = json.loads((dest / "models_claudecode.json").read_text())["models"]
+            self.assertEqual(rows[0]["usagestats"], {"pick": {"all_time": {"runs": 7}}}, merge)
+            self.assertNotIn("verifiedstats", rows[0], merge)
+            self.assertNotIn("verifiedstats", rows[1], merge)
+            self.assertEqual(rows[0]["notes"], "bundle", merge)
+
     def test_import_path_traversal_raises(self):
         bundle = {
             "_export_meta": {"version": 1, "file_count": 1},

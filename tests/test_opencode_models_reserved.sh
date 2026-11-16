@@ -36,6 +36,7 @@ setup_fixture() {
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$FIX/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/atomic_write.sh" "$FIX/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/registry_cas.sh" "$FIX/.aitask-scripts/lib/"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/model_stats_strip.jq" "$FIX/.aitask-scripts/lib/"
     printf '%s\n' "$listing" > "$FIX/listing.txt"
     cat > "$FIX/bin/opencode" <<EOF
 #!/usr/bin/env bash

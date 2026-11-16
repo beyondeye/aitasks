@@ -161,23 +161,25 @@ process_model() {
            "cli_id": $cli_id,
            "notes": $notes,
            "status": "active",
-           "verified": {"pick": 0, "explain": 0, "batch-review": 0, "work-report": 0, "trail": 0},
-           "verifiedstats": {}
+           "verified": {"pick": 0, "explain": 0, "batch-review": 0, "work-report": 0, "trail": 0}
         }]' <<< "$models_array"
 }
 
 # --- Merge with existing config ---
-# Preserves every field discovery does not own (verified scores, usage counters,
-# ...) and marks disappeared models as unavailable. <existing_file> is the
-# registry to merge from (the CAS snapshot on the write path), or "" / a missing
-# path when there is none.
+# Preserves every field discovery does not own (verified priors, ...) and marks
+# disappeared models as unavailable. <existing_file> is the registry to merge
+# from (the CAS snapshot on the write path), or "" / a missing path when there is
+# none.
 #
-# The usage and verified updaters write the same registry, so the write path
-# merges from a byte snapshot and swaps the result in only if the registry still
-# matches it (ait_cas_rewrite, lib/registry_cas.sh). A counter write landing
-# while this runs makes the swap re-merge on the fresh content instead of being
-# overwritten; the counter writers use the same CAS, so they cannot overwrite a
-# refresh that swapped in under them either.
+# Legacy usagestats / verifiedstats counters on an existing row are CARRIED, never
+# added and never dropped: until the stats migration (t1912_5) has absorbed them
+# into the aitask-stats branch they are the only copy, and dropping them here
+# would lose them. New rows get none (the counters live on aitask-stats).
+#
+# Other registry writers (the migration's no-remote strip, ...) can rewrite the
+# same file, so the write path merges from a byte snapshot and swaps the result
+# in only if the registry still matches it (ait_cas_rewrite, lib/registry_cas.sh):
+# a write landing while this runs makes the swap re-merge on the fresh content.
 merge_with_existing() {
     local discovered="$1"
     local existing_file="$2"
@@ -366,8 +368,16 @@ success "Updated $METADATA_FILE ($total_count models: $model_count active, $unav
 # --- Sync to seed if requested ---
 if [[ "$SYNC_SEED" == "true" ]]; then
     if [[ -d "seed" ]]; then
-        cp "$METADATA_FILE" "$SEED_FILE"
-        success "Synced to $SEED_FILE"
+        # The seed never carries stats counters (t1912_5): they live on the
+        # aitask-stats branch, and a fresh project must start without any.
+        seed_tmp="$(mktemp "${TMPDIR:-/tmp}/aitask_opencode_seed_XXXXXX")"
+        if jq -f "$SCRIPT_DIR/lib/model_stats_strip.jq" "$METADATA_FILE" > "$seed_tmp" && [[ -s "$seed_tmp" ]]; then
+            mv "$seed_tmp" "$SEED_FILE"
+            success "Synced to $SEED_FILE (stats counters stripped)"
+        else
+            rm -f "$seed_tmp"
+            warn "Could not render $SEED_FILE without stats counters — seed not synced"
+        fi
     else
         warn "seed/ directory not found — skipping seed sync"
     fi

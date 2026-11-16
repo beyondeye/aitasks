@@ -157,8 +157,7 @@ cmd_add_json() {
             "name": $name,
             "cli_id": $cli_id,
             "notes": $notes,
-            "verified": {},
-            "verifiedstats": {}
+            "verified": {}
         }]' \
         "$metadata_file" > "$tmp_metadata"
     jq . "$tmp_metadata" >/dev/null || { rm -f "$tmp_metadata"; die "Produced JSON is invalid for $metadata_rel"; }
@@ -178,8 +177,7 @@ cmd_add_json() {
                 "name": $name,
                 "cli_id": $cli_id,
                 "notes": $notes,
-                "verified": {},
-                "verifiedstats": {}
+                "verified": {}
             }]' \
             "$seed_file" > "$tmp_seed"
         jq . "$tmp_seed" >/dev/null || { rm -f "$tmp_metadata" "$tmp_seed"; die "Produced JSON is invalid for $seed_rel"; }

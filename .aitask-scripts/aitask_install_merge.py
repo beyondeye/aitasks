@@ -102,7 +102,42 @@ def _model_entry_key(entry: object) -> tuple[str, str]:
     return ("json", canonical)
 
 
+# The legacy code-agent counters (t1912_5). They live on the aitask-stats branch;
+# a seed row appended to a project's registry must never bring any in. Existing
+# destination rows are left alone: their counters are the legacy copy the stats
+# migration absorbs.
+_STATS_KEYS = ("usagestats", "verifiedstats")
+
+
+def _without_stats(entry):
+    if not isinstance(entry, dict):
+        return entry
+    return {k: v for k, v in entry.items() if k not in _STATS_KEYS}
+
+
+def _seed_has_stats(src: Path) -> bool:
+    try:
+        with open(src, "r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return False  # the merge path below reports a broken seed
+    rows = data.get("models") if isinstance(data, dict) else None
+    return any(isinstance(r, dict) and any(k in r for k in _STATS_KEYS)
+               for r in (rows if isinstance(rows, list) else []))
+
+
 def merge_json_models(src: Path, dest: Path) -> None:
+    if not dest.exists() and _seed_has_stats(src):
+        # A registry created whole from a seed gets the same row sanitizing as
+        # an appended seed row; a clean seed is still copied byte for byte.
+        with open(src, "r", encoding="utf-8") as f:
+            data = json.load(f)
+        data["models"] = [_without_stats(r) for r in data["models"]]
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        with open(dest, "w", encoding="utf-8") as f:
+            json.dump(data, f, indent=2, ensure_ascii=False)
+            f.write("\n")
+        return
     if _copy_if_dest_missing(src, dest):
         return
     try:
@@ -124,7 +159,7 @@ def merge_json_models(src: Path, dest: Path) -> None:
     for entry in src_models:
         key = _model_entry_key(entry)
         if key not in existing_keys:
-            merged_models.append(entry)
+            merged_models.append(_without_stats(entry))
             existing_keys.add(key)
 
     merged = deep_merge(src_data, dest_data)

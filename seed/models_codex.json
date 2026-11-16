@@ -10,8 +10,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "gpt5_6_terra",
@@ -23,8 +22,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "gpt5_6_luna",
@@ -36,15 +34,13 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "gpt5_5",
       "cli_id": "gpt-5.5",
       "notes": "Newest frontier model for complex coding, computer use, knowledge work, and research workflows; recommended choice for most Codex tasks (ChatGPT sign-in only)",
-      "verified": {},
-      "verifiedstats": {}
+      "verified": {}
     },
     {
       "name": "gpt5_4",
@@ -56,8 +52,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "gpt5_4_mini",
@@ -69,8 +64,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "gpt5_3codex",
@@ -82,8 +76,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "gpt5_3codex_spark",
@@ -95,8 +88,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "gpt5_2",
@@ -108,43 +100,37 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "gpt6_sol",
       "cli_id": "gpt-6-sol",
       "notes": "Flagship GPT-6 model for the most demanding coding, agentic, and research work",
-      "verified": {},
-      "verifiedstats": {}
+      "verified": {}
     },
     {
       "name": "gpt6_luna",
       "cli_id": "gpt-6-luna",
       "notes": "Fast and affordable GPT-6 model for clear, repeatable coding tasks and high-volume workflows",
-      "verified": {},
-      "verifiedstats": {}
+      "verified": {}
     },
     {
       "name": "gpt6_1_sol",
       "cli_id": "gpt-6.1-sol",
       "notes": "Latest GPT-6.1 workhorse model for coding and everyday agentic work",
-      "verified": {},
-      "verifiedstats": {}
+      "verified": {}
     },
     {
       "name": "gpt6_1_terra",
       "cli_id": "gpt-6.1-terra",
       "notes": "GPT-6.1 Terra Codex model, successor to GPT-5.6 Terra",
-      "verified": {},
-      "verifiedstats": {}
+      "verified": {}
     },
     {
       "name": "gpt6_astra",
       "cli_id": "gpt-6-astra",
       "notes": "Frontier-intelligence GPT-6 model for the most demanding work",
-      "verified": {},
-      "verifiedstats": {}
+      "verified": {}
     }
   ]
 }

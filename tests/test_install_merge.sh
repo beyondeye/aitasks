@@ -117,7 +117,8 @@ cat > "$TMP/src_models.json" <<'EOF'
       "cli_id": "claude-fable-5",
       "notes": "seed fable",
       "verified": {},
-      "verifiedstats": {}
+      "verifiedstats": {"pick": {"all_time": {"runs": 2}}},
+      "usagestats": {}
     }
   ],
   "seed_only": true
@@ -156,6 +157,22 @@ assert_eq "json-models: seed-only model appended" "2" "$model_count"
 assert_eq "json-models: destination order then seed order" $'opus\nfable5' "$model_names"
 assert_contains "json-models: seed-only top-level key added" '"seed_only": true' "$merged_model_json"
 assert_contains "json-models: dest-only top-level key preserved" '"local_only": true' "$merged_model_json"
+fable_keys="$("$AITASK_PYTHON" -c 'import json,sys; print(",".join(sorted(json.load(open(sys.argv[1]))["models"][1])))' "$TMP/dest_models.json")"
+assert_eq "json-models: appended seed row carries no stats counters (t1912_5)" \
+    "cli_id,name,notes,verified" "$fable_keys"
+
+# A registry created whole from a seed (destination absent) is sanitized too;
+# a clean seed is still copied byte for byte.
+rm -f "$TMP/new_models.json"
+"$AITASK_PYTHON" "$MERGE_SCRIPT" json-models "$TMP/src_models.json" "$TMP/new_models.json"
+new_keys="$("$AITASK_PYTHON" -c 'import json,sys; print(sum(1 for r in json.load(open(sys.argv[1]))["models"] for k in ("usagestats","verifiedstats") if k in r))' "$TMP/new_models.json")"
+assert_eq "json-models: missing destination gets no stats counters (t1912_5)" "0" "$new_keys"
+assert_contains "json-models: missing destination keeps the rest of the seed" '"seed_only": true' "$(cat "$TMP/new_models.json")"
+printf '{\n  "models": [\n    {\n      "name": "x",\n      "verified": {}\n    }\n  ]\n}\n' > "$TMP/clean_seed.json"
+rm -f "$TMP/clean_copy.json"
+"$AITASK_PYTHON" "$MERGE_SCRIPT" json-models "$TMP/clean_seed.json" "$TMP/clean_copy.json"
+rc=0; cmp -s "$TMP/clean_seed.json" "$TMP/clean_copy.json" || rc=$?
+assert_eq "json-models: a clean seed is still a byte copy" "0" "$rc"
 
 "$AITASK_PYTHON" "$MERGE_SCRIPT" json-models "$TMP/src_models.json" "$TMP/dest_models.json"
 model_count_repeat="$("$AITASK_PYTHON" -c 'import json,sys; print(len(json.load(open(sys.argv[1]))["models"]))' "$TMP/dest_models.json")"

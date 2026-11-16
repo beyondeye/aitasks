@@ -46,6 +46,7 @@ setup_fixture() {
     cp "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" "$FIX/.aitask-scripts/lib/"
     cp "$PROJECT_DIR/.aitask-scripts/lib/atomic_write.sh" "$FIX/.aitask-scripts/lib/"
     cp "$CAS_LIB_UNDER_TEST" "$FIX/.aitask-scripts/lib/registry_cas.sh"
+    cp "$PROJECT_DIR/.aitask-scripts/lib/model_stats_strip.jq" "$FIX/.aitask-scripts/lib/"
     printf '%s\n' "$listing" > "$FIX/listing.txt"
     printf '%s\n' "$hook" > "$FIX/hook.sh"
     cat > "$FIX/bin/opencode" <<EOF
@@ -104,8 +105,13 @@ assert_eq "non-generated fields unchanged" "$before" "$(kept_fields "$FIX/$REGIS
 assert_eq "usagestats kept" "5" "$(field "$FIX/$REGISTRY" opencode_foo '.usagestats.pick.all_time.runs')"
 assert_eq "notes regenerated from discovery" "Foo New (200k context, opencode provider)" \
     "$(field "$FIX/$REGISTRY" opencode_foo '.notes')"
-rc=0; cmp -s "$FIX/$REGISTRY" "$FIX/seed/models_opencode.json" || rc=$?
-assert_exit_zero_rc "seed is a byte copy" "$rc"
+rc=0; jq -f "$PROJECT_DIR/.aitask-scripts/lib/model_stats_strip.jq" "$FIX/$REGISTRY" \
+    | cmp -s - "$FIX/seed/models_opencode.json" || rc=$?
+assert_exit_zero_rc "seed is the registry minus its stats counters, byte for byte" "$rc"
+assert_eq "seed carries no usagestats (t1912_5)" "null" \
+    "$(field "$FIX/seed/models_opencode.json" opencode_foo '.usagestats')"
+assert_eq "seed keeps verified" "90" \
+    "$(field "$FIX/seed/models_opencode.json" opencode_foo '.verified.pick')"
 rm -rf "$FIX"
 
 # --- Test 2: a row matched by cli_id under a new name keeps its counters ---
@@ -185,8 +191,8 @@ run_refresh > "$FIX/refresh.log" || rc=$?
 assert_exit_zero_rc "refresh exits 0" "$rc"
 assert_eq "mid-discovery usage count kept in metadata" "1" \
     "$(field "$FIX/$REGISTRY" opencode_foo '.usagestats.pick.all_time.runs')"
-assert_eq "mid-discovery usage count kept in seed" "1" \
-    "$(field "$FIX/seed/models_opencode.json" opencode_foo '.usagestats.pick.all_time.runs')"
+assert_eq "seed never carries the counters (t1912_5)" "null" \
+    "$(field "$FIX/seed/models_opencode.json" opencode_foo '.usagestats')"
 rm -rf "$FIX"
 
 # --- Test 5: a null existing field still falls back to the discovered default ---
@@ -209,7 +215,8 @@ rc=0
 run_refresh > "$FIX/refresh.log" || rc=$?
 assert_exit_zero_rc "refresh exits 0" "$rc"
 assert_eq "verified defaulted" "0" "$(field "$FIX/$REGISTRY" opencode_foo '.verified.pick')"
-assert_eq "verifiedstats defaulted" "{}" "$(field "$FIX/$REGISTRY" opencode_foo '.verifiedstats | tojson')"
+assert_eq "no verifiedstats added to a row without counters (t1912_5)" "null" \
+    "$(field "$FIX/$REGISTRY" opencode_foo '.verifiedstats | tojson')"
 rm -rf "$FIX"
 
 # --- Tests 6-8: writes landing AFTER the merge read the registry (t1928) ---
@@ -244,8 +251,8 @@ AIT_CAS_BEFORE_SWAP_HOOK="$FIX/swap_hook.sh" run_refresh > "$FIX/refresh.log" ||
 assert_exit_zero_rc "refresh exits 0" "$rc"
 assert_eq "post-merge usage count kept in metadata" "7" \
     "$(field "$FIX/$REGISTRY" opencode_foo '.usagestats.pick.all_time.runs')"
-assert_eq "post-merge usage count kept in seed" "7" \
-    "$(field "$FIX/seed/models_opencode.json" opencode_foo '.usagestats.pick.all_time.runs')"
+assert_eq "seed never carries the counters (t1912_5)" "null" \
+    "$(field "$FIX/seed/models_opencode.json" opencode_foo '.usagestats')"
 assert_eq "notes still regenerated" "Foo New (200k context, opencode provider)" \
     "$(field "$FIX/$REGISTRY" opencode_foo '.notes')"
 assert_contains "re-merge reported" "re-merged" "$(cat "$FIX/refresh.log")"

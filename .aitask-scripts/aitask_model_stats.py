@@ -26,6 +26,20 @@ Verbs (single-line structured stdout, diagnostics on stderr):
                                     --root defaults to F's directory
   show                           -> BRANCH:/MARKER: header, then one line per
                                     agent/model/stats key/skill
+  migrate         [--agent A] [--dry-run] [--timeout SECONDS]
+                  One-time move of the legacy models_<agent>.json counters into
+                  aitask-stats (lib/model_stats_migrate.py has the protocol).
+                  One status line per agent:
+                    MIGRATED:<A>|<strip commit>|<runs absorbed>
+                    MIGRATE_NOOP:<A>|marked
+                    MIGRATE_SKIPPED:<A>|no_registry
+                    MIGRATE_DEFERRED:<A>|<reason>    (retried on the next run)
+                    MIGRATE_ERROR:<A>|<reason>       (fail closed)
+                    MIGRATE_PLAN:<A>|marker=..|baseline=..|absorb_runs=..|residue_runs=..
+                                                     (--dry-run: nothing written)
+                  plus STRIPPED_RESIDUE:<A>|<runs> when counters an older
+                  framework wrote after the cutover were discarded. Exit 1 when
+                  any MIGRATE_ERROR line was printed, else 0.
 
 Failures: STATS_ERROR:usage:<msg> (exit 2), STATS_ERROR:<reason> (exit 1),
 STATS_DIVERGED:<local>|<remote> (exit 1). Every verb takes --root (default: the
@@ -117,7 +131,13 @@ def _write(args, key, render, message) -> int:
     res = mss.update(args.root, args.agent, fn, message=message, return_commit=True)
     head = f"UPDATED:{args.agent}/{args.model}:{args.skill}:"
     try:
-        if res.local_ref == "DIVERGED" or res.local_ref.startswith("ERROR:"):
+        if res.local_ref.startswith("HELD_LOCAL:"):
+            agents = res.local_ref[len("HELD_LOCAL:"):]
+            _warn(f"stats recorded locally only: the local {mss.L_REF} carries a migration "
+                  f"marker for {agents} that origin does not have yet, and an offline "
+                  f"migration is not published until it is validated; run './ait setup' "
+                  f"(or 'aitask_model_stats.py migrate') to publish it")
+        elif res.local_ref == "DIVERGED" or res.local_ref.startswith("ERROR:"):
             _warn(f"recorded on origin, but the local {mss.L_REF} was not advanced "
                   f"({res.local_ref}); run 'aitask_model_stats.py refresh' or './ait sync'")
         total = mss.effective_total(args.root, args.agent, args.model, key, args.skill,
@@ -204,6 +224,19 @@ def cmd_show(args) -> int:
     return 0
 
 
+def cmd_migrate(args) -> int:
+    # Imported here, not at the top: the counter writers run this CLI on every
+    # completion and must not depend on the one-time migration module.
+    import model_stats_migrate as msm
+
+    if args.agent is not None and not mss.AGENT_RE.fullmatch(args.agent):
+        raise UsageError(f"invalid --agent: {args.agent!r}")
+    lines = msm.migrate(args.root, args.agent, dry_run=args.dry_run, timeout=args.timeout)
+    for text in lines:
+        _line(text)
+    return 1 if any(t.startswith("MIGRATE_ERROR:") for t in lines) else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = _Parser(prog="aitask_model_stats.py", description=__doc__.split("\n")[0])
     sub = parser.add_subparsers(dest="verb", parser_class=_Parser)
@@ -232,6 +265,10 @@ def build_parser() -> argparse.ArgumentParser:
     p.add_argument("--file", required=True)
     p.set_defaults(root=None)
     add("show", cmd_show)
+    p = add("migrate", cmd_migrate)
+    p.add_argument("--agent")
+    p.add_argument("--dry-run", action="store_true")
+    p.add_argument("--timeout", type=float)
     return parser
 
 
@@ -241,7 +278,7 @@ def main(argv=None) -> int:
         args = parser.parse_args(argv)
         if not getattr(args, "func", None):
             raise UsageError("a verb is required: bump-usage, record-verified, "
-                             "refresh, export, overlay, show")
+                             "refresh, export, overlay, show, migrate")
         return args.func(args)
     except UsageError as exc:
         _line(f"STATS_ERROR:usage:{str(exc).replace(chr(10), ' ')}")

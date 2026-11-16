@@ -1402,6 +1402,58 @@ setup_artifact_fetch_exclusion() {
     return 0
 }
 
+# --- Code-agent stats migration (t1912_5) ---
+# Moves the legacy usagestats / verifiedstats counters out of
+# aitasks/metadata/models_<agent>.json into the aitask-stats branch, once per
+# agent (`aitask_model_stats.py migrate`; lib/model_stats_migrate.py holds the
+# protocol). Idempotent: an already-migrated agent is quiet. NEVER fatal: a
+# deferral (unreachable remote, dirty registry, no Python, ...) is a warning and
+# the next `ait setup` / `ait upgrade` retries it. AIT_STATS_MIGRATE=0 opts out.
+# Also called from install.sh's existing-install block (the `ait upgrade` route).
+setup_model_stats_migration() {
+    local project_dir="$SCRIPT_DIR/.."
+    local cli="$SCRIPT_DIR/aitask_model_stats.py"
+    local py out line migrated=0 quiet=0 other=0
+    [[ "${AIT_STATS_MIGRATE:-1}" == "0" ]] && return 0
+    [[ -f "$cli" ]] || return 0
+    git -C "$project_dir" rev-parse --is-inside-work-tree &>/dev/null || return 0
+    py="$(resolve_python 2>/dev/null || true)"
+    if [[ -z "$py" ]]; then
+        warn "Code-agent stats migration deferred (MIGRATE_DEFERRED:all|no_python) — retried on the next 'ait setup' / 'ait upgrade'."
+        return 0
+    fi
+    out="$(cd "$project_dir" && "$py" "$cli" migrate --root "$project_dir" 2>&1)" || true
+    while IFS= read -r line; do
+        case "$line" in
+            "") ;;
+            MIGRATED:*)
+                migrated=$((migrated + 1))
+                success "Stats migrated: ${line#MIGRATED:} (agent|strip commit|runs moved to aitask-stats)" ;;
+            MIGRATE_NOOP:*|MIGRATE_SKIPPED:*)
+                quiet=$((quiet + 1)) ;;
+            STRIPPED_RESIDUE:*)
+                other=$((other + 1))
+                warn "Stats migration: discarded counters an older framework wrote after the cutover (${line#STRIPPED_RESIDUE:} runs)" ;;
+            MIGRATE_DEFERRED:*)
+                other=$((other + 1))
+                warn "Stats migration deferred: $line — retried on the next 'ait setup' / 'ait upgrade'." ;;
+            MIGRATE_ERROR:*)
+                other=$((other + 1))
+                warn "Stats migration refused: $line — the legacy counters are untouched for this agent; see the message above." ;;
+            *)
+                info "  $line" ;;
+        esac
+    done <<< "$out"
+    if [[ "$migrated" -eq 0 && "$other" -eq 0 && "$quiet" -gt 0 ]]; then
+        success "Code-agent stats are already on the aitask-stats branch"
+    elif [[ "$migrated" -eq 0 && "$other" -eq 0 && "$quiet" -eq 0 ]]; then
+        # No status line at all: the CLI did not run to completion (a broken
+        # interpreter, a crash). The output above says why.
+        warn "Code-agent stats migration did not complete — retried on the next 'ait setup' / 'ait upgrade'."
+    fi
+    return 0
+}
+
 # --- Task lock branch setup ---
 setup_lock_branch() {
     local project_dir="$SCRIPT_DIR/.."
@@ -6313,6 +6365,11 @@ main() {
 
     # After the venv: the registry read needs PyYAML.
     setup_artifact_fetch_exclusion
+    echo ""
+
+    # After the venv too: on a fresh machine the framework Python only exists
+    # from setup_python_venv on, and the migration runs through it (t1912_5).
+    setup_model_stats_migration
     echo ""
 
     # Revalidate/repair an existing PyPy venv on every `ait setup` (the

@@ -179,7 +179,15 @@ def parse_blob(data) -> dict:
 
 
 def render_blob(obj: dict) -> bytes:
-    return (json.dumps(obj, sort_keys=True, indent=2) + "\n").encode("utf-8")
+    """Serialise a blob keeping its key order.
+
+    Order is content: the migration absorbs each registry row's skills in the
+    registry's order, and the overlay readers show a migrated agent's skills in
+    the branch entry's order. Sorting here would reorder every reader's display
+    at the cutover (t1912_5 parity). The parsed order round-trips, so a
+    read-modify-write keeps it and appends new keys at the end.
+    """
+    return (json.dumps(obj, indent=2) + "\n").encode("utf-8")
 
 
 def _stats_map(blob: dict, model: str, key: str) -> dict:
@@ -441,6 +449,30 @@ def merge_stats(legacy: dict, branch: dict) -> dict:
     return out
 
 
+def absorb_models(legacy: dict, branch: dict) -> dict:
+    """The branch ``models`` map after absorbing ``legacy`` counters (t1912_5).
+
+    Values equal ``merge_stats(legacy, branch)``, so the post-migration totals
+    are exactly the pre-migration effective totals. **Order** follows what the
+    overlay readers showed before the cutover (``_overlay_key``): each key keeps
+    the registry's skill order, and branch-only skills follow sorted. Registry
+    models come first, in registry order; then branch-only models.
+    """
+    out: dict = {}
+    for model in list(legacy) + sorted(set(branch) - set(legacy)):
+        lrow = legacy.get(model) if isinstance(legacy.get(model), dict) else {}
+        brow = branch.get(model) if isinstance(branch.get(model), dict) else {}
+        row = {}
+        for key in STATS_KEYS:
+            bkey = brow.get(key) if isinstance(brow.get(key), dict) else {}
+            if isinstance(lrow.get(key), dict):
+                row[key] = _overlay_key(lrow[key], bkey)
+            elif key in brow:
+                row[key] = copy.deepcopy(brow[key])
+        out[model] = row
+    return out
+
+
 # =============================================================== git: write
 
 def _jitter(attempt: int) -> None:
@@ -455,32 +487,71 @@ UpdateResult = namedtuple("UpdateResult", "value commit local_ref")
 
 
 def update(project_root, agent, fn, *, timeout=None, message=None, remote="origin",
-           return_commit=False):
+           return_commit=False, marker_gate=None):
     """Read-modify-write ``<agent>.json``; return ``fn``'s value.
 
     ``fn(blob) -> (new_blob, value)`` runs on the blob read from the base it
     will be committed on, and again from the re-read tip after every lost race.
     Raises ``StatsError`` (``StatsDiverged`` when local and origin diverged).
 
+    A thin adapter over ``write`` (one path, always a change): the push, the
+    publication gate and the never-raise-after-OK rule are ``write``'s. With
+    ``return_commit`` the result is an ``UpdateResult``.
+    """
+    path = agent_path(agent)
+
+    def render(read):
+        new_blob, value = fn(parse_blob(read(path)))
+        return {path: render_blob(new_blob)}, value
+
+    res = write(project_root, render, timeout=timeout, remote=remote,
+                message=message or f"ait: Update {agent} stats",
+                marker_gate=marker_gate)
+    return res if return_commit else res.value
+
+
+def write(project_root, render, *, message, timeout=None, remote="origin",
+          marker_gate=None):
+    """Leased read-modify-write of any set of paths; returns an ``UpdateResult``.
+
+    ``render(read) -> (changes, value)`` runs against the base the commit is
+    built on (``read(path)`` -> bytes or None there), and again from the re-read
+    tip after every lost race. ``changes`` is ``{path: bytes|None}`` (None
+    deletes), or None for "nothing to write": then no commit is built and
+    nothing is pushed, but the local read ref is fast-forwarded to the base the
+    render saw (ff-only, so concurrent local progress is never rewound), because
+    readers read only ``refs/heads/aitask-stats`` — the result is
+    ``UpdateResult(value, None, "UNCHANGED:<advance outcome>")``.
+
+    **Publication gate.** Every push carries the whole local history, so before
+    one, every migration marker the commit would newly publish
+    (``unpublished_markers``) goes to ``marker_gate(markers)``, which returns
+    to allow the push or raises. Without a gate (every ordinary counter writer)
+    such a write is **held locally**: committed on the local ref only, never
+    pushed, reported as ``local_ref == "HELD_LOCAL:<agents>"``. A held write is
+    recorded; the validated migration route publishes it later. This keeps an
+    offline migration's marker — whose strip origin's registry may not contain —
+    off origin without making the writers fetch the task-data branch.
+
     Once the leased push reports ``OK`` the write is durable on origin, so
     nothing after it may raise: a local ref that cannot be fast-forwarded (or a
     git failure while trying) is reported in ``local_ref``, never as an error.
-    With ``return_commit`` the result is an ``UpdateResult``.
     """
-    path = agent_path(agent)
     root = ors.toplevel(project_root)
     timeout = default_timeout() if timeout is None else float(timeout)
-    message = message or f"ait: Update {agent} stats"
     has_remote = ors.remote_url(root, remote) is not None
     last = "contended"
     for attempt in range(MAX_ATTEMPTS):
         _jitter(attempt)
         local = ors.resolve(root, L_REF)
         if not has_remote:
-            value, commit = _render(root, local, path, fn, message)
+            changes, value = _call_render(root, local, render)
+            if changes is None:
+                return UpdateResult(value, None, "UNCHANGED:ALREADY_NEWER")
+            commit = _commit(root, local, changes, message)
             _test_hook("after_render", attempt=attempt, base=local, commit=commit)
             if ors.cas_local(root, L_REF, commit, local) == "OK":
-                return UpdateResult(value, commit, "ADVANCED") if return_commit else value
+                return UpdateResult(value, commit, "ADVANCED")
             last = "local_conflict"
             continue
 
@@ -504,7 +575,25 @@ def update(project_root, agent, fn, *, timeout=None, message=None, remote="origi
             else:
                 raise StatsDiverged(local, remote_tip)
         _test_hook("after_pin", attempt=attempt, base=base, remote=remote_tip)
-        value, commit = _render(root, base, path, fn, message)
+        changes, value = _call_render(root, base, render)
+        if changes is None:
+            outcome = _advance_quietly(root, base) if base else "ALREADY_NEWER"
+            return UpdateResult(value, None, f"UNCHANGED:{outcome}")
+        commit = _commit(root, base, changes, message)
+        pending = unpublished_markers(root, commit, remote_tip)
+        if pending:
+            if marker_gate is None:
+                if base != local:
+                    # Only local-only history can carry an unpublished marker
+                    # an ordinary write did not author; a write that adds one
+                    # itself must come through the migration route.
+                    raise StatsError("unpublishable_marker:" + ",".join(sorted(pending)))
+                if ors.cas_local(root, L_REF, commit, local) == "OK":
+                    return UpdateResult(value, commit,
+                                        "HELD_LOCAL:" + ",".join(sorted(pending)))
+                last = "local_conflict"
+                continue
+            marker_gate(pending)
         status = ors.cas_push(root, commit, BRANCH, remote_tip, timeout, remote)
         _test_hook("after_push", attempt=attempt, status=status, commit=commit)
         if status == "CONFLICT":
@@ -513,31 +602,176 @@ def update(project_root, agent, fn, *, timeout=None, message=None, remote="origi
         if status != "OK":
             raise StatsError(status[len("ERROR:"):] if status.startswith("ERROR:") else status)
         # Durable from here on: report local-ref trouble, never raise it.
-        try:
-            outcome = ors.advance_ref(root, L_REF, commit)
-        except Exception as exc:  # noqa: BLE001 - GitError, OSError, anything
-            outcome = "ERROR:" + (" ".join(str(exc).split())[:200] or type(exc).__name__)
-        if outcome == "DIVERGED" or outcome.startswith("ERROR:"):
-            try:
-                sys.stderr.write(f"model_stats_store: pushed {commit[:12]} but {L_REF} "
-                                 f"could not be fast-forwarded to it ({outcome})\n")
-            except Exception:  # noqa: BLE001 - a closed stderr must not undo a push
-                pass
-        return UpdateResult(value, commit, outcome) if return_commit else value
+        return UpdateResult(value, commit, _advance_quietly(root, commit, pushed=True))
     raise StatsError(last)
 
 
-def _render(root, base, path, fn, message):
-    blob = parse_blob(ors.read_file(root, base, path) if base else None)
-    new_blob, value = fn(blob)
+def _call_render(root, base, render):
+    def read(path):
+        return ors.read_file(root, base, path) if base else None
+    return render(read)
+
+
+def _advance_quietly(root, commit, pushed=False) -> str:
+    """Fast-forward the local read ref to ``commit``; report, never raise."""
+    try:
+        outcome = ors.advance_ref(root, L_REF, commit)
+    except Exception as exc:  # noqa: BLE001 - GitError, OSError, anything
+        outcome = "ERROR:" + (" ".join(str(exc).split())[:200] or type(exc).__name__)
+    if outcome == "DIVERGED" or outcome.startswith("ERROR:"):
+        what = "pushed" if pushed else "validated"
+        try:
+            sys.stderr.write(f"model_stats_store: {what} {commit[:12]} but {L_REF} "
+                             f"could not be fast-forwarded to it ({outcome})\n")
+        except Exception:  # noqa: BLE001 - a closed stderr must not undo a push
+            pass
+    return outcome
+
+
+def _commit(root, base, changes, message):
     # The write id makes every commit unique. Without it, two writers that
     # pinned the same tip and computed the same increment (same identity, same
     # second) build byte-identical commits; the second leased push then reports
     # "up to date" as success and one increment is silently lost.
     message = f"{message}\n\nStats-Write-Id: {uuid.uuid4().hex}\n"
-    commit = ors.build_commit(root, base, {path: render_blob(new_blob)}, message,
-                              ident=IDENT)
-    return value, commit
+    return ors.build_commit(root, base, changes, message, ident=IDENT)
+
+
+# ========================================================= migration markers
+
+_SHA_RE = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
+MARKER_KEYS = ("absorbed_at", "absorbed_runs", "agent", "migration_id", "schema",
+               "source_blob", "source_commit", "strip_commit")
+
+
+class MarkerUnpublishable(StatsError):
+    """A local-only migration marker failed validation; nothing was published."""
+
+    def __init__(self, agent: str, why: str):
+        super().__init__(f"marker_unpublishable:{agent}:{why}")
+        self.agent = agent
+        self.why = why
+
+
+def marker_blob(*, agent, migration_id, strip_commit, source_commit, source_blob,
+                absorbed_runs, absorbed_at) -> bytes:
+    """``migrations/<agent>.json``: the cutover record (t1912_5).
+
+    Every marker names a baseline strip commit on the task-data branch (an
+    empty commit when the source carried no counters); ``source_commit`` is its
+    parent, ``source_blob`` the registry blob absorbed from there (None when
+    that commit had no registry file).
+    """
+    obj = {"schema": SCHEMA, "agent": check_agent(agent), "migration_id": migration_id,
+           "strip_commit": strip_commit, "source_commit": source_commit,
+           "source_blob": source_blob, "absorbed_runs": absorbed_runs,
+           "absorbed_at": absorbed_at}
+    parse_marker(json.dumps(obj).encode())  # never write what we would refuse
+    return render_blob(obj)
+
+
+def parse_marker(data) -> dict:
+    try:
+        obj = json.loads(data.decode("utf-8") if isinstance(data, bytes) else data)
+    except (ValueError, UnicodeDecodeError, AttributeError):
+        raise StatsError("malformed_marker") from None
+    ok = (isinstance(obj, dict) and tuple(sorted(obj)) == MARKER_KEYS
+          and obj["schema"] == SCHEMA
+          and isinstance(obj["agent"], str) and AGENT_RE.fullmatch(obj["agent"])
+          and isinstance(obj["migration_id"], str) and obj["migration_id"]
+          and isinstance(obj["strip_commit"], str) and _SHA_RE.fullmatch(obj["strip_commit"])
+          and isinstance(obj["source_commit"], str) and _SHA_RE.fullmatch(obj["source_commit"])
+          and (obj["source_blob"] is None
+               or (isinstance(obj["source_blob"], str) and _SHA_RE.fullmatch(obj["source_blob"])))
+          and isinstance(obj["absorbed_runs"], int) and not isinstance(obj["absorbed_runs"], bool)
+          and obj["absorbed_runs"] >= 0
+          and isinstance(obj["absorbed_at"], str) and obj["absorbed_at"])
+    if not ok:
+        raise StatsError("malformed_marker")
+    return obj
+
+
+def _marker_blob_ids(root, commit) -> dict:
+    """``{agent: blob sha}`` of every ``migrations/<agent>.json`` in ``commit``."""
+    out = {}
+    for path, sha in ors.read_tree(root, commit).items():
+        if path.startswith(MIGRATIONS_DIR + "/") and path.endswith(".json"):
+            name = path[len(MIGRATIONS_DIR) + 1:-len(".json")]
+            if AGENT_RE.fullmatch(name):
+                out[name] = sha
+    return out
+
+
+def unpublished_markers(root, commit, remote_tip) -> dict:
+    """``{agent: marker bytes}`` that pushing ``commit`` would newly publish.
+
+    Every marker in ``commit``'s tree whose blob is absent from ``remote_tip``'s
+    tree, or differs there — of every agent, not only the one being written,
+    because a push carries the whole local history. ``remote_tip`` None (origin
+    ABSENT) => every marker.
+    """
+    mine = _marker_blob_ids(root, commit)
+    theirs = _marker_blob_ids(root, remote_tip) if remote_tip else {}
+    wanted = {agent: sha for agent, sha in mine.items() if theirs.get(agent) != sha}
+    if not wanted:
+        return {}
+    blobs = ors.cat_blobs(root, wanted.values())
+    return {agent: blobs[sha] for agent, sha in wanted.items()}
+
+
+def publish(project_root, *, marker_gate=None, timeout=None, remote="origin"):
+    """Make origin and the local read ref hold the same stats history.
+
+    Local behind (or absent) => fast-forward the local ref; local strictly
+    ahead (or origin ABSENT) => push it, after every marker it would newly
+    publish passed ``marker_gate`` (no gate => ``StatsError`` when there are
+    any). Never builds a commit, never rewinds. Returns the shared tip (None
+    when neither side has history). No remote => the local tip.
+    Raises ``StatsError`` (unreachable / contended), ``StatsDiverged``, or
+    whatever the gate raises.
+    """
+    root = ors.toplevel(project_root)
+    timeout = default_timeout() if timeout is None else float(timeout)
+    if ors.remote_url(root, remote) is None:
+        return ors.resolve(root, L_REF)
+
+    def gate(commit, remote_tip):
+        pending = unpublished_markers(root, commit, remote_tip)
+        if pending:
+            if marker_gate is None:
+                raise StatsError("unvalidated_markers:" + ",".join(sorted(pending)))
+            marker_gate(pending)
+
+    for attempt in range(MAX_ATTEMPTS):
+        _jitter(attempt)
+        local = ors.resolve(root, L_REF)
+        probe = ors.probe_remote_branch(root, BRANCH, timeout, remote)
+        if probe.startswith("ERROR:"):
+            raise StatsError(f"unreachable:{probe[len('ERROR:'):]}")
+        if probe == "ABSENT":
+            if local is None:
+                return None
+            gate(local, None)
+            status = ors.cas_push(root, local, BRANCH, None, timeout, remote)
+        else:
+            remote_tip, err = ors.fetch_pinned(root, BRANCH, timeout, remote,
+                                               tmp_prefix=TMP_PREFIX)
+            if err:
+                raise StatsError(f"unreachable:{err}")
+            if local is None or ors.is_ancestor(root, local, remote_tip):
+                if ors.advance_ref(root, L_REF, remote_tip) == "ADVANCED" \
+                        or ors.resolve(root, L_REF) == remote_tip:
+                    return remote_tip
+                continue  # the local ref moved meanwhile: classify again
+            if not ors.is_ancestor(root, remote_tip, local):
+                raise StatsDiverged(local, remote_tip)
+            gate(local, remote_tip)
+            status = ors.cas_push(root, local, BRANCH, remote_tip, timeout, remote)
+        if status == "OK":
+            return local
+        if status != "CONFLICT":
+            raise StatsError(status[len("ERROR:"):] if status.startswith("ERROR:") else status)
+    raise StatsError("contended")
 
 
 # ============================================================= git: refresh
@@ -718,6 +952,17 @@ def _read_legacy(root, agent, metadata_path=None, *, strict=False) -> dict:
         return {}
     if strict and not isinstance(data, dict):
         raise TotalUnavailable("legacy_unreadable:not_an_object")
+    return registry_counters(data)
+
+
+def registry_counters(data) -> dict:
+    """``{model: {stats_key: ...}}`` from a parsed ``models_<agent>.json``.
+
+    The one reading of legacy counters out of registry rows: the loader's
+    overlay and the migration's absorb both use it, so what the readers summed
+    before a migration is exactly what the migration absorbs. Only dict values
+    count; a later duplicate row name replaces an earlier one.
+    """
     rows = data.get("models") if isinstance(data, dict) else None
     out: dict = {}
     for row in rows if isinstance(rows, list) else []:

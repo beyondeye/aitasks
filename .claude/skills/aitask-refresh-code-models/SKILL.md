@@ -67,7 +67,7 @@ For each selected agent, compare the current `models_*.json` content against the
    - `cli_id`: exact API/CLI model ID from documentation
    - `notes`: brief description from documentation
    - `verified`: `{ "pick": 0, "explain": 0, "batch-review": 0 }`
-   - `verifiedstats`: `{}`
+   - no `usagestats` / `verifiedstats` — the counters live on the `aitask-stats` branch, never in the registry
 
 - **UPDATED**: Model exists in config but notes/status changed significantly (e.g., moved from preview to stable, description updated). Propose updated `notes` field.
 
@@ -113,16 +113,16 @@ For each agent with approved changes:
    - **Add new models**: Append to the `models` array. **Never give a model a `name` starting with `unregistered_`** — that prefix is reserved for agent-string fallbacks of unregistered models (`aitask_resolve_detected_agent.sh`); a registered `unregistered_*` row would let an unknown model's runs be credited to it. Pick another name (e.g. drop or change the prefix)
    - **Update notes**: Modify the `notes` field for updated models
    - **Remove deprecated** (only if explicitly approved): Remove from the array
-3. **Preserve all existing `verified` scores and `verifiedstats` data** for unchanged and updated models
+3. **Preserve all existing `verified` scores** for unchanged and updated models. **Never add, edit or remove `usagestats` / `verifiedstats`**: a row that still carries them keeps them byte-for-byte (they are legacy counters the stats migration absorbs into the `aitask-stats` branch), and a new row gets none
 4. Write the updated JSON back to `aitasks/metadata/models_<agent>.json`
     - Maintain 2-space indentation
-    - Maintain field ordering used by the existing file when possible; current files may include `status`, `verified`, and `verifiedstats`
+    - Maintain field ordering used by the existing file when possible; current files may include `status` and `verified` (and, on a not-yet-migrated project, legacy `usagestats` / `verifiedstats`)
 
-For new models, initialize both `verified` and `verifiedstats` even if no feedback has been recorded yet.
+For new models, initialize `verified` even if no feedback has been recorded yet.
 
 **Seed sync (conditional):**
 - Check if the `seed/` directory exists in the repository root
-- If it exists, copy each updated `models_<agent>.json` to `seed/models_<agent>.json`
+- If it exists, write each updated `models_<agent>.json` to `seed/models_<agent>.json` **through the stats-strip filter**, so the seed never carries counters: `jq -f .aitask-scripts/lib/model_stats_strip.jq aitasks/metadata/models_<agent>.json > seed/models_<agent>.json`
 - If `seed/` does not exist, skip this step
 
 ### Step 6b: Propose Supersession Lineages for New Models
@@ -225,7 +225,7 @@ These URLs are used during the web research phase (Step 3). They are checked for
 
 - This skill uses Claude's built-in `WebSearch` and `WebFetch` tools — no external scripts needed
 - The skill never auto-removes models. Deprecated flags are informational only; removal requires explicit user approval
-- When updating, existing `verified` scores and `verifiedstats` history are always preserved — only new models get all-zero scores and empty stats objects
+- When updating, existing `verified` scores are always preserved and only new models get all-zero scores. Usage / verified counters live on the `aitask-stats` branch: the skill never writes `usagestats` / `verifiedstats`, and the seed copies carry none
 - Both `aitasks/metadata/` (via `./ait git`) and `seed/` (via plain `git`) are updated when applicable
 - If web research fails for a specific agent, the skill continues with other agents rather than aborting
 - The self-update URL check (Step 7) only reports issues — it does not modify this SKILL.md automatically

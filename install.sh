@@ -1981,6 +1981,17 @@ main() {
     commit_installed_files
     commit_installed_data_files
 
+    # The one-time move of legacy code-agent stats into aitask-stats (t1912_5).
+    # After commit_installed_data_files on purpose: the install's own seed merge
+    # of models_*.json must be committed first, or the no-remote migration reads
+    # the registry as dirty and defers. Never fatal. Same declare -F guard as
+    # above, for the same older-tarball reason.
+    if [[ "$EXISTING_INSTALL" == true ]] && \
+       declare -F setup_model_stats_migration >/dev/null; then
+        info "Checking code-agent stats migration..."
+        setup_model_stats_migration
+    fi
+
     if [[ "$EXISTING_INSTALL" == true ]]; then
         info "Checking for superseded code-agent model defaults..."
         check_superseded_model_defaults

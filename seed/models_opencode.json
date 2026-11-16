@@ -11,8 +11,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_1_codex",
@@ -25,8 +24,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_1_codex_max",
@@ -39,8 +37,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_1_codex_mini",
@@ -53,8 +50,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_2",
@@ -67,8 +63,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_2_codex",
@@ -81,8 +76,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_3_codex",
@@ -95,8 +89,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_3_codex_spark",
@@ -109,8 +102,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_4",
@@ -123,12 +115,6 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {
-        "pick": {
-          "runs": 4,
-          "score_sum": 380
-        }
       }
     },
     {
@@ -142,8 +128,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_4_mini",
@@ -156,8 +141,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_4_mini_fast",
@@ -170,8 +154,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_4_mini_flex",
@@ -184,8 +167,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_5",
@@ -198,8 +180,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_5_fast",
@@ -212,8 +193,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_5_pro",
@@ -226,8 +206,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_6_luna",
@@ -240,8 +219,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_6_luna_fast",
@@ -254,8 +232,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_6_sol",
@@ -268,8 +245,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_6_sol_fast",
@@ -282,8 +258,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_6_terra",
@@ -296,8 +271,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_6_terra_fast",
@@ -310,8 +284,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_5_codex",
@@ -324,8 +297,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_6_1_sol",
@@ -338,8 +310,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_6_1_sol_fast",
@@ -352,8 +323,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_6_1_sol_ultrafast",
@@ -366,8 +336,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_6_1_terra",
@@ -380,8 +349,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_6_1_terra_fast",
@@ -394,8 +362,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_6_astra",
@@ -408,8 +375,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_6_astra_fast",
@@ -422,8 +388,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_6_astra_ultrafast",
@@ -436,8 +401,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_6_luna",
@@ -450,8 +414,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_6_luna_fast",
@@ -464,8 +427,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_6_sol",
@@ -478,8 +440,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "openai_gpt_6_sol_fast",
@@ -492,8 +453,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_beam_free",
@@ -506,8 +466,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_big_pickle",
@@ -520,8 +479,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_3_5_haiku",
@@ -534,8 +492,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_fable_5",
@@ -548,8 +505,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_fable_5_1",
@@ -562,8 +518,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_haiku_4_5",
@@ -576,8 +531,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_haiku_5_5",
@@ -590,8 +544,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_opus_4_1",
@@ -604,8 +557,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_opus_4_5",
@@ -618,8 +570,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_opus_4_6",
@@ -632,8 +583,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_opus_4_7",
@@ -646,8 +596,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_opus_4_8",
@@ -660,8 +609,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_opus_5",
@@ -674,8 +622,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_opus_5_5",
@@ -688,8 +635,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_sonnet_4",
@@ -702,8 +648,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_sonnet_4_5",
@@ -716,8 +661,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_sonnet_4_6",
@@ -730,8 +674,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_sonnet_5",
@@ -744,8 +687,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_claude_sonnet_5_5",
@@ -758,8 +700,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_deepseek_v4_1_flash",
@@ -772,8 +713,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_deepseek_v4_1_flash_free",
@@ -786,8 +726,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_deepseek_v4_flash",
@@ -800,8 +739,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_deepseek_v4_flash_free",
@@ -814,8 +752,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_deepseek_v4_flash_vision_exp",
@@ -828,8 +765,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_deepseek_v4_pro",
@@ -842,8 +778,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_exo_free",
@@ -856,8 +791,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_fledge_alpha_free",
@@ -870,8 +804,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_flint_40b_free",
@@ -884,8 +817,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gemini_3_1_pro",
@@ -898,8 +830,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gemini_3_5_flash",
@@ -912,8 +843,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gemini_3_5_flash_lite",
@@ -926,8 +856,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gemini_3_6_flash",
@@ -940,8 +869,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gemini_3_7_flash",
@@ -954,8 +882,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gemini_3_8_flash",
@@ -968,8 +895,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gemini_3_flash",
@@ -982,8 +908,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gemini_3_pro",
@@ -996,8 +921,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gemini_4_argon",
@@ -1010,8 +934,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_glm_4_6",
@@ -1024,8 +947,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_glm_4_7",
@@ -1038,8 +960,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_glm_5",
@@ -1052,8 +973,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_glm_5_1",
@@ -1066,8 +986,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_glm_5_2",
@@ -1080,8 +999,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_glm_5_3",
@@ -1094,8 +1012,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_glm_5_3_flash",
@@ -1108,8 +1025,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_glm_5_3_flash_free",
@@ -1122,8 +1038,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5",
@@ -1136,8 +1051,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_1",
@@ -1150,8 +1064,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_1_codex",
@@ -1164,8 +1077,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_1_codex_max",
@@ -1178,8 +1090,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_1_codex_mini",
@@ -1192,8 +1103,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_2",
@@ -1206,8 +1116,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_2_codex",
@@ -1220,8 +1129,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_3_codex",
@@ -1234,8 +1142,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_3_codex_spark",
@@ -1248,8 +1155,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_4",
@@ -1262,8 +1168,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_4_mini",
@@ -1276,8 +1181,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_4_nano",
@@ -1290,8 +1194,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_4_pro",
@@ -1304,8 +1207,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_5",
@@ -1318,8 +1220,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_5_pro",
@@ -1332,8 +1233,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_6_luna",
@@ -1346,8 +1246,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_6_sol",
@@ -1360,8 +1259,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_6_terra",
@@ -1374,8 +1272,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_codex",
@@ -1388,8 +1285,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_5_nano",
@@ -1402,8 +1298,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_6_1_sol",
@@ -1416,8 +1311,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_6_astra",
@@ -1430,8 +1324,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_6_luna",
@@ -1444,8 +1337,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_gpt_6_sol",
@@ -1458,8 +1350,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_grok_4_5",
@@ -1472,8 +1363,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_grok_4_6",
@@ -1486,8 +1376,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_grok_4_7",
@@ -1500,8 +1389,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_grok_build_0_1",
@@ -1514,8 +1402,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_kimi_k2_5",
@@ -1528,8 +1415,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_kimi_k2_6",
@@ -1542,8 +1428,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_kimi_k2_7_code",
@@ -1556,8 +1441,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_kimi_k3",
@@ -1570,8 +1454,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_ling_3_0_flash_fin_free",
@@ -1584,8 +1467,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_ling_3_1_flash_free",
@@ -1598,8 +1480,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_longcat_2_5_preview_free",
@@ -1612,8 +1493,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_mimo_v2_5_free",
@@ -1626,8 +1506,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_mimo_v2_6_flash_free",
@@ -1640,8 +1519,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_minimax_m2_1",
@@ -1654,8 +1532,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_minimax_m2_5",
@@ -1668,8 +1545,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_minimax_m2_5_free",
@@ -1682,8 +1558,7 @@
         "explain": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_minimax_m2_7",
@@ -1696,8 +1571,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_minimax_m3",
@@ -1710,8 +1584,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_mistral_large_4",
@@ -1724,8 +1597,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_muse_spark_1_2",
@@ -1738,8 +1610,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_muse_spark_1_2_contributor_free",
@@ -1752,8 +1623,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_muse_spark_1_3",
@@ -1766,8 +1636,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_muse_spark_1_3_contributor_free",
@@ -1780,8 +1649,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_muse_wonder_1_0",
@@ -1794,8 +1662,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_nemotron_3_5_lightning_free",
@@ -1808,8 +1675,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_nemotron_3_5_super_vl_free",
@@ -1822,8 +1688,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_nemotron_3_super_free",
@@ -1836,8 +1701,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_nemotron_3_ultra_free",
@@ -1850,8 +1714,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_qwen3_5_plus",
@@ -1864,8 +1727,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_qwen3_6_plus",
@@ -1878,8 +1740,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_qwen3_8_flash",
@@ -1892,8 +1753,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_qwen3_8_max",
@@ -1906,8 +1766,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_ring_2_6_1t_free",
@@ -1920,8 +1779,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_space_bunny_free",
@@ -1934,8 +1792,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     },
     {
       "name": "opencode_union_alpha",
@@ -1948,8 +1805,7 @@
         "batch-review": 0,
         "work-report": 0,
         "trail": 0
-      },
-      "verifiedstats": {}
+      }
     }
   ]
 }

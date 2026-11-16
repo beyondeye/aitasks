@@ -89,6 +89,10 @@ WIRED: dict[str, str] = {
     ".aitask-scripts/board/board_task_manager.py::save_metadata": "_commit_metadata_file(",
     # Headless column CLI (the commit lives at top level, after the exec split)
     ".aitask-scripts/aitask_board_column.sh::<module>": "aitask_metadata_commit.sh",
+    # Stats migration, no-remote mode (t1912_5): CAS-rewrites a models_<agent>.json
+    # through the strip filter, then commits it path-scoped at top level (and
+    # restores the original bytes when that commit fails).
+    ".aitask-scripts/aitask_model_stats_strip.sh::<module>": "aitask_task_commit.sh",
     # chatlink wizard
     ".aitask-scripts/chatlink/wizard.py::_do_save": "_commit_config(",
     # The cross-repo push — the one writer targeting ANOTHER repo (t1704). It
@@ -195,6 +199,11 @@ PINNED_FILES = frozenset(
     ".aitask-scripts/chatlink/paths.py",
     ".aitask-scripts/chatlink/sessions_store.py",
     ".aitask-scripts/lib/agent_command_screen.py",
+    # The stats migration (t1912_5). It never writes a file under
+    # aitasks/metadata: the remote strip is a plumbing commit pushed to origin,
+    # and the no-remote strip goes through aitask_model_stats_strip.sh (WIRED
+    # above). Its only file write is the strip's commit-message temp file.
+    ".aitask-scripts/lib/model_stats_migrate.py",
     # Reads `aitasks/metadata/project_config.yaml` for `frozen.capture_max_lines`
     # and writes only capture files under `~/.config/aitasks/frozen/` (t1705_4).
     # Flagged because the path literal and the write primitives sit in one file,
