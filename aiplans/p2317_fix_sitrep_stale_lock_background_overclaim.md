@@ -79,3 +79,10 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** Reworded `BACKGROUND["stale_lock"]` in `.aitask-scripts/lib/sitrep_crash.py` to name both routes into the category (row 5: no PID anchor, holder liveness cannot be checked; row 7: holder gone and task no longer Implementing) and to end with "Check who holds it before releasing it." Added `Rendering.test_stale_lock_background_never_claims_the_holder_is_gone` to `tests/test_sitrep_crash.py`: asserts the over-claim phrase is gone, both routes are named, every `BACKGROUND` value fits `sitrep_todo.MAX_BACKGROUND`, and `Pass.context_entry` stores the text for a row-5 and a row-7 verdict.
+- **Deviations from plan:** The test also drives `Pass.context_entry` (a scratch-root `Pass`, dry-run) rather than checking only the constant, so the stored-entry path is covered.
+- **Issues encountered:** None. Negative control: with the old text patched back in-process, the new test fails (1 failure); with the new text, `tests/test_sitrep_crash.py` 47/47 OK and `tests/test_sitrep_crash.sh` 119/119 passed.
+- **Key decisions:** Idempotence consequence accepted and recorded in the commit body: open `stale_lock` items differ once in `body_lines()`, so the next detector pass rewrites each once (`APPLIED`, new `checked_at`); later passes are `unchanged`. Dismissed items with the same episode key stay dismissed.
+- **Upstream defects identified:** None
