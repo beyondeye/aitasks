@@ -301,3 +301,59 @@ stays documented.
 - timing: after | name: guarded_prompt_write_for_shadow | type: enhancement | priority: low | effort: medium | inline_risk: high | added_complexity: medium | addresses: goal-achievement — write-side one-round-trip mode residual left open by scope | desc: Move the minimonitor shadow recheck's literal prompt write (`_fire_shadow_recheck`) from `send_keys -l` to `monitor_core.guarded_paste_text` (identity + not-in-mode guarded, nonce-acked) and re-run t1525's live drain sweep over claude/codex/opencode, since the write transport changes
 - timing: after | name: live_dispatch_race_test_for_shadow | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: low | addresses: code-health — fake-only proof of the dispatch-time mode conjunct (no live run opens the post-read gap) | desc: Add a private-server live test (tests/test_minimonitor_concern_smoke.py harness) that drives the shadow recheck against a real pane, enters copy-mode immediately AFTER the final pre-Enter mode read (wrap `monitor_core.query_pane_mode`), and asserts no Enter reached the mode, the pane is still in copy-mode, the prompt is still in the composer and the outcome is HOLD_PRE_ENTER_IN_MODE with enter_dispatch=skipped:in_mode. Include a mutant that patches `monitor_core.dispatch_condition` to the identity term only, and assert it turns that case red
 - timing: after | name: bounded_guarded_dispatch_budget | type: performance | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: code-health — synchronous guarded Enter can block the minimonitor event loop ~15–20s on a tmux stall | desc: Bound the minimonitor's synchronous guarded Enter dispatch with an overall time budget (e.g. per-call timeouts through guarded_send_key/_guarded_dispatch). Alternatively, move the ack read-back and cleanup off the event loop and validate the delivery lifecycle (token) before applying their outcome. Either way the dispatch keeps the checkpoint→key ordering and the no-stale-fatal-code invariant. Add a responsiveness acceptance test with a stalled fake tmux_run, and check the sitrep caller's to_thread path for the same budget
+
+## Final Implementation Notes
+
+- **Actual work done:** all plan steps 1–10 as written.
+  - `review_loop.py` gained `DISARM_SHADOW_RUN_CHANGED`, `DISARM_ENTER_UNACKNOWLEDGED`,
+    `HOLD_SHADOW_FROZEN` and `HOLD_SHADOW_IDENTITY_UNREADABLE`, with their prose and the two hold
+    banners.
+  - `_fire_shadow_recheck` reads the shadow `RunIdentity` before the pre-write mode read. A token
+    re-check follows it. The read holds when the identity is unreadable or frozen.
+  - `_submit_shadow_prompt(…, identity)` presses Enter through a synchronous
+    `monitor_core.guarded_send_key` and maps the `ENTER_NOT_SENT` answers per the table above.
+    It records `enter_dispatch`.
+  - `review_loop_log` prints `enter_dispatch`.
+  - The `agent_submit` docstring was updated.
+  - `minimonitor_app` now imports the `monitor_core` module, in place of the
+    `DISPATCH_SENT` / `DISPATCH_FAILED` names (no other users).
+  - Docs: `aidocs/framework/shadow_agent.md` (items 7 and 9, event log) and
+    `website/content/docs/tuis/minimonitor/how-to.md` (two banner rows, the disarm paragraph,
+    the log fields). `check_links.py --build` passed.
+- **Step 1 measurement (private `-L` tmux server, scratchpad probe):** `@aitask_shadow_target`
+  survives `respawn-pane -k`, and the respawn changes `pane_pid`. `dispatch_condition` evaluates
+  `1` on the same unfrozen run, `0` with `@aitask_frozen` set, and `0` for the pre-respawn
+  identity. So a frozen shadow stays bound, and the pre-write `HOLD_SHADOW_FROZEN` is
+  reachable, not only a backstop.
+- **Step 9 baseline red proof:** a detached worktree at HEAD `cfb089df8`, with only the new
+  `tests/test_minimonitor_concern_action.py` copied in, then removed.
+  - RED `test_a_mode_entered_between_the_read_and_the_enter_withholds_it`: `1 != 0 : an Enter
+    reached the mode`. HEAD's plain `send_keys` Enter went into copy-mode, which is the residual
+    itself.
+  - RED `test_a_shadow_run_replaced_before_the_enter_disarms`: the Enter was sent to the
+    respawned run.
+  - RED `test_a_frozen_shadow_gets_no_keys_and_holds` and
+    `test_an_unreadable_shadow_identity_holds_and_writes_nothing`: HEAD wrote prompt + Enter.
+  - RED `test_rearm_at_the_identity_read_writes_nothing`: "the hook never fired". This one is
+    structural: HEAD has no identity read.
+  - RED `test_an_unacknowledged_enter_disarms_and_says_so`: `0 != 1`, no guarded dispatch on
+    HEAD.
+  - GREEN negative control `test_the_same_fixture_out_of_mode_delivers`.
+- **Deviations from plan:**
+  - `_LoopFakeMon` gained an `after_mode_reply` hook, called after the mode answer is fixed.
+    The race test needs it to enter the mode *after* the pre-Enter read independently of the
+    transport. Flipping inside the fake's `if-shell` would have made the HEAD run red for the
+    wrong reason (no flip at all).
+  - The fake evaluates the real `dispatch_condition` string: frozen term, `pane_pid`, server
+    `pid`, `PANE_NOT_IN_MODE`.
+  - The pinned table gained one more row than planned (`t2309_enter_skipped_frozen`: a
+    mid-flight freeze classifies `identity_changed`), plus
+    `test_the_enter_dispatch_answer_is_recorded`.
+- **Issues encountered:** the probe's first run returned `None` identities because the probe
+  `.strip()`ped trailing empty tab fields. That was a probe bug, not a product issue.
+- **Key decisions:**
+  - The guarded dispatch stays synchronous, preserving the no-await checkpoint→key and
+    dispatch→outcome invariants.
+  - The unacked Enter disarms rather than holds, so it never causes a duplicate round.
+  - Both choices were user-confirmed at planning.
+- **Upstream defects identified:** None.
