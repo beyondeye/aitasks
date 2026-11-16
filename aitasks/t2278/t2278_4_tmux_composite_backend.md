@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2278
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 18:12
-updated_at: 2026-11-16 17:48
+updated_at: 2026-11-16 18:44
 ---
 
 ## Context
@@ -93,3 +94,8 @@ before building the rest.
 - After the run, `website/screenshots.sh session list` is empty and the
   user's own tmux servers are untouched.
 - Open the six staged images and compare each with its page description.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-16T16:44:47Z status=pass attempt=1 type=human
