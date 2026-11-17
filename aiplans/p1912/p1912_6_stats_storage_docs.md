@@ -9,7 +9,7 @@ plan_verified:
   - claudecode/opus5_5 @ 2026-11-17 12:56
 ---
 
-# t1912_6: Stats storage docs (verified plan)
+# t1912_6: Stats storage docs (verified plan) — implemented
 
 ## Context
 
@@ -206,3 +206,66 @@ explicit pathspecs; plan via `./ait git`/task_commit; archive).
 
 ### Planned mitigations
 - timing: post-phase | name: claim_audit | type: documentation | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement: misstated store behaviour | desc: grep-confirm every documented token, and confirm every behavioural claim and its condition by reading the implementing function
+
+## Final Implementation Notes
+- **Actual work done:** All 9 steps and both claim_audit post-phase steps are done.
+  - New `aidocs/framework/model_stats_store.md`, the maintainer reference. It
+    covers the layout, refs, write path and publication gate (`HELD_LOCAL`),
+    the read and marker rules, refresh routes, the migration protocol, and the
+    file and test inventory.
+  - Website pages: `tuis/settings/reference.md` (new "Usage and Score
+    Counters" and "Shown score" sections, plus export/import with their
+    conditions), `skills/verified-scores.md` (Storage rewritten, "Moving older
+    counters" with the setup line table), `skills/aitask-add-model.md`,
+    `installation/updating-model-lists.md`, `commands/codeagent.md`
+    (`list-models` example refreshed from real output, `--active-only`
+    documented) and `concepts/git-branching-model.md` (new `aitask-stats` row).
+  - Aidocs: `model_reference_locations.md` (notes, writer help-text lines
+    48/47, test rows, add-mode contract) and `adding_a_new_codeagent.md` (§2b
+    writer rows, §3 registry/store paragraph, overlay rule for readers, §20b
+    seed).
+- **Deviations from plan:**
+  - §5c of adding_a_new_codeagent.md (L422) was left unchanged. The tuples
+    still exist, and the overlay rule went into §3's reader list instead.
+  - codeagent.md gained a `--active-only` usage line. The first draft said
+    unavailable models are always hidden, but `list-models` filters them only
+    under `--active-only` (`aitask_codeagent.sh:360`).
+  - In concepts/verified-scores.md nothing needed changing: it states no
+    storage location.
+- **Issues encountered:** The user blocked plan approval once. The settings
+  step said "bundles hold no counters" unconditionally, although the plan's
+  own facts limited that to migrated projects (`export_all_configs` copies the
+  files unchanged). The fix kept the condition and extended claim_audit to
+  read the implementing function for every behavioural claim. That audit then
+  found two more overclaims, both fixed:
+  - "the install merge leaves counters out". `aitask_install_merge.py
+    json-models` strips counters only from appended seed rows and
+    seed-created registries; destination rows are left as they are.
+  - "`ait setup` publishes held-local counts". That holds only if marker
+    validation passes. `marker_not_in_source` fails closed, so the page now
+    warns against resetting the local branch.
+- **Key decisions:**
+  - User pages say "starting score" for the `verified` prior and "shown score"
+    for the effective value.
+  - The migration table uses setup's human-readable lines (what users see),
+    not the raw CLI tokens. The tokens are in the aidoc.
+  - The aidoc points at the module docstrings as authoritative instead of
+    copying them.
+  - CLAUDE.md was not touched. It is a shared file modified by other
+    sessions, and the aidoc is reached through adding_a_new_codeagent.md and
+    model_reference_locations.md.
+- **Verification:**
+  - `hugo build --gc --minify`: rc 0.
+  - `check_links.py --build`: SWEEP: PASSED.
+  - The new anchors (`#storage`, `#usage-and-score-counters`, `#shown-score`)
+    render, and the `\|` cells in the migration table render as `|`.
+  - `check_link_relevance.py` was offered, not run.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - **t1912_7 (retrospective):** the user-facing storage description now
+    lives in `website/content/docs/skills/verified-scores.md#storage`, and the
+    maintainer one in `aidocs/framework/model_stats_store.md`. If the
+    retrospective changes refresh routes or the migration, update both.
+  - A newly registered agent gets `MIGRATED:<agent>|<sha>|0` on its first
+    setup (an empty baseline plus a marker), so setup prints "Stats migrated:"
+    for it once.
