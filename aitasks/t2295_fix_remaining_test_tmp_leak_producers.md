@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
@@ -10,8 +12,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: codex/gpt6_astra
 created_at: 2026-11-13 12:31
-updated_at: 2026-11-17 17:23
+updated_at: 2026-11-17 18:10
 ---
 
 ## Context
@@ -128,3 +131,7 @@ Notes.
 > **✅ gate:plan_approved** run=2026-11-17T16:10:34Z status=pass attempt=1 type=human
 >
 > Note: approval:5aeb2e356f2c47b5b27cbbe6f3ab3766:5497428605d25abf
+
+> **✅ gate:review_approved** run=2026-11-17T20:40:14Z status=pass attempt=1 type=human
+>
+> Note: approval:a4c37a9aead84bc2b2eac848558ec631:b0c2afa172db9b9e
