@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: bug
@@ -56,3 +58,5 @@ fixed-name `/tmp/work2do*.md`, `/tmp/*_err` in the crew / apply_initializer test
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-16T21:02:34Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-17T07:52:09Z status=pass attempt=1 type=human
