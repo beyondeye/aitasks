@@ -42,7 +42,7 @@ complexity; no child tasks or cross-repository work are needed.
    detects the failure, then against the fix. Run adjacent session-default,
    empty-prompt, narrow-dialog and opening-debounce tests with the framework
    Python interpreter. Inspect the scoped diff and resolve any failures.
-4. [ ] Complete task-workflow Steps 8 and 9: present the verified change for
+4. [x] Complete task-workflow Steps 8 and 9: present the verified change for
    review, record required gates, consolidate final implementation notes,
    commit only this task's code paths with a bug: message ending (t2323),
    handle follow-up decisions, and archive/push the task and plan when eligible.
@@ -97,3 +97,6 @@ plus actual key dispatch cover the reported trigger.
   queued launch when the screen has been dismissed. No actual tmux process is
   launched by the tests; discovery and per-project memory are isolated.
 - **Upstream defects identified:** None
+- **Outcome:** Reviewed code committed on main as
+  d00429e23b71cd63df9e60483e67cd75ce425159. Manual-verification follow-up
+  explicitly declined; no follow-up tasks created. All enforced gates pass.
