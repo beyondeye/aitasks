@@ -114,3 +114,5 @@ Notes.
 > | - I did NOT identify which Python test modules leak them. That run's TMPDIR was removed by the guard, so the names above are the only record.
 > | - t2319 (commit 43aa46223) did not cause them: the model-stats strip chain takes no ait_lock_dir lock.
 > | - A constraint worth keeping, if t2295 fixes leaks by overriding TMPDIR for a subprocess: ait_lock_dir derives the framework's SHARED mutex base from $TMPDIR. A private TMPDIR gives that process tree a private lock namespace and silently drops mutual exclusion. t2319 passes the helper an explicit --scratch-dir for that reason.
+
+> **👁 note:read** id=2026-11-17T15:22:57Z.cdcab791bbdfd2ae3da6fa2e by=t2295 at=2026-11-17T15:22:57Z mode=explicit ids=2026-11-17T15:20:03Z.05d964af11c0b9bf9a766adb
