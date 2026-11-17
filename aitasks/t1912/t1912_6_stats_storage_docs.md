@@ -78,3 +78,5 @@ Step 9 (Post-Implementation) applies.
 > | - After an OFFLINE (no-remote) migration whose strip origin's history lacks, ordinary counter writes print "stats recorded locally only …" and are held on the local aitask-stats ref until a validated migrate publishes them. The marker_not_in_source state fails closed and needs a manual, history-preserving repair (a plain reset plus re-run is NOT lossless).
 > | - New files for the aidocs reference lists (model_reference_locations.md / adding_a_new_codeagent.md): .aitask-scripts/lib/model_stats_migrate.py, .aitask-scripts/lib/model_stats_strip.jq, .aitask-scripts/aitask_model_stats_strip.sh; tests/test_model_stats_migrate.py, tests/test_setup_model_stats_migration.sh.
 > | - This repo was migrated on 2026-11-16 17:58 (claudecode 3237 runs, codex 109, opencode 4).
+
+> **👁 note:read** id=2026-11-17T09:34:58Z.1c6bd96a555dc88753ce1c35 by=t1912_6 at=2026-11-17T09:34:58Z mode=explicit ids=2026-11-16T09:45:39Z.f39f73abd5df37cdc44bdc7d,2026-11-16T20:28:58Z.c893a23e7c52af3388fa1126
