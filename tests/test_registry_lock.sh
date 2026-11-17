@@ -29,6 +29,27 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
+# The scratch root's owner lives in a PARENT process (t2302). Inside this
+# shell no EXIT trap can own it: registry_lock_acquire replaces the EXIT trap
+# with its own release, and registry_lock_release clears it (`trap - EXIT`), so
+# any exit after the first acquire would skip a trap and the footer alike. The
+# parent never runs the library; it removes the root however the child ends —
+# completion, an early exit, or a signal (deferred while it waits on the child,
+# then handled).
+if [[ -z "${_AIT_REGLOCK_TEST_ROOT:-}" ]]; then
+    _root="$(mktemp -d "${TMPDIR:-/tmp}/test_registry_lock_XXXXXX")" || exit 1
+    trap 'chmod -R u+w "$_root" 2>/dev/null; rm -rf -- "$_root"' EXIT
+    trap 'exit 129' HUP
+    trap 'exit 130' INT
+    trap 'exit 143' TERM
+    _AIT_REGLOCK_TEST_ROOT="$_root" bash "${BASH_SOURCE[0]}" "$@"
+    exit $?
+fi
+TMPROOT="$_AIT_REGLOCK_TEST_ROOT"
+# shellcheck source=lib/run_tmpdir.sh
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init registry_lock "$TMPROOT"
+
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 # shellcheck source=lib/proc_fixtures.sh
@@ -42,9 +63,6 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 PASS=0
 FAIL=0
 TOTAL=0
-
-TMPROOT=$(mktemp -d)
-trap 'rm -rf "$TMPROOT"' EXIT
 
 # --- Case 1: basic acquire/release --------------------------------------
 d1="$TMPROOT/lock1.d"

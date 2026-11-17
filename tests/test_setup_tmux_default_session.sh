@@ -30,6 +30,9 @@ TOTAL=0
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/t1811_setup_XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
+# This run's $TMPDIR writes (lock bases, logs, mktemps) land under $TMP (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init t1811_setup "$TMP"
 
 # Scaffold: a project whose .aitask-scripts/lib holds the reader and what it
 # sources; setup's SCRIPT_DIR points at it, so `$SCRIPT_DIR/..` is the project.

@@ -18,6 +18,11 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Start from an empty read-only dir, never the invoking one (t1826).
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
+# This run's $TMPDIR writes (lock bases, logs, mktemps, Python tempfiles) land
+# under one root that the EXIT trap removes (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_chatlink_daemon
+trap run_tmpdir_cleanup EXIT
 
 # shellcheck source=../.aitask-scripts/lib/python_resolve.sh
 source "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh"

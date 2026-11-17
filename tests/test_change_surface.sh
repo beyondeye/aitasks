@@ -57,6 +57,9 @@ PY="$( . "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" 2>/dev/null; resol
 FIXTURE_ROOT="$(mktemp -d "${TMPDIR:-/tmp}/test_chgsurf_XXXXXX")"
 cleanup() { [[ -n "${FIXTURE_ROOT:-}" ]] && rm -rf "$FIXTURE_ROOT"; }
 trap cleanup EXIT
+# This run's $TMPDIR writes (lock bases, logs, mktemps) land under $FIXTURE_ROOT (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_chgsurf "$FIXTURE_ROOT"
 
 # new_repo -> path to a fresh git repo with one commit and aitasks/ + aiplans/.
 new_repo() {

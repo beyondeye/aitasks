@@ -23,6 +23,9 @@ TOTAL=0
 
 TMPROOT=$(mktemp -d)
 trap 'rm -rf "$TMPROOT"' EXIT
+# This run's $TMPDIR writes (lock bases, logs, mktemps) land under $TMPROOT (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_create_project_flag "$TMPROOT"
 
 REGISTRY_FILE="$TMPROOT/projects.yaml"
 export AITASKS_PROJECTS_INDEX="$REGISTRY_FILE"

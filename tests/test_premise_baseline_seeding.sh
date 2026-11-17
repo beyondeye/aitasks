@@ -43,6 +43,13 @@ PASS=0
 FAIL=0
 TOTAL=0
 CLEANUP_DIRS=()
+# This run's $TMPDIR writes (lock bases, logs, mktemps) land under one root
+# that cleanup removes (t2302). The trap owns it on early exits; a later suite
+# trap that drains CLEANUP_DIRS takes over from it.
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_premise_baseline_seeding
+CLEANUP_DIRS+=("$RUN_TMPDIR")
+trap run_tmpdir_cleanup EXIT
 
 cleanup() {
     local d

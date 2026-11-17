@@ -23,6 +23,11 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# This run's $TMPDIR writes (lock bases, logs, mktemps, Python tempfiles) land
+# under one root that the EXIT trap removes (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_chatlink_wizard
+trap run_tmpdir_cleanup EXIT
 
 # shellcheck source=../.aitask-scripts/lib/python_resolve.sh
 source "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh"

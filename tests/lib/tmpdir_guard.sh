@@ -55,6 +55,11 @@ _TG_DONE=0            # tmpdir_guard_end already ran
 _TG_ORIG_SET=0        # was TMPDIR set before begin?
 _TG_ORIG=""           # its value
 _TG_CHILD=""          # pid (== pgid) of the running phase, "" between phases
+# Leftover count from the last tmpdir_guard_end, set ONLY when the inspection
+# really ran (the listing succeeded, or the path is truly absent — no entry and
+# no symlink: nothing left; a path replaced by a file or link is NOT absent). Empty means "not inspected" — a guard that never started, or a listing
+# that failed — and strict callers must treat that as a failure, never as 0.
+_TG_LEFTOVER_COUNT=""
 
 # Report names: at most this many, then "… and K more".
 _TG_REPORT_CAP=20
@@ -266,13 +271,30 @@ tmpdir_guard_end() {
         echo "TMPDIR GUARD: the run is ending while a phase is still running; stopping its process group first" >&2
         _tg_stop_child
     fi
-    if [[ -d "$_TG_DIR" ]]; then
+    _TG_LEFTOVER_COUNT=""
+    if [[ -L "$_TG_DIR" || ( -e "$_TG_DIR" && ! -d "$_TG_DIR" ) ]]; then
+        # The phase replaced the guard directory with a symlink (dangling or
+        # not) or a non-directory. Nothing was inspected, so the count stays
+        # empty: a strict caller must not read this as "nothing left". Remove
+        # the entry itself; rm -f never follows a symlink to its target.
+        echo "TMPDIR LEFTOVERS: the per-run TMPDIR ($_TG_DIR) was replaced by a symlink or non-directory — not inspected; removing that entry" >&2
+        rm -f -- "$_TG_DIR" 2>/dev/null || true
+        if [[ -e "$_TG_DIR" || -L "$_TG_DIR" ]]; then
+            echo "TMPDIR GUARD: could not remove $_TG_DIR" >&2
+        fi
+    elif [[ -d "$_TG_DIR" ]]; then
+        local listing listed=0
+        if listing="$(find "$_TG_DIR" -mindepth 1 -maxdepth 1 2>/dev/null)"; then
+            listed=1
+        fi
         while IFS= read -r f; do
+            [[ -n "$f" ]] || continue
             f="${f##*/}"
             _tg_expected_entry "$f" && continue
             left+=("$f")
-        done < <(find "$_TG_DIR" -mindepth 1 -maxdepth 1 2>/dev/null | LC_ALL=C sort)
+        done < <(printf '%s\n' "$listing" | LC_ALL=C sort)
         n=${#left[@]}
+        (( listed )) && _TG_LEFTOVER_COUNT="$n"
         if (( n > 0 )); then
             shown=$(( n < _TG_REPORT_CAP ? n : _TG_REPORT_CAP ))
             {
@@ -288,6 +310,8 @@ tmpdir_guard_end() {
         if [[ -e "$_TG_DIR" ]]; then
             echo "TMPDIR GUARD: could not fully remove $_TG_DIR" >&2
         fi
+    else
+        _TG_LEFTOVER_COUNT=0      # truly absent (no entry, no link): nothing left
     fi
     if (( _TG_ORIG_SET )); then export TMPDIR="$_TG_ORIG"; else unset TMPDIR; fi
     return 0

@@ -35,6 +35,9 @@ HELPER="$PROJECT_DIR/.aitask-scripts/aitask_resource_admission.sh"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/ra_test_XXXXXX")"
 trap 'rm -rf "$WORK"' EXIT
+# This run's $TMPDIR writes (lock bases, logs, mktemps) land under $WORK (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init ra_test "$WORK"
 
 # --- fixture helpers --------------------------------------------------------
 

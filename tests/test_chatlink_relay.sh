@@ -21,6 +21,12 @@ set -e
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# This run's $TMPDIR writes (Python tempfiles, the E2E session dir) land under
+# one root. The trap owns it from here on, so a stop during Parts 1-2 cleans up
+# too; Part 3 extends it rather than replacing it (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_chatlink_relay
+trap run_tmpdir_cleanup EXIT
 
 # shellcheck source=../.aitask-scripts/lib/python_resolve.sh
 source "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh"
@@ -521,7 +527,7 @@ fi
 # ---------------------------------------------------------------------------
 
 E2E_TMP="$(mktemp -d "${TMPDIR:-/tmp}/chatlink_e2e_XXXXXX")"
-trap 'rm -rf "$E2E_TMP"' EXIT
+trap 'rm -rf "${E2E_TMP:-}"; run_tmpdir_cleanup' EXIT
 SESSION_DIR="$E2E_TMP/stest01"
 mkdir -p "$SESSION_DIR"
 WRAPPER="$PROJECT_DIR/.aitask-scripts/aitask_relay_ask.sh"

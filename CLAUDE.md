@@ -32,6 +32,11 @@ for whatever it left there (warn-only, the test's exit status is unchanged).
 It is optional. Running the file directly stays the default. The Python
 runner below always uses the same guard (`tests/lib/tmpdir_guard.sh`). The guard
 sees only `$TMPDIR`, so hard-coded `/tmp` paths and `TMUX_TMPDIR` bypass it.
+With `AIT_TMPDIR_GUARD_STRICT=1` the wrapper fails a passing test that left
+anything behind, and refuses to run when the guard cannot start. Without it,
+leftovers only warn. A shell test gives its run one cleaned-up `TMPDIR` with
+`tests/lib/run_tmpdir.sh`. Its header explains who owns removal, and why it
+unsets an inherited `AITASKS_LOCK_DIR`.
 
 Python tests do have one aggregate runner:
 ```bash

@@ -33,6 +33,11 @@ cleanup() {
 }
 trap cleanup EXIT
 
+# Default-mode cases must not inherit the caller's strict setting (this suite
+# itself may run under `AIT_TMPDIR_GUARD_STRICT=1 run_shell_test.sh`); the
+# strict cases set it explicitly (t2302).
+unset AIT_TMPDIR_GUARD_STRICT
+
 BASE="$WORK/base"          # the "original TMPDIR" every guarded run sees
 mkdir -p "$BASE"
 
@@ -267,6 +272,56 @@ out="$(TMPDIR="$WORK/home/.claude/x" bash "$WRAPPER" "$STUB" i 0 0 clean </dev/n
 assert_eq "i: the test still runs and its status passes through" "0" "$rc"
 assert_contains "i: the refusal is reported" "refusing a guard directory" "$out"
 assert_eq "i: no guard dir was created there" "0" "$(find "$WORK/home/.claude/x" -mindepth 1 -maxdepth 1 -name 'ait_*' | wc -l | tr -d ' ')"
+
+echo "=== (n) strict mode: exit 0 means inspected and clean (t2302) ==="
+rc="$(AIT_TMPDIR_GUARD_STRICT=1 run_guarded "$WORK/k1.out" k1 0 0)"
+assert_eq "n: a passing run with a leftover fails under strict" "1" "$rc"
+assert_contains "n: strict names the reason" "strict mode — leftovers" "$(cat "$WORK/k1.out")"
+assert_eq "n: the guard dir is still removed" "0" "$(guard_dirs)"
+rc="$(AIT_TMPDIR_GUARD_STRICT=1 run_guarded "$WORK/k2.out" k2 0 0 clean)"
+assert_eq "n: a clean passing run passes under strict" "0" "$rc"
+rc="$(AIT_TMPDIR_GUARD_STRICT=1 run_guarded "$WORK/k3.out" k3 0 3 clean)"
+assert_eq "n: a failing run keeps its own status under strict" "3" "$rc"
+rc="$(run_guarded "$WORK/k4.out" k4 0 0)"
+assert_eq "n: the default stays warn-only" "0" "$rc"
+# A guard that cannot start must not let strict run the test unguarded.
+MARK_STUB="$WORK/mark.sh"
+printf ': > "%s"\n' "$WORK/k_marker" > "$MARK_STUB"
+rm -f "$WORK/k_marker"
+out="$(TMPDIR="$WORK/no/such/dir" AIT_TMPDIR_GUARD_STRICT=1 bash "$WRAPPER" "$MARK_STUB" </dev/null 2>&1)"; rc=$?
+assert_eq "n: strict refuses when the guard cannot start" "2" "$rc"
+assert_contains "n: the refusal is explained" "strict mode needs the guard" "$out"
+assert_eq "n: the test did not run" "absent" "$([[ -e "$WORK/k_marker" ]] && echo present || echo absent)"
+out="$(TMPDIR="$WORK/no/such/dir" bash "$WRAPPER" "$MARK_STUB" </dev/null 2>&1)"; rc=$?
+assert_eq "n: default mode still runs unguarded" "0" "$rc"
+assert_eq "n: and the test did run" "present" "$([[ -e "$WORK/k_marker" ]] && echo present || echo absent)"
+
+echo "=== (o) a guard dir replaced by a file or link is not attested clean (t2302) ==="
+# Each stub swaps the guard directory itself for something else, then passes.
+o_run() {  # o_run <tag> <body>; prints rc
+    local stub="$WORK/o_$1.sh"
+    printf '%s\n' "$2" > "$stub"
+    TMPDIR="$BASE" AIT_TMPDIR_GUARD_STRICT=1 bash "$WRAPPER" "$stub" </dev/null >"$WORK/o_$1.out" 2>&1
+    echo "$?"
+}
+o_left() { find "$BASE" -mindepth 1 -maxdepth 1 \( -name 'ait_shrun_*' \) | wc -l | tr -d ' '; }
+# shellcheck disable=SC2016  # the body expands inside the stub, not here
+rc="$(o_run file 'rmdir "$TMPDIR" && printf leftover > "$TMPDIR"')"
+assert_eq "o: replaced by a regular file -> strict fails" "1" "$rc"
+assert_contains "o: the replacement is reported" "replaced by a symlink or non-directory" "$(cat "$WORK/o_file.out")"
+assert_eq "o: the regular file is removed" "0" "$(o_left)"
+# shellcheck disable=SC2016  # the body expands inside the stub, not here
+rc="$(o_run dangling 'rmdir "$TMPDIR" && ln -s /nonexistent/t2302 "$TMPDIR"')"
+assert_eq "o: replaced by a dangling symlink -> strict fails" "1" "$rc"
+assert_eq "o: the dangling link is removed" "0" "$(o_left)"
+mkdir -p "$WORK/o_target"; : > "$WORK/o_target/keep"
+rc="$(o_run dirlink "rmdir \"\$TMPDIR\" && ln -s '$WORK/o_target' \"\$TMPDIR\"")"
+assert_eq "o: replaced by a symlink to a directory -> strict fails" "1" "$rc"
+assert_eq "o: the link is removed" "0" "$(o_left)"
+assert_eq "o: the link's target is never touched" "yes" "$([[ -e "$WORK/o_target/keep" ]] && echo yes || echo no)"
+# shellcheck disable=SC2016  # the body expands inside the stub, not here
+rc="$(o_run gone 'rmdir "$TMPDIR"')"
+assert_eq "o: a guard dir that is truly gone left nothing -> strict passes" "0" "$rc"
 
 echo ""
 echo "Results: $PASS passed, $FAIL failed, $TOTAL total"

@@ -58,6 +58,9 @@ TOTAL=0
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/test_issue_update_ledger_XXXXXX")"
 cleanup() { rm -rf "$TMP"; }
 trap cleanup EXIT
+# This run's $TMPDIR writes (lock bases, logs, mktemps) land under $TMP (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_issue_update_ledger "$TMP"
 # Private lock base, the documented isolation seam (t1496).
 AITASKS_LOCK_DIR="$TMP/locks"
 export AITASKS_LOCK_DIR

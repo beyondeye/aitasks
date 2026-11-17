@@ -58,6 +58,9 @@ fi
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/test_codex_approvals_XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
+# This run's $TMPDIR writes (lock bases, logs, mktemps) land under $TMP (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_codex_approvals "$TMP"
 PROJ="$(cd "$TMP" && pwd -P)/proj"
 mkdir -p "$PROJ/aitasks/metadata/profiles" "$PROJ/aiplans" "$PROJ/.codex" "$PROJ/src"
 export TASK_DIR="$PROJ/aitasks" PLAN_DIR="$PROJ/aiplans"

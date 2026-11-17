@@ -54,6 +54,12 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Start from an empty read-only dir, never the invoking one (t1826).
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
+# This run's $TMPDIR writes (lock bases, logs, mktemps) land under one root
+# (t2302). The trap owns it from here — the SKIP and isolation exits below
+# included; cleanup() takes over later and removes it after the tmux server.
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_lock_anchor_tmux_live
+trap run_tmpdir_cleanup EXIT
 
 # shellcheck source=lib/test_scaffold.sh
 . "$PROJECT_DIR/tests/lib/test_scaffold.sh"
@@ -165,6 +171,7 @@ TMPDIR_LIVE=""
 cleanup() {
     tmux -L "$SOCK" kill-server 2>/dev/null || true
     [[ -n "$TMPDIR_LIVE" ]] && rm -rf "$TMPDIR_LIVE"
+    run_tmpdir_cleanup
 }
 trap cleanup EXIT
 

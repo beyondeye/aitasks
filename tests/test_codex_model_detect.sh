@@ -118,6 +118,10 @@ fi
 # --- Setup ---
 
 RESULTS_DIR="$(mktemp -d "${TMPDIR:-/tmp}/codex_model_test_XXXXXX")"
+# A passing or interrupted run removes its results; a FAIL keeps them as the
+# evidence to inspect (t2302).
+KEEP_RESULTS=0
+trap '[[ "$KEEP_RESULTS" == 1 ]] || rm -rf -- "${RESULTS_DIR:-}"' EXIT
 CSV_FILE="$RESULTS_DIR/results.csv"
 echo "model,prompt_id,prompt_label,ground_truth,reported,normalized_reported,status" > "$CSV_FILE"
 
@@ -387,5 +391,7 @@ if [[ "$best_count" -ge "$threshold" && "$ERROR" -lt "$TOTAL" ]]; then
 else
     echo ""
     echo "FAIL: no prompt achieved any match (calibration failed). Review results above — likely a codex CLI / auth / network issue."
+    KEEP_RESULTS=1
+    echo "Results kept for inspection: $RESULTS_DIR"
     exit 1
 fi

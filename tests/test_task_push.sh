@@ -17,6 +17,13 @@ PASS=0
 FAIL=0
 TOTAL=0
 CLEANUP_DIRS=()
+# This run's $TMPDIR writes (lock bases, logs, mktemps) land under one root
+# that cleanup removes (t2302). The trap owns it on early exits; a later suite
+# trap that drains CLEANUP_DIRS takes over from it.
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_task_push
+CLEANUP_DIRS+=("$RUN_TMPDIR")
+trap run_tmpdir_cleanup EXIT
 
 # Developer git config never reaches this file (t1987, the leak t1792 closed in
 # sync_fixture.sh); the per-repo user.* the fixtures set still applies. Placed

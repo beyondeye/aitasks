@@ -26,6 +26,9 @@ PY="$( . "$PROJECT_DIR/.aitask-scripts/lib/python_resolve.sh" 2>/dev/null; resol
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/test_gate_ledger_XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
+# This run's $TMPDIR writes (lock bases, logs, mktemps) land under $TMP (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_gate_ledger "$TMP"
 
 export TASK_DIR="$TMP/aitasks"
 mkdir -p "$TASK_DIR/metadata"

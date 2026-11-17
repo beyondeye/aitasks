@@ -34,6 +34,9 @@ GATE="$PROJECT_DIR/.aitask-scripts/aitask_gate.sh"
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/test_gate_record_XXXXXX")"
 trap 'rm -rf "$TMP"' EXIT
+# This run's $TMPDIR writes (lock bases, logs, mktemps) land under $TMP (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_gate_record "$TMP"
 
 # --- Legacy-mode git repo fixture (no .aitask-data → plain git in CWD) ---
 git -C "$TMP" init -q

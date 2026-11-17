@@ -51,6 +51,9 @@ PROC="$WF/parallel-admission.md"
 TMPROOT="$(mktemp -d "${TMPDIR:-/tmp}/pa_preflight_XXXXXX")"
 cleanup() { rm -rf "$TMPROOT"; }
 trap cleanup EXIT
+# This run's $TMPDIR writes (lock bases, logs, mktemps) land under $TMPROOT (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init pa_preflight "$TMPROOT"
 
 # Claim ages come from the task files' `updated_at`, and the real CLI judges
 # them against the wall clock: a hard-coded date ages past --max-claim-age

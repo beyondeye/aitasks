@@ -4,6 +4,11 @@
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# This run's $TMPDIR writes (lock bases, logs, mktemps, Python tempfiles) land
+# under one root that the EXIT trap removes (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_global_shim
+trap run_tmpdir_cleanup EXIT
 
 # Clear shim guard that may leak from parent environment (e.g. when run via ait)
 unset _AIT_SHIM_ACTIVE

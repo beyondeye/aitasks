@@ -26,18 +26,27 @@ PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Start from an empty read-only dir, never the invoking one (t1826).
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
+# This run's $TMPDIR writes (the sync fixture base, the counter file, lock
+# bases, ait_commit_scoped_err.*) land under one root, created BEFORE
+# sync_fixture.sh so its base nests inside it (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_task_data_writer_guard
+trap run_tmpdir_cleanup EXIT
 export PROJECT_DIR
 
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 . "$PROJECT_DIR/tests/lib/framework_copy.sh"
 . "$PROJECT_DIR/tests/lib/sync_fixture.sh"
+# sync_fixture.sh just replaced the EXIT trap; keep the run root owned until the
+# combined trap below (assert_counters_init can exit in between) (t2302).
+trap '_sync_fixture_cleanup; run_tmpdir_cleanup' EXIT
 
 assert_counters_init
 # ONE combined EXIT trap. sync_fixture.sh installs its own
 # `trap _sync_fixture_cleanup EXIT` at source time; a second `trap ... EXIT` for
 # the counter file would REPLACE it and leak a full .aitask-scripts copy per
 # fixture (the fixture's own comment measures a leaking suite in gigabytes).
-trap 'rm -f "$AIT_ASSERT_COUNTER_FILE"; _sync_fixture_cleanup' EXIT
+trap 'rm -f "$AIT_ASSERT_COUNTER_FILE"; _sync_fixture_cleanup; run_tmpdir_cleanup' EXIT
 
 # The guard's own first sentence. Distinct from assert_data_worktree_clean's
 # "is stuck mid-<state>." (pinned by test_task_commit_scoped.sh:269) precisely so

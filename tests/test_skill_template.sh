@@ -38,6 +38,9 @@ fi
 
 TMP_DIR="$(mktemp -d)"
 trap 'rm -rf "$TMP_DIR"' EXIT
+# This run's $TMPDIR writes land under $TMP_DIR (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_skill_template "$TMP_DIR"
 
 CLI="$PROJECT_DIR/.aitask-scripts/lib/skill_template.py"
 RESOLVER="$PROJECT_DIR/.aitask-scripts/aitask_skill_resolve_profile.sh"
@@ -181,8 +184,10 @@ EOF
 cat > "$UNIT_B/SKILL.md" <<'EOF'
 # Skill B
 EOF
+# This trap REPLACES the TMP_DIR one above, so it removes TMP_DIR too (t2302).
 unit_cleanup() {
     rm -rf "${REAL_SK_DIR}"/_t777_22_test_unit_*
+    rm -rf "$TMP_DIR"
 }
 trap unit_cleanup EXIT
 

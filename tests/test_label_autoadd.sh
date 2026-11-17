@@ -36,6 +36,13 @@ PASS=0
 FAIL=0
 TOTAL=0
 CLEANUP_DIRS=()
+# This run's $TMPDIR writes (lock bases, logs, mktemps) land under one root
+# that cleanup removes (t2302). The trap owns it on early exits until
+# teardown_all takes over (it calls run_tmpdir_cleanup AFTER its loop: under
+# set -e, a root removed first would make the loop's last `[[ -d ]]` fail).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_label_autoadd
+trap run_tmpdir_cleanup EXIT
 
 # shellcheck source=lib/asserts.sh
 . "$PROJECT_DIR/tests/lib/asserts.sh"
@@ -447,6 +454,7 @@ teardown_all() {
     for d in "${CLEANUP_DIRS[@]}"; do
         [[ -d "$d" ]] && rm -rf "$d"
     done
+    run_tmpdir_cleanup
 }
 trap teardown_all EXIT
 

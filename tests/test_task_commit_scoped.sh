@@ -71,6 +71,12 @@ PROJECT_DIR="$(cd "$TEST_SCRIPT_DIR/.." && pwd)"
 # Start from an empty read-only dir, never the invoking one (t1826).
 . "$PROJECT_DIR/tests/lib/scratch_cwd.sh"
 enter_scratch_cwd
+# This run's $TMPDIR writes (the sync fixture base, lock bases,
+# ait_commit_scoped_err.* from the wedge cases) land under one root, created
+# BEFORE sync_fixture.sh so its base nests inside it (t2302).
+. "$PROJECT_DIR/tests/lib/run_tmpdir.sh"
+run_tmpdir_init test_task_commit_scoped
+trap run_tmpdir_cleanup EXIT
 
 PASS=0
 FAIL=0
@@ -80,6 +86,8 @@ TOTAL=0
 . "$PROJECT_DIR/tests/lib/asserts.sh"
 # shellcheck source=lib/sync_fixture.sh
 . "$PROJECT_DIR/tests/lib/sync_fixture.sh"
+# sync_fixture.sh just replaced the EXIT trap with its own; keep both (t2302).
+trap '_sync_fixture_cleanup; run_tmpdir_cleanup' EXIT
 
 COMMIT_SH="./.aitask-scripts/aitask_task_commit.sh"
 BYSTANDER="aitasks/t20_beta.md"
