@@ -315,7 +315,26 @@
       "verifiedstats": {}
     },
     "gpt6_astra": {
-      "verifiedstats": {}
+      "verifiedstats": {},
+      "usagestats": {
+        "pick": {
+          "all_time": {
+            "runs": 1
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0
+          },
+          "month": {
+            "period": "2026-11",
+            "runs": 1
+          },
+          "week": {
+            "period": "2026-W47",
+            "runs": 1
+          }
+        }
+      }
     }
   }
 }
