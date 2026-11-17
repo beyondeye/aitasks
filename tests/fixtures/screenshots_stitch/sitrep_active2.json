@@ -1,0 +1,108 @@
+{
+ "size": [
+  60,
+  14
+ ],
+ "panes": [
+  {
+   "left": 0,
+   "top": 0,
+   "width": 39,
+   "height": 8,
+   "active": false,
+   "ansi": "bash-5.3$ printf 'TOP pane\\n' \nTOP pane       \nbash-5.3$          \n\n\n\n\n\n"
+  },
+  {
+   "left": 0,
+   "top": 9,
+   "width": 39,
+   "height": 5,
+   "active": false,
+   "ansi": "printf 'BELOW pane\\n'         \nbash-5.3$ printf 'BELOW pane\\n'        \nBELOW pane     \nbash-5.3$          \n\n"
+  },
+  {
+   "left": 40,
+   "top": 0,
+   "width": 20,
+   "height": 14,
+   "active": true,
+   "ansi": "printf 'SIDE pane\\n'\nbash-5.3$ printf 'SI\nDE pane\\n'          \nSIDE pane \nbash-5.3$           \n\n\n\n\n\n\n\n\n\n"
+  }
+ ],
+ "tmux": {
+  "rows": [
+   "bash-5.3$ printf 'TOP pane\\n'          │printf 'SIDE pane\\n'",
+   "TOP pane                               │bash-5.3$ printf 'SI",
+   "bash-5.3$                              │DE pane\\n'",
+   "                                       │SIDE pane",
+   "                                       │bash-5.3$",
+   "                                       │",
+   "                                       │",
+   "                                       │",
+   "───────────────────────────────────────┤",
+   "printf 'BELOW pane\\n'                  │",
+   "bash-5.3$ printf 'BELOW pane\\n'        │",
+   "BELOW pane                             │",
+   "bash-5.3$                              │",
+   "                                       │"
+  ],
+  "green_borders": [
+   [
+    39,
+    0
+   ],
+   [
+    39,
+    1
+   ],
+   [
+    39,
+    2
+   ],
+   [
+    39,
+    3
+   ],
+   [
+    39,
+    4
+   ],
+   [
+    39,
+    5
+   ],
+   [
+    39,
+    6
+   ],
+   [
+    39,
+    7
+   ],
+   [
+    39,
+    8
+   ],
+   [
+    39,
+    9
+   ],
+   [
+    39,
+    10
+   ],
+   [
+    39,
+    11
+   ],
+   [
+    39,
+    12
+   ],
+   [
+    39,
+    13
+   ]
+  ]
+ }
+}

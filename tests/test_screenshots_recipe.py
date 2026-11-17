@@ -84,14 +84,15 @@ class LoadTests(ScenesCase):
         recipe = rc.load(self.spec("scene_a", GOOD))
         self.assertEqual((recipe.id, recipe.output, recipe.size),
                          ("scene_a", "aitasks_scene_a.svg", (126, 44)))
-        self.assertEqual(recipe.steps, (("wait", "3 children", None), ("keys", ("x",), None),
-                                        ("wait_gone", "Loading", None)))
+        self.assertEqual(recipe.steps, (("wait", "3 children", None, None),
+                                        ("keys", ("x",), None, None),
+                                        ("wait_gone", "Loading", None, None)))
         self.assertEqual(recipe.window_title, "aitasks board")
 
     def test_a_wait_may_carry_its_own_timeout(self):
         text = GOOD.replace("- wait: 3 children", "- wait: {text: 3 children, timeout: 120}")
         self.assertEqual(rc.load(self.spec("scene_a", text)).steps[0],
-                         ("wait", "3 children", 120.0))
+                         ("wait", "3 children", 120.0, None))
 
     def test_trailing_comment_on_output_is_accepted(self):
         """The parent design's own example line (child 1's contract)."""
@@ -168,7 +169,8 @@ class FromSessionTests(unittest.TestCase):
         self.assertEqual(recipe.setup, ("./ait update --batch 14 --status Implementing",))
         self.assertEqual(recipe.launch, "./ait board")
         # Only what happened before the shot is the route.
-        self.assertEqual(recipe.steps, (("wait", "3 children", None), ("keys", ("x",), None)))
+        self.assertEqual(recipe.steps, (("wait", "3 children", None, None),
+                                        ("keys", ("x",), None, None)))
         self.assertEqual((recipe.size, recipe.dataset), ((126, 44), "base"))
 
     def test_a_wait_given_more_than_the_default_keeps_its_budget(self):
@@ -179,9 +181,9 @@ class FromSessionTests(unittest.TestCase):
         entries.insert(3, {"kind": "wait_gone", "ok": True, "text": "Loading", "timeout": 30.0})
         entries.insert(4, {"kind": "wait", "ok": True, "text": "quick", "timeout": 2.0})
         recipe = rc.from_session(fake_session(entries), **save_kwargs())
-        self.assertEqual(recipe.steps[:3], (("wait", "3 children", 120.0),
-                                            ("wait_gone", "Loading", None),
-                                            ("wait", "quick", None)))
+        self.assertEqual(recipe.steps[:3], (("wait", "3 children", 120.0, None),
+                                            ("wait_gone", "Loading", None, None),
+                                            ("wait", "quick", None, None)))
 
     def test_a_replay_session_cannot_be_saved(self):
         with self.assertRaises(rc.RecipeError) as ctx:
@@ -298,6 +300,120 @@ class CropOverlayTests(ScenesCase):
         self.assertEqual((plain.crop, plain.overlays), (None, None))
 
 
+MULTI = GOOD.replace("""steps:
+  - wait: 3 children
+  - keys: [x]
+  - wait_gone: Loading
+""", """window: board
+steps:
+  - wait: 3 children
+  - pane_split: {name: mini, command: ./ait minimonitor, size: '40'}
+  - window_new: {name: agent-pick-14, command: claude /aitask-pick 14, role: agent}
+  - keys: {keys: [j], pane: mini}
+  - wait: {text: TUI switcher, pane: agent-pick-14.1, timeout: 90}
+  - wait_gone: {text: Loading, pane: agent}
+capture: {window: agent-pick-14}
+""")
+
+
+class MultiPaneRecipeTests(ScenesCase):
+    """Pane and window steps, pane-addressed input and waits (t2278_4)."""
+
+    def test_pane_and_window_steps_load(self):
+        recipe = rc.load(self.spec("scene_a", MULTI))
+        self.assertEqual(recipe.window, "board")
+        self.assertEqual(recipe.capture, {"window": "agent-pick-14"})
+        self.assertEqual(recipe.steps, (
+            ("wait", "3 children", None, None),
+            ("pane_split", {"name": "mini", "command": "./ait minimonitor",
+                            "direction": "h", "size": "40"}, None, None),
+            ("window_new", {"name": "agent-pick-14", "command": "claude /aitask-pick 14",
+                            "role": "agent"}, None, None),
+            ("keys", ("j",), None, "mini"),
+            ("wait", "TUI switcher", 90.0, "agent-pick-14.1"),
+            ("wait_gone", "Loading", None, "agent"),
+        ))
+
+    def test_multi_pane_recipe_round_trips_through_write(self):
+        recipe = rc.load(self.spec("scene_a", MULTI))
+        other = Path(self.scenes.parent / "out")
+        written = rc.load(rc.write(recipe, other))
+        self.assertEqual(written, recipe)
+
+    def test_the_shipped_recipes_dump_back_byte_for_byte(self):
+        """The new keys and step forms leave every shipped recipe as it is."""
+        shipped = Path(__file__).resolve().parent.parent / "website" / "screenshots" / "scenes"
+        for path in sorted(shipped.glob("*.yaml")):
+            with self.subTest(path.stem):
+                self.assertEqual(rc.dump(rc.load(path)), path.read_text(encoding="utf-8"))
+
+    def test_a_pane_must_be_created_before_it_is_used(self):
+        bad = MULTI.replace("  - keys: {keys: [j], pane: mini}\n", "").replace(
+            "  - wait: 3 children\n", "  - wait: 3 children\n  - keys: {keys: [j], pane: mini}\n")
+        with self.assertRaisesRegex(rc.RecipeError, "not created by an earlier step"):
+            rc.load(self.spec("scene_a", bad))
+
+    def test_rejections(self):
+        cases = {
+            "duplicate role": MULTI.replace("role: agent", "role: mini"),
+            "tmux id": MULTI.replace("pane: mini", "pane: '%3'"),
+            "bad size": MULTI.replace("size: '40'", "size: 40px"),
+            "bad direction": MULTI.replace("size: '40'", "size: '40', direction: x"),
+            "unknown pane_split key": MULTI.replace("size: '40'", "size: '40', colour: red"),
+            "window name": MULTI.replace("name: agent-pick-14,", "name: 'agent pick',"),
+            "capture both": MULTI.replace("capture: {window: agent-pick-14}",
+                                          "capture: {window: a, pane: main}"),
+            "capture unknown role": MULTI.replace("capture: {window: agent-pick-14}",
+                                                  "capture: {pane: ghost}"),
+            "keys mapping": MULTI.replace("{keys: [j], pane: mini}", "{keys: [j]}"),
+            "wait mapping": MULTI.replace("{text: Loading, pane: agent}", "{text: Loading}"),
+            "first window": MULTI.replace("window: board", "window: 'a b'"),
+        }
+        for name, text in cases.items():
+            with self.subTest(name):
+                self.assertNotEqual(text, MULTI)
+                with self.assertRaises(rc.RecipeError):
+                    rc.load(self.spec("scene_a", text))
+
+    def test_from_session_records_pane_and_window_steps(self):
+        entries = journal(
+            {"kind": "launch", "command": "./ait board"},
+            {"kind": "pane_split", "name": "mini", "command": "./ait minimonitor",
+             "target": None, "direction": "h", "size": "40", "full": False},
+            {"kind": "window_new", "name": "agent", "window": "agent-pick-14",
+             "command": "claude /aitask-pick 14"},
+            {"kind": "keys", "keys": ["j"], "pane": "mini"},
+            {"kind": "wait", "text": "TUI switcher", "timeout": 30.0, "pane": "agent-pick-14.1"},
+            {"kind": "shot", "scene": "scene_a", "output": "aitasks_scene_a.svg",
+             "title": "aitasks board", "capture": {"window": "agent-pick-14"}},
+        )
+        session = types.SimpleNamespace(id="deadbeef", origin="discovery", journal=entries,
+                                        size=(126, 44), dataset="base", window="board")
+        recipe = rc.from_session(session, **save_kwargs())
+        self.assertEqual(recipe.window, "board")
+        self.assertEqual(recipe.capture, {"window": "agent-pick-14"})
+        self.assertEqual(recipe.steps, (
+            ("pane_split", {"name": "mini", "command": "./ait minimonitor",
+                            "direction": "h", "size": "40"}, None, None),
+            ("window_new", {"name": "agent-pick-14", "command": "claude /aitask-pick 14",
+                            "role": "agent"}, None, None),
+            ("keys", ("j",), None, "mini"),
+            ("wait", "TUI switcher", None, "agent-pick-14.1"),
+        ))
+
+    def test_a_failed_pane_step_keeps_the_session_from_being_saved(self):
+        entries = journal(
+            {"kind": "launch", "command": "./ait board"},
+            {"kind": "pane_split", "name": "mini", "command": "x", "direction": "h"},
+            {"kind": "shot", "scene": "scene_a", "output": "aitasks_scene_a.svg"},
+        )
+        entries[1]["ok"] = False
+        session = types.SimpleNamespace(id="deadbeef", origin="discovery", journal=entries,
+                                        size=(126, 44), dataset="base", window="")
+        with self.assertRaisesRegex(rc.RecipeError, "failed step"):
+            rc.from_session(session, **save_kwargs())
+
+
 class WriteTests(ScenesCase):
     def recipe(self, **over):
         return dataclasses.replace(
@@ -312,8 +428,9 @@ class WriteTests(ScenesCase):
         self.assertIn("output: aitasks_scene_a.svg", lines)
 
     def test_wait_timeout_round_trips(self):
-        written = self.recipe(steps=(("wait", "Report ready", 120.0), ("keys", ("x",), None),
-                                     ("wait_gone", "Loading", 45.5)))
+        written = self.recipe(steps=(("wait", "Report ready", 120.0, None),
+                                     ("keys", ("x",), None, None),
+                                     ("wait_gone", "Loading", 45.5, None)))
         path = rc.write(written, self.scenes)
         self.assertEqual(rc.load(path).steps, written.steps)
         self.assertIn("timeout: 120\n", path.read_text())

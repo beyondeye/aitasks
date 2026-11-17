@@ -1,0 +1,119 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: monitor_layout_annotated
+output: aitasks_monitor_layout_annotated.svg
+title: aitasks monitor
+size:
+- 160
+- 44
+dataset: agents
+setup:
+- ./.aitask-scripts/aitask_gate.sh materialize-active 14 --profile aitasks/metadata/profiles/fast.yaml && ./.aitask-scripts/aitask_gate_record.sh 14 plan_approved pass type=human && ./.aitask-scripts/aitask_gate.sh materialize-active 15 --profile aitasks/metadata/profiles/fast.yaml && ./.aitask-scripts/aitask_gate_record.sh 15 plan_approved pass type=human
+launch: ./ait ide
+steps:
+- wait:
+    text: tmux Monitor
+    timeout: 60
+    pane: monitor.0
+- window_new:
+    name: board
+    command: ./ait board
+- wait:
+    text: fix login
+    timeout: 60
+    pane: board
+- keys:
+    keys:
+    - Down
+    - p
+    pane: board
+- wait:
+    text: Pick Task t14
+    pane: board
+- wait:
+    text: (R)un in tmux
+    pane: board
+- wait:
+    text: lumen
+    pane: board
+- keys:
+    keys:
+    - r
+    pane: board
+- wait:
+    text: IMPLEMENT
+    pane: agent-pick-14.1
+- keys:
+    keys:
+    - Right
+    - p
+    pane: board
+- wait:
+    text: Pick Task t15
+    pane: board
+- wait:
+    text: (R)un in tmux
+    pane: board
+- wait:
+    text: lumen
+    pane: board
+- keys:
+    keys:
+    - r
+    pane: board
+- wait:
+    text: 't15: cache product images'
+    pane: monitor.0
+- wait_gone:
+    text: agent unresolved
+    timeout: 40
+    pane: monitor.0
+- keys:
+    keys:
+    - Down
+    pane: monitor.0
+- wait:
+    text: Shall I commit the fix?
+    pane: monitor.0
+- keys:
+    keys:
+    - e
+    pane: monitor.0
+- wait:
+    text: Worth a test
+    pane: monitor.0
+expect:
+- CODE AGENTS (2)
+- Content Preview
+- Shadow (
+- Shall I commit the fix?
+- Worth a test
+illustrates: 'The monitor with its parts numbered as the page''s layout list: 1 the title, 2 the session bar, 3 the pane list, 4 the preview area split into the focused agent''s preview and its shadow''s column, 5 the footer.'
+overlays:
+- type: box
+  target:
+    cells: [1, 0, 12, 1]
+    holds: tmux Monitor
+  callout: 1
+- type: box
+  target:
+    cells: [16, 0, 144, 1]
+    holds: 'attached: lumen'
+  callout: 2
+- type: box
+  target:
+    cells: [0, 1, 160, 18]
+    holds: CODE AGENTS
+  callout: 3
+- type: box
+  target:
+    cells: [0, 19, 160, 23]
+    holds: Content Preview
+  callout: 4
+- type: box
+  target:
+    cells: [0, 43, 160, 1]
+    holds: TUI switcher
+  callout: 5
+capture:
+  window: monitor

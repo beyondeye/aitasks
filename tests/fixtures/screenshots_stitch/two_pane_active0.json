@@ -1,0 +1,80 @@
+{
+ "size": [
+  60,
+  10
+ ],
+ "panes": [
+  {
+   "left": 0,
+   "top": 0,
+   "width": 35,
+   "height": 10,
+   "active": true,
+   "ansi": "0m pane\\n'       \n\u001b[44mLEFT\u001b[49m pane      \nbash-5.3$        \n\n\n\n\n\n\n\n"
+  },
+  {
+   "left": 36,
+   "top": 0,
+   "width": 24,
+   "height": 10,
+   "active": false,
+   "ansi": "printf 'RIGHT pane\\n'   \nbash-5.3$ printf 'RIGHT \npane\\n'     \nRIGHT pane  \nbash-5.3$   \n\n\n\n\n\n"
+  }
+ ],
+ "tmux": {
+  "rows": [
+   "0m pane\\n'                         │printf 'RIGHT pane\\n'",
+   "LEFT pane                          │bash-5.3$ printf 'RIGHT",
+   "bash-5.3$                          │pane\\n'",
+   "                                   │RIGHT pane",
+   "                                   │bash-5.3$",
+   "                                   │",
+   "                                   │",
+   "                                   │",
+   "                                   │",
+   "                                   │"
+  ],
+  "green_borders": [
+   [
+    35,
+    0
+   ],
+   [
+    35,
+    1
+   ],
+   [
+    35,
+    2
+   ],
+   [
+    35,
+    3
+   ],
+   [
+    35,
+    4
+   ],
+   [
+    35,
+    5
+   ],
+   [
+    35,
+    6
+   ],
+   [
+    35,
+    7
+   ],
+   [
+    35,
+    8
+   ],
+   [
+    35,
+    9
+   ]
+  ]
+ }
+}

@@ -39,9 +39,20 @@ class ExportError(Exception):
 def ansi_to_svg(ansi: str, width: int, height: int, *, title: str, scene_id: str) -> str:
     """``ansi`` is a whole ``capture-pane -e -p -N`` output of a ``width`` x
     ``height`` pane."""
+    return rows_to_svg(list(AnsiDecoder().decode(ansi)), width, height, title=title,
+                       scene_id=scene_id)
+
+
+def rows_to_svg(rows: list[Text], width: int, height: int, *, title: str,
+                scene_id: str) -> str:
+    """Decoded rows (one :class:`rich.text.Text` per screen row) as the SVG.
+
+    The shared back half of :func:`ansi_to_svg`; a stitched window
+    (``stitch.py``) comes in here directly.
+    """
     if not _ID_RE.match(scene_id):
         raise ExportError(f"scene id {scene_id!r} must match [a-z0-9_]+")
-    rows = list(AnsiDecoder().decode(ansi))[:height]
+    rows = list(rows)[:height]
     rows += [Text("") for _ in range(height - len(rows))]
     console = Console(width=width, height=height, file=io.StringIO(), force_terminal=True,
                       color_system="truecolor", record=True, legacy_windows=False,

@@ -1,0 +1,33 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: sitrep_window
+output: aitasks_sitrep_tui_main_view.svg
+title: aitasks sitrep
+size:
+- 140
+- 42
+dataset: agents
+setup:
+- ./ait lock --init
+- ./.aitask-scripts/aitask_sitrep_todo.sh add --kind task --title "search results pagination" --ref t9 --group now && ./.aitask-scripts/aitask_sitrep_todo.sh add --kind action --title "Review the price formatter follow-up from t11" --ref t11 --group now && ./.aitask-scripts/aitask_sitrep_todo.sh add --kind question --title "Should cached product images expire after a deploy?" --ref t15 --group next && ./.aitask-scripts/aitask_sitrep_todo.sh add --kind watch --title "t12_2 starts once t12_1 lands" --ref t12_2 --group waiting
+launch: ./ait sitrep
+steps:
+- wait:
+    text: search results
+    timeout: 60
+    pane: agent-sitrep.1
+- wait:
+    text: harvest
+    pane: agent-sitrep.1
+- wait_gone:
+    text: harvest
+    pane: agent-sitrep.1
+expect:
+- Sitrep for lumen
+- 4 items
+- 'Decide: Should cached product images expire'
+- this agent
+- agent-sitrep
+illustrates: 'The sitrep window: the sitrep agent above, the sitrep TUI below it listing the todo list (a task to pick, an action, a question and a watch), and a full-height minimonitor on the right.'
+capture:
+  window: agent-sitrep

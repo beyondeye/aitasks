@@ -1,0 +1,47 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: minimonitor_main_view
+output: aitasks_minimonitor_main_view.svg
+title: aitasks minimonitor
+size:
+- 126
+- 40
+window: board
+dataset: agents
+setup:
+- ./.aitask-scripts/aitask_gate.sh materialize-active 14 --profile aitasks/metadata/profiles/fast.yaml && ./.aitask-scripts/aitask_gate_record.sh 14 plan_approved pass type=human && ./.aitask-scripts/aitask_gate.sh materialize-active 15 --profile aitasks/metadata/profiles/fast.yaml && ./.aitask-scripts/aitask_gate_record.sh 15 plan_approved pass type=human
+launch: ./ait board
+steps:
+- wait:
+    text: fix login
+    timeout: 60
+- keys:
+  - Down
+  - p
+- wait: Pick Task t14
+- wait: (R)un in tmux
+- wait: lumen
+- keys:
+  - r
+- wait:
+    text: IMPLEMENT
+    pane: agent-pick-14.1
+- keys:
+  - Right
+  - p
+- wait: Pick Task t15
+- wait: (R)un in tmux
+- wait: lumen
+- keys:
+  - r
+- wait:
+    text: cache product images
+    pane: agent-pick-14.1
+expect:
+- fix login redirect loop
+- cache product images
+- this agent
+- Shall I commit the fix?
+illustrates: Minimonitor in a 40-column right-side split beside a code agent working on a task, in the agent's own tmux window, listing that agent and another one running in the session.
+capture:
+  window: agent-pick-14

@@ -96,8 +96,9 @@ class LiveCase(unittest.TestCase):
                 return line[len(key) + 1:]
         raise AssertionError(f"no {key}: line in:\n{out}")
 
-    def start(self, size="126x44"):
-        return self.value(self.ok("session", "start", "--size", size), "SESSION")
+    def start(self, size="126x44", window=None):
+        extra = ["--window", window] if window else []
+        return self.value(self.ok("session", "start", "--size", size, *extra), "SESSION")
 
     def board(self, sid):
         self.ok("run", sid, "--", "./ait", "board")
@@ -333,7 +334,7 @@ class RecipeLifecycleTests(LiveCase):
     def test_record_replay_break_inspect_and_repair(self):
         path = self.record()
         recorded = path.read_bytes()
-        self.assertEqual(rc.load(path).steps[-1], ("wait", EXPANDED, None))
+        self.assertEqual(rc.load(path).steps[-1], ("wait", EXPANDED, None, None))
         discovery_batches = self.batches()
         self.assertEqual(len(discovery_batches), 1)
 
@@ -357,8 +358,8 @@ class RecipeLifecycleTests(LiveCase):
 
         # Break it: a wrong key, so the awaited text never comes.
         broken = dataclasses.replace(
-            rc.load(path), steps=(("wait", "3 children", None), ("wait", "╔", None),
-                                  ("keys", ("z",), None), ("wait", EXPANDED, None)))
+            rc.load(path), steps=(("wait", "3 children", None, None), ("wait", "╔", None, None),
+                                  ("keys", ("z",), None, None), ("wait", EXPANDED, None, None)))
         rc.write(broken, self.scenes, replace=True)
         status, out = self.cli("replay", "--scene", SCENE)
         self.assertEqual(status, 1)
@@ -400,7 +401,7 @@ class RecipeLifecycleTests(LiveCase):
         self.ok("session", "stop", sid)
         repaired = rc.load(path)
         self.assertEqual((repaired.id, repaired.output), (SCENE, OUTPUT))
-        self.assertIn(("keys", ("x",), None), repaired.steps)
+        self.assertIn(("keys", ("x",), None, None), repaired.steps)
         self.ok("replay", "--scene", SCENE, "--no-keep")
 
     def test_a_discovery_session_with_a_failed_wait_cannot_be_saved(self):
@@ -455,17 +456,17 @@ class RecipeLifecycleTests(LiveCase):
         out = self.ok(*self.save_args(sid, scene="slow", expect=("SLOW_STATE",)))
         self.ok("session", "stop", sid)
         self.assertEqual(rc.load(Path(self.value(out, "RECIPE_SAVED"))).steps,
-                         (("wait", "SLOW_STATE", 120.0),))
+                         (("wait", "SLOW_STATE", 120.0, None),))
 
         # Honoured: the text appears after 6 s. The replay default is patched
         # to 4 s here, so only the step's own 20 s budget lets it pass ...
         late = "sleep 6; printf 'LATE_%s\\n' STATE"       # not literal on the command line
         rc.write(self.shell_recipe("late", late, ["LATE_STATE"],
-                                   steps=[("wait", "LATE_STATE", 20.0)]), self.scenes)
+                                   steps=[("wait", "LATE_STATE", 20.0, None)]), self.scenes)
         self.ok("replay", "--scene", "late", "--no-keep")
         # ... and the same route without it fails (control).
         rc.write(self.shell_recipe("late", late, ["LATE_STATE"],
-                                   steps=[("wait", "LATE_STATE", None)]), self.scenes,
+                                   steps=[("wait", "LATE_STATE", None, None)]), self.scenes,
                  replace=True)
         status, out = self.cli("replay", "--scene", "late", "--no-keep")
         self.assertEqual(status, 1)
@@ -667,6 +668,474 @@ class AnnotatedSceneTests(LiveCase):
         self.assertNotIn("\nPNG:", "\n" + out)
         # The SVG itself is still staged.
         self.assertTrue(Path(self.value(out, "STAGED").split("|", 1)[1]).is_file())
+
+
+# --- multi-pane windows (t2278_4) ---------------------------------------------
+
+
+def tmux_render(sess, window=None):
+    """What a REAL tmux client draws for ``window``: the oracle for stitch.py.
+
+    A second private server (started only through ``start_server``, with
+    ``-f /dev/null``) opens a pane exactly the window's size, and in it a
+    client attaches to the screenshot session; ``capture-pane -e -N`` of that
+    pane is tmux's own rendering, borders and their colours included. Returns
+    ``(rows, close)``; ``rows`` are decoded ``rich.text.Text`` lines.
+    """
+    from rich.ansi import AnsiDecoder
+
+    size, _ = sessions.window_layout(sess, window)
+    target = sessions.window_id(sess, window)
+    sess.client.run(["select-window", "-t", target])
+    ref = sessions.TmuxClient(socket_args=["-L", sess.socket + "_ref"])
+    pane = sessions.start_server(ref, [
+        "new-session", "-d", "-s", "ref", "-x", str(size[0]), "-y", str(size[1]),
+        "-P", "-F", "#{pane_id}", "-e", "TERM=tmux-256color",
+        "env", "-u", "TMUX", "-u", "COLUMNS", "-u", "LINES", "bash", "--noprofile", "--norc"])
+
+    def close():
+        ref.run(["kill-server"])
+
+    try:
+        for option in (["set-option", "-g", "status", "off"],
+                       ["set-option", "-g", "default-terminal", "tmux-256color"]):
+            ref.run(option)
+        ref.run(["send-keys", "-t", pane, "-l",
+                 f"exec tmux -u -L {sess.socket} attach -t ={sessions.TMUX_SESSION}"])
+        ref.run(["send-keys", "-t", pane, "Enter"])
+        deadline = time.monotonic() + 10
+        previous = None
+        while time.monotonic() < deadline:
+            time.sleep(0.3)
+            _, command = ref.run(["display-message", "-p", "-t", pane,
+                                  "#{pane_current_command}"])
+            rc_, out = ref.run(["capture-pane", "-p", "-e", "-N", "-t", pane])
+            # The shell has exec'd the client, and two captures agree.
+            if rc_ == 0 and command.strip() == "tmux" and out == previous:
+                return list(AnsiDecoder().decode(out))[:size[1]], close
+            previous = out
+        raise AssertionError("the reference client never settled")
+    except BaseException:
+        close()
+        raise
+
+
+def stitch_required(name):
+    from screenshots import stitch
+
+    return stitch.REQUIRED_OPTIONS[name]
+
+
+def is_green(style) -> bool:
+    color = style.color if style is not None else None
+    return color is not None and (color.name == "green" or color.number == 2)
+
+
+def style_at(text, x):
+    """The style of cell ``x`` of a decoded row (the layouts tested here hold
+    one-cell characters only, so a cell is a character offset)."""
+    from rich.console import Console
+
+    return text.get_style_at_offset(Console(), x)
+
+
+class MultiPaneTests(LiveCase):
+    """Panes, windows and the stitched window image."""
+
+    def two_panes(self, size="100x20"):
+        sid = self.start(size, window="split")
+        self.ok("run", sid, "--", "printf 'LEFT_PANE_TEXT\\n'")
+        self.ok("wait", sid, "--text", "LEFT_PANE_TEXT")
+        self.ok("pane", "split", sid, "--name", "right", "-l", "40", "--",
+                "printf 'RIGHT_PANE_TEXT\\n'")
+        self.ok("wait", sid, "--pane", "right", "--text", "RIGHT_PANE_TEXT")
+        return sid
+
+    def sitrep_layout(self):
+        """Agent above, a pane below at 40%, a full-height pane on the right:
+        the sitrep window's geometry."""
+        sid = self.start("100x30")
+        self.ok("run", sid, "--", "printf 'TOP_PANE\\n'")
+        self.ok("pane", "split", sid, "--name", "below", "-v", "-l", "40%", "--",
+                "printf 'BELOW_PANE\\n'")
+        self.ok("pane", "split", sid, "--name", "side", "-l", "40", "--full", "--",
+                "printf 'SIDE_PANE\\n'")
+        self.ok("wait", sid, "--pane", "side", "--text", "SIDE_PANE")
+        self.ok("wait", sid, "--pane", "below", "--text", "BELOW_PANE")
+        return sid
+
+    def test_a_two_pane_window_is_one_image_with_both_panes(self):
+        sid = self.two_panes()
+        out = self.ok("shot", sid, "--scene", "two", "--output", "two.svg", "--window")
+        svg = Path(self.value(out, "SHOT")).read_text(encoding="utf-8")
+        text = sx.svg_plain_text(svg)
+        self.assertIn("LEFT_PANE_TEXT", text)
+        self.assertIn("RIGHT_PANE_TEXT", text)
+        self.assertIn("│", text)                      # the border between them
+        # The whole window, not one pane: 100 columns wide.
+        reference = sx.ansi_to_svg("", 100, 20, title="aitasks", scene_id="two")
+        self.assertEqual(sx.viewbox(svg), sx.viewbox(reference))
+
+    def test_stitched_borders_match_a_real_tmux_client(self):
+        from screenshots import stitch
+
+        for build in (self.two_panes, self.sitrep_layout):
+            sid = build()
+            sess = sessions.load(self.staging, sid)
+            _, panes = sessions.window_layout(sess)
+            self.assertEqual(sessions.window_options(sess, panes), stitch.REQUIRED_OPTIONS)
+            for active in panes:
+                with self.subTest(layout=build.__name__, active=active.id):
+                    sess.client.run(["select-pane", "-t", active.id])
+                    frame = cli.stable_capture(sess, {"window": None})
+                    reference, close = tmux_render(sess)
+                    try:
+                        self.assertEqual(frame.plain, [r.plain.rstrip() for r in reference])
+                        borders = stitch.border_cells(frame.width, frame.height, [
+                            stitch.Pane(p.left, p.top, p.width, p.height, p.id == active.id, "")
+                            for p in panes])
+                        # Non-vacuous: the active pane's border really is green.
+                        self.assertTrue(any(g for _, g in borders.values()))
+                        self.assertTrue(any(is_green(style_at(reference[y], x))
+                                            for (x, y) in borders))
+                        for (x, y), (glyph, green) in borders.items():
+                            self.assertEqual(reference[y].plain[x], glyph, (x, y))
+                            self.assertEqual(is_green(style_at(reference[y], x)), green,
+                                             (x, y))
+                            self.assertEqual(is_green(style_at(frame.rows[y], x)), green,
+                                             (x, y))
+                    finally:
+                        close()
+            self.ok("session", "stop", sid)
+
+    def test_a_pane_is_captured_at_its_current_size(self):
+        sid = self.two_panes()
+        out = self.ok("screen", sid, "--pane", "main")
+        self.assertIn("PANE:59x20|", out)              # 100 - 40 - 1 border
+        out = self.ok("shot", sid, "--scene", "left", "--output", "left.svg", "--pane", "main")
+        svg = Path(self.value(out, "SHOT")).read_text(encoding="utf-8")
+        reference = sx.ansi_to_svg("", 59, 20, title="aitasks", scene_id="left")
+        self.assertEqual(sx.viewbox(svg), sx.viewbox(reference))
+        self.assertTrue(all(len(row) <= 59 for row in sx.svg_plain_text(svg).splitlines()))
+        self.assertNotIn("RIGHT_PANE_TEXT", sx.svg_plain_text(svg))
+        # An overlay inside the window but outside the shrunken pane fails ...
+        status, out = self.cli("shot", sid, "--scene", "left2", "--output", "left2.svg",
+                               "--pane", "main", "--overlay",
+                               "{type: box, target: {cells: [62, 0, 10, 1]}}")
+        self.assertEqual(status, 1, out)
+        self.assertIn("FAILED:overlay|", out)
+        self.assertIn("outside the captured 59x20 frame", out)
+        # ... and the same rectangle inside the pane passes (control).
+        self.ok("shot", sid, "--scene", "left3", "--output", "left3.svg", "--pane", "main",
+                "--overlay", "{type: box, target: {cells: [0, 1, 20, 1], "
+                             "holds: LEFT_PANE_TEXT}}")
+
+    def test_a_locator_must_match_exactly_one_pane(self):
+        sid = self.start("80x12")
+        self.ok("run", sid, "--", "true")
+        self.ok("window", "new", sid, "--name", "dup", "--role", "one", "--", "true")
+        self.ok("window", "new", sid, "--name", "dup", "--role", "two", "--", "true")
+        status, out = self.cli("screen", sid, "--pane", "dup.0")
+        self.assertEqual(status, 1, out)
+        self.assertIn("matches 2 panes", out)
+        status, out = self.cli("screen", sid, "--pane", "%0")
+        self.assertEqual(status, 1, out)
+        self.assertIn("never by tmux id", out)
+        self.ok("screen", sid, "--pane", "one")         # control: a role resolves
+
+    def test_a_locator_never_resolves_into_another_session(self):
+        """``list-panes -s`` takes a whole-session target ``=lumen:``: a bare
+        ``=lumen`` is looked up as a WINDOW name first, and another session
+        with a window called ``lumen`` would answer (tmux_gateway.md, 2)."""
+        sid = self.start("80x12")
+        self.ok("run", sid, "--", "true")
+        self.ok("window", "new", sid, "--name", "target", "--role", "mine", "--", "true")
+        sess = sessions.load(self.staging, sid)
+        rc_, _ = sess.client.run(["new-session", "-d", "-s", "other", "-n", "lumen"])
+        self.assertEqual(rc_, 0)
+        rc_, _ = sess.client.run(["new-window", "-d", "-t", "=other:", "-n", "target"])
+        self.assertEqual(rc_, 0)
+        self.assertEqual(sessions.resolve_pane(sess, "target.0"), sess.panes["mine"])
+
+    def test_a_wait_never_mistakes_an_unreadable_pane_for_a_gone_text(self):
+        sid = self.start("80x12")
+        self.ok("run", sid, "--", "true")
+        self.ok("window", "new", sid, "--name", "dup", "--role", "one", "--", "true")
+        self.ok("window", "new", sid, "--name", "dup", "--role", "two", "--", "true")
+        # An ambiguous locator is a failed step, journaled as one ...
+        status, out = self.cli("wait", sid, "--gone", "Loading", "--pane", "dup.0",
+                               "--timeout", "2")
+        self.assertEqual(status, 1, out)
+        self.assertIn("matches 2 panes", out)
+        last = sessions.load(self.staging, sid).journal[-1]
+        self.assertEqual((last["kind"], last["ok"]), ("wait_gone", False))
+        # ... and a pane that does not exist yet proves nothing gone.
+        status, out = self.cli("wait", sid, "--gone", "Loading", "--pane", "later.0",
+                               "--timeout", "1")
+        self.assertEqual(status, 1, out)
+        self.assertIn("never went away", out)
+        # Control: a readable pane without the text is "gone".
+        self.ok("wait", sid, "--gone", "Loading", "--pane", "one", "--timeout", "2")
+
+    def test_border_options_set_on_the_window_or_a_pane_are_refused(self):
+        for scope in ("-w", "-p"):
+            with self.subTest(scope=scope):
+                sid = self.two_panes()
+                sess = sessions.load(self.staging, sid)
+                # Control: the pinned configuration exports.
+                self.ok("shot", sid, "--scene", "ctl", "--output", "ctl.svg", "--window")
+                target = (sessions.window_id(sess) if scope == "-w"
+                          else sess.panes["right"])
+                name, value = (("pane-border-indicators", "colour") if scope == "-w"
+                               else ("pane-active-border-style", "fg=red"))
+                rc_, _ = sess.client.run(["set-option", scope, "-t", target, name, value])
+                self.assertEqual(rc_, 0)
+                self.assertEqual(sess.client.run(["show-options", "-gv", name])[1].strip(),
+                                 stitch_required(name))      # the global is untouched
+                status, out = self.cli("shot", sid, "--scene", "bad", "--output", "bad.svg",
+                                       "--window")
+                self.assertEqual(status, 1, out)
+                self.assertIn(name, out)
+                self.ok("session", "stop", sid)
+
+    def test_a_failed_command_send_is_journaled_and_blocks_the_save(self):
+        sid = self.two_panes()
+        real_run = sessions.TmuxClient.run
+
+        def failing_send(client, args, *a, **k):
+            if args[:1] == ["send-keys"] and "-l" in args and "NEVER_TYPED" in args[-1]:
+                return 1, ""
+            return real_run(client, args, *a, **k)
+
+        with mock.patch.object(sessions.TmuxClient, "run", failing_send):
+            status, out = self.cli("pane", "split", sid, "--name", "third", "--target", "right",
+                                   "-v", "--", "echo NEVER_TYPED")
+        self.assertEqual(status, 1, out)
+        sess = sessions.load(self.staging, sid)
+        last = sess.journal[-1]
+        self.assertEqual((last["kind"], last["ok"], last["name"]), ("pane_split", False, "third"))
+        self.assertIn("third", sess.panes)            # the pane exists; it stays addressable
+        self.ok("screen", sid, "--pane", "third")
+        self.ok("shot", sid, "--scene", "split", "--output", "split.svg", "--window")
+        status, out = self.cli("recipe", "save", sid, "--scene", "split", "--expect",
+                               "LEFT_PANE_TEXT", "--illustrates", "Two panes.")
+        self.assertEqual(status, 1, out)
+        self.assertIn("failed step", out)
+
+    def test_a_recipe_with_pane_steps_records_and_replays(self):
+        sid = self.two_panes()
+        self.ok("shot", sid, "--scene", "split", "--output", "split.svg", "--window")
+        out = self.ok("recipe", "save", sid, "--scene", "split", "--expect", "LEFT_PANE_TEXT",
+                      "--expect", "RIGHT_PANE_TEXT", "--illustrates", "Two panes.")
+        recipe = rc.load(Path(self.value(out, "RECIPE_SAVED")))
+        self.assertIn(("pane_split", {"name": "right", "command": "printf 'RIGHT_PANE_TEXT\\n'",
+                                      "direction": "h", "size": "40"}, None, None),
+                      recipe.steps)
+        self.assertIn(("wait", "RIGHT_PANE_TEXT", None, "right"), recipe.steps)
+        self.assertEqual(recipe.capture, {"window": "split"})
+        self.assertEqual(recipe.window, "split")
+        self.ok("session", "stop", sid)
+        out = self.ok("replay", "--scene", "split", "--no-keep")
+        svg = Path(self.value(out, "STAGED").split("|", 1)[1]).read_text(encoding="utf-8")
+        self.assertIn("RIGHT_PANE_TEXT", sx.svg_plain_text(svg))
+        self.assertEqual(sessions.list_sessions(self.staging), [])
+
+    def test_stop_leaves_no_server_socket_or_runtime_files(self):
+        sid = self.two_panes()
+        sess = sessions.load(self.staging, sid)
+        tmp, socket_path = Path(sess.tmp), Path(sess.socket_path)
+        self.assertTrue((tmp / "run").is_dir())
+        self.ok("session", "stop", sid)
+        self.assertEqual(sess.client.run_checked(["list-sessions"]).outcome, "no_server")
+        self.assertFalse(socket_path.exists())
+        self.assertFalse(tmp.exists())
+
+
+class StandinPathTests(LiveCase):
+    """A bare `claude` in a screenshot session is always the stand-in."""
+
+    def setUp(self):
+        super().setUp()
+        # A decoy `claude` on the DRIVER's PATH: what a user's real agent is.
+        self.decoy_dir = self.root / "decoy"
+        self.decoy_dir.mkdir()
+        self.decoy_log = self.root / "decoy.log"
+        decoy = self.decoy_dir / "claude"
+        decoy.write_text(f"#!/usr/bin/env bash\necho \"decoy|$TMUX_PANE\" >> {self.decoy_log}\n"
+                         "exec sleep 600\n", encoding="utf-8")
+        decoy.chmod(0o755)
+        patcher = mock.patch.dict(os.environ, {
+            "PATH": f"{self.decoy_dir}{os.pathsep}{os.environ.get('PATH', '')}"})
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def identities(self, sess):
+        log = Path(sess.project) / ".standin" / "log"
+        lines = log.read_text(encoding="utf-8").splitlines() if log.exists() else []
+        return {line.split("|")[2]: line for line in lines}
+
+    def wait_for(self, predicate, what, timeout=15.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():
+                return
+            time.sleep(0.2)
+        self.fail(f"{what} did not happen within {timeout:g}s")
+
+    def test_panes_created_from_inside_and_from_the_driver_run_the_standin(self):
+        sid = self.start("100x20")
+        sess = sessions.load(self.staging, sid)
+        self.assertEqual(Path(shutil.which("claude")).parent, self.decoy_dir)
+        # From inside the session, as a TUI does: an unattached tmux client in
+        # the pane creates the window.
+        self.ok("run", sid, "--", "tmux -u -L \"$AITASKS_TMUX_SOCKET\" new-window -d -n inner "
+                                  "'claude /aitask-pick 14'")
+        # From the driver, through the verb.
+        self.ok("pane", "split", sid, "--name", "drv", "--", "claude /aitask-pick 12_1")
+        sess = sessions.load(self.staging, sid)
+        inner = sessions.resolve_pane(sess, "inner.0")
+        self.wait_for(lambda: {inner, sess.panes["drv"]} <= set(self.identities(sess)),
+                      "both panes logging the stand-in")
+        ids = self.identities(sess)
+        self.assertTrue(ids[inner].startswith("pick|/aitask-pick 14|"))
+        self.assertTrue(ids[sess.panes["drv"]].startswith("pick|/aitask-pick 12_1|"))
+        self.assertFalse(self.decoy_log.exists())
+        rc_, out = sess.client.run(["show-environment", "-g", "PATH"])
+        self.assertEqual(out.strip(), f"PATH={sess.path}")
+
+    def test_desktop_variables_never_reach_the_session(self):
+        """A TUI that finds a display opens windows on the user's desktop (the
+        board's pick falls back to a terminal emulator)."""
+        with mock.patch.dict(os.environ, {"DISPLAY": ":99", "WAYLAND_DISPLAY": "wayland-99"}):
+            sid = self.start("80x12")
+            sess = sessions.load(self.staging, sid)
+            self.ok("run", sid, "--", "echo \"D=[${DISPLAY-unset}] W=[${WAYLAND_DISPLAY-unset}]\"")
+            self.ok("wait", sid, "--text", "D=[unset] W=[unset]")
+            for name in ("DISPLAY", "WAYLAND_DISPLAY"):
+                rc_, out = sess.client.run(["show-environment", "-g", name])
+                self.assertNotIn(f"{name}=", out)
+        with mock.patch.dict(os.environ, {"DISPLAY": ":99"}):
+            sid = self.start("80x12")
+            out = self.ok("setup", sid, "--", "echo \"D=[${DISPLAY-unset}]\"")
+            self.assertIn("D=[unset]", out)
+
+    def test_desktop_variables_never_reach_a_window_the_framework_creates(self):
+        """``new-session`` copies ``update-environment`` variables (DISPLAY,
+        WAYLAND_DISPLAY) into the SESSION environment, which a natively created
+        window inherits -- as the framework's own launches create them."""
+        with mock.patch.dict(os.environ, {"DISPLAY": ":987", "WAYLAND_DISPLAY": "wayland-987"}):
+            sid = self.start("80x12")
+            sess = sessions.load(self.staging, sid)
+            for scope in (["-g"], ["-t", "=lumen"]):
+                for name in ("DISPLAY", "WAYLAND_DISPLAY"):
+                    _, out = sess.client.run(["show-environment", *scope, name])
+                    self.assertNotIn(f"{name}=", out, (scope, name))
+            self.assertEqual(sess.client.run(["show-options", "-gv", "update-environment"])[1]
+                             .strip(), "")
+            # A native window, created by a client whose own env HAS the display.
+            probe = Path(sess.tmp) / "native.txt"
+            rc_, _ = sess.client.run([
+                "new-window", "-d", "-t", "=lumen:", "-n", "native",
+                f"sh -c 'echo D=[${{DISPLAY-unset}}] W=[${{WAYLAND_DISPLAY-unset}}] > {probe}'"])
+            self.assertEqual(rc_, 0)
+            self.wait_for(probe.exists, "the native window's probe")
+            self.assertEqual(probe.read_text().strip(), "D=[unset] W=[unset]")
+
+    def test_control_dash_e_alone_does_not_reach_the_pane(self):
+        """Why the PATH is pinned on the argv: tmux gives a pane its creating
+        client's PATH and ignores ``-e PATH=``."""
+        sid = self.start("100x20")
+        sess = sessions.load(self.staging, sid)
+        self.ok("run", sid, "--", "true")
+        rc_, pane = sess.client.run(["split-window", "-d", "-P", "-F", "#{pane_id}",
+                                     "-t", sess.pane, "-e", f"PATH={sess.path}",
+                                     "bash", "--noprofile", "--norc", "-c",
+                                     "claude /aitask-pick 14"])
+        self.assertEqual(rc_, 0)
+        self.wait_for(self.decoy_log.exists, "the decoy starting")
+        self.assertIn(f"decoy|{pane.strip()}", self.decoy_log.read_text(encoding="utf-8"))
+        self.assertNotIn(pane.strip(), self.identities(sess))
+
+    def test_a_session_whose_claude_is_not_the_standin_is_refused(self):
+        real = sessions.standin_path
+
+        def decoy_first(project, inherited=None):
+            return f"{self.decoy_dir}{os.pathsep}{real(project, inherited)}"
+
+        made = []
+        real_mkdtemp = sessions.tempfile.mkdtemp
+
+        def mkdtemp(*args, **kwargs):
+            made.append(real_mkdtemp(*args, **kwargs))
+            return made[-1]
+
+        servers = []
+        real_start_server = sessions.start_server
+
+        def start_server(*args, **kwargs):
+            servers.append(args)
+            return real_start_server(*args, **kwargs)
+
+        with mock.patch.object(sessions, "standin_path", decoy_first), \
+                mock.patch.object(sessions.tempfile, "mkdtemp", mkdtemp), \
+                mock.patch.object(sessions, "start_server", start_server):
+            status, out = self.cli("session", "start", "--size", "80x12")
+        self.assertEqual(status, 1, out)
+        self.assertIn("refusing the session", out)
+        self.assertEqual(servers, [])                   # refused before any server
+        self.assertEqual(len(made), 1)
+        self.assertFalse(Path(made[0]).exists())        # and nothing left on disk
+        self.assertEqual(sessions.list_sessions(self.staging), [])
+
+
+class AgentsDatasetTests(LiveCase):
+    def test_the_real_minimonitor_lists_the_standin_agent(self):
+        sid = self.value(self.ok("session", "start", "--size", "126x30", "--dataset", "agents",
+                                 "--window", "agent-pick-14"), "SESSION")
+        self.ok("run", sid, "--", "claude --model claude-opus-5-5 /aitask-pick 14")
+        self.ok("wait", sid, "--text", "Shall I commit the fix?")
+        self.ok("pane", "split", sid, "--name", "mini", "-l", "40", "--", "./ait minimonitor")
+        self.ok("wait", sid, "--pane", "mini", "--text", "fix login redirect loop",
+                "--timeout", "60")
+        sess = sessions.load(self.staging, sid)
+        log = (Path(sess.project) / ".standin" / "log").read_text(encoding="utf-8")
+        self.assertIn(f"|{sess.pane}|", log)
+        self.assertEqual(sessions.pane_command(sess), "claude")
+        # The session on screen is the invented project's, not the tool's.
+        _, name = sess.client.run(["display-message", "-p", "-t", sess.pane,
+                                   "#{session_name}"])
+        self.assertEqual(name.strip(), "lumen")
+        self.ok("wait", sid, "--pane", "mini", "--text", "this agent · lumen")
+        # The minimonitor's status server lives in the session's private
+        # runtime dir, removed with the session -- never the user's.
+        run = Path(sess.tmp) / "run" / "aitasks"
+        self.wait_for(lambda: any(run.glob("monitor-*.sock")), "the status server socket")
+        user_run = Path(os.environ.get("XDG_RUNTIME_DIR") or "/nonexistent") / "aitasks"
+        key = hashlib.sha256(sess.socket_path.encode()).hexdigest()[:16]
+        self.assertEqual(list(user_run.glob(f"monitor-{key}-*")), [])
+
+    def wait_for(self, predicate, what, timeout=20.0):
+        deadline = time.monotonic() + timeout
+        while time.monotonic() < deadline:
+            if predicate():
+                return
+            time.sleep(0.2)
+        self.fail(f"{what} did not happen within {timeout:g}s")
+
+    def test_the_shipped_multi_pane_recipes_replay(self):
+        scenes = ["minimonitor_main_view", "sitrep_window", "ait_ide_startup",
+                  "monitor_layout_annotated"]
+        with mock.patch.object(cli, "STEP_TIMEOUT", sessions.DEFAULT_TIMEOUT), \
+                mock.patch.object(cli, "EXPECT_TIMEOUT", 15.0):
+            out = self.ok("replay", *[a for s_ in scenes for a in ("--scene", s_)], "--no-keep",
+                          scenes=SHIPPED_SCENES)
+        staged = {line.split("|")[0][len("STAGED:"):]: Path(line.split("|", 1)[1])
+                  for line in out.splitlines() if line.startswith("STAGED:")}
+        self.assertEqual(sorted(staged), sorted(scenes))
+        layout = staged["monitor_layout_annotated"].read_text(encoding="utf-8")
+        self.assertEqual(layout.count('class="shot-callout"'), 5)
+        self.assertIn("Worth a test", sx.svg_plain_text(layout))
+        self.assertEqual(sessions.list_sessions(self.staging), [])
 
 
 def sx_px(cells):
