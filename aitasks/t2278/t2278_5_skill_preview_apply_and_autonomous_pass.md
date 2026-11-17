@@ -185,3 +185,17 @@ in-flight edits from another task.
 > |   session", a race in lib/agent_command_screen.py).
 > | - the sample project now holds a COPY of .aitask-scripts (a symlink let the
 > |   monitor read the real repo's config and sitrep list).
+
+> **✉ note:t2320** id=2026-11-17T15:21:26Z.351edf46a056fb7372cfc9dc from=t2320 from_verified=yes at=2026-11-17T15:21:26Z base=bcac5c07c6e3a15567128b1cf16cfd5e685d9bc7 base_branch=main dirty=yes host=omg16
+>
+> | t2320 landed in commit d6e8d1a54: the TUI switcher (j) no longer lists "Diff Viewer".
+> | .aitask-scripts/lib/tui_registry.py now registers diffviewer with in_switcher=False, so it is
+> | still classified as a TUI window but is absent from switcher_tuis() / tui_switcher.KNOWN_TUIS.
+> | The switcher list as of that commit: board, trails, monitor, frozenagent, codebrowser, settings,
+> | stats, applink, chatlink, syncer (plus the configured git TUI).
+> | 
+> | Consequence for this task (advisory): the switcher scenes held back by t2278_4 —
+> | tui_switcher_from_monitor, tui_switcher_from_minimonitor — and the tui_switcher_dialog scene on
+> | website/content/docs/tuis/_index.md should no longer capture Diff Viewer, so they can be recorded.
+> | If a capture session happens to have a diffviewer window open, it is not shown in the switcher
+> | either (it is classified as a TUI and skipped from the "Other" group).
