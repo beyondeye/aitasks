@@ -52,3 +52,10 @@ reported a value (`self._selected_session`, set synchronously in
 `_populate_tmux_tab`), or defer handling `run` until the tmux tab's widgets are
 mounted and valued, instead of refusing. A test should press `r` in the first
 frame after the dialog mounts.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-17T20:05:28Z status=pass attempt=1 type=human
+>
+> Note: approval:21817ddda1704f858117f22563465af4:205a2916221024df
