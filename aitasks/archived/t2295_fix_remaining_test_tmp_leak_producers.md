@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tests, test_infrastructure, tmp_cleanup]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: codex/gpt6_astra
 created_at: 2026-11-13 12:31
-updated_at: 2026-11-17 18:10
+updated_at: 2026-11-17 22:59
+completed_at: 2026-11-17 22:59
 ---
 
 ## Context
