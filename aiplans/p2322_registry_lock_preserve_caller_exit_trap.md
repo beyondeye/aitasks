@@ -245,3 +245,126 @@ run whatever test exercises it.
 ### Planned mitigations
 - timing: pre-phase | name: lock_caller_baseline | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: callers depending on the old clear semantics | desc: run all lock-caller suites on the unmodified tree first and record the baseline
 - timing: post-phase | name: trap_shape_matrix | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: archive/exit-chain recursion or lost handler | desc: table-driven test over every pre-acquire trap shape × release-then-exit / die-while-held
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-17 17:10)
+- **Requested by user:** two blocking review findings, both CONFIRMED by the reviewer:
+  (1) the saved caller trap was eval'd inside `_registry_lock_exit_chain`, whose
+  `$@` is empty, so a caller handler reading `$1` died with "unbound variable"
+  (under `set -u`) when the process exited while holding the lock;
+  (2) the self-token defence (and, the same class, the archive-layer peel)
+  rewrote any SUBSTRING `_registry_lock_exit_chain` / `_ait_archive_*`, including
+  quoted caller data (`rmdir "$d/_registry_lock_exit_chain"` → `rmdir "$d/:"`).
+- **Changes made:**
+  - The chain is installed as `trap '_registry_lock_exit_chain "$@"' EXIT`
+    (`_REGISTRY_LOCK_CHAIN_CMD`); `"$@"` expands in the exit context, so the
+    caller's text, eval'd inside the function, keeps `$1`/`$#`/`"$@"`.
+  - Wrapper recognition is by WHOLE COMMAND via `_registry_lock_owned_tail`:
+    the text equals the wrapper command, or is a `txn_chain_exit_trap`
+    composite (`__txn_chain_rc=$?;` prefix) whose last command is the wrapper —
+    the only shapes the producers emit. Used for the archive peel, the
+    self-token defence and the exit chain's trap rewrite
+    (`_registry_lock_join` composes head + tail).
+  - Regressions: `test_registry_lock.sh` case 19 (script args, die-while-held
+    and release-then-exit) and case 20 (literal `_registry_lock_exit_chain` in
+    quoted data); `test_archive_rearm_exit_trap.sh` M-lit (literal
+    `_ait_archive_cleanup` / `_ait_archive_exit_chain` paths, archive loaded).
+  - Mutant controls (ad hoc, scratch lib copies): no-`"$@"` → case19[held]
+    fails (2 asserts; released passes — the reviewer's exact shape);
+    substring self-defence → case20 fails (5 asserts); substring archive peel
+    → M-lit fails (and 9b / M[none/a]).
+- **Files affected:** `.aitask-scripts/lib/registry_lock.sh`,
+  `tests/test_registry_lock.sh`, `tests/test_archive_rearm_exit_trap.sh`
+
+### Change Request 2 (2026-11-17 17:45)
+- **Requested by user:** (blocking, CONFIRMED) `_registry_lock_owned_tail`
+  recognised composites only with the `__txn_chain_rc=$?;` prefix, but
+  `tests/lib/tmpdir_guard.sh::_tg_prepend_exit_trap` emits the same
+  status-preserving shape with `__tg_rc` — so a caller handler behind an archive
+  chain behind a tg prepend vanished (a regression introduced by Change
+  Request 1). (follow-up/low) the installed trap literal duplicated
+  `_REGISTRY_LOCK_CHAIN_CMD`.
+- **Changes made:**
+  - Recognition no longer keys on the producer: a wrapper is a command when it
+    is the whole text, or the last command after an unescaped `"; "` ending the
+    text (every prepend keeps the earlier trap as its tail). Quoted data still
+    cannot match (it ends in a quote), and a `\;` before the word is refused.
+  - The chain is installed with `trap "$_REGISTRY_LOCK_CHAIN_CMD" EXIT`.
+  - Regressions: matrix row `tg` (real `_tg_prepend_exit_trap`, both flows);
+    `test_registry_lock.sh` case 21, a table over every producer shape and the
+    near-misses (quoted data, `"a; name"` inside quotes, escaped `\;`,
+    mid-text mention, longer name).
+  - Mutant control: restoring the `__txn_chain_rc` prefix fails M[tg/a],
+    M[tg/b] (handler lost — the reviewer's reproduction) and 3 case-21 rows.
+- **Files affected:** `.aitask-scripts/lib/registry_lock.sh`,
+  `tests/test_registry_lock.sh`, `tests/test_archive_rearm_exit_trap.sh`
+
+### Change Request 3 (2026-11-17 18:15)
+- **Requested by user:** (blocking, low, CONFIRMED) `_registry_lock_owned_tail`
+  refused ANY head ending in a backslash, but an even run (`\;`) is a literal
+  backslash followed by an active `;`. A trap such as
+  `printf "%s\n" \; _ait_archive_exit_chain` therefore lost its archive-stored
+  caller under the lock (both flows), while it ran without the lock.
+- **Changes made:** escaping is decided by the PARITY of the run of
+  backslashes before the `;` (odd → escaped, refused; even → active,
+  recognised). Regressions: case 21 rows for an even run (hit) and an odd run of
+  three (miss); `M-bs` in `test_archive_rearm_exit_trap.sh`, a differential
+  over {even, odd} × {no lock, release-then-exit, die-while-held} asserting the
+  lock never changes what runs. Mutant control: the round-2 "any backslash"
+  rule fails M-bs[even/a], M-bs[even/b] and the case-21 even row.
+- **Files affected:** `.aitask-scripts/lib/registry_lock.sh`,
+  `tests/test_registry_lock.sh`, `tests/test_archive_rearm_exit_trap.sh`
+
+## Final Implementation Notes
+- **Actual work done:** `lib/registry_lock.sh` chains instead of replacing:
+  in the top-level shell `registry_lock_acquire` saves the caller's EXIT trap
+  (archive-sweep layer peeled off) and installs
+  `trap "$_REGISTRY_LOCK_CHAIN_CMD" EXIT` (`_registry_lock_exit_chain "$@"`),
+  which at exit releases first and then runs the caller's text with the dying
+  `$?`, the script's positional parameters and its own text visible in
+  `trap -p EXIT`; `registry_lock_release` restores the saved trap. Subshells
+  keep the pre-t2322 replace/clear behaviour; the armed state is scoped to the
+  arming shell (`${BASHPID:-$$}:${BASH_SUBSHELL}`). Wrapper commands are
+  recognised by whole command (whole text, or last command after an unescaped
+  `"; "`, escaping by backslash-run parity), never by substring. Workarounds
+  removed: the fold's post-`with_attach_lock` re-arm and the manual trap swap in
+  `aitask_gate.sh` sync-registry. Tripwire gained the
+  `# archive-sweep: exit-handler` marker. Comments updated in
+  `txn_snapshot.sh`, `merge_lock.sh`, `archive_utils.sh`.
+- **Deviations from plan:** three review rounds tightened the design (see Post-Review
+  Changes): positional parameters through `"$@"`; whole-command recognition with
+  producer-agnostic tail matching (covers `_tg_prepend_exit_trap`); parity-based
+  escape detection. Case numbering grew to 15-21 in `test_registry_lock.sh`,
+  plus the archive suite's M matrix (7 shapes incl. `tg`), M-lit and M-bs.
+- **Issues encountered:** (1) the plan's first draft had an unscoped "armed"
+  flag — a ( ) child inheriting it would leak its own lock (caught in plan
+  review, case 17b + pre-fix control). (2) The `aitask_gate.sh` sync-registry
+  hunk was committed by a concurrent session inside its own commit
+  `7df50e1c5` (t2324), which committed the whole working-tree file. The interim
+  (gate hunk on main before the library change) is behaviour-equivalent: under
+  the old library the removed lines duplicated what acquire/release already
+  did. So this task's code commit carries the other nine files only.
+  (3) No bash 3.2 is available on this machine, so the
+  `SHELL_UNDER_TEST=/bin/bash` portability run was NOT done (code avoids
+  bash-4-only constructs; `${BASHPID:-$$}` falls back as in archive_utils).
+- **Key decisions:** release-first ordering (a caller handler that calls `exit`
+  can never strand the lock; under-lock rollback stays a `txn_chain_exit_trap`
+  prepend inside the hold, which the fold keeps); the archive sweep stays the
+  outermost wrapper (peel on save, re-arm on install/restore) so no other lib's
+  private state is written; the test-side parent-owned root in
+  `test_registry_lock.sh` is kept (still the stronger owner, covers signals).
+- **Baseline (pre-phase lock_caller_baseline):** all 19 suites green on the
+  unmodified tree (registry_lock 51, archive_rearm 66, fold 277, txn 60,
+  create_email_lock 78, pick_own 103, shadow_rejected 130, scratchpad 116,
+  sitrep_todo 367, agent_marks 25, artifact_fetch_exclusion 245, merge_lock
+  135, gates_sync_registry 94, agent_sessions 42, single_winner 15,
+  share_resolution 98, attach_txn 149, projects_lock_on_die 38, tripwire OK).
+  After: 28 suites green (registry_lock 98, archive_rearm 194, fold 277, …),
+  no TMPDIR leftovers.
+- **Post-phase trap_shape_matrix:** done (`M` block: none / plain / chain /
+  txn / tg / ledger / noarchive × release-then-exit / die-while-held); against
+  the pre-t2322 library it fails 17 assertions.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/archive_utils.sh:228 — _ait_archive_exit_chain evals the stored caller trap inside a function installed as a bare `trap _ait_archive_exit_chain EXIT` (:263), so a caller handler reading $1 / "$@" sees an empty argument list (fatal under set -u) whenever the archive sweep wraps it`
+  - `.aitask-scripts/lib/archive_utils.sh:256 — _ait_archive_wrap_exit_trap's idempotence check (and the chain rewrite at :222) match _ait_archive_cleanup / _ait_archive_exit_chain as SUBSTRINGS, so a caller trap whose quoted data merely names them (e.g. rmdir "$d/_ait_archive_cleanup") is treated as already wrapped and the sweep is silently dropped`
