@@ -1,5 +1,63 @@
 # Changelog
 
+## v0.42.0
+
+### Features
+
+- **Durable Codex workflow questions** (t2281): Attended Codex workflows can ask questions through forms, keep unanswered questions open across timeouts and restarts, and accept answers at the ordinary prompt. Approvals bind the content or revision you reviewed, with checks before committing, merging and archiving.
+- **Sitrep crash recovery** (t2299_1, t2299_2, t2299_3): Sitrep detects crashed or orphaned work and uncertain locks, gathers recovery evidence, and keeps one recovery item per task. Monitor maintenance and the TUI refresh these items, preserve dismissals for the same incident, and offer task picking for crashed or orphaned work while reporting incomplete checks.
+- **Shared model statistics and migration** (t1912_1, t1912_5): Model usage and satisfaction counters now have a dedicated shared store, separating routine statistics updates from task-data synchronization. Setup and upgrades migrate older counters with resumable checks, and model registration and configuration imports keep statistics separate from model definitions.
+- **Repeatable documentation screenshots** (t2278_1, t2278_2, t2278_3, t2278_4): Capture real TUIs in isolated tmux sessions with sample data, save and replay capture recipes, and produce SVG images with PNG previews. Added crops, labels, callouts and multi-pane captures, initial board and monitor-family scenes, and checks for screenshot placeholders and image ownership.
+
+### Bug Fixes
+
+- **Correct board work-report shortcut** (t1363): Documentation now identifies lowercase `w` as the board's work-report key.
+- **Accurate switcher documentation** (t2176): Monitor and minimonitor guides link to one complete switcher list, removing stale entries and including App Linker.
+- **Visible task-data staging failures** (t2271): Failed task-data staging now reports the cause and names paths left staged when a git operation prevents cleanup. Corrected premise-check instructions that failed the scoped-commit check.
+- **Inspect uncertain staged work** (t2277): `ait git-health` lists staged task-data entries whose ownership is uncertain and explains what to inspect before continuing, aborting or cleaning up. An unreadable index is reported as unknown.
+- **Keep stale shadow feedback visible** (t2283): Minimonitor no longer hides stale-feedback warnings during replanning solely because an older gate record indicates another phase. Warnings retire only when supported by new phase evidence.
+- **Follow-up grouping and procedure gates** (t2284): New follow-ups and children trace existing anchors to the topic root, with warnings for malformed or cyclic chains. Forcing a procedure gate now reports that an agent is needed without recording a failed machine attempt.
+- **Correct Chat Linker invitation permissions** (t2286): Discord bot invitations request the ten required permissions, with message management documented as optional. Corrected related setup examples and headless-launch guidance.
+- **Clean up temporary files and processes** (t2290, t2295, t2302): Fixed temporary-file and process leaks in helpers and tests, including interrupted runs. Test runners isolate temporary resources per run, report leftovers and offer a strict mode that fails when resources remain.
+- **Working archive recovery instructions** (t2300): Wrap and web-merge skills now give valid archival commands, including the required gate-materialization recovery steps for web merges.
+- **Complete rename and unusual-path tracking** (t2304, t2310): Change tracking and shadow review include both the old and new paths of renames. Filenames containing spaces, Unicode, quotes or control characters retain their identity when matched against task plans and claim baselines.
+- **Brainstorm command help** (t2305, t2308): The three `apply-*` commands now provide help before checking Python dependencies and reject invalid arguments clearly. `ait brainstorm list --help` shows list-specific usage.
+- **Readable recording-sheet labels** (t2306): Recording contact sheets fall back to an available font when the default cannot render text, and size label bands using the selected font. Rendering failures retain useful diagnostics.
+- **Validate sitrep task statuses** (t2307): Sitrep reports missing or invalid task statuses as unreadable evidence instead of treating them as valid task facts.
+- **Read full process identities** (t2311): Agent discovery, companion filtering and process-identity fallbacks request full-width process output, avoiding failures caused by inherited terminal-width limits.
+- **Statistics from nested directories** (t2315): Statistics commands and readers find the repository's model registry when launched from a subdirectory or given a nested root.
+- **Reliable screenshot previews** (t2316): Chromium previews use a short private temporary directory, avoiding socket-path crashes under long temporary paths. Preview scratch files are cleaned up, with failures reported explicitly.
+- **Accurate stale-lock guidance** (t2317): Sitrep distinguishes a lock with an uncheckable holder from one whose holder is known to be gone, and asks you to verify ownership before releasing it.
+- **Clean up interrupted statistics migration** (t2319): Statistics migration removes its scratch files after helper failures, signals or a killed subprocess while preserving the caller's shared lock namespace.
+- **Run immediately after opening a pick dialog** (t2323): A Run request made while tmux session and window controls are mounting waits for them to finish, then launches once. Dismissing the dialog cancels the queued request.
+- **Reliable Codex approval enforcement** (t2324): Approval checks recognize equivalent TOML server-registration spellings. When registration cannot be inspected reliably, receipt checks remain enforced.
+- **Verify dependency-repair tests** (t2321): Setup tests now cover question-server dependencies and require an actual repair installation before declaring recovery successful across all five dependency tiers.
+- **Preserve cleanup around registry locks** (t2322): Registry locking preserves the caller's exit cleanup and restores it on release, retaining exit status and arguments when cleanup runs.
+
+### Improvements
+
+- **Consistent model rankings and scores** (t1912_2): Statistics, model pickers, settings and `list-models` read the shared counters consistently. Shown scores use the recorded all-time average when ratings exist, retaining the configured starting score otherwise.
+- **Statistics updates leave task data alone** (t1912_4): Usage and satisfaction updates write directly to the statistics store and report whether a count was recorded. A recorded update whose total cannot be read is reported without prompting a duplicate retry.
+- **Explicit task-data publication** (t1912_3): Workflows publish saved task changes at their stop and completion points, including deferred work, QA and model updates. A failed push leaves a clear retry reminder.
+- **Safer agent request submission** (t2275): Minimonitor rechecks and sitrep requests share submission checks that verify the intended prompt remains in the composer before pressing Enter. Changed or unreadable drafts hold submission, and uncertain post-submit content produces a warning without a duplicate retry.
+- **Choose Codex question-server setup** (t2297): Setup explains the question server, offers a separate choice and remembers it, with explicit install and removal flags. Codex skill entry points load the tool mapping first, and projects without the server ask workflow questions in ordinary prose.
+- **Guard shadow recheck submission** (t2309): Minimonitor verifies the shadow agent's run identity and mode when sending Enter. Frozen or unreadable targets hold the recheck, while replaced runs or unacknowledged submission stop automatic retries with an explanation.
+- **Discuss crash recovery from sitrep** (t2318): Press `w` on a recovery item to ask the sitrep agent about crashed work, including items without an explicit discussion theme.
+- **Simpler TUI switcher list** (t2320): Diff Viewer no longer appears in the TUI switcher.
+
+### Documentation
+
+- **Brainstorm recovery and deletion** (t1879): Added recovery steps for stuck agent output, command-line deletion guidance, the full subcommand reference and the Running-tab retry key.
+- **Model statistics storage and scores** (t1912_6): Explained the shared statistics store, migration messages, starting and shown scores, and how model updates and configuration transfers handle counters.
+- **Clearer concepts and task workflows** (t2258_3, t2258_4): Restructured concept and task-workflow pages around their intended readers, with focused references for advanced details. Added command references for Chat Linker and skill runs, and corrected behavior claims against the code.
+- **Focused parallel-work guides** (t2258_9): Shortened freeze-and-restore, trail and sitrep workflows into focused procedures, with detailed behavior moved to their references and failed-restore guidance corrected.
+- **Sitrep crash-recovery guide** (t2299_4): Documented recovery categories, evidence age, resume ordering and incomplete refresh results. The sitrep agent can discuss crashed work while leaving recovery-item maintenance to the detector and refresh tools.
+
+### Tests
+
+- **Statistics documentation drift checks** (t1591): Added checks that documented layouts, CSV columns and report sections match the statistics commands.
+- **Shadow prompts at narrow widths** (t2280): Added measured composer captures and regression coverage at common shadow-pane widths for Claude Code, Codex and OpenCode. Corrected prompt matching for genuine hyphen wrapping while rejecting inserted line breaks.
+
 ## v0.41.0
 
 ### Features
