@@ -290,8 +290,8 @@
       "verifiedstats": {
         "changelog": {
           "all_time": {
-            "runs": 1,
-            "score_sum": 80
+            "runs": 2,
+            "score_sum": 180
           },
           "prev_month": {
             "period": "",
@@ -300,13 +300,13 @@
           },
           "month": {
             "period": "2026-11",
-            "runs": 1,
-            "score_sum": 80
+            "runs": 2,
+            "score_sum": 180
           },
           "week": {
-            "period": "2026-W46",
+            "period": "2026-W47",
             "runs": 1,
-            "score_sum": 80
+            "score_sum": 100
           }
         }
       }
