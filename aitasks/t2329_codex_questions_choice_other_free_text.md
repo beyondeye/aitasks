@@ -103,3 +103,11 @@ That keeps one ask and one receipt.
 - Routing questions through Codex's built-in `request_user_input`.
 - Free text on multi-select questions; that could be a follow-up.
 - Porting to other agents: OpenCode/Claude already have a native Other.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2330** id=2026-11-17T20:02:17Z.d5118c497a11c6ed3e88ec98 from=t2330 at=2026-11-17T20:02:17Z base=7df50e1c5f3ff0194851e524ee267f234873521c base_branch=main dirty=yes host=omg16
+>
+> | t2330 (created 2026-11-17) changes the same chat-answer matcher as your step 5: validate_answer() in .aitask-scripts/aitask_questions/store.py, codex_prompt_model_forwarded path. It adds normalized matching (case/whitespace/_-) and unambiguous fuzzy matching (word-prefix + typo ratio, with negation/prose guards).
+> | This affects your "an exact id/label match still selects that option" rule. For an allow_other question, text should fall through to Other only after both the normalized step and the fuzzy step fail. Fuzzy probably needs a stricter threshold there, so a genuine free-text answer is not captured as a listed option. Whichever task lands second reconciles the ordering (advisory).
