@@ -499,3 +499,11 @@ injection.
   - The refresh fallback insertion also publishes through `ait_atomic_render`, and its awk renderer exits 1 when it inserted nothing.
   - New tests. G11: a standalone removal with quoted, escaped and dotted values is byte-exact; values survive the merge path and a double keep-merge; a dotted-key registration falls back to the merge; the seed comment block is dropped. G12: removal and merge through symlinks; `project_config.yaml` through a symlink keeps its mode and is published by rename (new inode); a failed render leaves it intact. Pre-fix mutants (`mv` unresolved, in-place truncation, no escaping, no text cut) each fail G11/G12.
 - **Files affected:** `.aitask-scripts/aitask_setup.sh`, `tests/test_setup_questions_server.sh`
+
+### Change Request 2 (2026-11-17 00:55)
+- **Requested by user:** the explicit opt-out gated removal on `questions_server_registered`, a literal-header grep. Valid spellings such as `[mcp_servers."aitask_questions"]` and `mcp_servers.aitask_questions.command = …` stayed registered while setup reported "not registered; the decline is recorded", with no failure flag set. The dotted-key regression test called `apply_codex_config` directly and bypassed that decision.
+- **Changes made:**
+  - `questions_server_registered` keeps the literal-header grep as its fast path and otherwise parses the config with tomllib. It is one change point, so the opt-out decision, the standalone removal, the keep/hint path, the deps gate and the post-merge validation all see every valid spelling. Without a parser only the grep answers.
+  - New group G13 runs the quoted and dotted spellings through the setup paths: `setup_codex_agent` with Codex not installed, `setup_codex_cli` with `--no-codex-questions`, and a plain re-run (registration kept with the hint, deps repaired). It also checks that commented-out and unparseable configs read as not registered.
+  - Pre-fix control: putting back the grep-only check fails G13 (13, 13a, 13c and 13d for the quoted form; the dotted form fails the same way).
+- **Files affected:** `.aitask-scripts/aitask_setup.sh`, `tests/test_setup_questions_server.sh`
