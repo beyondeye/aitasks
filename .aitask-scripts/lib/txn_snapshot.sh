@@ -240,13 +240,14 @@ txn_snap_cleanup() {
 
 # txn_chain_exit_trap <handler> -- PREPEND <handler> to the current EXIT trap.
 #
-# Load-bearing, not stylistic. registry_lock_acquire installs
-# `trap "registry_lock_release '<dir>'" EXIT`, OVERWRITING whatever the caller
-# had, and registry_lock_release clears EXIT outright. So a rollback trap
-# installed before with_attach_lock is destroyed by the acquire, and a bare
-# `trap ... EXIT` inside the callback would LEAK THE GLOBAL ATTACH LOCK.
-# Chaining puts the rollback first (it runs while the lock is still held) and
-# the release second.
+# Load-bearing, not stylistic. registry_lock_acquire installs its lock-release
+# chain as the EXIT trap (it keeps the caller's pre-acquire trap BEHIND the
+# release and restores it at registry_lock_release, t2322). A bare
+# `trap ... EXIT` inside the callback would replace that chain and LEAK THE
+# GLOBAL ATTACH LOCK; a rollback left in the caller's pre-acquire trap would run
+# only AFTER the release, unprotected. Prepending puts the rollback first (it
+# runs while the lock is still held) and the release second. The release
+# restores the pre-acquire trap, so a handler prepended here ends with the hold.
 #
 # STATUS-PRESERVING (t2071): the dying status is captured first and restored
 # TWICE -- before <handler>, because the capturing assignment itself sets `$?`

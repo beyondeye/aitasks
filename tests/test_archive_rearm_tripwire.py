@@ -19,7 +19,11 @@ Scope -- the files where the sweep can be armed when the trap runs:
 A site is satisfied by the re-arm as a STATEMENT -- ``; ait_archive_rearm_exit_trap``
 ending the trap's own line, alone on the next non-blank code line, or in the
 lib ``declare -F`` guard -- or by the per-line comment marker
-``# archive-sweep: subshell-local`` (a ``( … )``-local trap with no resolve).
+``# archive-sweep: subshell-local`` (a ``( … )``-local trap with no resolve),
+or ``# archive-sweep: exit-handler`` (a trap rewritten from INSIDE a running EXIT
+handler that the sweep already wraps from outside, e.g. registry_lock's
+``_registry_lock_exit_chain``: the sweep has run, and re-arming there would wrap
+the caller's handler in front of its own first-command check; t2322).
 Comments are stripped first, so a comment that merely names the helper is not
 a call.
 
@@ -44,6 +48,8 @@ from shell_startup_closure import startup_closure  # noqa: E402
 
 REARM = "ait_archive_rearm_exit_trap"
 MARKER = "# archive-sweep: subshell-local"
+EXIT_HANDLER_MARKER = "# archive-sweep: exit-handler"
+MARKERS = (MARKER, EXIT_HANDLER_MARKER)
 
 # A `trap` COMMAND word (line start, or after ; && || { then do), a handler
 # argument -- `-` (clear), a quoted string, or any bare word not starting with
@@ -94,7 +100,7 @@ def unpaired_sites(text: str) -> list[tuple[int, str]]:
     bad: list[tuple[int, str]] = []
     for i, line in enumerate(lines):
         for code, m in _sites(line):
-            if MARKER in line[len(code):]:
+            if any(mk in line[len(code):] for mk in MARKERS):
                 continue
             if REARM_CALL_RE.match(code[m.end():]):
                 continue
@@ -138,7 +144,8 @@ class ArchiveRearmTripwire(unittest.TestCase):
             report, [],
             "EXIT trap replaced/cleared without re-arming the archive sweep — add "
             f"`{REARM}` on the next line (libs: guard it with `declare -F`), or "
-            f"mark a subshell-local trap with `{MARKER}`:\n" + "\n".join(report),
+            f"mark a subshell-local trap with `{MARKER}` (or a trap rewritten inside a "
+            f"running EXIT handler with `{EXIT_HANDLER_MARKER}`):\n" + "\n".join(report),
         )
 
     def test_scan_is_not_vacuous(self):
@@ -185,6 +192,13 @@ class TripwireSelfTest(unittest.TestCase):
     def test_marker_passes(self):
         self.assertEqual(self.check(f"  trap \"rm -rf '$t'\" EXIT   {MARKER}\n  :\n"), [])
 
+    def test_exit_handler_marker_passes(self):
+        self.assertEqual(self.check(
+            f"    trap -- \"$now\" EXIT   {EXIT_HANDLER_MARKER}\n    :\n"), [])
+        # ...and only on its own line: the unmarked neighbour is still flagged.
+        self.assertEqual(len(self.check(
+            f"trap -- \"$now\" EXIT   {EXIT_HANDLER_MARKER}\ntrap - EXIT\n:\n")), 1)
+
     def test_colon_handler_is_a_site(self):
         self.assertEqual(len(self.check("trap : EXIT\necho work\n")), 1)
         self.assertEqual(count_sites("trap : EXIT\n"), 1)
@@ -204,6 +218,8 @@ class TripwireSelfTest(unittest.TestCase):
     def test_marker_must_be_a_comment(self):
         self.assertEqual(len(self.check(
             "trap \"echo '# archive-sweep: subshell-local'\" EXIT\n:\n")), 1)
+        self.assertEqual(len(self.check(
+            "trap \"echo '# archive-sweep: exit-handler'\" EXIT\n:\n")), 1)
 
     def test_non_sites_are_ignored(self):
         text = ("# trap 'x' EXIT\nspec=\"$(trap -p EXIT)\"\n"

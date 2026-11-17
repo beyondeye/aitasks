@@ -1240,11 +1240,12 @@ test_attach_txn_nonzero_return_rolls_back() {
     install_attach_txn_returns_nonzero || { teardown; return; }
     _run_fold_split --commit-mode fresh 10 20
 
-    # with_attach_lock ends with `return "$rc"`, and registry_lock_release has
-    # already done `trap - EXIT` by then -- so a BARE `with_attach_lock
-    # _fold_attach_txn` call site would trip errexit one line before the
-    # re-arm and roll back nothing. This is the path a `die`-based injection
-    # cannot reach.
+    # with_attach_lock ends with `return "$rc"` AFTER registry_lock_release,
+    # so the fold's own EXIT trap must already be back by then for the die
+    # behind it to roll anything back. Since t2322 the release restores it (the
+    # fold no longer re-arms by hand), so this is the test that proves the
+    # restore; its control is test_negative_control_release_clears_exit_trap.
+    # This is the path a `die`-based injection cannot reach.
     assert_eq "exits non-zero" "1" "$FOLD_RC"
     assert_contains "stderr names the wrapper failure" \
         "attachment transfer failed (exit 3)" "$FOLD_ERR"
@@ -1259,8 +1260,8 @@ test_attach_txn_nonzero_return_rolls_back() {
     teardown
 }
 
-test_negative_control_attach_rearm_removed() {
-    echo "=== Negative control: t1707 — WITHOUT the re-arm, nothing rolls back ==="
+test_negative_control_release_clears_exit_trap() {
+    echo "=== Negative control: t2322 — a release that CLEARS EXIT rolls nothing back ==="
     setup_project
     _copy_attachment_libs
 
@@ -1270,21 +1271,17 @@ test_negative_control_attach_rearm_removed() {
     git commit -m "Setup" --quiet
 
     # The paired control for test_attach_txn_nonzero_return_rolls_back above.
-    # t1698's Step 8b review reported that fold has no EXIT trap after Step 5b
-    # returns; it does (aitask_fold_mark.sh:820, shipped by t1668 itself). This
-    # control settles that empirically: delete the re-arm and the SAME scenario
-    # stops rolling back. Without it, the positive test proves nothing — it
-    # would pass against a build where the re-arm was never needed.
-    #
-    # Injector order is load-bearing: the re-arm removal runs FIRST, because
-    # install_attach_txn_returns_nonzero deletes _fold_snapshot_meta_tree and
-    # rewrites the function this one's call-site guard reads around.
-    install_attach_rearm_removed || { teardown; return; }
+    # The fold no longer re-arms its trap after with_attach_lock: it relies on
+    # registry_lock_release RESTORING the pre-acquire trap (t2322). Put the
+    # exact pre-t2322 release tail back (`trap - EXIT` + the sweep re-arm) and
+    # the SAME scenario must stop rolling back -- otherwise the positive test
+    # would pass against a build where the restore was never needed.
+    install_prefix_release_clears_exit_trap || { teardown; return; }
     install_attach_txn_returns_nonzero || { teardown; return; }
 
     _run_fold_split --commit-mode fresh 10 20
 
-    # The die at :822 is unaffected — only the rollback behind it disappears.
+    # The die after with_attach_lock is unaffected — only the rollback behind it disappears.
     assert_eq "exits non-zero" "1" "$FOLD_RC"
     assert_contains "stderr still names the wrapper failure" \
         "attachment transfer failed (exit 3)" "$FOLD_ERR"
@@ -1648,10 +1645,9 @@ PY
     # Prove the injection landed -- no arming, no snapshotting.
     grep -q "PRE-FIX BUILD: no snapshot, no trap" .aitask-scripts/aitask_fold_mark.sh \
         || { echo "FAIL: negative control did not install the pre-fix transaction block"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
-    # Check the ARMING site, not the trap string: the post-attach-lock re-arm
-    # lives outside this block (registry_lock_release clears EXIT) and would
-    # match a bare `trap '_fold_abort_cleanup' EXIT` grep even after a correct
-    # excision.
+    # Check the ARMING site, not the trap string: a bare
+    # `trap '_fold_abort_cleanup' EXIT` grep says nothing about whether the
+    # transaction was armed.
     grep -q '^_fold_txn_active=true$' .aitask-scripts/aitask_fold_mark.sh \
         && { echo "FAIL: negative control left the transaction armed"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
     grep -q 'txn_snap_add "\$_p"' .aitask-scripts/aitask_fold_mark.sh \
@@ -1681,46 +1677,41 @@ PY
     return 0
 }
 
-# t1707: delete the post-attach-lock re-arm (aitask_fold_mark.sh:820), leaving an
-# armed transaction with no EXIT handler between Step 5b and Step 6. This is the
-# build t1698's Step 8b review believed was shipped; the control below proves it
-# is not, and that removing the re-arm is observable. INJECTED — no shipped path
-# reaches this state, which is exactly why the claim needed a mutant to settle.
+# t2322: put the pre-t2322 registry_lock_release tail back in the FIXTURE's
+# lib copy -- `trap - EXIT` plus the sweep re-arm in place of the restore --
+# leaving the fold's armed transaction with no EXIT handler after the attach
+# lock is released. INJECTED: no shipped path reaches this state.
 #
-# The anchor is the FULL line including its trailing comment. The bare trap text
-# `trap '_fold_abort_cleanup' EXIT` ALSO matches the top-level arm at :518, so a
-# loose anchor would silently mutate the wrong trap and the control would pass
-# while proving nothing. The guards below pin exactly that: one re-arm line goes,
-# the distinct column-0 top-level arm stays.
-_FOLD_REARM_LINE="    trap '_fold_abort_cleanup' EXIT   # registry_lock_release did \`trap - EXIT\`"
-
-install_attach_rearm_removed() {
-    # Precondition: exactly ONE re-arm line, and the top-level arm is distinct.
-    local n_rearm n_toplevel
-    n_rearm=$(grep -cxF "$_FOLD_REARM_LINE" .aitask-scripts/aitask_fold_mark.sh || true)
-    n_toplevel=$(grep -cxF "trap '_fold_abort_cleanup' EXIT" .aitask-scripts/aitask_fold_mark.sh || true)
-    [[ "$n_rearm" == 1 ]] \
-        || { echo "FAIL: expected exactly 1 post-attach-lock re-arm line, found $n_rearm"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
-    [[ "$n_toplevel" == 1 ]] \
-        || { echo "FAIL: expected exactly 1 top-level trap arm, found $n_toplevel"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
-
-    python3 - "$PWD/.aitask-scripts/aitask_fold_mark.sh" <<'PY'
+# The anchor is the release's whole tail (drop + restore + return), not the
+# bare `trap` text: the EXIT chain carries its own `trap - EXIT`, so a loose
+# anchor could mutate the wrong function and the control would pass while
+# proving nothing. The guards pin exactly one change.
+install_prefix_release_clears_exit_trap() {
+    local lib=.aitask-scripts/lib/registry_lock.sh
+    [[ -f "$lib" ]] \
+        || { echo "FAIL: fixture has no $lib to inject into"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    python3 - "$PWD/$lib" <<'PY2'
 import sys
 p = sys.argv[1]
 s = open(p).read()
-old = "    trap '_fold_abort_cleanup' EXIT   # registry_lock_release did `trap - EXIT`\n"
+old = '    _registry_lock_drop "$dir"\n    _registry_lock_restore_exit_trap\n    return 0\n'
+new = ('    _registry_lock_drop "$dir"\n'
+       '    _registry_lock_trap_mode=""; _registry_lock_trap_shell=""; _registry_lock_saved_trap=""\n'
+       '    trap - EXIT   # PRE-T2322 RELEASE\n'
+       '    if declare -F ait_archive_rearm_exit_trap >/dev/null; then ait_archive_rearm_exit_trap; fi\n'
+       '    return 0\n')
 if s.count(old) != 1:
-    sys.stderr.write("anchor: post-attach-lock re-arm not found exactly once\n"); sys.exit(1)
-open(p, 'w').write(s.replace(old, '', 1))
-PY
-    grep -qxF "$_FOLD_REARM_LINE" .aitask-scripts/aitask_fold_mark.sh \
-        && { echo "FAIL: injector did not remove the post-attach-lock re-arm"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
-    # Excised the right line and only that line: the top-level arm and the call
-    # site itself must both survive.
-    grep -qxF "trap '_fold_abort_cleanup' EXIT" .aitask-scripts/aitask_fold_mark.sh \
-        || { echo "FAIL: injector clobbered the top-level trap arm"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
-    grep -qF 'with_attach_lock _fold_attach_txn || _fold_attach_rc=$?' .aitask-scripts/aitask_fold_mark.sh \
-        || { echo "FAIL: injector removed the with_attach_lock call site"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    sys.stderr.write("anchor: registry_lock_release tail not found exactly once\n"); sys.exit(1)
+open(p, 'w').write(s.replace(old, new, 1))
+PY2
+    grep -qF 'trap - EXIT   # PRE-T2322 RELEASE' "$lib" \
+        || { echo "FAIL: injector did not install the pre-t2322 release"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    # Exactly one site changed: the restore helper itself still exists (the
+    # EXIT chain path is untouched) and the release no longer calls it.
+    grep -q '^_registry_lock_restore_exit_trap() {$' "$lib" \
+        || { echo "FAIL: injector clobbered the restore helper"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
+    [[ "$(grep -c '^    _registry_lock_restore_exit_trap$' "$lib" || true)" == 0 ]] \
+        || { echo "FAIL: the release still calls the restore"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); return 1; }
     TOTAL=$((TOTAL + 1)); PASS=$((PASS + 1))
     return 0
 }
@@ -2222,10 +2213,10 @@ test_negative_control_amend_sweeps
 test_negative_control_amend
 test_negative_control_unbuffered_on_refusal
 test_negative_control_unbuffered_on_commit_failure
-# t1707 — pairs test_attach_txn_nonzero_return_rolls_back: without the
-# post-attach-lock re-arm (aitask_fold_mark.sh:820) the same scenario rolls
-# back nothing, which is what makes that test's assertions mean something.
-test_negative_control_attach_rearm_removed
+# t2322 (was t1707) — pairs test_attach_txn_nonzero_return_rolls_back: with
+# the pre-t2322 release (clears EXIT instead of restoring the fold's trap) the
+# same scenario rolls back nothing, which is what makes that test mean something.
+test_negative_control_release_clears_exit_trap
 
 # t1733 — the HEAD probe fails closed: an unreadable HEAD and a merge commit's
 # empty path list both refuse instead of authorising a history rewrite

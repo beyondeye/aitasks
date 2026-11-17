@@ -26,8 +26,8 @@
 #
 # --- Deliberate boundary deltas (the adapter's whole surface) ---------------
 #
-#   1. NO AUTO-RELEASE EXIT TRAP. registry_lock.sh installs
-#      `trap "registry_lock_release '$dir'" EXIT` inside its acquire. This
+#   1. NO AUTO-RELEASE EXIT TRAP. registry_lock.sh installs an auto-release
+#      EXIT trap (chained with the caller's own) inside its acquire. This
 #      adapter must NOT, and the difference is the whole feature: `begin`,
 #      `finish` and `abort` are three SEPARATE short-lived processes, and the
 #      reservation has to survive between them - across a human resolving a

@@ -243,6 +243,150 @@ echo DONE" "" noarchive
 assert_eq "10: registry_lock without archive_utils runs clean under set -e" "0" "$RC"
 assert_contains "10: and reaches the end" "DONE" "$OUT"
 
+# --- M: the caller's EXIT trap across registry_lock (t2322) ---------------------
+# One row per pre-acquire EXIT-trap shape, each run two ways:
+#   a  acquire -> release -> exit 3     (the release must RESTORE the shape)
+#   b  acquire -> exit 3 while held     (the chain must release, then run it)
+# Every handler appends one line to $MARK (H = caller, T = a txn prepend), so
+# "ran exactly once" is a count. The ledger row holds a real ledger lock under
+# the no-arg spelling, whose first-command check turns a misplaced trap into a
+# generic exit 1 — so exit 3 there proves the chain kept its position.
+echo "--- M: caller EXIT-trap shapes x registry_lock ---"
+matrix_case() {  # <row> <flow:a|b> <libs> <setup>
+    local lock="\$AITASKS_LOCK_DIR/m_$1$2" tail="exit 3"
+    [[ "$2" == a ]] && tail="registry_lock_release \"$lock\"
+echo \"TRAP:\$(trap -p EXIT)\"
+exit 3"
+    run_case "
+PROJECT_DIR_T='$PROJECT_DIR'
+h() { echo H >> \"\$MARK\"; }
+t() { echo T >> \"\$MARK\"; }
+$4
+registry_lock_acquire \"$lock\" 2 || exit 98
+$tail" "" "$3"
+    LOCKDIR="$(sed -n 's/^LOCK://p' <<<"$OUT" | head -n1)"
+}
+m_count() { grep -c "^$1\$" "$MARK" || true; }
+
+M_SETUP_none=''
+M_SETUP_plain="trap 'h' EXIT"
+M_SETUP_chain="trap 'h' EXIT
+ait_archive_rearm_exit_trap"
+M_SETUP_txn=". \"\$SCRIPT_DIR/lib/txn_snapshot.sh\"
+trap 'h' EXIT
+ait_archive_rearm_exit_trap
+txn_chain_exit_trap 't'"
+M_SETUP_tg="trap 'h' EXIT
+ait_archive_rearm_exit_trap
+. \"\$PROJECT_DIR_T/tests/lib/tmpdir_guard.sh\"
+_tg_prepend_exit_trap 't'"
+M_SETUP_ledger="ait_ledger_lock_acquire t2322 \"mx\$\$\" 'test lock' 'test lock'
+echo \"LOCK:\$_AIT_LEDGER_LOCK_DIR\"
+trap 'ait_ledger_lock_exit_trap' EXIT
+ait_archive_rearm_exit_trap"
+
+# row | libs | expected H | expected T | trap text after a release (flow a)
+for spec in \
+    "none||0|0|_ait_archive_cleanup" \
+    "plain||1|0|_ait_archive_exit_chain" \
+    "chain||1|0|_ait_archive_exit_chain" \
+    "txn||1|1|_ait_archive_exit_chain" \
+    "tg||1|1|_ait_archive_exit_chain" \
+    "ledger||0|0|_ait_archive_exit_chain" \
+    "noarch|noarchive|1|0|h"; do
+    IFS='|' read -r row libs want_h want_t want_trap <<<"$spec"
+    setup_var="M_SETUP_$row"
+    [[ "$row" == noarch ]] && setup_var=M_SETUP_plain
+    for flow in a b; do
+        matrix_case "$row" "$flow" "$libs" "${!setup_var}"
+        tag="M[$row/$flow]"
+        assert_eq "$tag: exit 3 survives (no generic 1, no 98)" "3" "$RC"
+        assert_eq "$tag: caller handler ran $want_h time(s)" "$want_h" "$(m_count H)"
+        assert_eq "$tag: txn prepend ran $want_t time(s)" "$want_t" "$(m_count T)"
+        assert_not_contains "$tag: no first-command warning" "$WARN" "$OUT"
+        assert_dir_not_exists "$tag: the registry lock was released" "$AITASKS_LOCK_DIR/m_$row$flow"
+        if [[ "$row" == ledger ]]; then
+            assert_contains "$tag: the ledger lock was really held" "LOCK:$AITASKS_LOCK_DIR/" "$OUT"
+            assert_dir_not_exists "$tag: the ledger lock was released" "$LOCKDIR"
+        fi
+        if [[ "$libs" != noarchive ]]; then
+            assert_eq "$tag: swept" "0" "$LEFT"
+        fi
+        if [[ "$flow" == a ]]; then
+            assert_contains "$tag: release restores the pre-acquire shape" \
+                "TRAP:trap -- '$want_trap' EXIT" "$OUT"
+        fi
+    done
+done
+
+# M-lit: the archive layer is peeled by whole COMMAND, not substring. A caller
+# trap whose quoted data merely names the sweep's functions must come back
+# verbatim and still reach its paths. (No sweep re-arm before the acquire:
+# archive_utils.sh's own idempotence check is a substring match and would
+# treat this text as already wrapped -- a separate, pre-existing defect, which
+# is also why LEFT is not asserted here.)
+for flow in a b; do
+    D="$FIX/mlit$flow"
+    mkdir -p "$D/_ait_archive_cleanup" "$D/_ait_archive_exit_chain"
+    tail='exit 0'
+    [[ "$flow" == a ]] && tail="registry_lock_release \"\$AITASKS_LOCK_DIR/mlit$flow\"
+echo \"TRAP:\$(trap -p EXIT)\"
+exit 0"
+    run_case "
+D='$D'
+trap 'rmdir \"\$D/_ait_archive_cleanup\" \"\$D/_ait_archive_exit_chain\" && echo H >> \"\$MARK\"' EXIT
+registry_lock_acquire \"\$AITASKS_LOCK_DIR/mlit$flow\" 2 || exit 98
+$tail"
+    assert_eq "M-lit[$flow]: exits 0" "0" "$RC"
+    if [[ "$flow" == a ]]; then
+        assert_contains "M-lit[$flow]: release restores the caller's text verbatim" \
+            "TRAP:trap -- 'rmdir \"\$D/_ait_archive_cleanup\" \"\$D/_ait_archive_exit_chain\" && echo H >> \"\$MARK\"' EXIT" "$OUT"
+    fi
+    assert_eq "M-lit[$flow]: the caller's handler ran once" "1" "$(m_count H)"
+    assert_dir_not_exists "M-lit[$flow]: it removed the first path it names" "$D/_ait_archive_cleanup"
+    assert_dir_not_exists "M-lit[$flow]: it removed the second path it names" "$D/_ait_archive_exit_chain"
+    assert_dir_not_exists "M-lit[$flow]: the registry lock was released" "$AITASKS_LOCK_DIR/mlit$flow"
+done
+
+# M-bs: backslashes before the "; " that separates the sweep's chain command.
+# Differential: each variant runs with NO lock, release-then-exit (a) and
+# die-while-held (b), and the lock must not change what runs. Even run (two
+# backslashes): a literal backslash, then the chain command runs h. Odd run
+# (one): the chain name is only printf's argument, so h never runs, with or
+# without the lock.
+for variant in even odd; do
+    if [[ "$variant" == even ]]; then
+        BS_TRAP='printf "%s\n" \\; _ait_archive_exit_chain'; want_h=1
+    else
+        BS_TRAP='printf "%s\n" \; _ait_archive_exit_chain'; want_h=0
+    fi
+    for flow in none a b; do
+        BS_LOCK="\$AITASKS_LOCK_DIR/mbs$variant$flow"
+        case "$flow" in
+            none) lock_lines='' ;;
+            a)    lock_lines="registry_lock_acquire \"$BS_LOCK\" 2 || exit 98
+registry_lock_release \"$BS_LOCK\"" ;;
+            b)    lock_lines="registry_lock_acquire \"$BS_LOCK\" 2 || exit 98" ;;
+        esac
+        run_case "
+h() { echo H >> \"\$MARK\"; }
+trap 'h' EXIT
+ait_archive_rearm_exit_trap
+trap -- '${BS_TRAP}' EXIT
+$lock_lines
+exit 0"
+        tag="M-bs[$variant/$flow]"
+        assert_eq "$tag: exits 0" "0" "$RC"
+        assert_eq "$tag: h ran $want_h time(s), as without the lock" "$want_h" "$(m_count H)"
+        if [[ "$variant" == even ]]; then
+            assert_eq "$tag: the literal backslash was printed" '\' "$(head -n1 <<<"$OUT")"
+        else
+            assert_contains "$tag: the chain name was only an argument" "_ait_archive_exit_chain" "$OUT"
+        fi
+        assert_dir_not_exists "$tag: no lock left behind" "$AITASKS_LOCK_DIR/mbs$variant$flow"
+    done
+done
+
 # --- R: real entry points ------------------------------------------------------
 # t5 exists ONLY inside a bundle, so resolving it extracts to a temp dir; t7 is
 # a loose archived file (a real repo path). Writes to a bundled task are refused

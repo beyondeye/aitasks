@@ -777,11 +777,14 @@ _fold_snapshot_meta_tree() {
 # _fold_attach_txn -- rebind + merge (attachments and artifacts), run as one
 # transaction under the attach lock.
 _fold_attach_txn() {
-    # registry_lock_acquire (inside with_attach_lock) has just installed its own
-    # lock-release EXIT handler OVER ours, and registry_lock_release clears EXIT
-    # outright. CHAIN rather than clear -- the rule lib/stale_lock.sh states --
-    # so an abort inside this transaction both rolls the fold back and releases
-    # the lock, in that order.
+    # registry_lock_acquire (inside with_attach_lock) has just chained its
+    # lock release IN FRONT of our handler (t2322): left alone, an abort here
+    # would release the attach lock first and roll the fold back after it,
+    # with the meta tree unprotected. Prepending puts the rollback first, under
+    # the lock. The handler then runs a second time as the restored caller
+    # trap; that run is a no-op, because _fold_rollback disarms
+    # _fold_txn_active before restoring anything and txn_snap_cleanup is
+    # idempotent.
     #
     # NOTE: with_attach_lock runs us as `"$@" || rc=$?`, so errexit is DISABLED
     # for everything below. Every mutating call must check its own status.
@@ -826,18 +829,14 @@ if [[ "$_fold_any_attach_or_artifacts" == true ]]; then
     source "$SCRIPT_DIR/lib/attachment_lock.sh"
     # shellcheck source=lib/attachment_meta.sh
     source "$SCRIPT_DIR/lib/attachment_meta.sh"
-    # An explicit failure branch, not a bare call. with_attach_lock ends with
-    # `return "$rc"`, and registry_lock_release has already run `trap - EXIT` by
-    # then -- so a callback that RETURNS non-zero (rather than calling die)
-    # would trip errexit one line before the re-arm below, and the Step-5b
-    # mutations would survive. Suppress errexit for the wrapper, re-arm, then
-    # fail. (A die from inside with_attach_lock itself -- the lock-busy path --
-    # happens before registry_lock_acquire installs anything, so the fold's
-    # original trap is still armed there.)
+    # An explicit failure branch, not a bare call, so a callback that RETURNS
+    # non-zero (rather than calling die) is reported with its own status.
+    # registry_lock_release restores the fold's EXIT trap (t2322) before
+    # with_attach_lock returns, so the die below still rolls the Step-5b
+    # mutations back. (A die from inside with_attach_lock itself, on the
+    # lock-busy path, happens before registry_lock_acquire touches the trap.)
     _fold_attach_rc=0
     with_attach_lock _fold_attach_txn || _fold_attach_rc=$?
-    trap '_fold_abort_cleanup' EXIT   # registry_lock_release did `trap - EXIT`
-    ait_archive_rearm_exit_trap
     (( _fold_attach_rc == 0 )) \
         || die "fold: attachment transfer failed (exit ${_fold_attach_rc})"
 fi

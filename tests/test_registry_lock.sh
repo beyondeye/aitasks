@@ -21,6 +21,12 @@
 # on the OLD algorithm), tokenless age reclaim, the clock-free deadline re-arm,
 # and release's always-0 contract.
 #
+# Cases 15-18 pin the caller's EXIT trap across the lock (t2322): restored after
+# release, run once (after the release, with the dying status) when the process
+# dies while held, never composed inside a subshell, an inherited "armed" state
+# that a ( ) child must not trust (17b, with a pre-fix control on an unscoped
+# check), and a same-shell nested acquire that must not save its own chain.
+#
 # Run: bash tests/test_registry_lock.sh
 # Expected runtime: ~11s.
 
@@ -29,11 +35,12 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
-# The scratch root's owner lives in a PARENT process (t2302). Inside this
-# shell no EXIT trap can own it: registry_lock_acquire replaces the EXIT trap
-# with its own release, and registry_lock_release clears it (`trap - EXIT`), so
-# any exit after the first acquire would skip a trap and the footer alike. The
-# parent never runs the library; it removes the root however the child ends —
+# The scratch root's owner lives in a PARENT process (t2302). It was introduced
+# because registry_lock_acquire used to REPLACE the suite's EXIT trap and
+# registry_lock_release cleared it; since t2322 the lock chains and restores the
+# caller's trap (cases 15-18). The parent stays because it is still the
+# stronger owner: it never runs the library under test, so a regression there
+# cannot leak the root, and it removes the root however the child ends —
 # completion, an early exit, or a signal (deferred while it waits on the child,
 # then handled).
 if [[ -z "${_AIT_REGLOCK_TEST_ROOT:-}" ]]; then
@@ -419,6 +426,190 @@ assert_dir_exists "case14: the new owner's lock is left intact" "$d14"
 # shellcheck disable=SC2154  # _registry_lock_dir is set by the sourced lib
 assert_eq "case14: module state is cleared regardless" "" "$_registry_lock_dir"
 rm -rf "$d14"
+
+# --- Cases 15-18: the caller's EXIT trap survives the lock (t2322) ---------
+# Each case runs in a THROWAWAY child bash, so neither the suite's own traps
+# nor its lock state are involved. The child's handler `h` appends one `H` line
+# per run to $MARK, so "ran exactly once" is a line count, not trap text.
+_rl_run() {   # <lib dir> <body> [script args...]  -> RL_OUT, RL_RC, RL_MARK
+    local libdir="$1" body="$2" script
+    script="$(mktemp "$TMPROOT/child.XXXXXX")"
+    RL_MARK="$script.mark"
+    : > "$RL_MARK"
+    {
+        echo 'set -uo pipefail'
+        echo "MARK='$RL_MARK' T='$TMPROOT'"
+        echo ". '$libdir/terminal_compat.sh'"
+        echo ". '$libdir/registry_lock.sh'"
+        printf '%s\n' "$body"
+    } > "$script"
+    RL_RC=0
+    RL_OUT="$(timeout 30 bash "$script" "${@:3}" 2>&1)" || RL_RC=$?
+}
+_rl_h_count() { grep -c '^H' "$RL_MARK" || true; }
+RL_LIB="$PROJECT_DIR/.aitask-scripts/lib"
+
+# Case 15: a top-level caller trap survives acquire + release.
+_rl_run "$RL_LIB" '
+h() { echo "H rc=$1" >> "$MARK"; }
+trap '"'"'h $?'"'"' EXIT
+registry_lock_acquire "$T/lock15.d" 5 || exit 98
+registry_lock_release "$T/lock15.d"
+echo "TRAP:$(trap -p EXIT)"'
+assert_eq "case15: child exits 0" "0" "$RL_RC"
+assert_contains "case15: release restores the caller's trap text" \
+    "TRAP:trap -- 'h \$?' EXIT" "$RL_OUT"
+assert_eq "case15: the caller's handler runs exactly once at exit" "1" "$(_rl_h_count)"
+assert_dir_not_exists "case15: the lock was released" "$TMPROOT/lock15.d"
+
+# Case 16: dying while held — release FIRST, then the caller's handler, which
+# sees the dying status and its own text in `trap -p EXIT`.
+_rl_run "$RL_LIB" '
+L="$T/lock16.d"
+h() { echo "H rc=$1 lock=$([ -d "$L" ] && echo held || echo free)" >> "$MARK"; echo "SEEN:$(trap -p EXIT)" >> "$MARK"; }
+trap '"'"'h $?'"'"' EXIT
+registry_lock_acquire "$L" 5 || exit 98
+exit 7'
+assert_eq "case16: the dying status survives the chain" "7" "$RL_RC"
+assert_contains "case16: the handler got the dying status, after the release" \
+    "H rc=7 lock=free" "$(cat "$RL_MARK")"
+assert_contains "case16: the handler reads its own trap text (first-command checks)" \
+    "SEEN:trap -- 'h \$?' EXIT" "$(cat "$RL_MARK")"
+assert_eq "case16: the handler ran exactly once" "1" "$(_rl_h_count)"
+assert_dir_not_exists "case16: the lock was released" "$TMPROOT/lock16.d"
+
+# Case 17: a subshell acquire never composes the parent's (inactive) trap.
+_rl_run "$RL_LIB" '
+h() { echo "H rc=$1" >> "$MARK"; }
+trap '"'"'h $?'"'"' EXIT
+( registry_lock_acquire "$T/lock17.d" 5 || exit 98 )
+echo "SUB:$? H=$(grep -c "^H" "$MARK") L=$([ -d "$T/lock17.d" ] && echo left || echo gone)"'
+assert_contains "case17: the subshell released its lock, without running the parent's handler" \
+    "SUB:0 H=0 L=gone" "$RL_OUT"
+assert_eq "case17: the parent's handler runs once, at the parent's exit" "1" "$(_rl_h_count)"
+
+# Case 17b: INHERITED armed state. The parent holds A in chain mode; a ( )
+# child inherits the "armed" variables but not the armed trap. It must still
+# arm its own release for B, and must not touch A or the parent's handler.
+CASE17B='
+h() { echo "H rc=$1" >> "$MARK"; }
+trap '"'"'h $?'"'"' EXIT
+registry_lock_acquire "$T/lock17a.d" 5 || exit 98
+( registry_lock_acquire "$T/lock17b.d" 5 || exit 97 )
+echo "AFTER_SUB: B=$([ -d "$T/lock17b.d" ] && echo left || echo gone) A=$([ -d "$T/lock17a.d" ] && echo held || echo gone) H=$(grep -c "^H" "$MARK")"
+registry_lock_release "$T/lock17a.d"
+echo "AFTER_REL: A=$([ -d "$T/lock17a.d" ] && echo held || echo gone) TRAP:$(trap -p EXIT)"'
+_rl_run "$RL_LIB" "$CASE17B"
+assert_eq "case17b: child exits 0" "0" "$RL_RC"
+assert_contains "case17b: the child's lock B is released at child exit; A stays held; no handler ran" \
+    "AFTER_SUB: B=gone A=held H=0" "$RL_OUT"
+assert_contains "case17b: the parent's release frees A and restores its trap" \
+    "AFTER_REL: A=gone TRAP:trap -- 'h \$?' EXIT" "$RL_OUT"
+assert_eq "case17b: the parent's handler runs exactly once" "1" "$(_rl_h_count)"
+# Pre-fix control: the same script against a lib whose "already armed" check
+# is NOT scoped to the arming shell. It must leave B behind, or 17b proves
+# nothing.
+PREFIX_LIB="$TMPROOT/prefix_lib"
+mkdir -p "$PREFIX_LIB"
+cp "$RL_LIB"/*.sh "$PREFIX_LIB/"
+python3 - "$PREFIX_LIB/registry_lock.sh" <<'PY'
+import sys
+p = sys.argv[1]
+s = open(p).read()
+old = ('    if [[ "$_registry_lock_trap_mode" == chain && "$_registry_lock_trap_shell" == "$here" ]]; then\n'
+       '        return 0\n')
+new = ('    if [[ "$_registry_lock_trap_mode" == chain ]]; then   # PRE-FIX: unscoped\n'
+       '        return 0\n')
+if s.count(old) != 1:
+    sys.stderr.write("anchor: scoped armed-state check not found exactly once\n"); sys.exit(1)
+open(p, 'w').write(s.replace(old, new, 1))
+PY
+assert_contains "case17b control: the mutant really is unscoped" "PRE-FIX: unscoped" \
+    "$(cat "$PREFIX_LIB/registry_lock.sh")"
+_rl_run "$PREFIX_LIB" "$CASE17B"
+assert_contains "case17b control: an unscoped armed check leaks the child's lock B" \
+    "AFTER_SUB: B=left" "$RL_OUT"
+rm -rf "$TMPROOT/lock17a.d" "$TMPROOT/lock17b.d"
+
+# Case 18: a same-shell nested acquire must not save our own chain and recurse.
+_rl_run "$RL_LIB" '
+h() { echo "H rc=$1" >> "$MARK"; }
+trap '"'"'h $?'"'"' EXIT
+registry_lock_acquire "$T/lock18a.d" 5 || exit 98
+registry_lock_acquire "$T/lock18b.d" 5 || exit 97
+exit 0'
+assert_eq "case18: the process exits normally (no recursion, no timeout)" "0" "$RL_RC"
+assert_eq "case18: the caller's handler runs exactly once" "1" "$(_rl_h_count)"
+assert_dir_not_exists "case18: the chain releases the active lock" "$TMPROOT/lock18b.d"
+rm -rf "$TMPROOT/lock18a.d"   # one active lock per process: A is the caller's leak by contract
+
+# Case 19: the caller's handler keeps the SCRIPT's positional parameters. The
+# chain evals it inside a function, whose own "$@" is empty unless the trap
+# passes the exit context's parameters through (set -u makes a lost $1 fatal).
+for flow in held released; do
+    tail19='exit 5'
+    [[ "$flow" == released ]] && tail19='registry_lock_release "$T/lock19$F.d"
+exit 5'
+    _rl_run "$RL_LIB" "F=$flow"'
+trap '"'"'echo "H arg1=$1 argc=$# all=$*" >> "$MARK"'"'"' EXIT
+registry_lock_acquire "$T/lock19$F.d" 5 || exit 98
+'"$tail19" "payload one" two
+    assert_eq "case19[$flow]: the dying status survives" "5" "$RL_RC"
+    assert_contains "case19[$flow]: the handler sees the script's arguments" \
+        "H arg1=payload one argc=2 all=payload one two" "$(cat "$RL_MARK")"
+    assert_eq "case19[$flow]: the handler ran exactly once" "1" "$(_rl_h_count)"
+    assert_dir_not_exists "case19[$flow]: the lock was released" "$TMPROOT/lock19$flow.d"
+done
+
+# Case 20: wrapper recognition is by whole COMMAND. A caller's quoted data that
+# merely contains the chain's name must survive acquire + release verbatim and
+# still reach the path it names.
+for flow in held released; do
+    tail20='exit 0'
+    [[ "$flow" == released ]] && tail20='registry_lock_release "$T/lock20$F.d"
+echo "TRAP:$(trap -p EXIT)"
+exit 0'
+    mkdir -p "$TMPROOT/p20$flow/_registry_lock_exit_chain"
+    _rl_run "$RL_LIB" "F=$flow"'
+trap '"'"'rmdir "$T/p20$F/_registry_lock_exit_chain" && echo H >> "$MARK"'"'"' EXIT
+registry_lock_acquire "$T/lock20$F.d" 5 || exit 98
+'"$tail20"
+    assert_eq "case20[$flow]: child exits 0" "0" "$RL_RC"
+    if [[ "$flow" == released ]]; then
+        assert_contains "case20[$flow]: release restores the caller's text verbatim" \
+            "TRAP:trap -- 'rmdir \"\$T/p20\$F/_registry_lock_exit_chain\" && echo H >> \"\$MARK\"' EXIT" "$RL_OUT"
+    fi
+    assert_dir_not_exists "case20[$flow]: the handler removed the path it names" \
+        "$TMPROOT/p20$flow/_registry_lock_exit_chain"
+    assert_eq "case20[$flow]: the handler ran exactly once" "1" "$(_rl_h_count)"
+    rm -rf "$TMPROOT/p20$flow"
+done
+
+# Case 21: the wrapper recognizer, table-driven against every shape a producer
+# emits and the near-misses it must refuse. It is a pure string function, so it
+# runs in this shell.
+rl_tail() {   # <text> <cmd> -> "hit:<head>" or "miss"
+    if _registry_lock_owned_tail "$1" "$2"; then echo "hit:$_RL_HEAD"; else echo miss; fi
+}
+C=_ait_archive_exit_chain
+TXN='__txn_chain_rc=$?; (exit "$__txn_chain_rc") && :; t; (exit "$__txn_chain_rc") && :'
+TG='__tg_rc=$?; (exit "$__tg_rc") && :; tmpdir_guard_end; (exit "$__tg_rc") && :'
+assert_eq "case21: whole text" "hit:" "$(rl_tail "$C" "$C")"
+assert_eq "case21: txn_chain_exit_trap composite tail" "hit:$TXN" "$(rl_tail "$TXN; $C" "$C")"
+assert_eq "case21: _tg_prepend_exit_trap composite tail" "hit:$TG" "$(rl_tail "$TG; $C" "$C")"
+assert_eq "case21: hand-written prepend tail" "hit:cleanup" "$(rl_tail "cleanup; $C" "$C")"
+assert_eq "case21: our own command with \"\$@\"" "hit:x" \
+    "$(rl_tail "x; $_REGISTRY_LOCK_CHAIN_CMD" "$_REGISTRY_LOCK_CHAIN_CMD")"
+assert_eq "case21: quoted data naming it is refused" "miss" "$(rl_tail "rmdir \"\$d/$C\"" "$C")"
+assert_eq "case21: quoted data ending in '; name' is refused" "miss" "$(rl_tail "echo \"a; $C\"" "$C")"
+assert_eq "case21: an argument after an escaped \\; is refused" "miss" "$(rl_tail "find . -exec x \\; $C" "$C")"
+# Single-quoted below so each text holds exactly the backslashes shown.
+assert_eq "case21: an even run (two backslashes) leaves the ; active" 'hit:printf x \\' \
+    "$(rl_tail 'printf x \\; '"$C" "$C")"
+assert_eq "case21: an odd run (three backslashes) escapes the ;" "miss" \
+    "$(rl_tail 'printf x \\\; '"$C" "$C")"
+assert_eq "case21: a mid-text mention is refused" "miss" "$(rl_tail "$C; cleanup" "$C")"
+assert_eq "case21: a longer name is refused" "miss" "$(rl_tail "x; ${C}_v2" "$C")"
 
 # --- Summary ------------------------------------------------------------
 echo

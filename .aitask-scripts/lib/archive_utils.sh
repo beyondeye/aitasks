@@ -142,6 +142,8 @@ if [[ "${_AIT_ARCHIVE_OWNER_PID:-}" != "${BASHPID:-$$}" ]]; then
     [[ "$_AIT_ARCHIVE_TMPBASE" == /* ]] || _AIT_ARCHIVE_TMPBASE="$PWD/$_AIT_ARCHIVE_TMPBASE"
 fi
 : "${_AIT_ARCHIVE_CALLER_EXIT_TRAP:=}"   # written ONLY by _ait_archive_wrap_exit_trap
+# (lib/registry_lock.sh READS it to peel this sweep's layer off a caller trap it
+# saves, so the sweep stays the outermost wrapper -- t2322.)
 _AIT_ARCHIVE_TMPDIR=""
 # The shell that CREATED _AIT_ARCHIVE_TMPDIR (t2032). A `( )` child inherits
 # the variable but not the dir: its cleanup must leave a parent's live direct
