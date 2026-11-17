@@ -381,6 +381,16 @@ Post-implementation: current-branch mode. Commit the code
   - `test_asserts_counters` 28/28 and `test_tmpdir_guard` 75/75 pass.
   - shellcheck: the only additions are SC1091 info notes on the new `source`
     lines.
+- **Key decisions:**
+  - Redirect `TMPDIR`, not `AITASKS_LOCK_DIR`, so the per-repo lock
+    namespacing is kept.
+  - The guard default stays warn-only (strict is opt-in). The user dropped
+    the full-suite strict sweep.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/registry_lock.sh:130,155` — `registry_lock_acquire`
+    replaces the caller's EXIT trap with its own release, and
+    `registry_lock_release` runs `trap - EXIT`. So any caller that had its
+    own EXIT trap silently loses it once a lock is taken.
 - **Not changed / observed:**
   - `test_verified_update` was already clean.
   - `test_applink_tunnel` leaves a stray process in its group; the guard stops
@@ -389,3 +399,45 @@ Post-implementation: current-branch mode. Commit the code
     production. Offered as an upstream follow-up.
   - `tests/test_setup_questions_server.sh` carries another session's
     uncommitted edits and was not touched.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-17)
+- **Requested by user:** fix three concerns, all of which were verified as
+  real.
+  1. `test_lock_anchor_tmux_live` created its run root before the
+     missing-tmux SKIP and armed the trap only later.
+  2. `test_tmpdir_guard.sh` inherited `AIT_TMPDIR_GUARD_STRICT`, so it gave
+     69 passes and 6 failures when run under the strict wrapper.
+  3. `tmpdir_guard_end` counted a guard path replaced by a file or link as
+     "absent", which reads as 0 leftovers.
+- **Changes made:**
+  1. `trap run_tmpdir_cleanup EXIT` now follows the init immediately in
+     `test_lock_anchor_tmux_live`, `test_task_commit_scoped` and
+     `test_task_data_writer_guard`.
+     - An audit of every adopting file found these as the only three without
+       an immediate trap.
+     - `test_task_data_writer_guard` also re-chains the trap right after
+       `sync_fixture.sh`, because `assert_counters_init` can exit before the
+       combined trap.
+     - Every later EXIT trap was audited: each drains `CLEANUP_DIRS` or
+       calls `run_tmpdir_cleanup`.
+  2. The suite now unsets `AIT_TMPDIR_GUARD_STRICT` at setup.
+  3. `tmpdir_guard_end` checks for a symlink or non-directory first. In that
+     case it reports the path, removes the entry (never what a link points
+     to), and leaves the count empty. Only a truly absent path (no entry, no
+     link) attests 0. New section (o) of `tests/test_tmpdir_guard.sh` covers
+     a regular file, a dangling link, a link to a directory (the target is
+     kept), and a truly removed directory.
+- **Verification:**
+  - Missing-tmux control (a PATH without tmux): SKIP, rc 0, nothing left, and
+    the strict-wrapped run also passes.
+  - The guard self-test gives 84/84 both plainly and under
+    `AIT_TMPDIR_GUARD_STRICT=1 run_shell_test.sh`.
+  - Fix-3 pre-fix control (a scratch copy of the wrapper with the old branch):
+    strict rc 0 and the file left behind. Post-fix: rc 1 and the file removed.
+  - Full strict rerun of all 54: every file exits 0, and the summaries are
+    identical to the baseline.
+- **Files affected:** `tests/lib/tmpdir_guard.sh`, `tests/test_tmpdir_guard.sh`,
+  `tests/test_lock_anchor_tmux_live.sh`, `tests/test_task_commit_scoped.sh`,
+  `tests/test_task_data_writer_guard.sh`.
