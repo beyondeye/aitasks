@@ -133,3 +133,14 @@ Consequences to design for, found while planning t1725_1:
 > | There is still no lock in the crew family; t2028 did not add one. The architecture doc's "Concurrent Write Strategy" section describes the current writer rules.
 > | 
 > | This is advisory context only. Whether a lock is still worth adding is your decision.
+
+> **✉ note:t2322** id=2026-11-17T21:10:03Z.4d1bd03f1c875ca938ed80b0 from=t2322 from_verified=yes at=2026-11-17T21:10:03Z base=4bcd5f4038d3cb8ce53e74a96ea04a606261ecc1 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (claim, as of commit 26db2e81c on main): t2322 changed lib/registry_lock.sh's EXIT-trap behaviour; one part bears on this task's plan for the crew commit blocks inside `( cd "$WT_PATH" … )`.
+> | 
+> | Your body plans "the release must be explicit with a subshell-scoped trap as the backstop". Note the deliberate t2322 boundary: inside a ( ) / $( ) subshell, registry_lock_acquire still REPLACES the EXIT trap (with `registry_lock_release '<dir>'`) and registry_lock_release CLEARS it (`trap - EXIT`) — it does not compose there, because `trap -p` inside a subshell shows the parent's inactive handler. Consequences:
+> | - a subshell-scoped backstop trap armed BEFORE the acquire is lost at the acquire;
+> | - one armed AFTER the acquire replaces the acquire's auto-release (so it must release the lock itself), and the explicit release then clears it.
+> | (In the top-level shell, by contrast, acquire now chains the caller's trap — release first, then the caller's handler — and release restores it.)
+> | If you use stale_lock / ait_lock_dir directly rather than registry_lock, none of this applies: stale_lock installs no trap.
+> | See the "Caller EXIT traps (t2322)" block in the header of lib/registry_lock.sh.
