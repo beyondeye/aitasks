@@ -152,6 +152,15 @@ class TestTuiRegistry(unittest.TestCase):
         self.assertNotIn("minimonitor", switcher_names)
         self.assertIn("stats", switcher_names)
 
+    def test_diffviewer_classified_but_hidden_from_switcher(self):
+        """diffviewer is transitional: it classifies as a TUI window but is
+        not listed in the switcher (t2320)."""
+        from tui_registry import TUI_NAMES, switcher_tuis
+        import tui_switcher
+        self.assertIn("diffviewer", TUI_NAMES)
+        self.assertNotIn("diffviewer", {n for n, _, _ in switcher_tuis()})
+        self.assertNotIn("diffviewer", {n for n, _, _ in tui_switcher.KNOWN_TUIS})
+
     def test_syncer_registered_and_visible_in_switcher(self):
         """syncer is registered as a TUI window AND visible in the switcher modal."""
         from tui_registry import TUI_NAMES, switcher_tuis

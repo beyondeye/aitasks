@@ -24,8 +24,10 @@ TUI_REGISTRY: list[tuple[str, str | None, str | None, bool]] = [
     ("stats",       "Statistics",    "ait stats-tui",   True),
     ("applink",     "App Linker",    "ait applink",     True),
     ("chatlink",    "Chat Link",     "ait chatlink",    True),
-    ("diffviewer",  "Diff Viewer",   "ait diffviewer",  True),
     ("syncer",      "Syncer",        "ait syncer",      True),
+    # Transitional (to be integrated into brainstorm): launched with
+    # `ait diffviewer`, classified as a TUI window, not listed in the switcher.
+    ("diffviewer",  None,            None,              False),
     ("brainstorm",  None,            None,              False),
     ("minimonitor", None,            None,              False),
     ("scratchpad",  None,            None,              False),

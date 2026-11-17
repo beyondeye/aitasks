@@ -629,7 +629,7 @@ together:
 
 1. **Registry position** in `TUI_REGISTRY` — order by user-perceived,
    related-functionality grouping, NOT alphabetically by name (e.g. App Linker
-   sits after `stats` and before `diffviewer`).
+   sits after `stats` and before `chatlink`).
 2. **A single-letter shortcut** in `_TUI_SHORTCUTS` in `tui_switcher.py` — pick a
    free, mnemonic letter (the taken set is whatever `_TUI_SHORTCUTS` currently
    holds; read it, don't hardcode the list).

@@ -499,9 +499,10 @@ the existing helper (add a flag) over forking the scan logic.
 - **`diffviewer` TUI is transitional.** It will be integrated into the
   `brainstorm` TUI later; omit it from user-facing website docs and
   lists-of-TUIs (document: board, trails, monitor, minimonitor,
-  codebrowser, settings, brainstorm). Keep `diffviewer` in `KNOWN_TUIS` inside
-  `.aitask-scripts/lib/tui_switcher.py` — it must remain switchable via `j`
-  until the brainstorm integration lands.
+  codebrowser, settings, brainstorm). It is registered in `TUI_REGISTRY`
+  (`.aitask-scripts/lib/tui_registry.py`) with `in_switcher=False`, so it
+  classifies as a TUI window but is not listed in the `j` switcher; launch it
+  with `ait diffviewer` until the brainstorm integration lands.
 - **Cross-repo coordination.** When a task / plan / commit needs to
   reach into a sibling aitasks project, reference it by logical name —
   never by sibling-directory path (`../aitasks/`). The `ait projects`
