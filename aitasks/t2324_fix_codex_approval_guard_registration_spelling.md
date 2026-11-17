@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2281
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-17 09:56
-updated_at: 2026-11-17 11:42
+updated_at: 2026-11-17 17:21
 ---
 
 ## Origin
@@ -39,3 +40,8 @@ The three defects are unrelated. The first one names this task. The other two we
 
 - Guard: share one parsed registration check between `aitask_setup.sh` and `aitask_gate.sh`, for example a small `lib/` helper with the grep fast path plus the tomllib fallback, and add quoted and dotted-key cases to `tests/test_gate_codex_approvals.sh`.
 - The other two: decide whether the second `/aitask-note` mention is intended (then fix the test) or a duplicate (then fix the procedure), and either ship `goengines/ci/preflight.sh` or drop the copy from `build.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-17T15:21:33Z status=pass attempt=1 type=human
