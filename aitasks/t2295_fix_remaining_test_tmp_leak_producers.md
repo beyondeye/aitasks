@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tests, test_infrastructure, tmp_cleanup]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-13 12:31
-updated_at: 2026-11-13 12:31
+updated_at: 2026-11-17 17:23
 ---
 
 ## Context
