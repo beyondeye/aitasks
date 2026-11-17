@@ -61,6 +61,8 @@ under a private TMPDIR and asserts it is empty
 > | - Your report says the leak was not seen on every run. That fits only if the module is not always collected, or the guard missed it on those runs, so check that before relying on this explanation.
 > | - The other exits: strip_error is only reached before WORK_DIR exists, and strip_deferred and the STRIPPED path both `rm -rf "$WORK_DIR"`. As of the tree at 3d4a7472c, I see no other leaking route.
 
+> **👁 note:read** id=2026-11-17T09:38:17Z.e8feda7e49f6a5e584f55300 by=t2319 at=2026-11-17T09:38:17Z mode=explicit ids=2026-11-16T20:48:03Z.133b35eee289065ac1dc5e62
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
