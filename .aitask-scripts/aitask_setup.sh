@@ -850,35 +850,22 @@ setup_chat_deps() {
 # True when a Codex config registers the aitask_questions server (setup merged
 # the seed table on the user's opt-in, or the user wrote it by hand). The
 # registration IS the remembered "yes": later setup runs keep it and repair the
-# dependency. The literal-header grep (the spelling setup itself writes) is the
-# fast path. When it misses, the config is PARSED, because Codex starts the
-# server for every valid spelling — `[mcp_servers."aitask_questions"]`, a
-# dotted `mcp_servers.aitask_questions.command = …` — and an explicit opt-out
-# must find and remove those too. Without a TOML parser only the grep answers.
+# dependency. Every valid TOML spelling counts -- Codex starts the server for
+# `[mcp_servers."aitask_questions"]` and a dotted
+# `mcp_servers.aitask_questions.command = …` too, and an explicit opt-out must
+# find and remove those -- so the check is the shared parsed one,
+# lib/codex_questions_registration.sh. Setup's policy over its three-way answer
+# is positive-only: "confirmed absent" and "could not inspect" (no working TOML
+# parser) both read as not registered. (The approval guard in aitask_gate.sh
+# deliberately reads "could not inspect" the other way.) Sourced through
+# SETUP_LIB_DIR because tests re-point SCRIPT_DIR at a lib-less fixture.
 # Optional argument: the config path (default: this project's).
 questions_server_registered() {
-    local config="${1:-$SCRIPT_DIR/../.codex/config.toml}" py
-    [[ -f "$config" ]] || return 1
-    grep -q '^\[mcp_servers\.aitask_questions\]' "$config" && return 0
-    py="$(_codex_toml_python)"
-    [[ -n "$py" ]] || return 1
-    "$py" - "$config" 2>/dev/null <<'PY'
-import sys
-try:
-    import tomllib
-except ImportError:
-    try:
-        import tomli as tomllib
-    except ImportError:
-        sys.exit(1)
-try:
-    with open(sys.argv[1], "rb") as f:
-        d = tomllib.load(f)
-except Exception:
-    sys.exit(1)
-s = d.get("mcp_servers")
-sys.exit(0 if isinstance(s, dict) and "aitask_questions" in s else 1)
-PY
+    local config="${1:-$SCRIPT_DIR/../.codex/config.toml}"
+    # shellcheck source=lib/codex_questions_registration.sh
+    declare -F codex_questions_registration >/dev/null ||
+        source "$SETUP_LIB_DIR/codex_questions_registration.sh"
+    codex_questions_registration "$config" "$(_codex_toml_python)" python3 || return 1
 }
 
 # Run state of this setup run's question-server decision (t2297). Set by

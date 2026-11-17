@@ -8,6 +8,10 @@
 #
 # Coverage:
 #   1. Scope: no CODEX_THREAD_ID, or no registration -> unguarded, as before.
+#  1b. Every valid TOML spelling of the registration turns the guard on; a
+#      config that names the server but cannot be inspected (no working
+#      interpreter, an unsearchable or unresolvable .codex) ENFORCES it, and a config that
+#      does not name it never needs an interpreter (t2324).
 #   2. append: refused without evidence, with a receipt for another task /
 #      checkpoint / non-approving answer / unbound plan / changed plan; nothing
 #      is written on refusal. Accepted with a valid receipt, exactly one claim.
@@ -162,6 +166,121 @@ assert_eq "Codex without registration: block written" "1" "$(runs 11 plan_approv
 assert_eq "unguarded paths never create question state" "0" "$?"
 [[ ! -e "$TMP/xdg" ]]
 assert_eq "nothing written under the XDG fallback" "0" "$?"
+
+# ---------------------------------------------------------------------------
+echo "--- 1b. registration spellings and inspection failure (t2324) ---"
+# Codex starts the server for every valid TOML spelling, so each must turn the
+# guard on. And "could not inspect the config" must never read as "absent":
+# every guard caller treats a non-zero predicate as unguarded.
+STUBS="$TMP/stubs"
+mkdir -p "$STUBS/path" "$TMP/nohome"
+printf '#!/bin/sh\nexit 1\n' > "$STUBS/exit1"
+printf '#!/bin/sh\necho "Traceback (most recent call last):" >&2\nexit 1\n' > "$STUBS/path/python3"
+chmod +x "$STUBS/exit1" "$STUBS/path/python3"
+cfg_quoted() { printf '[mcp_servers."aitask_questions"]\ncommand = "x"\n' > "$PROJ/.codex/config.toml"; }
+cfg_dotted() { printf 'model = "m"\nmcp_servers.aitask_questions.command = "x"\n' > "$PROJ/.codex/config.toml"; }
+# Every interpreter candidate the gate tries fails: the override, the
+# framework venv (scratch HOME has none) and python3 on PATH.
+no_python() { AIT_PYTHON="$STUBS/exit1" HOME="$TMP/nohome" PATH="$STUBS/path:$PATH" "$@"; }
+
+cfg_quoted
+make_task 12
+out="$(codex "$GATE" append 12 plan_approved pass type=human 2>&1)"; rc=$?
+assert_eq "quoted table: append refused (exit 3)" "3" "$rc"
+assert_eq "quoted table: nothing written" "0" "$(runs 12 plan_approved)"
+
+cfg_dotted
+make_task 13
+codex "$GATE" append 13 plan_approved pass type=human >/dev/null 2>&1; rc=$?
+assert_eq "dotted keys: append refused (exit 3)" "3" "$rc"
+assert_eq "dotted keys: nothing written" "0" "$(runs 13 plan_approved)"
+
+cfg_quoted
+make_task 14
+AIT_PYTHON="$STUBS/exit1" codex "$GATE" append 14 plan_approved pass type=human >/dev/null 2>&1; rc=$?
+assert_eq "quoted + failing AIT_PYTHON: falls back, still refused" "3" "$rc"
+assert_eq "quoted + failing AIT_PYTHON: nothing written" "0" "$(runs 14 plan_approved)"
+
+make_task 15
+out="$(no_python codex "$GATE" append 15 plan_approved pass type=human 2>&1)"; rc=$?
+assert_eq "quoted + no working interpreter: refused (fail-closed)" "3" "$rc"
+assert_eq "quoted + no working interpreter: nothing written" "0" "$(runs 15 plan_approved)"
+assert_contains "quoted + no working interpreter: says it enforces" "enforcing receipts" "$out"
+assert_contains "quoted + no working interpreter: names the cause" "no working TOML parser" "$out"
+out="$(no_python codex "$GATE" approvals-settled 15 2>/dev/null)"
+assert_not_contains "no working interpreter: approvals-settled is not unguarded" "APPROVALS:unguarded" "$out"
+out="$(no_python codex "$GATE" merge-guard 15 main aitask/t15 2>/dev/null)"
+assert_not_contains "no working interpreter: merge-guard is not unguarded" "MERGE:unguarded" "$out"
+
+# A registration behind an unsearchable .codex may exist: a failed stat there
+# is not absence, so the guard must stay on (with the inspection warning).
+cfg_quoted
+chmod 000 "$PROJ/.codex"
+if [[ -x "$PROJ/.codex" ]]; then
+    echo "SKIP: unsearchable .codex rows (running as a user that can search mode 000)"
+else
+    make_task 19
+    out="$(codex "$GATE" append 19 plan_approved pass type=human 2>&1)"; rc=$?
+    assert_eq "unsearchable .codex: append refused (fail-closed)" "3" "$rc"
+    assert_eq "unsearchable .codex: nothing written" "0" "$(runs 19 plan_approved)"
+    assert_contains "unsearchable .codex: says it enforces" "enforcing receipts" "$out"
+    out="$(codex "$GATE" approvals-settled 19 2>/dev/null)"
+    assert_not_contains "unsearchable .codex: approvals-settled is not unguarded" "APPROVALS:unguarded" "$out"
+    out="$(codex "$GATE" merge-guard 19 main aitask/t19 2>/dev/null)"
+    assert_not_contains "unsearchable .codex: merge-guard is not unguarded" "MERGE:unguarded" "$out"
+fi
+chmod 755 "$PROJ/.codex"
+# A .codex symlinked through an unsearchable directory: -d fails there just
+# as it does for "not a directory", so the link must not read as absence.
+mv "$PROJ/.codex" "$PROJ/.codex.real"
+mkdir -p "$TMP/private/codex"
+printf '[mcp_servers."aitask_questions"]\ncommand = "x"\n' > "$TMP/private/codex/config.toml"
+ln -s "$TMP/private/codex" "$PROJ/.codex"
+chmod 000 "$TMP/private"
+if [[ -x "$TMP/private" ]]; then
+    echo "SKIP: symlinked .codex rows (running as a user that can search mode 000)"
+else
+    make_task 8
+    out="$(codex "$GATE" append 8 plan_approved pass type=human 2>&1)"; rc=$?
+    assert_eq "symlinked .codex behind an unsearchable dir: append refused" "3" "$rc"
+    assert_eq "symlinked .codex behind an unsearchable dir: nothing written" "0" "$(runs 8 plan_approved)"
+    assert_contains "symlinked .codex behind an unsearchable dir: says it enforces" "enforcing receipts" "$out"
+    out="$(codex "$GATE" approvals-settled 8 2>/dev/null)"
+    assert_not_contains "symlinked .codex: approvals-settled is not unguarded" "APPROVALS:unguarded" "$out"
+    out="$(codex "$GATE" merge-guard 8 main aitask/t8 2>/dev/null)"
+    assert_not_contains "symlinked .codex: merge-guard is not unguarded" "MERGE:unguarded" "$out"
+fi
+chmod 755 "$TMP/private"
+# A reachable symlinked .codex that holds no config is provably unguarded.
+rm "$TMP/private/codex/config.toml"
+make_task 7
+codex "$GATE" append 7 plan_approved pass type=human >/dev/null 2>&1; rc=$?
+assert_eq "reachable symlinked .codex without a config: unguarded" "0" "$rc"
+rm "$PROJ/.codex"
+mv "$PROJ/.codex.real" "$PROJ/.codex"
+
+# ...while a project with no .codex at all is provably unguarded.
+mv "$PROJ/.codex" "$PROJ/.codex.away"
+make_task 9
+codex "$GATE" append 9 plan_approved pass type=human >/dev/null 2>&1; rc=$?
+assert_eq "no .codex directory: unguarded" "0" "$rc"
+mv "$PROJ/.codex.away" "$PROJ/.codex"
+
+# Negative controls: confirmed absence stays unguarded.
+printf '# [mcp_servers."aitask_questions"]\nx = 1\n' > "$PROJ/.codex/config.toml"
+make_task 16
+codex "$GATE" append 16 plan_approved pass type=human >/dev/null 2>&1; rc=$?
+assert_eq "commented-out quoted table: unguarded" "0" "$rc"
+printf '[mcp_servers."aitask_questions"\nthis is = = not toml\n' > "$PROJ/.codex/config.toml"
+make_task 17
+codex "$GATE" append 17 plan_approved pass type=human >/dev/null 2>&1; rc=$?
+assert_eq "invalid TOML (Codex starts nothing): unguarded" "0" "$rc"
+printf 'model = "m"\n\n[mcp_servers.other]\ncommand = "o"\n' > "$PROJ/.codex/config.toml"
+make_task 18
+out="$(no_python codex "$GATE" append 18 plan_approved pass type=human 2>&1)"; rc=$?
+assert_eq "server not named + no working interpreter: unguarded (no parser needed)" "0" "$rc"
+assert_not_contains "server not named: no inspection warning" "enforcing receipts" "$out"
+register
 
 # ---------------------------------------------------------------------------
 echo "--- 2. append under attended Codex ---"

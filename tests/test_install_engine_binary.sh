@@ -709,12 +709,21 @@ fi
 
 # E7: `ait engine test` runs the hang-guard preflight alone, between vet and
 # the suite, and a failing preflight never starts the suite (t1998). go is a
-# stub that logs its directory and arguments; preflight.sh is the real one.
+# stub that logs its directory and arguments. The preflight is a fixture: this
+# checkout's goengines/ is an export that ships no ci/ (its content lives in
+# aitasks_go), so E7 pins aitask_engine.sh's ordering contract, with a
+# preflight that runs the same tripwire command the real one does (t2324).
 E7="$WORK/e7"
 mkdir -p "$E7/goengines/ci" "$E7/bin"
 cp -R "$T/.aitask-scripts" "$E7/.aitask-scripts"
 : >"$E7/goengines/build.sh"
-cp -p "$PROJECT_DIR/goengines/ci/preflight.sh" "$E7/goengines/ci/preflight.sh"
+cat >"$E7/goengines/ci/preflight.sh" <<'EOF'
+#!/usr/bin/env bash
+set -euo pipefail
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+go test -count=1 -run '^TestIsolationTripwire(Catches|Imports)?$' ./internal/testsupport/hangguard/
+EOF
+chmod +x "$E7/goengines/ci/preflight.sh"
 cat >"$E7/bin/go" <<'EOF'
 #!/usr/bin/env bash
 printf '%s|%s\n' "$PWD" "$*" >>"$E7_LOG"

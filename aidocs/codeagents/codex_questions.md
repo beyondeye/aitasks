@@ -303,12 +303,25 @@ archive script refuses while an approval is open.
 
 **Scope.** The guard is active only when both hold: the command runs inside a
 Codex tool shell (`CODEX_THREAD_ID` is set) and the project that owns the task
-data registers `[mcp_servers.aitask_questions]` in `.codex/config.toml`. Every
+data registers the `aitask_questions` server in `.codex/config.toml`. Every
+spelling Codex starts the server from counts: the `[mcp_servers.aitask_questions]`
+table `ait setup` writes, a quoted `[mcp_servers."aitask_questions"]` table, or
+dotted `mcp_servers.aitask_questions.<key> = …` lines. `ait setup` and the gate
+share one check, `lib/codex_questions_registration.sh`. Every
 other agent, a person signing with `ait gate pass` at a terminal, the headless
 orchestrator and a project without the server behave exactly as before. Because
 the registration is half of the condition, declining the server in `ait setup`
 (or removing it with `--no-codex-questions`) also switches this enforcement off.
 The setup explanation says so at the prompt.
+
+The check fails closed. When the config may name the server but cannot be read
+(including one behind an unsearchable directory, or behind a `.codex` symlink
+that does not resolve), or no interpreter can parse it (none has `tomllib` or `tomli`, or a broken
+`AIT_PYTHON` override is the only candidate), the guard is **enforced** and
+`aitask_gate.sh` warns that it could not tell. A broken interpreter can block
+approvals, but it never drops their receipts. A config that does not mention
+`aitask_questions` at all needs no interpreter. `ait setup` reads the same
+answer the other way: there, only a positive detection counts as registered.
 
 **Recording.** `aitask_gate.sh append` — and so `aitask_gate_record.sh` —
 refuses a `pass` for `plan_approved`, `review_approved` or `merge_approved`

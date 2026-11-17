@@ -222,7 +222,9 @@ delegate_python_deps() {
 #
 # Scope is deliberately narrow: BOTH conditions must hold, so every other agent,
 # a human signing at a terminal, and a project without the server see the
-# unguarded behaviour. Spec: aidocs/codeagents/codex_questions.md.
+# unguarded behaviour. A registration that cannot be inspected counts as
+# present (fail-closed, see codex_attended_approvals).
+# Spec: aidocs/codeagents/codex_questions.md.
 HUMAN_APPROVAL_GATES="plan_approved review_approved merge_approved"
 EXIT_APPROVAL_REFUSED=3
 
@@ -234,12 +236,49 @@ _questions_project_dir() {
 }
 
 # 0 iff this process runs inside a Codex tool shell (CODEX_THREAD_ID is set by
-# the client for every command it runs) AND the project registers the server.
+# the client for every command it runs) AND the project registers the server,
+# in any TOML spelling Codex starts it from (lib/codex_questions_registration.sh).
+#
+# FAIL-CLOSED: when the config may name the server but cannot be inspected (no
+# candidate interpreter can parse TOML, the file is unreadable) the guard is
+# ENFORCED, with a warning. Every caller (append, resume-point, merge-guard,
+# approvals-settled) reads a non-zero answer as "unguarded", so only positive
+# evidence of absence may produce one -- a broken AIT_PYTHON next to a working
+# question server must block approvals, never drop their receipts. Each
+# candidate is tested by parsing, as the server launcher tests its own
+# (aitask_questions_mcp.sh); resolve_python returns the first executable one
+# untested. The lib is sourced lazily, after the cheap checks, so it is not on
+# this script's startup chain.
 codex_attended_approvals() {
     [[ -n "${CODEX_THREAD_ID:-}" ]] || return 1
-    local project
+    local project config rc=0
     project="$(_questions_project_dir)" || return 1
-    grep -q '^\[mcp_servers\.aitask_questions\]' "$project/.codex/config.toml" 2>/dev/null
+    config="$project/.codex/config.toml"
+    # Lib-free fast path for the common "no config" case, taken only when the
+    # absence is PROVEN: $project is a physical, searchable directory (pwd -P
+    # after a cd), so a missing .codex, a regular-file .codex or a searchable
+    # .codex directory without the file really holds no config. A symlinked
+    # .codex is never decided here (its target may sit behind an unsearchable
+    # directory, which -d cannot tell from "not a directory"), nor is an
+    # unsearchable one: both go to the helper, which proves absence or
+    # reports the config as uninspectable.
+    if [[ ! -e "$config" && ! -L "$config" && ! -L "$project/.codex" ]] &&
+       [[ ! -d "$project/.codex" || -x "$project/.codex" ]]; then
+        return 1
+    fi
+    # shellcheck source=lib/codex_questions_registration.sh
+    declare -F codex_questions_registration >/dev/null ||
+        source "$SCRIPT_DIR/lib/codex_questions_registration.sh"
+    codex_questions_registration "$config" "${AIT_PYTHON:-}" \
+        "$HOME/.aitask/venv/bin/python" "$HOME/.aitask/bin/python3" python3 || rc=$?
+    case "$rc" in
+        0) return 0 ;;
+        1) return 1 ;;
+        *)
+            warn "approval guard: could not tell whether $config registers the aitask_questions server (${CODEX_QUESTIONS_REG_REASON:-unknown}) — enforcing receipts. Fix the interpreter (AIT_PYTHON, or 'ait setup') to clear this."
+            return 0
+            ;;
+    esac
 }
 
 is_human_approval_gate() {
@@ -1490,16 +1529,14 @@ cmd_sync_registry() {
 
     registry_lock_acquire "/tmp/aitask_gate_registry_sync" 10 || \
         die "sync-registry: another sync holds the registry lock — nothing written"
-    trap 'registry_lock_release "/tmp/aitask_gate_registry_sync"' EXIT
-    ait_archive_rearm_exit_trap
+    # The acquire's own EXIT chain releases the lock if we die mid-sync, and the
+    # release below restores the trap this shell had before (t2322).
 
     local rc=0 out
     out="$("$py" "$GATE_LEDGER_PY" sync-registry "$registry" "$reference" "$dry_run" \
         "$SCRIPT_DIR" "${profiles[@]+"${profiles[@]}"}")" || rc=$?
 
     registry_lock_release "/tmp/aitask_gate_registry_sync"
-    trap - EXIT
-    ait_archive_rearm_exit_trap
 
     [[ -n "$out" ]] && printf '%s\n' "$out"
     if [[ "$rc" -ne 0 ]]; then

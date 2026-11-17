@@ -558,6 +558,14 @@ assert_contains_re "6n. …and the prohibition sits on the same line as the verb
 # `{% if profile.review_auto_continue %}`. An offer placed inside either renders
 # for one profile and vanishes for another.
 
+#
+# What is counted is the JUDGEMENT offer's own phrase, not every `/aitask-note`
+# mention. task-workflow's Step 8e also sends relation-derived notes through
+# `/aitask-note` (the D.3 push offer, t1981_5), and that one renders only where
+# the relations step does -- a second, deliberate mention that this check
+# leaves out (t2324).
+JUDGEMENT_OFFER='to send it there with `/aitask-note`'
+
 echo ""
 echo "--- 7. the /aitask-note offer renders under every profile ---"
 
@@ -580,7 +588,7 @@ else
         name="${site%%:*}"; file="${site#*:}"
         for profile in default fast remote; do
             assert_eq "7. ${name} (${profile}) offers /aitask-note exactly once" \
-                "1" "$(render_of "$file" "$profile" | grep -c '/aitask-note')"
+                "1" "$(render_of "$file" "$profile" | grep -c "$JUDGEMENT_OFFER")"
         done
     done
 
