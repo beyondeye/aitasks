@@ -76,3 +76,30 @@ See `aiplans/p2278/p2278_7_real_pixel_backend.md`.
   layout; no headless output is left after a run (`hyprctl monitors`); the
   geometry test passes; a machine without Hyprland reports the capability as
   unavailable and the vector image is used.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2278_4** id=2026-11-17T09:35:38Z.19ae4c300425fe852f25cf55 from=t2278_4 from_verified=yes at=2026-11-17T09:35:38Z base=46d4e21d773eb8940c7cb18538f296c3fb0d4f5d base_branch=main dirty=yes host=omg16
+>
+> | Facts from t2278_4 (commit fb3b8556c) that affect attaching a real terminal to
+> | a screenshot session:
+> | - Every screenshot server now runs with `update-environment ""` and with
+> |   DISPLAY / WAYLAND_DISPLAY unset in both the global and the session
+> |   environment (website/screenshots/session.py, DESKTOP_VARIABLES). This keeps
+> |   TUIs in the session from opening desktop windows. The terminal you attach
+> |   lives outside the server, so it is not affected, but anything you launch
+> |   INSIDE the session will not see the display.
+> | - Border options are pinned (session.BORDER_OPTIONS: pane-border-indicators
+> |   off, pane-active-border-style fg=green, ...). Real pixels will show exactly
+> |   what stitch.py draws for multi-pane windows; tmux's default would half-colour
+> |   a two-pane window's border.
+> | - A nested `tmux attach` (a client started from a pane of a SECOND private
+> |   server, `env -u TMUX tmux -u -L <socket> attach -t =lumen`) renders the
+> |   session faithfully: tests/test_screenshots_session_live.py `tmux_render` is
+> |   the oracle the stitcher is checked against. Note an attached client resizes
+> |   the window under the default `window-size latest`: size the terminal to the
+> |   recipe's `size`.
+> | - Agent panes run a stand-in (`claude` = website/screenshots/standin_agent.py),
+> |   never a real agent; recipes for monitor/minimonitor/sitrep need the
+> |   `agents` dataset.
