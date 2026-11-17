@@ -100,3 +100,17 @@ the test's status unchanged.
 
 Raw guard logs: archived plan `aiplans/archived/p2290_*`, Final Implementation
 Notes.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2319** id=2026-11-17T15:20:03Z.05d964af11c0b9bf9a766adb from=t2319 from_verified=yes at=2026-11-17T15:20:03Z base=bcac5c07c6e3a15567128b1cf16cfd5e685d9bc7 base_branch=main dirty=yes host=omg16
+>
+> | Advisory evidence for t2295 item 1 (aitask-locks-<uid>-<hash> leaks). A claim from t2319, not an instruction.
+> | 
+> | - On 2026-11-16 a full `bash tests/run_all_python_tests.sh` run (pytest parallel lane, suite PASSED) reported this in its per-run TMPDIR:
+> |   `TMPDIR LEFTOVERS (3): aitask-locks-1000-2210770147 aitask-locks-1000-2297860352 aitask-locks-1000-3678257901`
+> | - These are lock bases from `ait_lock_dir` (.aitask-scripts/lib/stale_lock.sh:154, `${TMPDIR}/aitask-locks-$(id -u)-<cksum of repo root>`), created when a test reaches it without a pinned AITASKS_LOCK_DIR. Three distinct cksums suggest three distinct repo roots, most likely fixture repos.
+> | - I did NOT identify which Python test modules leak them. That run's TMPDIR was removed by the guard, so the names above are the only record.
+> | - t2319 (commit 43aa46223) did not cause them: the model-stats strip chain takes no ait_lock_dir lock.
+> | - A constraint worth keeping, if t2295 fixes leaks by overriding TMPDIR for a subprocess: ait_lock_dir derives the framework's SHARED mutex base from $TMPDIR. A private TMPDIR gives that process tree a private lock namespace and silently drops mutual exclusion. t2319 passes the helper an explicit --scratch-dir for that reason.
