@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [tui_switcher, documentation]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2278
 created_at: 2026-11-16 19:53
-updated_at: 2026-11-16 19:53
+updated_at: 2026-11-17 12:55
 ---
 
 ## Context
