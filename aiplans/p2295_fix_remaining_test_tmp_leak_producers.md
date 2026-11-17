@@ -38,7 +38,7 @@ the production lock namespace to fix fixture leaks.
 
 ### Pre-phase (risk mitigations)
 
-- [ ] **cleanup_lifetime_controls:** Before changing producers, capture the
+- [x] **cleanup_lifetime_controls:** Before changing producers, capture the
   current fatal-guard capture-file leak in a disposable repo and the process
   leftovers in the named shell suites. Keep baseline logs outside the inspected
   scratch roots. Inspect files before the enclosing run_tmpdir cleanup can mask
@@ -48,7 +48,7 @@ the production lock namespace to fix fixture leaks.
 
 ## Implementation
 
-1. [ ] **Production capture lifetime.** In
+1. [x] **Production capture lifetime.** In
    `.aitask-scripts/lib/task_utils.sh::task_git_commit_scoped`, give the stderr
    capture an explicit owner on fatal exits as well as normal returns. Preserve
    the existing caller's EXIT handler and its incoming exit status; use the
@@ -63,7 +63,7 @@ the production lock namespace to fix fixture leaks.
    `tests/test_commit_capture_cleanup.sh` for direct helper calls, covering
    both staging modes, failure diagnostics, existing traps and the race seam.
 
-2. [ ] **Attribute and clean remaining Python fixtures.** Run the guarded
+2. [x] **Attribute and clean remaining Python fixtures.** Run the guarded
    Python suite without concurrent shell tests. If lock-base leftovers recur,
    narrow the producing modules with guarded subsets (preserve real __file__
    paths and imports). Inspect fixture subprocess calls, starting with
@@ -78,7 +78,7 @@ the production lock namespace to fix fixture leaks.
    use TemporaryDirectory/context cleanup or immediate addCleanup registration.
    Modify only attributed producers; record already-fixed candidates as such.
 
-3. [ ] **Own spawned processes in the nine named shell suites.** Baseline and
+3. [x] **Own spawned processes in the nine named shell suites.** Baseline and
    fix `test_applink_tunnel`, `test_ait_git_gateway_pull`,
    `test_chatlink_preflight`, `test_merge_lock_broker`,
    `test_merge_lock_concurrency`, `test_release_notify`, `test_session_hook`,
@@ -110,7 +110,7 @@ the production lock namespace to fix fixture leaks.
    - Do not broaden cleanup to unrelated PIDs or rely on the outer guard to
      kill processes that the test should own.
 
-4. [ ] **Close the original inventory.** Run representative already-fixed
+4. [x] **Close the original inventory.** Run representative already-fixed
    suites from t2302: sync, pick_own_scoped_commit, task_data_writer_guard,
    issue_update_ledger, run_project_command, resource_admission, registry_lock,
    global_shim, skill_template and the chatlink wrappers. Verify Codex model
@@ -182,3 +182,29 @@ separate from the code commit `bug: Fix remaining temporary resource leaks (t229
 
 ### Planned mitigations
 - timing: pre-phase | name: cleanup_lifetime_controls | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: production exit semantics and cleanup hidden by outer guards | desc: Capture fatal-guard and process-lifetime failures before edits, then repeat identical controls after fixes
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-17 22:18)
+- **Requested by user:** Preserve the caller's descriptors during fatal scoped-commit cleanup; own and reap the broker suite's b20, w22 and w22c background workers on early exits.
+- **Changes made:** Confirmed both findings. The commit helper now selects two unused descriptors and invokes its capture body with scoped redirections, leaving caller-owned descriptors untouched even while EXIT runs. The capture is still unlinked before guarded calls and no caller trap is changed. The regression EXIT handler itself writes to descriptors 8–11; all cases also use TMPDIR paths containing spaces and a quote. Broker workers are registered immediately in their owning shell, have private process groups for descendant cleanup, and are deregistered after normal completion. Suite cleanup drains workers before anchors and fixture directories.
+- **Verification:** The reviewed helper fails 9 of the extended 105 checks; the corrected helper passes 105/105. Extended early-exit controls cover b20 while polling, w22 after its first rendezvous returns P, and w22c after its first rendezvous returns x. All three workers survive baseline EXIT cleanup; none survives corrected EXIT cleanup, checked before the control's own cleanup. Every injected exit retains status 7. Strict guarded suites: commit_capture_cleanup 105/105, task_commit_scoped 80/80, task_data_writer_guard 148/148, issue_update_ledger 141/141, merge_lock_broker 138/138, merge_lock_concurrency 42/42; no file/process guard warnings. Earlier full Python results remain applicable to the unchanged Python fixture change.
+- **Control evidence:** `/tmp/t2295-evidence/broker_worker_controls.py`, `broker-workers-before.log`, `broker-workers-after.log`, `descriptor-before.log`, and `descriptor-final.log`. The control waits for the suite process with output redirected to files, so inherited output pipes cannot delay observation until a leaked child eventually exits.
+- **Files affected:** `.aitask-scripts/lib/task_utils.sh`, `tests/test_commit_capture_cleanup.sh`, `tests/test_merge_lock_broker.sh`.
+
+### Change Request 2 (2026-11-17 22:31)
+- **Requested by user:** Remove the descriptor allocator's fixed 10–63 ceiling, which changed an unchanged-file --no-stage call from return 2 to return 1 despite free higher descriptors; add an occupied-range control.
+- **Changes made:** Confirmed the regression in a real disposable Git repository. The allocator now searches up to the process's soft descriptor limit from `ulimit -n`, with no artificial ceiling when the limit is unlimited. It continues to skip caller-owned descriptors. Added cases with every descriptor 10–63 occupied for an unchanged tracked file (return 2), a changed tracked file (successful commit), and a fatal MERGE_HEAD guard, retaining the existing EXIT-handler descriptor and capture-cleanup assertions.
+- **Verification:** The previous allocator fails seven assertions in the extended suite. The revised helper passes 140/140. Strict guarded task_commit_scoped 80/80, task_data_writer_guard 148/148, and issue_update_ledger 141/141 also pass without file/process guard warnings. Bash syntax and diff checks pass; no new non-source ShellCheck diagnostics. Evidence: `/tmp/t2295-evidence/fd-range-before.log`, `commit_capture_cleanup-fd-range.log`, and `fd-range.status`.
+- **Files affected:** `.aitask-scripts/lib/task_utils.sh`, `tests/test_commit_capture_cleanup.sh`.
+
+## Final Implementation Notes
+- **Actual work done:** Fixed scoped-commit stderr capture lifetime; removed nested subshell ownership from both merge test anchor helpers and all three red-proof calls; explicitly reaped and deregistered proof/N=51 workers; fixed shell/sleep process fixtures; scoped screenshot recipe lock bases to each disposable session.
+- **Deviations from plan:** Used two unused, scoped file descriptors selected up to the process soft limit over an immediately unlinked capture file instead of composing EXIT traps. Fatal guards retain current-shell semantics, caller traps are unchanged, caller-owned descriptors remain untouched even during fatal EXIT handlers, and no capture pathname remains during guarded calls. `exec sleep` preserves the gateway/release holder PID and start identity. Session-hook argv fixtures retain the Bash process and park on a builtin FIFO read. No shared Python fixture change was needed: all three remaining lock bases came from one screenshot replay test. Shadow-spawn was already clean; stale-lock gained explicit wait/early cleanup despite a clean baseline.
+- **Issues encountered:** The baseline complete Python run had two unrelated concern-picker color assertions (expected #ff0000, actual #363636); 12,517 parallel and 56 serial tests passed, with seven skips. Python attribution identified `AgentsDatasetTests::test_the_shipped_multi_pane_recipes_replay` as the sole producer of three lock directories. The initial direct capture test needed to chdir into its fixture so the fatal guard examined the fixture gitdir; a new assertion now verifies that fatal guards exit the calling shell.
+- **Key decisions:** Keep production lock namespace and intentional LOG retention unchanged. Fixture setup and panes for a screenshot session share a lock base; distinct sessions have distinct bases. Background merge workers own separate process groups for early-failure cleanup; ordinary completion waits and removes their registrations. All three proof calls record exactly three PIDs and assert their absence before suite EXIT and the outer guard.
+- **Verification:** Direct helper checks 140/140 after descriptor and occupied-range review; old-library negative control fails exactly the three capture-lifetime assertions. Merge broker 138/138 after worker review; merge concurrency 42/42 including preserved red/negative concurrency assertions and twelve ownership/liveness checks. An external mutation restoring all three enclosing substitutions fails exactly the three owner-registration checks. Injected early exits preserve status 7 and leave zero of the recorded proof children, broker anchor, and b20/w22/w22c workers before any outer guard. All nine named process suites pass under strict guard with no file/process leftovers. Syntax checks pass; ShellCheck introduces no non-source diagnostics.
+- **Final full-suite result:** 12,517 parallel tests and all 56 serial live tests passed; seven skipped; the same two baseline concern-picker color assertions failed. The changed screenshot recipe passed. The guard reported no leftover files or processes, versus three lock directories in the baseline. All fourteen representative shell suites passed without guard leftovers.
+- **Original producer inventory:** (1) historical shell fixture lock bases already addressed by t2302; remaining Python recipe bases fixed here; (2) production capture leak fixed here; (3) intentional production LOG files retained, test containment from t2302 verified; (4) historical Python bare-temp candidates already fixed, full baseline reports only the three attributed lock bases; (5) historical shell bare-temp roots already fixed by t2302, representative checks; (6) wrapper temp roots already fixed, remaining process leaks fixed here; (7) model-detection cleanup already implemented by t2302 with recorded PASS/FAIL stub controls, no live model calls run here; (8) six process leaks reproduced and fixed, stale-lock cleanup hardened, shadow-spawn already clean.
+- **Upstream defects identified:**
+  - `tests/test_concern_picker_modal.py` — two pre-existing resolved-color assertions fail in the baseline full Python suite (expected #ff0000, actual #363636); not modified in this task.
