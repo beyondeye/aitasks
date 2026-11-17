@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2290
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-17 09:55
-updated_at: 2026-11-17 11:41
+updated_at: 2026-11-17 17:40
 ---
 
 ## Origin
@@ -56,3 +57,8 @@ caller-side workarounds and keep `tests/test_registry_lock.sh` case 5
 ("exiting releases the lock") green. Add a case where a caller's own EXIT
 handler still runs after acquire+release, and after an exit while the lock is
 held.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-17T15:40:49Z status=pass attempt=1 type=human
