@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: [t1912_5]
 issue_type: documentation
-status: Ready
+status: Implementing
 labels: [verifiedstats, models]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 1599
 created_at: 2026-11-12 19:43
-updated_at: 2026-11-12 19:43
+updated_at: 2026-11-17 11:35
 ---
 
 ## Context
