@@ -55,6 +55,7 @@ clipboard
 codeagent
 codebrowser
 codex
+codex_questions
 codexcli
 concepts
 concern_format
