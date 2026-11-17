@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui, website, screenshots]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 2278
 followup_kind: upstream_defect
 implemented_with: codex/gpt6_1_sol
 created_at: 2026-11-17 09:56
-updated_at: 2026-11-17 22:05
+updated_at: 2026-11-17 22:19
+completed_at: 2026-11-17 22:19
 ---
 
 ## Origin
