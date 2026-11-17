@@ -31,7 +31,16 @@ HOOK="$PROJECT_DIR/.aitask-scripts/aitask_session_hook.sh"
 FIXTURES="$PROJECT_DIR/tests/data/session_hooks"
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/ait_session_hook_XXXXXX")"
-cleanup() { rm -rf "$TMP"; }
+_sib=""
+_argv_procs=()
+cleanup() {
+    local p
+    for p in ${_sib:-} "${_argv_procs[@]}"; do
+        kill -KILL "$p" 2>/dev/null || true
+        wait "$p" 2>/dev/null || true
+    done
+    rm -rf "$TMP"
+}
 trap cleanup EXIT
 
 # ---------------------------------------------------------------------------
@@ -441,8 +450,11 @@ assert_contains "units: a non-numeric ancestor -> rc 2" "rc=2" "$(_unit pid_chai
 # for the background child): the pid comes back in $_p.
 ARGV_DIR="$TMP/argvbin"
 mkdir -p "$ARGV_DIR"
+# A builtin FIFO wait keeps the Bash executable and argv under test without
+# spawning a sleep that would survive terminating its shell.
+mkfifo "$ARGV_DIR/hold"
 for _name in app-server exec "$(printf 'app-server\nx')"; do
-    printf 'sleep 30; :\n' >"$ARGV_DIR/$_name"
+    printf 'exec 3<>hold; read -r -t 30 _ <&3; :\n' >"$ARGV_DIR/$_name"
 done
 _argv_procs=()
 _argv_proc() {
@@ -474,6 +486,7 @@ if [ -r /proc/self/cmdline ]; then
     assert_contains "units: argv match: wrong argv0 -> rc 1" "rc=1" \
         "$(_unit pid_argv_match "$_p" codex app-server --managed-daemon)"
     kill "${_argv_procs[@]}" 2>/dev/null; wait "${_argv_procs[@]}" 2>/dev/null
+    _argv_procs=()
 else
     echo "  SKIP: no /proc — pid_argv_match declines (rc 2) without element boundaries"
 fi
@@ -514,6 +527,7 @@ kill "$_sib" 2>/dev/null; wait "$_sib" 2>/dev/null
 export TMUX_STUB_DISPLAY="aitasks"$'\t'"agent-pick-1705_3"$'\t'"%7"$'\t'"$_sib"$'\t'
 run_hook '{"session_id":"sid-n3","transcript_path":"/t/n3.jsonl","cwd":"'"$ROOT"'","source":"startup"}'
 expect_refused "a dead pane pid"
+_sib=""
 
 # NEGATIVE CONTROL: the same payload and env, differing only in the pane pid,
 # records again — so every refusal above is attributable to the pane pid.
@@ -617,7 +631,7 @@ expect_recorded "form c control: the daemon argv under a non-codex argv0"
 
 echo "--- t2047: an unreadable process reads as unidentifiable ---"
 sleep 30 & _gone=$!
-kill "$_gone" 2>/dev/null; wait "$_gone" 2>/dev/null
+kill -KILL "$_gone" 2>/dev/null; wait "$_gone" 2>/dev/null
 assert_contains "units: get_pid_exe on a reaped pid -> rc 1" "rc=1" "$(_unit get_pid_exe "$_gone")"
 assert_contains "units: pid_argv_match on a reaped pid -> rc 2 (no boundaries)" "rc=2" "$(_unit pid_argv_match "$_gone" codex app-server --managed-daemon)"
 

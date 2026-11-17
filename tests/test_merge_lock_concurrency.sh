@@ -29,24 +29,43 @@ LOCKD="$AITASKS_LOCK_DIR/merge"
 : > "$AITASKS_LOCK_DIR/.ait_merge_test_seams"        # seams on for this file
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/test_mergeconcfx_XXXXXX")"
 
-ANCHORS=""
-BGPIDS=""
+# Only the owning shell may spawn/register children. Never call these helpers
+# through a command substitution or pipeline.
+ANCHORS=" "
+BGPIDS=" "
+stop_anchor() {
+    local owned=" $1 "
+    [[ "$ANCHORS" == *"$owned"* ]] || return 0
+    # These are disposable sleeps. KILL also covers a signal arriving before
+    # exec, when an asynchronous bash child can still inherit ignored TERM.
+    kill -KILL "$1" 2>/dev/null || true
+    wait "$1" 2>/dev/null || true
+    ANCHORS="${ANCHORS/$owned/ }"
+}
+forget_worker() {
+    local owned=" $1 "
+    BGPIDS="${BGPIDS/$owned/ }"
+}
+stop_worker() {
+    # Workers have their own process group, including broker/grandchildren.
+    kill -KILL -- "-$1" 2>/dev/null || true
+    wait "$1" 2>/dev/null || true
+    forget_worker "$1"
+}
 cleanup() {
     local p
-    for p in $BGPIDS  ; do kill "$p" 2>/dev/null || true; done
-    for p in $ANCHORS ; do kill "$p" 2>/dev/null || true; done
+    for p in $BGPIDS; do stop_worker "$p"; done
+    for p in $ANCHORS; do stop_anchor "$p"; done
     rm -rf "$TMP" "$AITASKS_LOCK_DIR"
 }
 trap cleanup EXIT
 
-spawn_anchor() {
-    # stdout/stderr redirected: a background child that inherits the
-    # command-substitution pipe would block `$(...)` until it exits.
+spawn_anchor() {  # <output variable>, called directly in the owning shell
     sleep 900 >/dev/null 2>&1 &
-    local p=$!
-    ANCHORS="$ANCHORS $p"
-    printf '%s' "$p"
+    ANCHORS="$ANCHORS$! "
+    printf -v "$1" '%s' "$!"
 }
+
 free_lock() { rm -rf "$LOCKD" "$LOCKD.gc"; }
 
 # repo <name> <n_clean_branches> — main plus N independent, cleanly-mergeable
@@ -87,18 +106,21 @@ echo "========================="
 # misattribution this whole task exists to prevent. With the mutex ENABLED the
 # same harness must instead see B refused with BUSY, and A's commit clean.
 # ===========================================================================
-run_red_proof() {   # <mode: disabled|enabled> -> echoes "<B_verdict>|<contaminated:yes/no>"
+RED_PROOF_PIDS=""
+res=""
+run_red_proof() {   # <mode: disabled|enabled> <output variable>
     local mode="$1" r fifo_reached fifo_go a_anchor b_anchor bverd contam
     r="$(new_repo "red_$mode" 2)"
     fifo_reached="$TMP/reached_$mode"; fifo_go="$TMP/go_$mode"
     rm -f "$fifo_reached" "$fifo_go"; mkfifo "$fifo_reached" "$fifo_go"
-    a_anchor="$(spawn_anchor)"; b_anchor="$(spawn_anchor)"
+    spawn_anchor a_anchor; spawn_anchor b_anchor
     free_lock
 
     local dis=""
     [[ "$mode" == "disabled" ]] && dis=1
 
     # A: parks in the hook, which sits between the checkout and the merge.
+    set -m
     (
         cd "$r" || exit 1
         AIT_AGENT_PID="$a_anchor" \
@@ -106,7 +128,9 @@ run_red_proof() {   # <mode: disabled|enabled> -> echoes "<B_verdict>|<contamina
         AIT_MERGE_BROKER_HOOK="printf 'x' > '$fifo_reached'; read -r _ < '$fifo_go'" \
         "$BROKER" begin tA main aitask/t1 > "$TMP/a_out_$mode" 2>/dev/null
     ) &
-    local apid=$!; BGPIDS="$BGPIDS $apid"
+    local apid=$!; BGPIDS="$BGPIDS$apid "
+    set +m
+    RED_PROOF_PIDS="$a_anchor $b_anchor $apid"
 
     # Rendezvous 1: blocks until A is parked at the hook. No sleep.
     read -r _ < "$fifo_reached"
@@ -118,6 +142,7 @@ run_red_proof() {   # <mode: disabled|enabled> -> echoes "<B_verdict>|<contamina
     # Rendezvous 2: let A finish its merge.
     printf 'x' > "$fifo_go"
     wait "$apid" 2>/dev/null || true
+    forget_worker "$apid"
 
     # Did A's merge commit absorb B's file?
     local asha
@@ -126,17 +151,35 @@ run_red_proof() {   # <mode: disabled|enabled> -> echoes "<B_verdict>|<contamina
     if [[ -n "$asha" ]] && ( cd "$r" && git cat-file -p "$asha^{tree}" 2>/dev/null | grep -q 'f2.txt' ); then
         contam=yes
     fi
-    printf '%s|%s' "${bverd:-NONE}" "$contam"
+    stop_anchor "$a_anchor"
+    stop_anchor "$b_anchor"
+    printf -v "$2" '%s|%s' "${bverd:-NONE}" "$contam"
+}
+
+assert_proof_reaped() {
+    local p count=0 alive=0
+    for p in $RED_PROOF_PIDS; do
+        count=$((count + 1))
+        kill -0 "$p" 2>/dev/null && alive=$((alive + 1))
+    done
+    assert_eq "$1: all three proof children were registered in the owner" 3 "$count"
+    assert_eq "$1: no proof children remain before EXIT/outer guard" 0 "$alive"
+    assert_eq "$1: anchors deregistered" " " "$ANCHORS"
+    assert_eq "$1: worker deregistered" " " "$BGPIDS"
 }
 
 echo "--- Case 1: red proof, mutex DISABLED ---"
-res="$(run_red_proof disabled)"
+RED_PROOF_PIDS=""
+run_red_proof disabled res
+assert_proof_reaped case1
 b_verdict="${res%%|*}"; contaminated="${res##*|}"
 assert_contains "case1(red): with the mutex disabled B merges rather than being refused" "MERGE_OK:" "$b_verdict"
 assert_eq "case1(red): A's merge commit CONTAINS B's file - the merge is contaminated" "yes" "$contaminated"
 
 echo "--- Case 1n: negative control - the SAME harness with the mutex ENABLED ---"
-res="$(run_red_proof enabled)"
+RED_PROOF_PIDS=""
+run_red_proof enabled res
+assert_proof_reaped case1n
 b_verdict="${res%%|*}"; contaminated="${res##*|}"
 # Pin the BOUNDARY: B must be refused by the MUTEX (BUSY naming A), not by some
 # earlier pre-flight - otherwise "goes green" would prove nothing about locking.
@@ -148,7 +191,10 @@ assert_eq "case1n: and A's commit is clean - the contamination assertion is what
 echo "--- Case 5: the guard actually gates ---"
 # Case 1 vs 1n IS the gate proof: the only difference between the two runs is
 # the documented acquisition seam, and the named contamination assertion flips.
-assert_eq "case5: removing the acquisition flips the case-1 contamination assertion" "yes" "$(run_red_proof disabled | sed 's/.*|//')"
+RED_PROOF_PIDS=""
+run_red_proof disabled res
+assert_proof_reaped case5
+assert_eq "case5: removing the acquisition flips the case-1 contamination assertion" "yes" "${res##*|}"
 
 # ===========================================================================
 # Case 2: N = 51 concurrent callers, with an explicit operational contract.
@@ -191,10 +237,16 @@ worker() {             # <i> <anchor>
 }
 start=$(date +%s)
 wpids=""
+n51_anchors=""
+a=""
 for (( i=1; i<=N; i++ )); do
-    a="$(spawn_anchor)"
+    spawn_anchor a
+    n51_anchors="$n51_anchors $a"
+    set -m
     worker "$i" "$a" >/dev/null 2>&1 &
     wpids="$wpids $!"
+    BGPIDS="$BGPIDS$! "
+    set +m
 done
 # Wall-clock GUARD: fail with diagnostics rather than hang.
 # Completion is polled through the workers' own rc files. `wait` cannot be used
@@ -210,8 +262,11 @@ while :; do
 done
 # Only ever kill leftovers, and only after the guard expired.
 if [[ "$timed_out" -eq 1 ]]; then
-    for p in $wpids; do kill "$p" 2>/dev/null || true; done
+    for p in $wpids; do stop_worker "$p"; done
 fi
+
+for p in $wpids; do wait "$p" 2>/dev/null || true; forget_worker "$p"; done
+for p in $n51_anchors; do stop_anchor "$p"; done
 
 ok_count=0; rc_bad=0; busy_seen=0; cap_hit=0
 for (( i=1; i<=N; i++ )); do
@@ -265,9 +320,9 @@ assert_eq "case2: the lock is FREE afterwards (a leak would poison later cases)"
 echo "--- Case 12: force-release revalidates under the guard ---"
 free_lock
 R12="$(new_repo fr 3)"
-A12="$(spawn_anchor)"; B12="$(spawn_anchor)"; C12="$(spawn_anchor)"
+spawn_anchor A12; spawn_anchor B12; spawn_anchor C12
 ( cd "$R12" && AIT_AGENT_PID="$A12" "$BROKER" begin tA main aitask/t1 >/dev/null 2>&1 )
-kill "$A12" 2>/dev/null; wait "$A12" 2>/dev/null || true      # holder now provably dead
+stop_anchor "$A12"      # holder now provably dead
 # Between Read 1 and the guard, a contender reclaims and republishes.
 replace="cd '$R12' && AIT_AGENT_PID='$B12' '$BROKER' begin tB main aitask/t2 >/dev/null 2>&1 || true"
 out="$( cd "$R12" && AIT_AGENT_PID="$C12" \
@@ -293,15 +348,16 @@ free_lock
 echo "--- Case 13: interrupted recovery terminates ---"
 free_lock
 R13="$(new_repo intr 2)"
-A13="$(spawn_anchor)"; C13="$(spawn_anchor)"
+spawn_anchor A13; spawn_anchor C13
 ( cd "$R13" && AIT_AGENT_PID="$A13" "$BROKER" begin tA main aitask/t1 >/dev/null 2>&1 )
-kill "$A13" 2>/dev/null; wait "$A13" 2>/dev/null || true
+stop_anchor "$A13"
 fr_reached="$TMP/fr_reached"; fr_hold="$TMP/fr_hold"
 rm -f "$fr_reached" "$fr_hold"; mkfifo "$fr_reached" "$fr_hold"
 # Park INSIDE the guarded section on a FIFO read - a BUILTIN, so the INT trap
 # runs the moment the signal lands. Parking on `sleep` instead would defer the
 # trap until that child exits, and the section would complete uninterrupted
 # (which is exactly the false green this comment exists to prevent).
+set -m
 (
     cd "$R13" || exit 1
     # exec, so this subshell's pid IS the broker's: signalling the subshell
@@ -311,7 +367,8 @@ rm -f "$fr_reached" "$fr_hold"; mkfifo "$fr_reached" "$fr_hold"
         AIT_MERGE_FORCE_HOOK_INGUARD="printf 'x' > '$fr_reached'; read -r _ < '$fr_hold'" \
         "$BROKER" force-release --yes >/dev/null 2>&1
 ) &
-frpid=$!; BGPIDS="$BGPIDS $frpid"
+frpid=$!; BGPIDS="$BGPIDS$frpid "
+set +m
 read -r _ < "$fr_reached"                 # rendezvous: it is inside the guard
 assert_dir_exists "case13: the guard is held while the section runs" "$LOCKD.gc"
 # SIGTERM, not SIGINT: with job control off bash sets SIGINT to IGNORE for a
@@ -323,6 +380,7 @@ kill -TERM "$frpid" 2>/dev/null || true
 for _ in $(seq 1 100); do kill -0 "$frpid" 2>/dev/null || break; sleep 0.1; done
 kill -KILL "$frpid" 2>/dev/null || true
 wait "$frpid" 2>/dev/null || true
+forget_worker "$frpid"
 assert_dir_not_exists "case13: a catchable signal RELEASES the guard" "$LOCKD.gc"
 assert_dir_exists "case13: the lock dir is intact with its original holder" "$LOCKD"
 out="$( cd "$R13" && "$BROKER" status 2>/dev/null )"
@@ -337,7 +395,7 @@ assert_contains "case13: usable again, proved by a different cleanly-mergeable t
 # published recovery must still terminate.
 free_lock
 mkdir -p "$LOCKD.gc"                       # the state a SIGKILL would leave
-D13="$(spawn_anchor)"
+spawn_anchor D13
 out="$( cd "$R13" && AIT_AGENT_PID="$D13" "$BROKER" status 2>&1 )"
 assert_contains "case13b: status names the wedged guard and its path" "$LOCKD.gc" "$out"
 rmdir "$LOCKD.gc"                          # the documented cure: rmdir, never rm -rf

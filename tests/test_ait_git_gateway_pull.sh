@@ -33,7 +33,10 @@ sync_isolate_git_config
 assert_git_config_isolated
 
 cleanup() {
-    [[ -n "$HOLDER_PID" ]] && kill "$HOLDER_PID" 2>/dev/null
+    if [[ -n "$HOLDER_PID" ]]; then
+        kill -KILL "$HOLDER_PID" 2>/dev/null || true
+        wait "$HOLDER_PID" 2>/dev/null || true
+    fi
     local d
     for d in "${CLEANUP_DIRS[@]}"; do rm -rf "$d" 2>/dev/null; done
 }
@@ -368,7 +371,7 @@ echo "--- Test F: pull mutex held by a live session -> pull_locked, nothing pull
 make_fixture
 remote_commit other.txt "other"
 head_F="$(git -C "$DATA" rev-parse HEAD)"
-bash -c 'source "$1"; stale_lock_acquire "$2" 3 0.05 "test holder" && touch "$3" && sleep 60' \
+bash -c 'source "$1"; stale_lock_acquire "$2" 3 0.05 "test holder" && touch "$3" && exec sleep 60' \
     _ "$PROJECT_DIR/.aitask-scripts/lib/stale_lock.sh" "$GD/aitask-pull.lock" "$FX/held" &
 HOLDER_PID=$!
 for _ in $(seq 1 50); do [[ -e "$FX/held" ]] && break; sleep 0.1; done

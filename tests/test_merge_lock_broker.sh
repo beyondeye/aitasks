@@ -12,6 +12,8 @@
 # process-wide, cached even when UNKNOWN. Flipping AIT_AGENT_PID and re-calling
 # in the SAME shell changes nothing, so every "different session" case invokes
 # the broker as a SEPARATE PROCESS with the differing anchor in its environment.
+# spawn_anchor assigns its output variable with printf -v in this shell.
+# shellcheck disable=SC2154
 set -u
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -32,26 +34,43 @@ export AITASKS_LOCK_DIR
 LOCKD="$AITASKS_LOCK_DIR/merge"
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/test_mergefix_XXXXXX")"
 
-ANCHORS=""            # every fixture anchor pid we spawn
+# Only the owning shell may spawn/register children. Never call these helpers
+# through a command substitution or pipeline.
+ANCHORS=" "
+BGPIDS=" "
+forget_worker() {
+    local owned=" $1 "
+    BGPIDS="${BGPIDS/$owned/ }"
+}
+stop_worker() {
+    local owned=" $1 "
+    [[ "$BGPIDS" == *"$owned"* ]] || return 0
+    # The worker and its FIFO/polling descendants share a private group.
+    kill -KILL -- "-$1" 2>/dev/null || true
+    wait "$1" 2>/dev/null || true
+    forget_worker "$1"
+}
+stop_anchor() {
+    local owned=" $1 "
+    [[ "$ANCHORS" == *"$owned"* ]] || return 0
+    # These are disposable sleeps. KILL also covers a signal arriving before
+    # exec, when an asynchronous bash child can still inherit ignored TERM.
+    kill -KILL "$1" 2>/dev/null || true
+    wait "$1" 2>/dev/null || true
+    ANCHORS="${ANCHORS/$owned/ }"
+}
 cleanup() {
     local p
-    for p in $ANCHORS; do kill "$p" 2>/dev/null || true; done
+    for p in $BGPIDS; do stop_worker "$p"; done
+    for p in $ANCHORS; do stop_anchor "$p"; done
     rm -rf "$TMP" "$AITASKS_LOCK_DIR"
 }
 trap cleanup EXIT
 
-# spawn_anchor -> echo a live pid usable as AIT_AGENT_PID. proc_fixtures.sh
-# provides only dead_pid_fixture(); a LIVE anchored process is the caller's job
-# (its own comments say so), so this is the hand-rolled shape used by
-# test_gate_lock_single_winner.sh:76-82.
-spawn_anchor() {
-    # Redirect the child's stdout/stderr: a background process that inherits
-    # the command-substitution pipe holds its write end open, and `$(...)`
-    # blocks reading until EOF - i.e. for the full sleep.
+spawn_anchor() {  # <output variable>, called directly in the owning shell
     sleep 600 >/dev/null 2>&1 &
-    local p=$!
-    ANCHORS="$ANCHORS $p"
-    printf '%s' "$p"
+    ANCHORS="$ANCHORS$! "
+    printf -v "$1" '%s' "$!"
 }
 
 enable_seams()  { : > "$AITASKS_LOCK_DIR/.ait_merge_test_seams"; }
@@ -109,13 +128,13 @@ echo "--- Case 0: cross-process hold (positive control) ---"
 # The load-bearing property: the reservation OUTLIVES the acquiring process.
 # Fails loudly if merge_lock.sh ever inherits registry_lock.sh's EXIT trap.
 free_lock; enable_seams
-R0="$(new_repo r0)"; A0="$(spawn_anchor)"
+R0="$(new_repo r0)"; spawn_anchor A0
 out="$(broker "$R0" "$A0" begin tA main aitask/tclean)"
 assert_contains "case0: first begin merges" "MERGE_OK:" "$out"
 assert_dir_exists "case0: lock dir still present after begin's process exited" "$LOCKD"
 out="$(broker "$R0" "$A0" status)"
 assert_contains "case0: a SEPARATE process still sees the lock held" "HELD:tA|" "$out"
-B0="$(spawn_anchor)"
+spawn_anchor B0
 out="$(broker "$R0" "$B0" begin tB main aitask/tclean2 --wait-secs 1)"
 assert_contains "case0: a second process is excluded and names the holder" "BUSY:tA:" "$out"
 out="$(broker "$R0" "$A0" finish tA)"
@@ -127,7 +146,7 @@ echo "--- Case 11: the test seams are NOT production-reachable ---"
 # AITASKS_LOCK_DIR is a DEPLOYMENT seam (stale_lock.sh:39-42 tells admins to
 # point it at a shared base), so it must NOT be what enables the seams.
 free_lock; disable_seams
-R11="$(new_repo r11)"; A11="$(spawn_anchor)"; B11="$(spawn_anchor)"
+R11="$(new_repo r11)"; spawn_anchor A11; spawn_anchor B11
 out="$(broker "$R11" "$A11" begin tA main aitask/tclean)"
 assert_contains "case11: holder merges" "MERGE_OK:" "$out"
 out="$( cd "$R11" && AIT_AGENT_PID="$B11" AIT_MERGE_LOCK_DISABLED=1 "$BROKER" begin tB main aitask/tclean2 --wait-secs 1 2>/dev/null )"
@@ -138,7 +157,7 @@ assert_not_contains "case11: with the marker present the seam takes effect" "BUS
 # ---------------------------------------------------------------------------
 echo "--- Case 3: conflict-parked reservation ---"
 free_lock; enable_seams
-R3="$(new_repo r3)"; A3="$(spawn_anchor)"; B3="$(spawn_anchor)"
+R3="$(new_repo r3)"; spawn_anchor A3; spawn_anchor B3
 out="$(broker "$R3" "$A3" begin tA main aitask/tconf)"
 assert_contains "case3: conflicting branch reports MERGE_CONFLICT" "MERGE_CONFLICT:" "$out"
 assert_contains "case3: the conflicting path is named" "shared.txt" "$out"
@@ -154,7 +173,7 @@ broker "$R3" "$B3" finish tB >/dev/null
 # ---------------------------------------------------------------------------
 echo "--- Case 8b: non-conflict merge failure ---"
 free_lock
-R8b="$(new_repo r8b)"; A8b="$(spawn_anchor)"
+R8b="$(new_repo r8b)"; spawn_anchor A8b
 out="$(broker "$R8b" "$A8b" begin tU main aitask/tunrel)"
 assert_contains "case8b: unrelated history fails before MERGE_HEAD" "MERGE_FAILED:" "$out"
 out="$(broker "$R8b" "$A8b" abort tU)"
@@ -168,7 +187,7 @@ broker "$R8b" "$A8b" finish tV >/dev/null
 # ---------------------------------------------------------------------------
 echo "--- Case 8: non-owner release refused ---"
 free_lock
-R8="$(new_repo r8)"; A8="$(spawn_anchor)"; C8="$(spawn_anchor)"
+R8="$(new_repo r8)"; spawn_anchor A8; spawn_anchor C8
 broker "$R8" "$A8" begin tA main aitask/tclean >/dev/null
 out="$(broker "$R8" "$A8" finish tOTHER)"
 assert_eq "case8a: another task id cannot release" "NOT_HOLDER:tA" "$out"
@@ -200,20 +219,20 @@ assert_dir_not_exists "case8d: the planted lock is gone" "$LOCKD"
 # ---------------------------------------------------------------------------
 echo "--- Case 4: stale-holder recovery ---"
 free_lock
-R4="$(new_repo r4)"; A4="$(spawn_anchor)"; B4="$(spawn_anchor)"
+R4="$(new_repo r4)"; spawn_anchor A4; spawn_anchor B4
 broker "$R4" "$A4" begin tA main aitask/tclean >/dev/null
 assert_dir_exists "case4: holder acquired" "$LOCKD"
 # live-anchored holder is NEVER displaced
 out="$(broker "$R4" "$B4" begin tB main aitask/tclean2 --wait-secs 1)"
 assert_contains "case4: a LIVE anchored holder is never displaced" "BUSY:tA:" "$out"
-kill "$A4" 2>/dev/null; wait "$A4" 2>/dev/null || true
+stop_anchor "$A4"
 out="$(broker "$R4" "$B4" begin tB main aitask/tclean2 --wait-secs 5)"
 assert_contains "case4: a DEAD anchor is reclaimed by the waiter" "MERGE_OK:" "$out"
 broker "$R4" "$B4" finish tB >/dev/null
 # an UNKNOWN anchor is never displaced
 free_lock; mkdir -p "$LOCKD"
 printf '0\n' > "$LOCKD/pid"; printf 'tZ\n' > "$LOCKD/task_id"; printf 'tok\n' > "$LOCKD/owner"
-C4="$(spawn_anchor)"
+spawn_anchor C4
 out="$(broker "$R4" "$C4" status)"
 assert_contains "case4: an unresolvable anchor reads as unknown" "|unknown" "$out"
 out="$(broker "$R4" "$C4" begin tC main aitask/tclean2 --wait-secs 1)"
@@ -231,7 +250,7 @@ assert_contains "case7: usable again, proved by a cleanly mergeable task" "MERGE
 broker "$R4" "$C4" finish tD >/dev/null
 # a LIVE holder is refused
 free_lock
-D4="$(spawn_anchor)"
+spawn_anchor D4
 broker "$R4" "$D4" begin tL main aitask/tclean >/dev/null 2>&1 || true
 out="$(broker "$R4" "$C4" force-release --yes)"
 assert_contains "case7: force-release refuses a provably live holder" "REFUSED_LIVE_HOLDER:" "$out"
@@ -241,10 +260,10 @@ free_lock
 # ---------------------------------------------------------------------------
 echo "--- Case 7b: the two residue remedies are distinct ---"
 free_lock
-R7="$(new_repo r7)"; A7="$(spawn_anchor)"
+R7="$(new_repo r7)"; spawn_anchor A7
 broker "$R7" "$A7" begin tA main aitask/tconf >/dev/null      # parks at MERGE_CONFLICT
-kill "$A7" 2>/dev/null; wait "$A7" 2>/dev/null || true        # holder now dead
-E7="$(spawn_anchor)"
+stop_anchor "$A7"        # holder now dead
+spawn_anchor E7
 out="$(broker "$R7" "$E7" force-release --yes)"
 assert_contains "case7b: MERGE_HEAD present, no flag -> refused with its remedy" "RESIDUE_PRESENT:merge_head:--abort-merge" "$out"
 assert_dir_exists "case7b: lock kept" "$LOCKD"
@@ -258,11 +277,11 @@ broker "$R7" "$E7" finish tV >/dev/null
 
 # planted unmerged-index-WITHOUT-MERGE_HEAD: the other residue state
 free_lock
-R7b="$(new_repo r7b)"; A7b="$(spawn_anchor)"
+R7b="$(new_repo r7b)"; spawn_anchor A7b
 broker "$R7b" "$A7b" begin tA main aitask/tconf >/dev/null
 ( cd "$R7b" && rm -f "$(git rev-parse --git-dir)/MERGE_HEAD" )
-kill "$A7b" 2>/dev/null; wait "$A7b" 2>/dev/null || true
-F7="$(spawn_anchor)"
+stop_anchor "$A7b"
+spawn_anchor F7
 out="$(broker "$R7b" "$F7" force-release --abort-merge --yes)"
 assert_eq "case7b: --abort-merge on an unmerged index with no MERGE_HEAD is refused" "WRONG_REMEDY:no_merge_head" "$out"
 assert_dir_exists "case7b: lock kept on the wrong-remedy refusal" "$LOCKD"
@@ -275,7 +294,7 @@ broker "$R7b" "$F7" finish tV >/dev/null
 # ---------------------------------------------------------------------------
 echo "--- Case 8b(2) / abort on a planted unsafe state ---"
 free_lock
-R8u="$(new_repo r8u)"; A8u="$(spawn_anchor)"
+R8u="$(new_repo r8u)"; spawn_anchor A8u
 broker "$R8u" "$A8u" begin tA main aitask/tconf >/dev/null
 ( cd "$R8u" && rm -f "$(git rev-parse --git-dir)/MERGE_HEAD" )
 out="$(broker "$R8u" "$A8u" abort tA)"
@@ -286,7 +305,7 @@ broker "$R8u" "$A8u" force-release --reset-hard --yes >/dev/null
 # ---------------------------------------------------------------------------
 echo "--- Case 8c: the verification window does not strand the lock ---"
 free_lock
-R8c="$(new_repo r8c)"; A8c="$(spawn_anchor)"
+R8c="$(new_repo r8c)"; spawn_anchor A8c
 # A REAL task worktree, so a cleanup regression that removes the worktree while
 # leaving the branch cannot pass this proof. (Merging a branch that is checked
 # out in another worktree is fine - only checking it out twice is refused.)
@@ -315,7 +334,7 @@ broker "$R8c" "$A8c" finish tA >/dev/null
 # ---------------------------------------------------------------------------
 echo "--- Case 10: cleanup authorization, delegation and partial failure ---"
 free_lock
-R10="$(new_repo r10)"; A10="$(spawn_anchor)"; G10="$(spawn_anchor)"
+R10="$(new_repo r10)"; spawn_anchor A10; spawn_anchor G10
 broker "$R10" "$A10" begin tA main aitask/tclean >/dev/null
 out="$(broker "$R10" "$G10" cleanup tA tclean --task-complete)"
 assert_contains "case10: a non-owner session cannot clean up" "NOT_OWNER_SESSION" "$out"
@@ -335,7 +354,7 @@ broker "$R10" "$A10" finish tA >/dev/null
 
 # unmerged branch -> CLEANED_PARTIAL, reservation KEPT
 free_lock
-R10b="$(new_repo r10b)"; A10b="$(spawn_anchor)"
+R10b="$(new_repo r10b)"; spawn_anchor A10b
 broker "$R10b" "$A10b" begin tA main aitask/tclean >/dev/null
 # Advance the task branch AFTER the merge, so it is no longer fully merged -
 # the realistic "agent committed once more" shape. `git branch -d` then refuses,
@@ -430,7 +449,7 @@ echo "--- Case 15: a released pre-merge failure never claims MERGE_FAILED ---"
 # MERGE_FAILED runs the held-lock recovery path; emitting it for a path that
 # RELEASES sends that recovery at an already-free lock.
 free_lock
-R15="$(new_repo r15)"; A15="$(spawn_anchor)"
+R15="$(new_repo r15)"; spawn_anchor A15
 # an untracked file that checking out `other` would overwrite
 ( cd "$R15" || exit 1 && git checkout -q -b other main && printf 'o\n' > collide.txt &&
   git add -A && git commit -qm o && git checkout -q main &&
@@ -453,7 +472,7 @@ echo "--- Case 16: a failed release is its own machine-readable state ---"
 # verdict would tell the caller the lock is NOT held, so it would call neither
 # finish nor abort, and the reservation would wedge with no verdict naming it.
 free_lock
-R16="$(new_repo r16)"; A16="$(spawn_anchor)"
+R16="$(new_repo r16)"; spawn_anchor A16
 broker "$R16" "$A16" begin tA main aitask/tclean >/dev/null      # holds the lock
 broker "$R16" "$A16" finish tA >/dev/null
 # Re-acquire, then dirty the tree so the NEXT begin takes a pre-merge refusal,
@@ -473,9 +492,9 @@ free_lock
 # ---------------------------------------------------------------------------
 echo "--- Case 17: the dry-run emits an opaque, copy-safe holder token ---"
 free_lock
-R17="$(new_repo r17)"; A17="$(spawn_anchor)"; C17="$(spawn_anchor)"
+R17="$(new_repo r17)"; spawn_anchor A17; spawn_anchor C17
 broker "$R17" "$A17" begin tA main aitask/tclean >/dev/null
-kill "$A17" 2>/dev/null; wait "$A17" 2>/dev/null || true
+stop_anchor "$A17"
 out="$(broker "$R17" "$C17" force-release)"
 tok="${out#DRY_RUN:}"
 assert_contains "case17: the dry-run verdict carries a token" "DRY_RUN:" "$out"
@@ -491,7 +510,7 @@ echo "--- Case 18: a tag named like the output branch (t2132) ---"
 # `symbolic-ref --short HEAD` abbreviates by ambiguity: with tag `main` beside
 # branch `main` it answers `heads/main`, which never equals the output branch.
 free_lock
-R18="$(new_repo r18)"; A18="$(spawn_anchor)"
+R18="$(new_repo r18)"; spawn_anchor A18
 ( cd "$R18" && git tag main ) >/dev/null 2>&1
 short18="$( cd "$R18" && git symbolic-ref --short HEAD )"
 assert_eq "case18: fixture: --short is ambiguous here" "heads/main" "$short18"
@@ -515,7 +534,7 @@ free_lock
 # ---------------------------------------------------------------------------
 echo "--- Case 19: the wait budget clamps the poll ---"
 free_lock; disable_seams
-R19="$(new_repo r19)"; A19="$(spawn_anchor)"; B19="$(spawn_anchor)"
+R19="$(new_repo r19)"; spawn_anchor A19; spawn_anchor B19
 broker "$R19" "$A19" begin tA main aitask/tclean >/dev/null
 t0=$(date +%s)
 out="$( cd "$R19" && AIT_AGENT_PID="$B19" "$BROKER" begin tB main aitask/tclean2 --wait-secs 3 2>"$TMP/err19" )"
@@ -533,17 +552,21 @@ broker "$R19" "$A19" finish tA >/dev/null
 
 echo "--- Case 20: a lock freed mid-sleep is taken by the final attempt ---"
 free_lock; disable_seams
-R20="$(new_repo r20)"; A20="$(spawn_anchor)"; B20="$(spawn_anchor)"
+R20="$(new_repo r20)"; spawn_anchor A20; spawn_anchor B20
 broker "$R20" "$A20" begin tA main aitask/tclean >/dev/null
 t0=$(date +%s)
+set -m
 ( cd "$R20" && AIT_AGENT_PID="$B20" "$BROKER" begin tB main aitask/tclean2 --wait-secs 5 \
     >"$TMP/out20" 2>"$TMP/err20" ) &
-b20=$!
+b20=$!; BGPIDS="$BGPIDS$b20 "
+set +m
 # Bounded wait for B to be asleep in its (clamped) poll, then free the lock.
 for _ in $(seq 1 50); do grep -q '^WAITING:' "$TMP/err20" 2>/dev/null && break; sleep 0.1; done
 assert_eq "case20: B reported it is waiting before the release" "1" "$(grep -c '^WAITING:' "$TMP/err20" || true)"
 broker "$R20" "$A20" finish tA >/dev/null
 wait "$b20" 2>/dev/null || true
+forget_worker "$b20"
+assert_eq "case20: completed worker deregistered" " " "$BGPIDS"
 el=$(( $(date +%s) - t0 ))
 assert_contains "case20: the attempt at the deadline acquires the freed lock" "MERGE_OK:" "$(cat "$TMP/out20")"
 assert_eq "case20: and returns within budget + 2 s" "yes" "$([[ "$el" -le 7 ]] && echo yes || echo "no(${el}s)")"
@@ -551,7 +574,7 @@ broker "$R20" "$B20" finish tB >/dev/null
 
 echo "--- Case 21: the poll seam is marker-gated ---"
 free_lock; disable_seams
-R21="$(new_repo r21)"; A21="$(spawn_anchor)"; B21="$(spawn_anchor)"
+R21="$(new_repo r21)"; spawn_anchor A21; spawn_anchor B21
 broker "$R21" "$A21" begin tA main aitask/tclean >/dev/null
 ( cd "$R21" && AIT_AGENT_PID="$B21" AIT_MERGE_LOCK_POLL_MS=200 "$BROKER" begin tB main aitask/tclean2 --wait-secs 2 \
     >/dev/null 2>"$TMP/err21a" )
@@ -593,8 +616,7 @@ rdv_read() {                       # <fd> -> the token, or TIMEOUT
 reap_bounded() {                   # <pid>
     local p="$1"
     for _ in $(seq 1 100); do kill -0 "$p" 2>/dev/null || break; sleep 0.1; done
-    kill -KILL "$p" 2>/dev/null || true
-    wait "$p" 2>/dev/null || true
+    stop_worker "$p"
 }
 # The lib-level waiter. Reports on the result FIFO: `P` on entering a holder
 # probe (and parks there until released through G), `D` once
@@ -629,14 +651,16 @@ echo "--- Case 22: a waiter mid-probe cannot starve the holder's release ---"
 # unguarded pre-probe and the seam's instance gating removed the token is still
 # P, but 22b sees the guard held and finish answers RETAINED.
 free_lock
-R22="$(new_repo r22)"; A22="$(spawn_anchor)"; W22="$(spawn_anchor)"
+R22="$(new_repo r22)"; spawn_anchor A22; spawn_anchor W22
 out="$(broker "$R22" "$A22" begin tA main aitask/tclean)"
 assert_contains "case22: fixture: a live holder holds the lock" "MERGE_OK:" "$out"
 rm -f "$TMP/fifo22_r" "$TMP/fifo22_g"; mkfifo "$TMP/fifo22_r" "$TMP/fifo22_g"
 exec 7<>"$TMP/fifo22_r" 8<>"$TMP/fifo22_g"
+set -m
 AIT_AGENT_PID="$W22" bash "$waiter" "$PROJECT_DIR" "$TMP/fifo22_r" "$TMP/fifo22_g" plain \
     >/dev/null 2>"$TMP/w22.err" &
-w22=$!
+w22=$!; BGPIDS="$BGPIDS$w22 "
+set +m
 tok="$(rdv_read 7)"
 assert_eq "case22: precondition - the waiter is parked inside a holder probe (D = it never probed)" "P" "$tok"
 if [[ -e "$LOCKD.gc" ]]; then g22=held; else g22=free; fi
@@ -647,6 +671,7 @@ printf 'x\n' >&8
 tok="$(rdv_read 7)"
 assert_eq "case22: the unparked waiter returns" "D" "$tok"
 reap_bounded "$w22"
+assert_eq "case22: completed waiter deregistered" " " "$BGPIDS"
 exec 7>&- 8>&-
 free_lock
 
@@ -657,13 +682,15 @@ echo "--- Case 22c: a holder published AFTER the unguarded probe is not probed u
 # Red control (recorded in the t2167 plan): gating removed, pre-probe kept ->
 # token P and finish RETAINED.
 free_lock
-R22c="$(new_repo r22c)"; A22c="$(spawn_anchor)"; W22c="$(spawn_anchor)"
+R22c="$(new_repo r22c)"; spawn_anchor A22c; spawn_anchor W22c
 rm -f "$TMP/fifo22c_r" "$TMP/fifo22c_g" "$TMP/fifo22c_r1" "$TMP/fifo22c_g1"
 mkfifo "$TMP/fifo22c_r" "$TMP/fifo22c_g" "$TMP/fifo22c_r1" "$TMP/fifo22c_g1"
 exec 7<>"$TMP/fifo22c_r" 8<>"$TMP/fifo22c_g" 5<>"$TMP/fifo22c_r1" 6<>"$TMP/fifo22c_g1"
+set -m
 AIT_AGENT_PID="$W22c" bash "$waiter" "$PROJECT_DIR" "$TMP/fifo22c_r" "$TMP/fifo22c_g" wrap "$TMP/fifo22c_r1" "$TMP/fifo22c_g1" \
     >/dev/null 2>"$TMP/w22c.err" &
-w22c=$!
+w22c=$!; BGPIDS="$BGPIDS$w22c "
+set +m
 tok="$(rdv_read 5)"
 assert_eq "case22c: precondition - the waiter passed the absent-lock probe and is parked before the core" "x" "$tok"
 out="$(broker "$R22c" "$A22c" begin tA main aitask/tclean)"
@@ -677,12 +704,13 @@ assert_dir_not_exists "case22c: the lock really was released" "$LOCKD"
 # Only on the red path is the waiter still parked in a probe: free it.
 [[ "$tok" == "P" ]] && { printf 'x\n' >&8; printf 'x\n' >&8; printf 'x\n' >&8; }
 reap_bounded "$w22c"
+assert_eq "case22c: completed waiter deregistered" " " "$BGPIDS"
 exec 7>&- 8>&- 5>&- 6>&-
 free_lock
 
 echo "--- Case 23: a same-session begin re-enters its own reservation ---"
 free_lock; disable_seams
-R23="$(new_repo r23)"; A23="$(spawn_anchor)"; B23="$(spawn_anchor)"
+R23="$(new_repo r23)"; spawn_anchor A23; spawn_anchor B23
 out="$(broker "$R23" "$A23" begin tA main aitask/tclean --wait-secs 0)"
 assert_contains "case23: first begin merges" "MERGE_OK:" "$out"
 out="$(broker "$R23" "$A23" begin tA main aitask/tclean --wait-secs 0)"

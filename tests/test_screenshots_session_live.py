@@ -1125,8 +1125,18 @@ class AgentsDatasetTests(LiveCase):
     def test_the_shipped_multi_pane_recipes_replay(self):
         scenes = ["minimonitor_main_view", "sitrep_window", "ait_ide_startup",
                   "monitor_layout_annotated"]
+        pane_environment = sessions.pane_environment
+
+        def fixture_environment(socket, home, python):
+            # Recipe setup invokes real gate writers. Keep their lock bases
+            # inside the disposable session, with the SAME namespace for setup
+            # commands and every pane; each fixture repo gets its own base.
+            return {**pane_environment(socket, home, python),
+                    "AITASKS_LOCK_DIR": str(home.parent / "locks")}
+
         with mock.patch.object(cli, "STEP_TIMEOUT", sessions.DEFAULT_TIMEOUT), \
-                mock.patch.object(cli, "EXPECT_TIMEOUT", 15.0):
+                mock.patch.object(cli, "EXPECT_TIMEOUT", 15.0), \
+                mock.patch.object(sessions, "pane_environment", fixture_environment):
             out = self.ok("replay", *[a for s_ in scenes for a in ("--scene", s_)], "--no-keep",
                           scenes=SHIPPED_SCENES)
         staged = {line.split("|")[0][len("STAGED:"):]: Path(line.split("|", 1)[1])

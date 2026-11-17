@@ -264,7 +264,7 @@ try:
     cl_paths.project_root = lambda: fake_root
 
     # timeout fires: a slow stub returns () quickly instead of hanging.
-    install_ait("sleep 5\n")
+    install_ait("exec sleep 5\n")
     t0 = time.monotonic()
     argv = pf.resolve_explore_relay_argv(timeout=0.5)
     elapsed = time.monotonic() - t0

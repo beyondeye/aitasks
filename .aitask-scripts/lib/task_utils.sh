@@ -976,103 +976,113 @@ _ait_commit_scoped_seam_pregit() {
     eval "$AIT_COMMIT_SCOPED_SEAM_PREGIT" || true
     return 0
 }
+# Private body of task_git_commit_scoped. Uses that function's local capture
+# descriptors and arguments; the caller opens only unused descriptors around
+# this call, so a fatal guard's EXIT handler retains every caller-owned fd.
+_ait_commit_scoped_capture() {
+    if [[ -n "$_ait_cs_errf" ]]; then
+        rm -f -- "$_ait_cs_errf" || return 1
+        _ait_cs_errf=""
+    fi
+    if (( do_stage )); then
+        # Current-shell calls keep die() fatal. This explicit preflight
+        # reports to the terminal; task_git's own guard remains authoritative
+        # if the worktree wedges between here and git.
+        assert_data_worktree_clean add -- "$@"
+        local a_rc=0 a_err
+        task_git add -- "$@" >/dev/null 2>&"$_ait_cs_write_fd" || a_rc=$?
+        if (( a_rc != 0 )); then
+            # A sentinel preserves trailing newlines for exact re-emission;
+            # the public diagnostic keeps its former stripped-newline form.
+            a_err="$(cat <&"$_ait_cs_read_fd"; printf '.')"; a_err="${a_err%.}"
+            printf '%s' "$a_err" >&2
+            AIT_COMMIT_SCOPED_ERR="$(printf '%s' "$a_err")"
+        else
+            # Successful add warnings stay silent, and the reader advances
+            # so the commit diagnostic cannot include them.
+            cat <&"$_ait_cs_read_fd" >/dev/null
+        fi
+    fi
+
+    local st st_rc=0
+    st="$(task_git status --porcelain -- "$@" 2>/dev/null)" || st_rc=$?
+    if [[ $st_rc -eq 0 && -z "$st" ]]; then
+        return 2
+    fi
+    [[ $st_rc -ne 0 ]] && warn "git status failed for $* — committing anyway"
+
+    local c_rc=0 c_err
+    assert_data_worktree_clean commit -- "$@"
+    _ait_commit_scoped_seam_pregit
+    task_git commit -o -m "$msg" --quiet -- "$@" >/dev/null 2>&"$_ait_cs_write_fd" || c_rc=$?
+    c_err="$(cat <&"$_ait_cs_read_fd"; printf '.')"; c_err="${c_err%.}"
+    printf '%s' "$c_err" >&2
+    # Add failure takes precedence: it names the cause (e.g. index.lock),
+    # while the commit may only report the resulting unknown pathspec.
+    if (( c_rc != 0 )) && [[ -z "$AIT_COMMIT_SCOPED_ERR" ]]; then
+        AIT_COMMIT_SCOPED_ERR="$(printf '%s' "$c_err")"
+    fi
+    (( c_rc == 0 )) || return 1
+}
+
 task_git_commit_scoped() {
-    # Matched literally, so a message is never mistaken for the flag.
     local do_stage=1
     if [[ "${1:-}" == "--no-stage" ]]; then
         do_stage=0; shift
     fi
     local msg="$1"; shift
-
-    # Cleared on ENTRY, never merely on failure: a caller that reads this after a
-    # later call must not be handed the previous call's text as if it described
-    # this one.
     AIT_COMMIT_SCOPED_ERR=""
-    # Load-bearing: `git commit --` with no pathspec commits the WHOLE index,
-    # silently re-creating the cross-session swallow this exists to stop.
-    # `-o` below makes that case fatal rather than silent; this guard means it
-    # is never reached.
+    # Empty pathspecs must never commit the whole shared index.
     (( $# )) || return 2
 
-    # `add` is needed ONLY so an untracked path can be named by the pathspec;
-    # a pathspec cannot match a file git does not know about. Verified: a
-    # two-path `commit -o -- <new> <orig>` rename fails outright with
-    # "pathspec did not match any file(s) known to git" when <new> is untracked,
-    # while a pure deletion needs no staging at all.
-    #
-    # Its stderr is RECORDED rather than discarded (t1725_2): under an index.lock
-    # the `add` message names the real cause, while the commit below then fails
-    # with a downstream "pathspec did not match any file(s) known to git". The
-    # failure stays non-fatal, as before — only the text is kept.
-    # mktemp CAN fail (TMPDIR missing, full, read-only, or not a directory), and
-    # an unchecked assignment here would be fatal under the callers' set -e —
-    # exiting the process AFTER aitask_create.sh has written the file and claimed
-    # the id, which is exactly the retry-and-burn-an-id defect this change
-    # removes. So it degrades instead: no capture file means no diagnostic, and
-    # the helper still returns 1 for the caller's recoverable branch.
-    #
-    # _ait_cs_sink keeps ONE code path for both git calls; the rm at the end is
-    # guarded on _ait_cs_errf so it can never target /dev/null.
+    # An already-wedged staging call needs no capture at all. The commit-side
+    # assertion stays AFTER the no-change return below, including --no-stage.
+    if (( do_stage )); then
+        assert_data_worktree_clean add -- "$@"
+    fi
+
     local _ait_cs_errf="" _ait_cs_sink
     _ait_cs_errf="$(mktemp "${TMPDIR:-/tmp}/ait_commit_scoped_err.XXXXXX" 2>/dev/null)" \
         || _ait_cs_errf=""
     _ait_cs_sink="${_ait_cs_errf:-/dev/null}"
-    if (( do_stage )); then
-        # NOT a command substitution: task_git calls assert_data_worktree_clean,
-        # which die()s, and a die inside $( ) exits only the SUBSHELL — turning a
-        # wedged worktree into an ordinary "add failed" for every caller of this
-        # shared helper. Redirecting in the current shell keeps the die fatal.
-        # The explicit assert first means an already-wedged worktree reports on
-        # the terminal instead of into $_ait_cs_errf.
-        assert_data_worktree_clean add -- "$@"
-        local a_rc=0
-        task_git add -- "$@" >/dev/null 2>"$_ait_cs_sink" || a_rc=$?
-        # Keyed on the STATUS, not on "wrote something": git add warns on stderr
-        # in cases that succeeded, and recording those would put a warning in a
-        # failure diagnostic.
-        #
-        # On SUCCESS the text is dropped, exactly as the previous
-        # `2>&1 >/dev/null || true` dropped it — re-emitting it would start
-        # surfacing warnings that have been silent for every caller of this
-        # shared helper. Only a failure earns a diagnostic.
-        if (( a_rc != 0 )) && [[ -n "$_ait_cs_errf" ]]; then
-            AIT_COMMIT_SCOPED_ERR="$(<"$_ait_cs_errf")"
-            [[ -s "$_ait_cs_errf" ]] && cat "$_ait_cs_errf" >&2
+
+    # Select two UNUSED descriptors without Bash 4.1's {var} allocation syntax
+    # (the supported floor includes Bash 4.0). Never shadow a caller fd: EXIT
+    # handlers run before command redirections unwind on a fatal guard. Search
+    # up to the process's actual soft limit, not an arbitrary low-fd window.
+    local _ait_cs_write_fd="" _ait_cs_read_fd="" _ait_cs_fd _ait_cs_fd_limit
+    _ait_cs_fd_limit="$(ulimit -n)" || _ait_cs_fd_limit=0
+    for (( _ait_cs_fd=10; ; _ait_cs_fd++ )); do
+        if [[ "$_ait_cs_fd_limit" != unlimited ]] && (( _ait_cs_fd >= _ait_cs_fd_limit )); then
+            break
         fi
-        : > "$_ait_cs_sink"
+        if { : >&"$_ait_cs_fd"; } 2>/dev/null || { : <&"$_ait_cs_fd"; } 2>/dev/null; then
+            continue
+        fi
+        if [[ -z "$_ait_cs_write_fd" ]]; then
+            _ait_cs_write_fd=$_ait_cs_fd
+        else
+            _ait_cs_read_fd=$_ait_cs_fd
+            break
+        fi
+    done
+    if [[ -z "$_ait_cs_read_fd" ]]; then
+        [[ -z "$_ait_cs_errf" ]] || rm -f -- "$_ait_cs_errf"
+        warn "scoped commit: no free capture descriptors"
+        return 1
     fi
 
-    # Capture the status exit separately: a failing status with empty stdout
-    # must read as "unverified", never as "clean" (same shape as the guard in
-    # aitask_gate.sh's materialize-active).
-    local st st_rc=0
-    st="$(task_git status --porcelain -- "$@" 2>/dev/null)" || st_rc=$?
-    if [[ $st_rc -eq 0 && -z "$st" ]]; then
-        [[ -n "$_ait_cs_errf" ]] && rm -f "$_ait_cs_errf"
-        return 2
-    fi
-    [[ $st_rc -ne 0 ]] && warn "git status failed for $* — committing anyway"
-
-    # stdout to /dev/null: --quiet already silences the summary, but
-    # aitask_create.sh's stdout is a DATA channel (it prints the created task
-    # file path), so this helper must never be able to contaminate it.
-    # stderr is recorded AND re-emitted; see the `add` note above for why this
-    # is a redirect in the current shell and not a command substitution.
-    local c_rc=0
-    assert_data_worktree_clean commit -- "$@"
-
-    _ait_commit_scoped_seam_pregit
-    task_git commit -o -m "$msg" --quiet -- "$@" >/dev/null 2>"$_ait_cs_sink" || c_rc=$?
-    [[ -n "$_ait_cs_errf" && -s "$_ait_cs_errf" ]] && cat "$_ait_cs_errf" >&2
-    # Do NOT overwrite a message the `add` failure already recorded. Under an
-    # index.lock the add says "Unable to create '…/index.lock': File exists" —
-    # the actual cause — while the commit only reports the downstream "pathspec
-    # did not match any file(s) known to git".
-    if (( c_rc != 0 )) && [[ -z "$AIT_COMMIT_SCOPED_ERR" ]] && [[ -n "$_ait_cs_errf" ]]; then
-        AIT_COMMIT_SCOPED_ERR="$(<"$_ait_cs_errf")"
-    fi
-    [[ -n "$_ait_cs_errf" ]] && rm -f "$_ait_cs_errf"
-    (( c_rc == 0 )) || return 1
+    # Separate offsets: write diagnostics, then read each completed call's
+    # bytes. The body unlinks the file before guarded calls; fatal exits leave
+    # no pathname, and normal returns close both fds automatically. No trap is
+    # changed. mktemp failure retains the existing /dev/null fallback.
+    # Only loop-generated integers enter eval's syntax. Paths and arguments
+    # remain quoted variable expansions evaluated exactly once.
+    local _ait_cs_rc=0
+    eval '_ait_commit_scoped_capture "$@" '"$_ait_cs_write_fd"'>"$_ait_cs_sink" '"$_ait_cs_read_fd"'<"$_ait_cs_sink"' || _ait_cs_rc=$?
+    # Also cover failure to open a descriptor before the body could unlink.
+    [[ -z "$_ait_cs_errf" ]] || rm -f -- "$_ait_cs_errf"
+    return "$_ait_cs_rc"
 }
 
 # Why git said no, on the most recent task_git_commit_scoped call that returned 1

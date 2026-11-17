@@ -128,7 +128,7 @@ async def main():
     happy = fake_binary(tmp, "cf_happy", """
 echo "INF Thank you ... https://developers.cloudflare.com/x" >&2
 echo "INF |  https://abc-def.trycloudflare.com  |" >&2
-sleep 60
+exec sleep 60
 """)
     t = QuickTunnel(8765, binary=happy, on_change=lambda: changes.append(t.state))
     check("initial state off", t.state == "off")
@@ -156,7 +156,7 @@ sleep 60
     slow = fake_binary(tmp, "cf_slow", f"""
 echo $$ > {pidfile}
 echo "INF |  https://xyz-1.trycloudflare.com  |" >&2
-sleep 60
+exec sleep 60
 """)
     t2 = QuickTunnel(8765, binary=slow)
     await t2.start()
@@ -172,7 +172,7 @@ sleep 60
     check("child process killed on stop", not alive)
 
     # -- never prints a URL: wait_url times out, state stays starting
-    silent = fake_binary(tmp, "cf_silent", "sleep 60\n")
+    silent = fake_binary(tmp, "cf_silent", "exec sleep 60\n")
     t3 = QuickTunnel(8765, binary=silent)
     await t3.start()
     url = await t3.wait_url(timeout=0.3)

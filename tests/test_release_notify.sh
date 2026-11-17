@@ -58,7 +58,14 @@ TOTAL=0
 command -v jq >/dev/null 2>&1 || { echo "SKIP: jq is required by the gh/glab stubs"; exit 0; }
 
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/test_release_notify_XXXXXX")"
-cleanup() { rm -rf "$TMP"; }
+holder=""
+cleanup() {
+    if [[ -n "$holder" ]]; then
+        kill -KILL "$holder" 2>/dev/null || true
+        wait "$holder" 2>/dev/null || true
+    fi
+    rm -rf "$TMP"
+}
 trap cleanup EXIT
 # The move seam SIGKILLs the helper on purpose, so its ait_ril_pending_* save
 # file can never be removed by the helper itself; keep it under $TMP (t2290).
@@ -278,12 +285,13 @@ gen_release v1.2.0
     export STALE_LOCK_IDENTITY_PID
     ait_ledger_lock_acquire release_notify run a b
     : > "$TMP/holder_ready"
-    sleep 30
+    exec sleep 30
 ) >/dev/null 2>&1 &
 holder=$!
 for _ in $(seq 50); do [[ -f "$TMP/holder_ready" ]] && break; sleep 0.1; done
 rnf_run "$REPO" --tag v1.2.0 --no-push
 kill "$holder" 2>/dev/null; wait "$holder" 2>/dev/null
+holder=""
 rm -rf "$AITASKS_LOCK_DIR"/*release_notify*
 assert_eq "(k) exit 3" "3" "$RNF_RC"
 assert_contains "(k) busy" "INCOMPLETE:run_lock:busy" "$RNF_OUT"

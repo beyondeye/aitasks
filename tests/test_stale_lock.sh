@@ -48,9 +48,14 @@ echo "Shell under test: $SHELL_UNDER_TEST (bash ${SUT_VERSION:-UNKNOWN})"
 
 T="$(mktemp -d "${TMPDIR:-/tmp}/test_stalelock_XXXXXX")"
 HOLDER_PID=""
+GC_HOLDER_PID=""
 cleanup() {
+    local p
+    for p in ${HOLDER_PID:-} ${GC_HOLDER_PID:-}; do
+        kill -KILL "$p" 2>/dev/null || true
+        wait "$p" 2>/dev/null || true
+    done
     rm -rf "$T"
-    [[ -n "$HOLDER_PID" ]] && kill "$HOLDER_PID" 2>/dev/null
 }
 trap cleanup EXIT
 
@@ -123,6 +128,8 @@ assert_not_contains "no reclaim warn for a live holder" "Reclaiming" "$err"
 desc="$(stale_lock_describe "$L")"
 assert_contains "describe names the holder pid" "held by pid $HOLDER_PID" "$desc"
 assert_contains "describe names the lock dir" "$L" "$desc"
+kill "$HOLDER_PID" 2>/dev/null; wait "$HOLDER_PID" 2>/dev/null
+HOLDER_PID=""
 rm -rf "$L"
 
 # ============================================================
@@ -505,6 +512,7 @@ err="$(stale_lock_acquire "$L" 3 0.05 "live guard lock" 60 2>&1)"; rc=$?
 assert_exit_nonzero_rc "a live holder record is never displaced, however old" "$rc"
 assert_dir_exists "the live holder's record is untouched" "$L.gc/h.$GC_HOLDER_PID.4242"
 kill "$GC_HOLDER_PID" 2>/dev/null; wait "$GC_HOLDER_PID" 2>/dev/null
+GC_HOLDER_PID=""
 rm -rf "$L.gc" "$L"
 
 # ============================================================
