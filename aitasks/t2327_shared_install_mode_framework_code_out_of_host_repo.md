@@ -6,7 +6,11 @@ issue_type: feature
 status: Ready
 labels: [ait_setup, installation, install_scripts]
 created_at: 2026-11-17 13:01
-updated_at: 2026-11-17 13:01
+updated_at: 2026-11-17 13:09
+artifacts:
+  - handle: art:trail-install-setup
+    kind: implementation_trail
+    name: Installation and setup improvements
 ---
 
 Add a "shared install" mode: the framework's code lives in a per-machine, per-version store instead of being committed into every host repository. The repository commits only which framework version it uses, plus its own data and configuration.

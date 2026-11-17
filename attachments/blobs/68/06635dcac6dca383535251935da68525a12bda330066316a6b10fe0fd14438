@@ -1,0 +1,676 @@
+{
+ "schema_version": "1.1.0",
+ "trail_id": "trail-install-setup",
+ "title": "Installation and setup improvements",
+ "owner": "aitasks#2327",
+ "scope": {
+  "kind": "ad_hoc",
+  "topics": [],
+  "selection_note": "Hand-picked on 2026-11-17: pending tasks whose labels or names concern install.sh, aitask_setup.sh, ait upgrade or what setup installs, plus the four tasks created in the same session (t2325, t2326, t2327, t2328). Test-map engine internals and unrelated go_engine tasks were left out, as were four install-related tasks that belong to other efforts' dependency chains (t2074_3, t2192, t835_3, t1893_13). t623 was given as a parent id, which pulled in its remaining child t623_7."
+ },
+ "generation": {
+  "generated_at": "2026-11-17T11:08:13Z",
+  "generator": {
+   "agent_string": "claudecode/opus5_5",
+   "skill": "aitask-trail"
+  },
+  "input_digest": "92529cf72caef559",
+  "inputs": [
+   {
+    "ref": "aitasks:aiplans/p623_more_installation_methods.md",
+    "kind": "plan_file"
+   },
+   {
+    "ref": "aitasks#1195",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#1376",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#1385",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#1386",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#1387",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#1478",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#1620",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#1757",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#1775",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#1841",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#1906",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#1917",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#2107",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#2139",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#2193",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#2205",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#2237",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#2325",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#2326",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#2327",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#2328",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#623",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#623_7",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#638",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#700",
+    "kind": "task_file"
+   },
+   {
+    "ref": "aitasks#729",
+    "kind": "task_file"
+   }
+  ]
+ },
+ "freshness": {
+  "state": "current",
+  "checked_at": "2026-11-17T11:08:13Z"
+ },
+ "narrative": {
+  "problem_statement": "Installation and setup work is spread over about thirty pending tasks (26 tracked here): small defects in the setup and install scripts, overdue manual verifications, new binaries and agents to install, and a planned change to where framework code lives. The scripts themselves have become hard to change (aitask_setup.sh is 7226 lines in one file).",
+  "recommendation_summary": "Fix the small defects and run the overdue verifications first, then split the scripts and add ait doctor, and only then build unattended setup, the shared install mode and the new install payloads on top.",
+  "overview": "Start with the small fixes in wave 1: t1775, t2237, t2205 and t2193 are low-effort defects in code the split will move. In parallel, the manual verifications in wave 2 can be run by a person at any time; t623_7 is the last open child of the package-manager work (t623), and t1387 (offline setup) informs the unattended-setup task.\n\nThe pivot is wave 3. t2328 (split the setup and install scripts into modules) is not a recorded dependency of anything, but every later task edits those scripts, so it is the task that makes the rest cheaper. t2325 (ait doctor) is the one recorded dependency inside this trail: t2327 depends on it. t2325 and t2328 both pull the installed/correct checks out of the installing code, so plan them together and extract those checks once.\n\nAfter that, t2326 (unattended setup) and t2327 (shared install mode) can proceed; t2327 is a parent that still has to be split into children. t700 decides which skills ship to users and should be settled before the skills part of t2327. t2139 (the ait-tui binary) is placed last so it is written once against the settled layout; it waits on t2138, outside this trail.\n\nFour install-related tasks are deliberately not members, because each sits inside another effort's dependency chain and is sequenced there: t2074_3 (setup layout repair, in the branch-mode hardening work), t2192 (install the task-query engine), t835_3 (wire the agy agent into install and setup) and t1893_13 (missing-dependency hints). They edit the same scripts, so check them before starting t2328. Several verification tasks list dependencies outside the trail (t1374, t1852_5, t637, t727, t623_6) whose state was not checked here.",
+  "method_note": "Lite trail. Membership was chosen by hand from label and filename matches, not derived from a topic, so pending install-related tasks with other labels may be missing. Wave order is advisory: only the dependency t2327 on t2325 is recorded in task metadata; the placement of t2328 before later waves is this trail's recommendation. Task bodies were read only for their opening lines; plans were not read. Not verified: whether out-of-trail dependencies have landed, whether the wave 1 fixes really touch disjoint functions, and what other work is currently in flight on the same files."
+ },
+ "waves": [
+  {
+   "wave_id": "w1-fixes",
+   "ordinal": 1,
+   "title": "Small setup and install fixes",
+   "purpose": "Land the pending low-effort defects and test fixes in the setup and install scripts while the code is still where the tasks describe it.",
+   "why_now": "Each of these edits functions that the script split (t2328) will move; fixing first avoids rebasing a dozen small patches onto moved code.",
+   "entries": [
+    {
+     "entry_id": "e-1775",
+     "task": "aitasks#1775",
+     "topic": "aitasks#1762",
+     "position": 1,
+     "classification": "core",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "low",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "followup_kind": "upstream_defect"
+     },
+     "rationale": "Unscoped git commits inside aitask_setup.sh; a correctness bug in the commit machinery every later setup change relies on.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-2237",
+     "task": "aitasks#2237",
+     "topic": "aitasks#1981",
+     "position": 2,
+     "classification": "core",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "low",
+      "effort": "low",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "followup_kind": "upstream_defect"
+     },
+     "rationale": "Ordering bug between a setup question and its commit; small and local to setup.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-2205",
+     "task": "aitasks#2205",
+     "topic": "aitasks#2173",
+     "position": 3,
+     "classification": "core",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "low",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "followup_kind": "upstream_defect"
+     },
+     "rationale": "Setup's gitignore handling does not honour the git symlink rule; same gitignore writers the split will move.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-2193",
+     "task": "aitasks#2193",
+     "topic": "aitasks#2179",
+     "position": 4,
+     "classification": "core",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "low",
+      "effort": "low",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "followup_kind": "upstream_defect"
+     },
+     "rationale": "Gitignore failure warning names the wrong rules; same area as t2205, cheapest done together.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-1478",
+     "task": "aitasks#1478",
+     "topic": "aitasks#1468",
+     "position": 5,
+     "classification": "core",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "low",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "followup_kind": "upstream_defect"
+     },
+     "rationale": "Setup skips agent instruction mirrors when a CLI is absent; touches the per-agent setup code.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-1917",
+     "task": "aitasks#1917",
+     "topic": "aitasks#1910",
+     "position": 6,
+     "classification": "core",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "low",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "followup_kind": "upstream_defect"
+     },
+     "rationale": "Python resolver verification bug in the install scripts.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-1385",
+     "task": "aitasks#1385",
+     "topic": "aitasks#1111",
+     "position": 7,
+     "classification": "core",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "low",
+      "depends": [],
+      "gates_pending": [],
+      "followup_kind": "upstream_defect"
+     },
+     "rationale": "Unguarded PyPy interpreter install failure in setup.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-1620",
+     "task": "aitasks#1620",
+     "topic": "aitasks#1595",
+     "position": 8,
+     "classification": "core",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "medium",
+      "boardcol": "now",
+      "depends": [],
+      "gates_pending": [],
+      "followup_kind": "risk_mitigation"
+     },
+     "rationale": "Seed resolution fallback for installed projects; relevant to any later change in where framework files live.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-1195",
+     "task": "aitasks#1195",
+     "topic": "aitasks#1171",
+     "position": 9,
+     "classification": "optional",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "low",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "followup_kind": "risk_mitigation"
+     },
+     "rationale": "Agent seed readers should fail loudly; a hardening follow-up rather than a defect.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-1376",
+     "task": "aitasks#1376",
+     "topic": "aitasks#1111",
+     "position": 10,
+     "classification": "optional",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "low",
+      "effort": "low",
+      "depends": [],
+      "gates_pending": [
+       "risk_evaluated"
+      ],
+      "followup_kind": "risk_mitigation"
+     },
+     "rationale": "Usage text for the setup --with-* flags; low priority, but it edits the argument parser the split will touch.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-1841",
+     "task": "aitasks#1841",
+     "topic": "aitasks#1705",
+     "position": 11,
+     "classification": "optional",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "low",
+      "effort": "low",
+      "depends": [],
+      "gates_pending": [],
+      "followup_kind": "qa_test_gap"
+     },
+     "rationale": "A setup-hook test that depends on the system python3; test-only.",
+     "confidence": "medium"
+    }
+   ]
+  },
+  {
+   "wave_id": "w2-verify",
+   "ordinal": 2,
+   "title": "Verify install work that already landed",
+   "purpose": "Run the outstanding manual verifications of earlier install, upgrade and setup work.",
+   "why_now": "A failed check spawns a bug-fix task; those fixes should exist before the scripts are restructured rather than after.",
+   "entries": [
+    {
+     "entry_id": "e-623-7",
+     "task": "aitasks#623_7",
+     "topic": "aitasks#623",
+     "position": 1,
+     "classification": "core",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "medium",
+      "depends": [
+       "aitasks#623_6"
+      ],
+      "gates_pending": [],
+      "followup_kind": "manual_verification"
+     },
+     "rationale": "The only child t623 still lists as remaining; verifies the additional installation methods.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-623",
+     "task": "aitasks#623",
+     "topic": "aitasks#623",
+     "position": 2,
+     "classification": "coordination_only",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "medium",
+      "boardcol": "manual_verifications",
+      "depends": [],
+      "gates_pending": []
+     },
+     "rationale": "Parent of t623_7; it closes when that verification does. Listed so the package-manager work is visible in this trail.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-1906",
+     "task": "aitasks#1906",
+     "topic": "aitasks#1852",
+     "position": 3,
+     "classification": "core",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "medium",
+      "depends": [
+       "aitasks#1852_5"
+      ],
+      "gates_pending": [],
+      "followup_kind": "manual_verification"
+     },
+     "rationale": "Verifies the install/upgrade/dev engine verbs.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-2107",
+     "task": "aitasks#2107",
+     "topic": "aitasks#1852",
+     "position": 4,
+     "classification": "core",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "low",
+      "depends": [],
+      "gates_pending": [],
+      "followup_kind": "risk_mitigation"
+     },
+     "rationale": "Checks that setup's default run does not reach a real per-user home; relevant to every later setup test.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-1387",
+     "task": "aitasks#1387",
+     "topic": "aitasks#1387",
+     "position": 5,
+     "classification": "core",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "medium",
+      "depends": [
+       "aitasks#1374"
+      ],
+      "gates_pending": [],
+      "followup_kind": "manual_verification"
+     },
+     "rationale": "Offline setup verification; its findings feed the unattended-setup work (t2326).",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-1386",
+     "task": "aitasks#1386",
+     "topic": "aitasks#1386",
+     "position": 6,
+     "classification": "optional",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "medium",
+      "depends": [
+       "aitasks#1374"
+      ],
+      "gates_pending": [],
+      "followup_kind": "manual_verification"
+     },
+     "rationale": "Board launch after PyPy resolver hardening.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-638",
+     "task": "aitasks#638",
+     "topic": "aitasks#638",
+     "position": 7,
+     "classification": "optional",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "medium",
+      "boardcol": "manual_verifications",
+      "depends": [
+       "aitasks#637"
+      ],
+      "gates_pending": [],
+      "followup_kind": "manual_verification"
+     },
+     "rationale": "Old install-bugs verification; may be partly overtaken by later changes.",
+     "confidence": "low"
+    },
+    {
+     "entry_id": "e-729",
+     "task": "aitasks#729",
+     "topic": "aitasks#729",
+     "position": 8,
+     "classification": "optional",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "medium",
+      "boardcol": "manual_verifications",
+      "depends": [
+       "aitasks#727"
+      ],
+      "gates_pending": []
+     },
+     "rationale": "PyPy install on macOS; needs a macOS machine.",
+     "confidence": "low"
+    }
+   ]
+  },
+  {
+   "wave_id": "w3-restructure",
+   "ordinal": 3,
+   "title": "Make the scripts workable",
+   "purpose": "Split the 7226-line setup script and the 2063-line installer into modules, and add the read-only health check.",
+   "why_now": "Both later waves change what setup does; doing that inside one 7000-line file is the difficulty this trail exists to remove.",
+   "entries": [
+    {
+     "entry_id": "e-2328",
+     "task": "aitasks#2328",
+     "topic": "aitasks#2328",
+     "position": 1,
+     "classification": "hard_prerequisite",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "high",
+      "depends": [],
+      "gates_pending": []
+     },
+     "rationale": "Behaviour-preserving split into per-concern modules. Not a recorded dependency of anything, but every later task here edits these scripts.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-2325",
+     "task": "aitasks#2325",
+     "topic": "aitasks#2325",
+     "position": 2,
+     "classification": "hard_prerequisite",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "medium",
+      "depends": [],
+      "gates_pending": []
+     },
+     "rationale": "ait doctor. A recorded dependency of t2327. It needs the installed/correct predicates separated from the code that installs, which is the same extraction t2328 performs, so the two must be coordinated.",
+     "confidence": "high"
+    }
+   ]
+  },
+  {
+   "wave_id": "w4-capabilities",
+   "ordinal": 4,
+   "title": "Setup capabilities",
+   "purpose": "Add unattended setup and bring the agent-instructions seed back in line.",
+   "why_now": "These are independent of the shared install and useful to in-repo installs immediately.",
+   "entries": [
+    {
+     "entry_id": "e-2326",
+     "task": "aitasks#2326",
+     "topic": "aitasks#2326",
+     "position": 1,
+     "classification": "core",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "medium",
+      "depends": [],
+      "gates_pending": []
+     },
+     "rationale": "Unattended setup for fresh clones and cloud sessions. Has to audit every step of setup's main(), which is far easier after the split.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-1757",
+     "task": "aitasks#1757",
+     "topic": "aitasks#1757",
+     "position": 2,
+     "classification": "optional",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "medium",
+      "depends": [],
+      "gates_pending": []
+     },
+     "rationale": "Reconcile the agent-instructions seed with CLAUDE.md; documentation, independent of the code changes.",
+     "confidence": "medium"
+    }
+   ]
+  },
+  {
+   "wave_id": "w5-shared",
+   "ordinal": 5,
+   "title": "Shared install mode",
+   "purpose": "Move framework code out of host repositories into a per-machine store, keeping the in-repo install as a supported mode.",
+   "why_now": "It rests on the doctor check, benefits from the modular scripts, and changes what every new install payload has to do.",
+   "entries": [
+    {
+     "entry_id": "e-2327",
+     "task": "aitasks#2327",
+     "topic": "aitasks#2327",
+     "position": 1,
+     "classification": "core",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "high",
+      "depends": [
+       "aitasks#2325"
+      ],
+      "gates_pending": []
+     },
+     "rationale": "The parent task for shared installs; to be split into children at planning. Depends on t2325.",
+     "confidence": "medium"
+    },
+    {
+     "entry_id": "e-700",
+     "task": "aitasks#700",
+     "topic": "aitasks#700",
+     "position": 2,
+     "classification": "preferred_predecessor",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "high",
+      "depends": [],
+      "gates_pending": []
+     },
+     "rationale": "Install-time filtering of developer-only skills. It decides which skills ship, which the shared store's skill manifest also has to know; settle it before or together with the skills part of t2327.",
+     "confidence": "low"
+    }
+   ]
+  },
+  {
+   "wave_id": "w6-payloads",
+   "ordinal": 6,
+   "title": "New things to install",
+   "purpose": "Add the further binary that setup has to install.",
+   "why_now": "It adds an install slot; adding it after the store design is settled means doing the work once.",
+   "entries": [
+    {
+     "entry_id": "e-2139",
+     "task": "aitasks#2139",
+     "topic": "aitasks#2139",
+     "position": 1,
+     "classification": "core",
+     "snapshot": {
+      "status": "Ready",
+      "priority": "medium",
+      "effort": "medium",
+      "depends": [
+       "aitasks#2138"
+      ],
+      "gates_pending": []
+     },
+     "rationale": "Install the ait-tui Go binary and route launchers to it. Depends on t2138, outside this trail.",
+     "confidence": "medium"
+    }
+   ]
+  }
+ ],
+ "evidence": [
+  {
+   "evidence_id": "ev-snapshot",
+   "source_type": "command_output",
+   "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope task --owner 2327 <25 ids>",
+   "observed_at": "2026-11-17T11:08:13Z",
+   "summary": "Gatherer snapshot of the 26 members: status, priority, effort, dependencies and gates as recorded in the task files."
+  }
+ ],
+ "rendering_hints": {
+  "depth": "lite"
+ }
+}

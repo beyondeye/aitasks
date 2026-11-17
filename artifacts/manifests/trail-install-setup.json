@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1794913760,
+  "current": "sha256:6806635dcac6dca383535251935da68525a12bda330066316a6b10fe0fd14438",
+  "handle": "art:trail-install-setup",
+  "updated_at": 1794913760,
+  "versions": [
+    "sha256:6806635dcac6dca383535251935da68525a12bda330066316a6b10fe0fd14438"
+  ]
+}
