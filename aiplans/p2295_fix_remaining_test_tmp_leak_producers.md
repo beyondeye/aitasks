@@ -25,6 +25,10 @@ Confirmed remaining defects in the current tree:
   `ait_commit_scoped_err.*` before fatal add/commit worktree guards.
 - `tests/test_merge_lock_broker.sh` and `tests/test_merge_lock_concurrency.sh`
   update ANCHORS inside `$(spawn_anchor)`, losing the cleanup list.
+- `test_merge_lock_concurrency.sh` also invokes run_red_proof through two
+  command substitutions and one command-substitution pipeline (cases 1, 1n,
+  and 5). Fixing only spawn_anchor still loses ANCHORS and BGPIDS in those
+  enclosing subshells; the ownership fix must cover the full invocation chain.
 - Several process fixtures terminate a shell whose child sleep survives.
 
 Work on main under the fast profile. Check target-file diffs immediately before
@@ -83,6 +87,19 @@ the production lock namespace to fix fixture leaks.
      variable (e.g. `spawn_anchor A0`), so children and PID bookkeeping belong
      to the suite's owning shell; terminate and wait for owned children before
      deleting fixture directories.
+   - Change run_red_proof to `run_red_proof <mode> <result_variable>` and call
+     it directly in the owning shell in all three places (cases 1, 1n, 5).
+     Return the verdict with `printf -v` using a name that does not collide
+     with a function-local variable. Replace case 5's pipeline with the direct
+     call followed by `${res##*|}`. Keep the existing rendezvous, contamination,
+     BUSY:tA and negative-control assertions unchanged.
+   - Each proof invocation must terminate and wait for its two anchors and
+     broker worker before returning, then deregister their PIDs from the
+     suite cleanup lists. Keep the owning-shell EXIT fallback armed throughout
+     for early failures. Audit every spawn_anchor/run_red_proof call for
+     enclosing substitutions, pipelines, background functions and subshells;
+     checking only the immediate call is insufficient. Apply the same ownership
+     rule to the N=51 worker launch and cleanup lists.
    - Use `exec sleep` for fake executables where a standalone long-lived
      process is the intended contract (applink/chatlink timeout stubs).
    - Where shell ancestry or lock-holder identity is itself under test,
@@ -115,6 +132,13 @@ the production lock namespace to fix fixture leaks.
   repo with --no-stage, normal success, add failure, commit failure, mktemp
   failure, and the pre-git wedge seam. Use the old library in an isolated
   fixture as a negative control for newly added leak assertions.
+- For each of the three run_red_proof invocations, record exactly its owned
+  anchor and worker PIDs and assert they are gone immediately after it returns,
+  before suite EXIT or the outer guard runs. Run disabled, enabled and repeated
+  disabled proofs and retain their existing concurrency assertions. Include a
+  negative control that restores an enclosing command substitution: ownership
+  registration or immediate liveness checks must fail. Exercise an early exit
+  after spawning to verify the suite fallback reaps the same owned children.
 - Run the complete guarded Python suite after fixture changes, separately
   from shell tests. Record test counts, suite verdict, and leftover report.
   Use bounded workers; no blanket run of live shell/model tests.
@@ -147,6 +171,10 @@ separate from the code commit `bug: Fix remaining temporary resource leaks (t229
   Python producers; an outer scratch cleanup can conceal a live production
   leak. · severity: medium · → mitigation: inline pre-phase
   cleanup_lifetime_controls and module attribution before edits.
+- Nested proof subshells can discard PID registration even after fixing the
+  immediate spawn helper. · severity: low · → mitigation: inline pre-phase
+  cleanup_lifetime_controls; direct proof calls and per-invocation liveness
+  checks before any outer cleanup.
 - The guard sees TMPDIR and its process group only; it cannot prove absence of
   every hard-coded global path or detached process. · severity: low
   · → mitigation: inspect named producer paths and owned process lifetimes;
