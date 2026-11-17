@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1599
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-12 19:43
-updated_at: 2026-11-17 11:35
+updated_at: 2026-11-17 12:58
 ---
 
 ## Context
@@ -85,3 +86,8 @@ Step 9 (Post-Implementation) applies.
 > | - This repo was migrated on 2026-11-16 17:58 (claudecode 3237 runs, codex 109, opencode 4).
 
 > **👁 note:read** id=2026-11-17T09:34:58Z.1c6bd96a555dc88753ce1c35 by=t1912_6 at=2026-11-17T09:34:58Z mode=explicit ids=2026-11-16T09:45:39Z.f39f73abd5df37cdc44bdc7d,2026-11-16T20:28:58Z.c893a23e7c52af3388fa1126
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-17T10:58:07Z status=pass attempt=1 type=human
