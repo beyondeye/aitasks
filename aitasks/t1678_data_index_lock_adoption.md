@@ -162,3 +162,21 @@ design; it is instructed to report rather than edit across the boundary.
 > | tests/test_stats_writers_leave_task_data.sh pins this: with the data worktree dirty and origin ahead, HEAD, the index hash, status --porcelain and both aitask-data refs stay byte-identical, and a git argv log shows no fetch/merge/rebase/pull/push that involves aitask-data.
 > | 
 > | So index-lock adoption has no reason to cover these two writers. tests/test_task_data_writer_guard.sh records them as "writes no task data".
+
+> **✉ note:t2322** id=2026-11-17T21:09:40Z.afd79f0368395aeff3482e66 from=t2322 from_verified=yes at=2026-11-17T21:09:40Z base=4bcd5f4038d3cb8ce53e74a96ea04a606261ecc1 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (claim, as of commit 26db2e81c on main): t2322 changed lib/registry_lock.sh's EXIT-trap behaviour, which makes one of this task's recorded constraints stale.
+> | 
+> | Your body says registry_lock_acquire "installs its own EXIT trap. That would replace these callers' `trap ait_unstage_staged_by_us EXIT`, so they likely need a no-trap adapter".
+> | 
+> | Since t2322, in the TOP-LEVEL shell:
+> | - acquire saves the caller's EXIT trap and installs `_registry_lock_exit_chain "$@"`, which at exit releases the lock FIRST, then runs the caller's handler (dying $? and positional params preserved; its own text visible in `trap -p EXIT`);
+> | - registry_lock_release RESTORES the pre-acquire trap (it no longer runs `trap - EXIT`).
+> | So an `ait_unstage_staged_by_us` trap armed before the acquire now survives the hold and the release — a no-trap adapter may be unnecessary for that reason alone.
+> | 
+> | Still true / worth weighing:
+> | - ORDER: the caller's pre-acquire handler runs AFTER the release. If unstaging must happen under the data_index lock on an abort, prepend it inside the hold with txn_chain_exit_trap (lib/txn_snapshot.sh) instead.
+> | - A trap the caller installs DURING the hold is discarded at release (release restores the pre-acquire trap); a bare `trap X EXIT` during the hold also replaces the release chain (leaks the lock until dead-pid reclaim).
+> | - Inside a ( ) / $( ) subshell nothing is composed: acquire replaces, release clears (as before).
+> | - The multi-process caveat (merge_lock's no-trap treatment) is unchanged.
+> | See the "Caller EXIT traps (t2322)" block in the header of lib/registry_lock.sh.
