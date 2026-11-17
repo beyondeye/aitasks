@@ -112,3 +112,57 @@ cases using the file's existing fixtures, and changes no source.
 None identified. The fifth match is verified as a genuine re-check site added by
 t2281, so updating the pin, plus a behavioural case per mutation, is the right
 shape and not a mask.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-17 09:40)
+- **Requested by user:** [medium | recovery-test coverage] 9e proved the repair
+  only through the warning, while the `specs_ok=once` fixture healed on its second
+  inspection independently of pip — removing the questions repair
+  `pip_install_guarded` still left 127/127 passing. Assert the repair invocation,
+  or tie simulated recovery to it.
+- **Verified:** CONFIRMED, and wider than reported. A scratch copy with the
+  questions repair install removed passed 127/127, and so did a copy with **all
+  five** repair installs removed (pypy, chat, questions, dev, cpython): the gap
+  was in the shared `once` fixture from t2135, not specific to 9e.
+- **Changes made (all in the shared fixture, so every tier is covered):**
+  - New `_make_pip_stub <path> <exit-status>`: each stub pip (and `make_pip_ok`'s
+    succeeding one) appends one line per call to `<venv-dir>.pip_calls`, beside the
+    venv like the inspection log.
+  - `once` now heals only if pip ran after the failed first inspection: the first
+    inspection records the pip-call count in `<venv-dir>.pip_at_first_inspection`,
+    and a later inspection exits 0 only when the count has grown.
+  - New `repairs_after_first_inspection <venv-dir>` helper. Every section-9 case
+    (9a–9e) asserts it equals `1` ("the repair install ran").
+  - New negative control **C5** (`norepair` mutant): drops the four guarded
+    `"<tier> … repair"` installs (→ `:`) and dev's bare 8-space-indented repair
+    install (→ `if false`), pins the count at 5, and asserts that each tier's
+    recovery flips to its rejection with `0` repair installs.
+- **Proof:** real source 147/147. Removing each tier's repair install on its own
+  (scratch copy) fails exactly that tier's section-9 case, including its
+  "repair install ran" assertion: 9a, 9b, 9c, 9d, 9e respectively.
+- **Files affected:** `tests/test_setup_pip_install_guards.sh`
+
+## Final Implementation Notes
+- **Actual work done:** In `tests/test_setup_pip_install_guards.sh` only: driver
+  case `questions)` → `setup_questions_deps`; new cases 3b/3c (healthy / broken
+  tier), 8f (failed version check), 9e (repair recovers); questions added to the
+  C1 loop (comment now "all 10 call sites"); new C3/questions; C4 pinned at 5 with
+  a comment naming the five sites and saying that a new tier needs its own
+  section-9 + C4 cases; new C4/questions. After review: the `once` fixture is tied
+  to a recorded pip call, 9a–9e assert "the repair install ran", and a new C5
+  control (`norepair` mutant, pinned at 5) is added. Final result: 147/147
+  (was 107/108 at HEAD).
+- **Deviations from plan:** Change Request 1 (above) widened the scope from
+  "cover the questions tier" to "make every tier's section-9 recovery depend on
+  its repair install". The reviewer's gap was in the shared t2135 fixture, so
+  fixing it for questions alone would have left four identical holes.
+- **Issues encountered:** None beyond the review finding. `diff | grep -c '^>'`
+  remains the inventory mechanism for both C4 and C5. Each pin is meant to break
+  when a sixth tier with this shape lands; the C4 comment says what to add then.
+- **Key decisions:** Fixed the fixture rather than loosening the pin: the fifth
+  C4 match was verified as a genuine re-check (t2281's `setup_questions_deps`),
+  not a stray pattern hit. For the review fix, tied recovery to the install
+  (behavioural) **and** added a direct count assertion plus the C5 mutant, so the
+  regression class is proven to be caught, not only described.
+- **Upstream defects identified:** None
