@@ -507,3 +507,38 @@ injection.
   - New group G13 runs the quoted and dotted spellings through the setup paths: `setup_codex_agent` with Codex not installed, `setup_codex_cli` with `--no-codex-questions`, and a plain re-run (registration kept with the hint, deps repaired). It also checks that commented-out and unparseable configs read as not registered.
   - Pre-fix control: putting back the grep-only check fails G13 (13, 13a, 13c and 13d for the quoted form; the dotted form fails the same way).
 - **Files affected:** `.aitask-scripts/aitask_setup.sh`, `tests/test_setup_questions_server.sh`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **Setup.** The `aitask_questions` server is now its own explained choice. After the Codex skills prompt, setup explains the server and asks `[Y/n]` (default yes); a run with no terminal registers it. `--with-codex-questions` and `--no-codex-questions` set the choice explicitly. The remembered yes is the registration in `.codex/config.toml`; the remembered no is `codex_questions_server: false` in `project_config.yaml`, which later runs honour with or without a terminal. A registered project gets a removal hint on re-run, and a registered-but-declined project gets a mismatch warning. Every `.codex/config.toml` write on these paths goes through `apply_codex_config`. It stages beside the resolved file with `lib/atomic_write.sh`, tries a byte-preserving text cut for a remove-only rewrite, validates the candidate by parsing (registration state, and equality minus the table for a removal), and publishes by rename. A failed opt-out sets `CODEX_QUESTIONS_OPTOUT_FAILED`, and `questions_deps_wanted` then keeps `mcp` from being installed that run. `--no-codex-questions` also works when Codex is not installed or its prompt is declined (`codex_questions_without_codex_setup`). `questions_server_registered` parses the config when the literal-header grep misses. `merge_codex_settings` gained `keep|omit|remove` modes, a non-zero failure status (a bare `$( )` used to abort setup on a parse error), and a correct TOML emitter.
+  - **Codex mapping.** One fragment, `.aitask-scripts/skill_templates/_codex_entry_prereq.md`, holds the "read `codex_tool_mapping.md` first" pointer. The stub generator emits it, so the 15 profile-aware Codex stubs carry it. The renderer injects it after the frontmatter of every rendered Codex `SKILL.md`, entry points and closure skills alike (`AGENT_ENTRY_PREREQ_FRAGMENTS`; `render_skill()`, the goldens and Test 1b are unchanged). `refresh_codex_rendered_entries` re-renders stale variants on `ait setup` and on `install.sh` (the `ait upgrade` route), with an awk fallback insertion. The mapping now says the server is opt-in and that a declined server falls back to plain prose.
+  - **Docs.** `installation/_index.md`, `commands/setup-install.md` (step 7), `installation/known-issues.md`, `tuis/settings/reference.md`, `aidocs/codeagents/codex_questions.md`, `stub-skill-pattern.md`, `adding_a_new_codeagent.md`, `skill_templates/README.md`, plus the comments in both seeds.
+- **Deviations from plan:**
+  - The injection covers every rendered Codex `SKILL.md`, not only entry points (user decision mid-implementation).
+  - `record_codex_questions_decision` does not call `_note_metadata_write`. `commit_setup_metadata_writes` runs before `setup_code_agents`, so `main()` flushes `project_config.yaml` explicitly. The writer is exempted in `tests/test_metadata_writer_inventory.py` with that reason.
+  - `setup_codex_agent` was extracted from `setup_code_agents` as the test seam for the Codex-not-installed path.
+  - Two review rounds (see Post-Review Changes) added the text cut, the TOML emitter, atomic and symlink-following publication, and parsed registration detection.
+  - The committed `task-workflow-remote-codex-/` prerender directory, which held t1912_3's uncommitted but render-identical update, is committed with this task (user decision). Its `.claude/` and `.opencode/` twins are left as they were.
+- **Issues encountered:**
+  - `aitask_setup.sh` and `install.sh` carried live t1912_5 hunks at the start, so their edits waited until t1912_5 landed (3d4a7472c).
+  - A fresh decline first failed validation because `omit` on a seed copy keeps the copied table; fresh `omit` now merges in `remove` mode.
+  - A table-less custom seed (`test_agent_instructions.sh` T13/T16) was rejected under `keep`. `keep` now expects a registration only when the seed or the config has one.
+  - A fresh `keep` is a verbatim seed copy and is published unvalidated when the interpreter is broken (exit other than 1), as the old `cp` was.
+  - `test_skill_render_aitask_sitrep.sh` Test 4 compared the on-disk Codex render with the Claude golden. It now expects the golden with `inject_entry_prereq` applied.
+  - The local, gitignored `ait-git-remote-codex-/SKILL.md` was refreshed so `aitask_skill_verify.sh`'s walk-verify passes.
+- **Key decisions:**
+  - Keep the questions table in the single seed and filter it at merge time, because a stale metadata seed could re-add it.
+  - A decline is a shared project setting, because the registration it governs is shared.
+  - Removal never uninstalls `mcp`, because the venv is shared across projects.
+  - The pointer text has one source, the fragment, read by all three consumers.
+  - The refresh is focused on the pointer: variants that already carry it are left to the normal stub dispatch.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_gate.sh:242 — codex_attended_approvals recognizes only the literal [mcp_servers.aitask_questions] header, so a quoted or dotted-key registration that Codex does start leaves the approval guard off`
+  - `tests/test_note_with_live_composition.sh:582 — "task-workflow (default|fast) offers /aitask-note exactly once" fails at HEAD: the rendered task-workflow mentions /aitask-note twice since e5f34774a (t1912_3)`
+  - `tests/test_install_engine_binary.sh — S2/E4 fail at HEAD: goengines/build.sh copies goengines/ci/preflight.sh, which the goengines export (6405506d1) does not ship`
+- **Verification:**
+  - `tests/test_setup_questions_server.sh` 193/193 and `tests/test_codex_entrypoints_tool_mapping.sh` 43/43 (includes a real `install.sh --force` upgrade fixture).
+  - Pre-fix mutants were run for the deps gate, the validation, fresh `omit`, the unresolved `mv`, in-place truncation, the unescaped serializer, the missing text cut and grep-only detection. Each fails its group.
+  - Also green: `test_setup_agent_config_seeds`, `test_session_hook_install`, `test_codex_config_tui_seed`, `test_agent_instructions`, `test_gate_codex_approvals`, `test_setup_help_flag`, `test_setup_hooks_only`, `test_opencode_setup`, `test_seed_manifest_drift`, `test_skill_render_aitask_sitrep`, `test_metadata_writer_inventory.py`, the 65 Python tests touching setup and the renderer, `aitask_skill_verify.sh`, `website/check_links.py --build`, and shellcheck (no new warnings).
+  - `test_skill_render_aitask_pickrem`/`pickweb` Test 6 (committed prerender == HEAD) passes once this commit lands.
+  - `test_frozen_agents_acceptance.sh` refuses to run inside tmux by design.
