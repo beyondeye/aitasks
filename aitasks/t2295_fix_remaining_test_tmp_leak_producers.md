@@ -135,3 +135,14 @@ Notes.
 > **✅ gate:review_approved** run=2026-11-17T20:40:14Z status=pass attempt=1 type=human
 >
 > Note: approval:a4c37a9aead84bc2b2eac848558ec631:b0c2afa172db9b9e
+
+> **🔄 gate:risk_evaluated** run=2026-11-17T20:41:08Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:3f10decbe0cd121d
+
+> **✅ gate:risk_evaluated** run=2026-11-17T20:41:08Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2295/risk_evaluated_2026-11-17T20:41:08Z-risk_evaluated-a1.log`
