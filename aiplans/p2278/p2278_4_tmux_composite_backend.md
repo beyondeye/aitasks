@@ -436,3 +436,206 @@ pin and oracle, capture geometry) in place: code-health medium (the
 real-agent-launch hazard is closed by fail-closed checks, but it is a safety
 property the tests must keep proving), goal-achievement medium (P1 bounds the
 feasibility risk but cannot remove it before it runs).
+
+## Implementation log
+
+- **P1 done (2026-11-16): all four launch routes work through the real code,
+  each agent pane proven to be the stand-in by its identity log.** Board pick
+  (agent window + auto-spawned 40-column minimonitor), `./ait sitrep` (the
+  three-pane `agent-sitrep` window), `./ait ide` inside the session (the
+  `monitor` window, with the monitor's own control-mode client attached) and
+  `e` in the monitor (a shadow pane stamped `@aitask_shadow_target`). No
+  hand-built windows were needed. What P1 found and fixed before any verb was
+  written:
+  - **The board's pick opened a terminal on the user's desktop.** With no
+    pick screen (missing metadata) the board falls back to `find_terminal()`,
+    which used the inherited `DISPLAY` / `WAYLAND_DISPLAY`. Both are now unset
+    in every pane, in setup commands and in the server's global environment.
+  - **The `.aitask-scripts` symlink leaked the real repository onto the
+    screen.** `monitor_app.main` finds its project as
+    `Path(__file__).resolve().parents[2]`; through the symlink that is the real
+    repo, so the monitor read its config and showed the real sitrep count
+    ("sitrep 71 now"). The sample project now gets a COPY of the scripts
+    (~0.2 s per build).
+  - **The status server wrote into the user's runtime dir.** The minimonitor
+    starts `status_server.py`, whose socket / lock / log live under
+    `$XDG_RUNTIME_DIR/aitasks`; its `.lock` and `.log` outlived the session.
+    `XDG_RUNTIME_DIR` is now a private `<tmp>/run`, removed with the session.
+  - **The seed routes `shadow` (and `discuss`) to codex**; the `agents`
+    dataset writes its own `codeagent_config.json` with every operation on the
+    seed's `pick` agent, so every launch reaches `claude` = the stand-in.
+  - **Agent kind resolution** reads `pane_current_command` (argv[0] on Linux):
+    the wrapper `exec -a claude`s the interpreter, so the monitor family shows
+    `IMPLEMENT`, not `IMPLEMENT (agent unresolved)`.
+  - The workflow phase comes from the task's gate ledger: recipes create it
+    with real `setup` commands (`aitask_gate.sh materialize-active` +
+    `aitask_gate_record.sh`), no hand-written ledger text.
+- **Steps 1-7 done.** All four scenes recorded through the discovery workflow
+  (explore, clean walk, `recipe save` behind the fresh-replay gate).
+- **Q1 done:** the three board recipes replay byte-identical to a replay taken
+  before step 1 (`svg_plain_text` equal and the SVG bytes equal).
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `website/screenshots/session.py`: session named after the sample project
+    (`lumen`); stand-in `PATH` pinned on every pane's argv (`env PATH=…`), in
+    the server's global environment and for setup commands, with a fail-closed
+    `which claude` check before any server exists; desktop variables unset;
+    private `XDG_RUNTIME_DIR`; pinned border options (`BORDER_OPTIONS`);
+    `--window` names the first window; pane roles and `<window>.<index>`
+    locators (`resolve_pane`, exactly one match); `pane_split`, `window_new`;
+    `--pane` on screen / keys / wait / find; capture at the pane's current
+    size (`pane_geometry`); `window_layout`, `window_options`.
+  - `website/screenshots/stitch.py` (new): per-pane decoding, placement,
+    border glyphs (tmux's neighbour-bit table) and active-border style for the
+    pinned configuration; refuses any other configuration, over-wide rows,
+    overlapping or out-of-window panes.
+  - `website/screenshots/svg_export.py`: `rows_to_svg` split out of
+    `ansi_to_svg` (output byte-identical, tested against a reference file
+    exported by the old code).
+  - `website/screenshots/cli.py`: `pane split`, `window new`, `--pane` /
+    `--window` on screen / find / shot, `--pane` on keys / wait, `session start
+    --window`; frames carry their size, and crop / overlay rectangles are
+    checked against the captured frame; argv is split at the first `--` so a
+    verb's options may follow the session id; replay performs the new steps.
+  - `website/screenshots/recipe.py`: steps are `(kind, value, timeout, pane)`;
+    new kinds `pane_split` / `window_new`; pane-addressed `keys` / `wait`
+    forms; `window` and `capture` keys; role validation; the three shipped
+    recipes dump back byte-for-byte.
+  - `website/screenshots/sample_project.py`: scripts copied, `tmux.default_session`
+    in the project config, the stand-in installed in EVERY dataset, and the
+    `agents` dataset (code-agent config, profiles, models, a local bare
+    `origin` inside the ignored `.standin/`).
+  - `website/screenshots/standin_agent.py` (new): the stand-in agent
+    (pick / shadow / sitrep transcripts, word-wrapped to the pane, Claude-shaped
+    composer, identity log, `--version`).
+  - Scenes: `minimonitor_main_view`, `sitrep_window`, `ait_ide_startup`,
+    `monitor_layout_annotated`.
+  - Tests: `tests/test_screenshots_stitch.py` (14, fixtures recorded from a
+    real tmux client), `test_screenshots_recipe.py` (+7),
+    `test_screenshots_sample_project.py` (+11),
+    `test_screenshots_session_live.py` (+13: two-pane image, borders vs a real
+    tmux client for the two- and three-pane layouts with each pane active,
+    pane capture size, locators, pane-step recipe, teardown, stand-in PATH with
+    a decoy `claude` and the `-e`-only control, fail-closed refusal, desktop
+    variables, the agents dataset under the real minimonitor, the four
+    shipped multi-pane recipes). 15 mutants on an isolated copy, all killed.
+- **Deviations from plan:**
+  - The `agents` dataset keeps every task `Ready` (no `Implementing`): an
+    `Implementing` task without a live lock holder is what sitrep's crash
+    recovery reports, and the locks a setup command takes record a dead pid.
+    The monitor family shows the phase from the gate ledger, not the status.
+  - The stand-in ships in every dataset, not only `agents`: in a `base`
+    session `p` on the board or `ait sitrep` would otherwise reach the user's
+    real `claude`.
+  - `pane split` uses `-H` / `-v` (argparse reserves `-h`).
+  - `--window` on `session start` has no default: without it tmux names the
+    window, as before.
+  - The two switcher scenes are not captured (user decision; see Verification
+    finding 1).
+- **Issues encountered:**
+  - **A race in the pick dialog** (`lib/agent_command_screen.py`): right after
+    the dialog paints, its tmux-tab session `Select` can still hold no value,
+    and `r` is refused with "Please select a session" (measured: 1 drop in 9
+    second picks; 0 in 20 once the recipe waits for the Select to show
+    `lumen`). Recipes wait for `Pick Task tN`, then `(R)un in tmux`, then
+    `lumen`, before pressing `r`. Reported below as an upstream defect.
+  - A wait for "Run in tmux" never matched (the button reads "(R)un in tmux")
+    and only passed by timing out; found while chasing the race.
+  - The stand-in's transcript had hard line breaks, which re-wrapped raggedly
+    when the shadow split narrowed the agent pane; it now word-wraps logical
+    paragraphs to the pane width, as an agent does.
+  - The monitor briefly reports a just-launched agent as `(agent unresolved)`
+    (a cached miss from the moment its pane still ran the launcher); the
+    monitor recipes wait for it to clear.
+- **Key decisions:**
+  - No hand-built windows: every agent, minimonitor, sitrep window and shadow
+    pane in the four scenes was created by the framework's own launch code.
+  - Window size 126x40 (minimonitor), 140x42 (sitrep) and 160x44 (monitor,
+    so the agent preview stays readable beside the minimonitor and the shadow).
+  - The annotated monitor numbers what the page lists; the page's separate
+    "Header" and "Session bar" are ONE row on screen (the session bar carries
+    the title), so callouts 1 and 2 sit on that row's title and session parts.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/agent_command_screen.py:1278-1282` — `_build_tmux_config` reads the tmux-tab session `Select.value` before it is populated right after the dialog opens, so an early `r` is refused with "Please select a session" (fast typists and replayed recipes both hit it)
+- **Notes for sibling tasks:**
+  - **Verbs added:** `session start --window NAME`; `pane split <id> --name
+    ROLE [--target P] [-H|-v] [-l N|N%] [--full] -- cmd`; `window new <id>
+    --name NAME [--role R] -- cmd`; `--pane P` on screen / keys / wait / find /
+    shot; `--window [NAME]` on screen / find / shot. A pane `P` is a role
+    (`main` or one the verbs created) or `<window name>.<pane index>` for a
+    pane the TUI created; never a tmux id. A `wait` on a locator waits for the
+    pane to exist.
+  - **Recipe schema additions:** `window:`, `capture: {window: N} | {pane: P}`,
+    steps `pane_split: {name, command, target?, direction?, size?, full?}`,
+    `window_new: {name, command, role?}`, `keys: {keys, pane}`,
+    `wait: {text, pane?, timeout?}`. Steps in code are 4-tuples.
+  - **Rectangles** for a window capture are window cells; for a pane capture,
+    the pane's own cells at its current size.
+  - **Stand-in agents:** every dataset has `.standin/bin/claude`
+    (`website/screenshots/standin_agent.py`). It shows pick (t14, t15), shadow
+    and sitrep transcripts; add a role there for a new scene. Its identity log
+    (`.standin/log`) proves which pane runs it.
+  - **What the monitor family needed:** an `agent-<op>-<task>` window (the
+    real launchers name it), an agent command named `claude` (argv[0]), a
+    gate ledger on the task for the phase, `tmux.default_session` equal to the
+    session name, and a copy (not a symlink) of the scripts.
+  - **Launch dialogs:** wait for `Pick Task tN`, `(R)un in tmux` AND the
+    session name (`lumen`) before `r` (the race above).
+  - **sitrep:** needs `./ait lock --init` (the `agents` dataset has a local
+    origin) or its refresh reports errors; items come from
+    `aitask_sitrep_todo.sh add` setup commands. Its header shows the project's
+    real path, i.e. the session's temp dir.
+  - **Left for child 5 / the diffviewer task:** `tui_switcher_from_monitor`
+    and `tui_switcher_from_minimonitor` (the real switcher lists Diff Viewer).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-16 23:05)
+- **Requested by user:** five review findings, each reproduced before fixing:
+  (1) `DISPLAY` / `WAYLAND_DISPLAY` were unset only in tmux's global
+  environment, but `new-session` copies the `update-environment` variables into
+  the SESSION environment, so a window the framework creates natively still
+  saw the display; (2) `resolve_pane` listed panes with `list-panes -s -t
+  =lumen`, which tmux looks up as a window name first, so another session with
+  a window called `lumen` answered; (3) `wait` turned every error on a locator
+  into an empty screen, so an ambiguous locator made `wait --gone` succeed;
+  (4) `window_options` read the global defaults (`show-options -gv`), so a
+  border option set on the captured window or one of its panes was not
+  refused; (5) a failed command send after a pane was created left no failed
+  journal entry, so the recording stayed saveable.
+- **Changes made:** (1) the variables are removed from the session environment
+  too, and `update-environment` is emptied so no later attach copies them
+  back; (2) every new target goes through the gateway helpers
+  (`session_scope_target` for `list-panes -s`, `session_target` for
+  `list-windows` / `set-environment`, `window_target` for `new-window`);
+  (3) a locator matching no pane raises `PaneNotFound`, the only error `wait`
+  retries; ambiguity and tmux failures are a failed, journaled step, and
+  "gone" is accepted only on a screen that was actually read; (4)
+  `window_options(session, panes)` reads each captured pane's effective value
+  (`show-options -A -p -v`, pane → window → global) and reports values that
+  differ between panes, so `stitch` refuses them; (5) a failed send journals an
+  `ok: false` entry and the pane stays registered (it exists).
+  Tests, each failing on the pre-fix code on an isolated copy: a native
+  `new-window` from a client whose own env has a display;
+  a second session with windows `lumen` and `target`; an ambiguous and a
+  not-yet-existing locator under `wait --gone` (control: a readable pane);
+  `pane-border-indicators colour` on the window and `pane-active-border-style`
+  on one pane (control: the pinned window exports); a send-keys failure
+  injected into the real `pane split` path, then `recipe save` refused.
+- **Files affected:** `website/screenshots/session.py`, `website/screenshots/cli.py`,
+  `tests/test_screenshots_session_live.py`.
+
+### Change Request 2 (2026-11-17)
+- **Requested by user:** the stand-in ignored C-c: `tty.setraw` turns off the
+  terminal's own SIGINT, and the input loop ended only on the C-d byte, though
+  the plan names both keys.
+- **Changes made:** the loop ends on either byte (`EXIT_BYTES` = 0x03, 0x04)
+  and on an empty read (a closed terminal no longer spins the loop); the
+  terminal mode is restored on every exit. Tests on a real pty: C-c and C-d
+  each end it with status 0 and give back canonical input and echo (waiting
+  until the pty is really in raw mode first); control: another key leaves it
+  running. The C-c case fails on the pre-fix loop (isolated copy). Checked
+  live in tmux as well: after C-c the pane runs bash again.
+- **Files affected:** `website/screenshots/standin_agent.py`,
+  `tests/test_screenshots_sample_project.py`.
