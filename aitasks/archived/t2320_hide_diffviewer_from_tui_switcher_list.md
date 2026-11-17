@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [tui_switcher, documentation]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -15,7 +15,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2278
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-16 19:53
-updated_at: 2026-11-17 13:07
+updated_at: 2026-11-17 17:21
+completed_at: 2026-11-17 17:21
 ---
 
 ## Context
@@ -80,3 +81,14 @@ two scenes wait for this task.
 > **✅ gate:plan_approved** run=2026-11-17T11:07:00Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-17T15:16:52Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-17T15:21:37Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:4fb4ffd190649ed0
+
+> **✅ gate:risk_evaluated** run=2026-11-17T15:21:37Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2320/risk_evaluated_2026-11-17T15:21:37Z-risk_evaluated-a1.log`
