@@ -168,12 +168,30 @@ declare -A RENDER_DIR=(
     [codex]=".agents/skills/$SKILL-fast-codex-"
     [opencode]=".opencode/skills/$SKILL-fast-"
 )
+# The on-disk render is a walk render, so a Codex SKILL.md also carries the
+# tool-mapping pointer the renderer injects after the frontmatter (t2297;
+# AGENT_ENTRY_PREREQ_FRAGMENTS). Its expectation is the golden with exactly that
+# injection applied — computed by the renderer's own helper, never retyped.
+golden_for_agent() {   # golden_for_agent <agent> -> expected on-disk render
+    if [[ "$1" == codex ]]; then
+        "$PYTHON" - "$PROJECT_DIR" "$SKILL_GOLDEN_DIR/SKILL-fast-claude.md" <<'PY'
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(sys.argv[1]) / ".aitask-scripts" / "lib"))
+import skill_template as st
+frag = st.entry_prereq_fragment_path("codex", Path(sys.argv[1])).read_text()
+sys.stdout.write(st.inject_entry_prereq(Path(sys.argv[2]).read_text(), frag))
+PY
+    else
+        cat "$SKILL_GOLDEN_DIR/SKILL-fast-claude.md"
+    fi
+}
 for agent in "${AGENTS[@]}"; do
     ./.aitask-scripts/aitask_skill_render.sh "$SKILL" --profile fast --agent "$agent" --force >/dev/null 2>&1
     assert_eq "$agent/fast: SKILL.md rendered" "yes" \
         "$([[ -f "${RENDER_DIR[$agent]}/SKILL.md" ]] && echo yes || echo no)"
     assert_eq "$agent/fast: render equals the fast golden" \
-        "$(cat "$SKILL_GOLDEN_DIR/SKILL-fast-claude.md")" "$(cat "${RENDER_DIR[$agent]}/SKILL.md")"
+        "$(golden_for_agent "$agent")" "$(cat "${RENDER_DIR[$agent]}/SKILL.md")"
 done
 
 # === Test 5: stub markers (4 surfaces) ===

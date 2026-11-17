@@ -81,6 +81,12 @@ timeout = 10
 # form that times out stays pending and is answered at the ordinary prompt,
 # then resumed through the same server. Spec: aidocs/codeagents/codex_questions.md
 #
+# OPT-IN: `ait setup` asks about this server separately from the rest of the
+# Codex setup and merges this table only when the user accepts (or passes
+# --with-codex-questions); otherwise it strips the table from what it merges.
+# --no-codex-questions removes an existing registration and records the
+# decline (codex_questions_server: false in project_config.yaml).
+#
 # The command is REPO-RELATIVE for the same reason as the hook above. A form
 # stays open for AIT_QUESTIONS_TIMEOUT seconds (default 300, set in the
 # launcher); tool_timeout_sec must stay ABOVE that so the server, not the

@@ -759,7 +759,16 @@ When adding an agent, decide which template you need:
 - **Shared-root agent with per-agent prerender** (codex pattern): the
   templated branch already emits `--agent <name>` and reads from
   `.agents/skills/<skill>-<profile>-<agent>-/SKILL.md`. Just point the
-  renderer at the new agent name in the stub literal.
+  renderer at the new agent name in the stub literal. The Codex templated
+  stub also carries a tool-mapping pointer, read from the fragment
+  `.aitask-scripts/skill_templates/_codex_entry_prereq.md`. The renderer
+  injects the same fragment after the frontmatter of every rendered
+  `SKILL.md` for that agent (`AGENT_ENTRY_PREREQ_FRAGMENTS` in
+  `lib/skill_template.py`), because a rendered variant can be entered
+  directly. A new agent with its own mapping doc needs its own fragment, a
+  table entry and the matching stub line. It also needs the setup/upgrade
+  refresh that `refresh_codex_rendered_entries` provides for Codex (see
+  `stub-skill-pattern.md` §3g).
 - **Non-templated wrapper** (legacy "Source of Truth"): if the new
   agent needs a per-agent tool-mapping prereq doc, add an "**If you
   are <Agent> CLI:** read `.agents/skills/<agent>_tool_mapping.md`"

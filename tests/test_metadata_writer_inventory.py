@@ -128,6 +128,12 @@ KNOWN_UNCOMMITTED: dict[str, str] = {
     ".aitask-scripts/lib/config_utils.py::save_project_config": "primitive; callers commit",
     ".aitask-scripts/lib/config_utils.py::save_yaml_config": "primitive; callers commit",
     ".aitask-scripts/lib/config_utils.py::save_local_config": "user layer, gitignored",
+    # t2297: the Codex question-server decision (codex_questions_server in
+    # project_config.yaml). Its caller owns the commit: main() runs
+    # `_flush_metadata_batch 0 aitasks/metadata/project_config.yaml` right after
+    # setup_code_agents whenever CODEX_QUESTIONS_DECISION_WRITTEN is set
+    # (commit_setup_metadata_writes has already run by then).
+    ".aitask-scripts/aitask_setup.sh::record_codex_questions_decision": "caller commits: main() flushes it after setup_code_agents",
     ".aitask-scripts/lib/config_utils.py::_save_json": "primitive; callers commit",
     ".aitask-scripts/lib/config_utils.py::import_all_configs": "primitive; settings _handle_import commits",
     ".aitask-scripts/lib/board_columns.py::create_column": "pure lib; aitask_board_column.sh commits",

@@ -3,6 +3,10 @@ name: aitask-sitrep
 description: Sitrep steward for this repository — keeps its one persisted todo list (what is going on, what is pending), turns finished agents' wrap-ups into action and watch items, and answers questions from the sources. Advisory-only. Opened with `ait sitrep` in its own window; not a task-implementation command.
 ---
 
+**Tool mapping first.** Read **`.agents/skills/codex_tool_mapping.md`** before
+anything else in this skill and apply it for the whole run, including every
+file this skill tells you to read.
+
 This is a profile-aware skill stub. Execute these steps in order, then stop:
 
 1. **Resolve active profile.** Parse ARGUMENTS for `--profile <name>`. If

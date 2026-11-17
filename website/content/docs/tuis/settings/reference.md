@@ -195,6 +195,7 @@ These keys control behavior for the fully autonomous remote workflow (`/aitask-p
 | Key | Type | Description |
 |-----|------|-------------|
 | `codeagent_coauthor_domain` | string | Email domain used for custom code-agent commit coauthors |
+| `codex_questions_server` | boolean | Written by `ait setup`. `false` records that the project declined the Codex `aitask_questions` question server, so setup neither asks again nor registers it. `ait setup --with-codex-questions` sets it back to `true`. Absent means no decision is recorded |
 | `verify_build` | string or list | Shell command(s) run after implementation to verify the build |
 | `test_command` | string or list | Shell command(s) for running project tests — used by [`/aitask-qa`]({{< relref "/docs/skills/aitask-qa" >}}). Auto-detects if not set |
 | `lint_command` | string or list | Shell command(s) for linting project code — used by [`/aitask-qa`]({{< relref "/docs/skills/aitask-qa" >}}). Skipped if not set |

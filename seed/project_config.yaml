@@ -65,6 +65,21 @@
 codeagent_coauthor_domain: aitasks.io
 
 # ──────────────────────────────────────────────────────────────────────
+# codex_questions_server — the project's recorded decline of the Codex
+# aitask_questions question server.
+#
+# Written by `ait setup`, not by hand: answering "n" to the question-server
+# prompt, or running `ait setup --no-codex-questions`, adds
+#
+#   codex_questions_server: false
+#
+# and later setup runs, with or without a terminal, then neither ask again
+# nor register the server. `ait setup --with-codex-questions` sets it back
+# to true and registers the server. Absent means no decision is recorded.
+# The registration itself lives in .codex/config.toml.
+# ──────────────────────────────────────────────────────────────────────
+
+# ──────────────────────────────────────────────────────────────────────
 # verify_build — Shell command(s) to verify the build after merging.
 #
 # Used by post-implementation steps in task-workflow, aitask-pickrem, and

@@ -3,6 +3,10 @@ name: aitask-pickrem
 description: Pick and implement a task in remote/non-interactive mode. All decisions from execution profile - no AskUserQuestion calls.
 ---
 
+**Tool mapping first.** Read **`.agents/skills/codex_tool_mapping.md`** before
+anything else in this skill and apply it for the whole run, including every
+file this skill tells you to read.
+
 This is a profile-aware skill stub. Pre-rendered variants for headless
 profiles (currently `remote`) are committed to the repo so the skill works in
 environments where the rendering toolchain (minijinja) is unavailable —

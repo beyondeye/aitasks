@@ -64,8 +64,10 @@ AIT_IMPORTS_CHAT=(discord slack_bolt slack_sdk)
 
 # Questions tier: the MCP SDK behind .aitask-scripts/aitask_questions_mcp.sh,
 # the server that gives Codex sessions durable attended workflow questions.
-# Installed into the CPython venv only as part of Codex CLI setup
-# (setup_codex_cli) — a project that never sets Codex up never pulls it. The
+# Installed into the CPython venv only when the project's Codex config
+# registers the server, which setup_codex_cli does only on the user's opt-in
+# (its own [Y/n] prompt, or --with-codex-questions) — a project that never sets
+# Codex up, or declines the server, never pulls it (t2297). The
 # range is one minor wide on purpose: the server depends on SDK-level
 # elicitation behaviour that was validated against 2.3 only (t2281).
 AIT_PIP_SPECS_QUESTIONS=('mcp>=2.3,<2.4')
@@ -843,14 +845,130 @@ setup_chat_deps() {
     success "Chat SDK deps ready in $VENV_DIR."
 }
 
-# --- Questions tier (installed with Codex CLI setup) ---
+# --- Questions tier (opt-in, asked during Codex CLI setup) ---
 
-# True when this project's Codex config registers the aitask_questions server
-# (setup_codex_cli merged the seed table, or the user wrote it by hand). The
-# tier follows the registration: no Codex setup, no MCP SDK.
+# True when a Codex config registers the aitask_questions server (setup merged
+# the seed table on the user's opt-in, or the user wrote it by hand). The
+# registration IS the remembered "yes": later setup runs keep it and repair the
+# dependency. The literal-header grep (the spelling setup itself writes) is the
+# fast path. When it misses, the config is PARSED, because Codex starts the
+# server for every valid spelling — `[mcp_servers."aitask_questions"]`, a
+# dotted `mcp_servers.aitask_questions.command = …` — and an explicit opt-out
+# must find and remove those too. Without a TOML parser only the grep answers.
+# Optional argument: the config path (default: this project's).
 questions_server_registered() {
-    local config="$SCRIPT_DIR/../.codex/config.toml"
-    [[ -f "$config" ]] && grep -q '^\[mcp_servers\.aitask_questions\]' "$config"
+    local config="${1:-$SCRIPT_DIR/../.codex/config.toml}" py
+    [[ -f "$config" ]] || return 1
+    grep -q '^\[mcp_servers\.aitask_questions\]' "$config" && return 0
+    py="$(_codex_toml_python)"
+    [[ -n "$py" ]] || return 1
+    "$py" - "$config" 2>/dev/null <<'PY'
+import sys
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        sys.exit(1)
+try:
+    with open(sys.argv[1], "rb") as f:
+        d = tomllib.load(f)
+except Exception:
+    sys.exit(1)
+s = d.get("mcp_servers")
+sys.exit(0 if isinstance(s, dict) and "aitask_questions" in s else 1)
+PY
+}
+
+# Run state of this setup run's question-server decision (t2297). Set by
+# setup_codex_cli / codex_questions_without_codex_setup, read by main():
+#   CODEX_QUESTIONS_ACTION           register | skip | unregister | "" (no decision)
+#   CODEX_QUESTIONS_OPTOUT_FAILED    1 when a requested skip/unregister could not
+#                                    be applied (the registration may remain)
+#   CODEX_QUESTIONS_DECISION_WRITTEN 1 when project_config.yaml was rewritten
+CODEX_QUESTIONS_ACTION=""
+CODEX_QUESTIONS_OPTOUT_FAILED=0
+CODEX_QUESTIONS_DECISION_WRITTEN=0
+
+# The dependency follows the registration, EXCEPT in a run that asked to opt
+# out: a removal that failed leaves the table in place, and installing `mcp`
+# then would act on the very registration the user just declined.
+questions_deps_wanted() {
+    questions_server_registered || return 1
+    if [[ "${CODEX_QUESTIONS_OPTOUT_FAILED:-0}" == "1" ]]; then
+        warn "The aitask_questions registration is still in .codex/config.toml after a failed removal — mcp is not installed this run. Remove the [mcp_servers.aitask_questions] table by hand, or re-run 'ait setup --no-codex-questions'."
+        return 1
+    fi
+    case "${CODEX_QUESTIONS_ACTION:-}" in
+        skip|unregister) return 1 ;;
+    esac
+    return 0
+}
+
+# The project's recorded decline lives in the shared, committed project config
+# as a top-level `codex_questions_server: false` (the registration it governs
+# is shared through the committed .codex/config.toml too). Absent or `true`
+# means no decline is recorded.
+_codex_questions_project_config() {
+    printf '%s\n' "$SCRIPT_DIR/../aitasks/metadata/project_config.yaml"
+}
+
+codex_questions_declined() {
+    local cfg
+    cfg="$(_codex_questions_project_config)"
+    [[ -f "$cfg" ]] && grep -Eq '^codex_questions_server:[[:space:]]*false[[:space:]]*(#.*)?$' "$cfg"
+}
+
+# _render_codex_questions_decision <cfg> <value> <rewrite|append> — renderer
+# for ait_atomic_render: the project config with its key line rewritten, or
+# with the decline appended. Each fallible command is guarded explicitly
+# (lib/atomic_write.sh: renderers must not rely on set -e).
+_render_codex_questions_decision() {
+    local cfg="$1" value="$2" op="$3"
+    if [[ "$op" == "rewrite" ]]; then
+        awk -v v="$value" '
+            /^codex_questions_server:/ { print "codex_questions_server: " v; next }
+            { print }
+        ' "$cfg" || return 1
+    else
+        cat "$cfg" || return 1
+        printf '\n# Codex aitask_questions server declined for this project (ait setup --with-codex-questions re-enables it)\ncodex_questions_server: false\n'
+    fi
+}
+
+# record_codex_questions_decision false|true — rewrite the key line (never a
+# second line), or append it for `false`; `true` with no key line writes
+# nothing (no recorded decline is already the right state). Published through
+# lib/atomic_write.sh — staged beside the resolved file, renamed into place —
+# so a reader never sees a truncated shared config and a failed write leaves
+# the original intact. Never fails setup: it degrades to a warning.
+record_codex_questions_decision() {
+    local value="$1" cfg op
+    cfg="$(_codex_questions_project_config)"
+    if [[ ! -f "$cfg" ]]; then
+        [[ "$value" == "false" ]] && warn "aitasks/metadata/project_config.yaml is missing — the decline is not recorded, so setup will ask again next time."
+        return 0
+    fi
+    if grep -Eq '^codex_questions_server:' "$cfg"; then
+        grep -Eq "^codex_questions_server:[[:space:]]*${value}[[:space:]]*(#.*)?\$" "$cfg" && return 0
+        op=rewrite
+    else
+        [[ "$value" == "false" ]] || return 0
+        op=append
+    fi
+    # shellcheck source=lib/atomic_write.sh
+    source "$SETUP_LIB_DIR/atomic_write.sh"
+    if ! ait_atomic_render "$cfg" _render_codex_questions_decision "$cfg" "$value" "$op"; then
+        warn "Could not record codex_questions_server in project_config.yaml — setup will ask again next time."
+        return 0
+    fi
+    # Committed by main() right after setup_code_agents — commit_setup_metadata_writes
+    # has already run by then — via `_flush_metadata_batch 0`, which refuses an
+    # untracked project_config.yaml rather than publishing local content. This
+    # function never commits, so tests that drive it directly stay local.
+    CODEX_QUESTIONS_DECISION_WRITTEN=1
+    return 0
 }
 
 # Called from main() — NOT from setup_codex_cli — so that driving the Codex
@@ -4144,9 +4262,24 @@ setup_claude_code() {
 }
 
 # --- Merge Codex CLI config.toml (add aitask-specific settings) ---
+# merge_codex_settings <seed> <dest> [keep|omit|remove]
+#   keep    (default) merge the whole seed, the aitask_questions table included
+#   omit    merge the seed WITHOUT the aitask_questions table; an existing
+#           registration in <dest> is left alone
+#   remove  as omit, and also delete an existing registration from <dest>
+# <seed> may be /dev/null (an empty TOML): `remove` with it is a remove-only
+# rewrite that touches nothing else. Returns non-zero on any failure (no
+# python, no TOML parser, a parse error, empty output, bad mode), leaving
+# <dest> unchanged; callers that must not act on a failed rewrite check it.
 merge_codex_settings() {
     local seed_file="$1"
     local dest_file="$2"
+    local mode="${3:-keep}"
+
+    case "$mode" in
+        keep|omit|remove) ;;
+        *) warn "merge_codex_settings: unknown mode '$mode'"; return 1 ;;
+    esac
 
     # Prefer venv Python, fall back to system python3
     local python_cmd=""
@@ -4157,11 +4290,14 @@ merge_codex_settings() {
     else
         warn "python3 not found. Cannot merge Codex settings automatically."
         warn "Please manually merge $seed_file into $dest_file"
-        return
+        return 1
     fi
 
     local merged=""
-    merged="$("$python_cmd" -c "
+    # Guarded: a bare `merged="$(...)"` whose python exits non-zero (a TOML
+    # parse error, no parser) would abort the whole of `ait setup` under set -e.
+    local merge_py
+    merge_py="$(cat <<'PY'
 import sys
 
 try:
@@ -4177,6 +4313,7 @@ with open(sys.argv[1], 'rb') as f:
     existing = tomllib.load(f)
 with open(sys.argv[2], 'rb') as f:
     seed = tomllib.load(f)
+mode = sys.argv[3]
 
 def deep_merge(base, overlay):
     result = dict(base)
@@ -4191,6 +4328,23 @@ def deep_merge(base, overlay):
                 if str(item) not in existing_strs:
                     result[key].append(item)
     return result
+
+# t2297: the aitask_questions server is an explicit opt-in. Drop its table (and
+# an mcp_servers left empty by that) from the seed for omit/remove, and from
+# the existing config for remove; every other server and key is untouched.
+def drop_questions(d):
+    servers = d.get('mcp_servers')
+    if isinstance(servers, dict) and 'aitask_questions' in servers:
+        del servers['aitask_questions']
+        if not servers:
+            del d['mcp_servers']
+        return True
+    return False
+
+if mode in ('omit', 'remove'):
+    drop_questions(seed)
+if mode == 'remove' and drop_questions(existing):
+    print('[ait]   Removed [mcp_servers.aitask_questions] from .codex/config.toml', file=sys.stderr)
 
 # t1944 retirement rule (one-shot). The t1797 seed wrote [tui] animations =
 # false, but animations is Codex's master switch: off, the Working timer stops
@@ -4232,25 +4386,68 @@ if isinstance(tui, dict) and isinstance(seed_tui, dict) and seed_tui:
 
 merged = deep_merge(existing, seed)
 
+# A real TOML emitter for what tomllib can return. Strings are escaped (a value
+# such as args = ['say "hello"'] or a Windows path must round-trip), keys that
+# are not bare are quoted, and booleans/floats/dates inside arrays and inline
+# tables keep their TOML spelling. Plain values serialize exactly as before.
+import datetime as _dt
+import re as _re
+_BARE_KEY = _re.compile(r'[A-Za-z0-9_-]+')
+
+def toml_str(s):
+    out = []
+    for ch in s:
+        o = ord(ch)
+        if ch == '\\':
+            out.append('\\\\')
+        elif ch == '"':
+            out.append('\\"')
+        elif ch == '\n':
+            out.append('\\n')
+        elif ch == '\t':
+            out.append('\\t')
+        elif ch == '\r':
+            out.append('\\r')
+        elif o < 0x20 or o == 0x7f:
+            out.append('\\u%04x' % o)
+        else:
+            out.append(ch)
+    return '"' + ''.join(out) + '"'
+
+def toml_key(k):
+    return k if _BARE_KEY.fullmatch(k) else toml_str(k)
+
+def toml_value(v):
+    if isinstance(v, bool):
+        return 'true' if v else 'false'
+    if isinstance(v, str):
+        return toml_str(v)
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, float):
+        return repr(v)
+    if isinstance(v, (_dt.datetime, _dt.date, _dt.time)):
+        return v.isoformat()
+    if isinstance(v, list):
+        return '[' + ', '.join(toml_value(i) for i in v) + ']'
+    if isinstance(v, dict):
+        if not v:
+            return '{}'
+        return '{ ' + ', '.join(f'{toml_key(k)} = {toml_value(x)}' for k, x in v.items()) + ' }'
+    raise TypeError('cannot serialize %r' % (v,))
+
 def toml_serialize(d, prefix=''):
     lines = []
     tables = []
     array_tables = []
     for k, v in d.items():
-        full_key = f'{prefix}.{k}' if prefix else k
+        full_key = f'{prefix}.{toml_key(k)}' if prefix else toml_key(k)
         if isinstance(v, dict):
             tables.append((full_key, v))
-        elif isinstance(v, list) and v and isinstance(v[0], dict):
+        elif isinstance(v, list) and v and all(isinstance(e, dict) for e in v):
             array_tables.append((full_key, v))
-        elif isinstance(v, bool):
-            lines.append(f'{k} = {str(v).lower()}')
-        elif isinstance(v, str):
-            lines.append(f'{k} = \"{v}\"')
-        elif isinstance(v, (int, float)):
-            lines.append(f'{k} = {v}')
-        elif isinstance(v, list):
-            items = ', '.join(f'\"{i}\"' if isinstance(i, str) else str(i) for i in v)
-            lines.append(f'{k} = [{items}]')
+        else:
+            lines.append(f'{toml_key(k)} = {toml_value(v)}')
     for line in lines:
         print(line)
     for full_key, table in tables:
@@ -4261,14 +4458,26 @@ def toml_serialize(d, prefix=''):
             print(f'\n[[{full_key}]]')
             toml_serialize(entry, full_key)
 toml_serialize(merged)
-" "$dest_file" "$seed_file")"
-
-    if [[ -n "$merged" ]]; then
-        echo "$merged" > "$dest_file"
-        info "  Merged aitask settings into .codex/config.toml"
-    else
-        warn "  Merge produced empty output — existing config unchanged"
+PY
+)"
+    if ! merged="$("$python_cmd" -c "$merge_py" "$dest_file" "$seed_file" "$mode")"; then
+        warn "  Could not merge Codex settings (TOML parse error or no parser) — existing config unchanged"
+        return 1
     fi
+
+    # Empty output is legitimate only for `remove` of a config that held
+    # nothing but the aitask_questions table; anything else means the merge
+    # did not happen.
+    if [[ -z "$merged" && "$mode" != "remove" ]]; then
+        warn "  Merge produced empty output — existing config unchanged"
+        return 1
+    fi
+    if ! printf '%s\n' "$merged" > "$dest_file"; then
+        warn "  Could not write $dest_file — existing config unchanged"
+        return 1
+    fi
+    info "  Merged aitask settings into .codex/config.toml"
+    return 0
 }
 
 # --- Merge Codex CLI rules/default.rules (add missing aitask helper rules) ---
@@ -4331,6 +4540,456 @@ merge_codex_rules() {
     fi
 }
 
+# --- Codex question server: opt-in decision and validated config publish (t2297) ---
+
+# Test seam for both Codex prompts: `-t 0` cannot be faked without a pty.
+_setup_stdin_is_tty() {
+    [[ -t 0 ]]
+}
+
+explain_codex_questions_server() {
+    info "Optional: the aitask_questions question server for Codex."
+    info "  - Workflow questions (task confirmation, plan approval, commit review) appear as"
+    info "    forms in Codex. A form left unanswered closes after 5 minutes; answer at the"
+    info "    ordinary prompt and the workflow continues."
+    info "  - Installs the Python package mcp into the framework venv and registers the server"
+    info "    in .codex/config.toml, a project file that setup commits. Restart Codex afterwards."
+    info "  - In Codex sessions it also enforces approvals: plan approval, the reviewed commit,"
+    info "    the merge and archival are checked against the answered question."
+    info "  - Without it, Codex asks these questions in plain text and approval enforcement is off."
+}
+
+# resolve_codex_questions_action <dest_config> — decide this run's action when
+# the Codex setup runs (the matrix in aidocs/codeagents/codex_questions.md).
+# Sets the global CODEX_QUESTIONS_ACTION (register|skip|unregister) rather than
+# echoing it: the prompt below must reach the terminal, never a $( ) capture.
+resolve_codex_questions_action() {
+    local dest="$1" registered=0 declined=0 answer=""
+    questions_server_registered "$dest" && registered=1
+    codex_questions_declined && declined=1
+
+    case "${CODEX_QUESTIONS_FLAG:-}" in
+        1)
+            if (( ! registered )); then
+                echo ""
+                explain_codex_questions_server
+            fi
+            CODEX_QUESTIONS_ACTION=register
+            record_codex_questions_decision true
+            return 0
+            ;;
+        0)
+            if (( registered )); then CODEX_QUESTIONS_ACTION=unregister
+            else CODEX_QUESTIONS_ACTION=skip; fi
+            record_codex_questions_decision false
+            return 0
+            ;;
+    esac
+
+    if (( registered )); then
+        CODEX_QUESTIONS_ACTION=register
+        if (( declined )); then
+            warn "The aitask_questions server is registered in .codex/config.toml although project_config.yaml records a decline (codex_questions_server: false). Keeping it; 'ait setup --no-codex-questions' removes it, 'ait setup --with-codex-questions' clears the decline."
+        else
+            info "aitask_questions question server: registered (kept). To remove it: ait setup --no-codex-questions"
+        fi
+        return 0
+    fi
+    if (( declined )); then
+        CODEX_QUESTIONS_ACTION=skip
+        info "aitask_questions question server: declined for this project (aitasks/metadata/project_config.yaml) — 'ait setup --with-codex-questions' enables it."
+        return 0
+    fi
+
+    echo ""
+    explain_codex_questions_server
+    if _setup_stdin_is_tty; then
+        printf "  Register the aitask_questions question server? [Y/n] "
+        read -r answer || answer=""
+    else
+        info "(non-interactive: registering the question server — pass --no-codex-questions to skip it)"
+        answer="Y"
+    fi
+    case "${answer:-Y}" in
+        [Yy]*)
+            CODEX_QUESTIONS_ACTION=register
+            ;;
+        *)
+            CODEX_QUESTIONS_ACTION=skip
+            record_codex_questions_decision false
+            info "Skipped the question server: Codex will ask workflow questions in plain text. Enable it later with: ait setup --with-codex-questions"
+            ;;
+    esac
+    return 0
+}
+
+# _codex_config_check <candidate> <present|absent|any> [original] — 0 iff the
+# candidate parses as TOML, its aitask_questions registration state is the
+# expected one (`any`: not checked), and (with <original>) it equals the parsed
+# original minus that table — the proof a remove-only rewrite preserved
+# everything else.
+_codex_config_check() {
+    local candidate="$1" expect="$2" original="${3:-}" python_cmd
+    python_cmd="$(_codex_toml_python)"
+    [[ -n "$python_cmd" ]] || return 2
+    "$python_cmd" -c "
+import sys
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        sys.exit(2)
+def load(p):
+    with open(p, 'rb') as f:
+        return tomllib.load(f)
+try:
+    cand = load(sys.argv[1])
+except Exception as e:
+    print('candidate does not parse: %s' % e, file=sys.stderr)
+    sys.exit(1)
+servers = cand.get('mcp_servers')
+present = isinstance(servers, dict) and 'aitask_questions' in servers
+if sys.argv[2] != 'any' and present != (sys.argv[2] == 'present'):
+    print('candidate registration state is wrong (present=%s)' % present, file=sys.stderr)
+    sys.exit(1)
+def without_questions(d):
+    s = d.get('mcp_servers')
+    if isinstance(s, dict):
+        s.pop('aitask_questions', None)
+        if not s:
+            del d['mcp_servers']
+    return d
+if len(sys.argv) > 3 and sys.argv[3]:
+    # An explicit [mcp_servers] header left empty by the text cut parses as an
+    # empty table: normalize both sides so it compares equal to an absent one.
+    if without_questions(load(sys.argv[3])) != without_questions(cand):
+        print('candidate changed more than the aitask_questions table', file=sys.stderr)
+        sys.exit(1)
+" "$candidate" "$expect" "$original"
+}
+
+# _codex_toml_python — print the interpreter merge_codex_settings uses (the
+# framework venv, else python3), or nothing.
+_codex_toml_python() {
+    if [[ -x "$VENV_DIR/bin/python" ]]; then
+        printf '%s\n' "$VENV_DIR/bin/python"
+    elif command -v python3 &>/dev/null; then
+        printf '%s\n' python3
+    fi
+}
+
+# _codex_config_text_remove <file> — cut the aitask_questions table (and its
+# subtables) out of <file> IN PLACE as text, so every other byte — comments,
+# quoting, literal strings, the user's own layout — is kept exactly. The
+# re-serializing merge cannot promise that. Also drops the comment paragraph
+# right above the table when it is the seed's own "# aitask_questions" block.
+# Exit 0 = cut made, 3 = no table header found, 2 = no TOML parser, other =
+# error. The caller validates the result by parsed equality, so a mis-cut (for
+# example a `[x]` line inside a multi-line array) is rejected, never published.
+_codex_config_text_remove() {
+    local file="$1" py
+    py="$(_codex_toml_python)"
+    [[ -n "$py" ]] || return 2
+    "$py" - "$file" <<'PY'
+import sys
+try:
+    import tomllib
+except ImportError:
+    try:
+        import tomli as tomllib
+    except ImportError:
+        sys.exit(2)
+
+path = sys.argv[1]
+with open(path, encoding="utf-8") as f:
+    lines = f.read().splitlines(keepends=True)
+
+def header_path(line):
+    s = line.strip()
+    if not s.startswith("["):
+        return None
+    try:
+        node = tomllib.loads(s + "\n")
+    except Exception:
+        return None
+    path = []
+    while True:
+        if isinstance(node, list) and len(node) == 1:
+            node = node[0]
+        elif isinstance(node, dict) and len(node) == 1:
+            key = next(iter(node))
+            path.append(key)
+            node = node[key]
+        else:
+            break
+    return path if node == {} else None
+
+def is_comment(line):
+    return line.lstrip().startswith("#")
+
+paths = [header_path(l) for l in lines]
+heads = [i for i, p in enumerate(paths) if p is not None]
+drop = set()
+for n, i in enumerate(heads):
+    if paths[i][:2] != ["mcp_servers", "aitask_questions"]:
+        continue
+    end = heads[n + 1] if n + 1 < len(heads) else len(lines)
+    # Comments (and blanks) right above the NEXT header belong to that table.
+    if end < len(lines):
+        while end - 1 > i and (lines[end - 1].strip() == "" or is_comment(lines[end - 1])):
+            end -= 1
+    start = i
+    j = i - 1
+    while j >= 0 and lines[j].strip() == "":
+        j -= 1
+    k = j
+    while k >= 0 and is_comment(lines[k]):
+        k -= 1
+    if k < j and lines[k + 1].lstrip().startswith("# aitask_questions"):
+        start = k + 1
+    # Blank lines above the cut go too when the text after it starts blank (or
+    # the cut reaches the end), so no double blank line is left behind.
+    if end >= len(lines) or lines[end].strip() == "":
+        while start - 1 >= 0 and lines[start - 1].strip() == "":
+            start -= 1
+    drop.update(range(start, end))
+if not drop:
+    sys.exit(3)
+with open(path, "w", encoding="utf-8") as f:
+    f.write("".join(l for i, l in enumerate(lines) if i not in drop))
+PY
+}
+
+# apply_codex_config <seed|/dev/null> <dest> <keep|omit|remove> — the ONLY
+# writer of .codex/config.toml on the question-server paths. Builds the result
+# in a temp file staged by lib/atomic_write.sh beside the RESOLVED destination
+# (a symlinked config is updated through its link, which stays a link, and the
+# temp keeps the file's mode), validates it, and publishes it with that
+# library's rename; on any failure the temp is discarded and the config is left
+# exactly as it was (a fresh decline then publishes no config at all: fail
+# closed). A remove-only rewrite (seed /dev/null) first tries a byte-preserving
+# text cut, then the re-serializing merge; each candidate must parse to the
+# original minus the table, or it is rejected.
+apply_codex_config() {
+    local seed="$1" dest="$2" mode="$3"
+    local target tmp fresh=0 expect=present original="" rc=0 strategy merge_mode
+    # shellcheck source=lib/atomic_write.sh
+    source "$SETUP_LIB_DIR/atomic_write.sh"
+    mkdir -p "$(dirname "$dest")" 2>/dev/null || return 1
+    target="$(ait_atomic_resolve "$dest")" || return 1
+    [[ -f "$target" ]] || fresh=1
+    tmp="$(ait_atomic_tmp "$target")" || return 1
+
+    # `keep` can only promise a registration when the seed carries the table or
+    # the config already had one: a user-customized seed may omit it.
+    if [[ "$mode" != "keep" ]]; then
+        expect=absent
+    elif ! questions_server_registered "$seed" && ! questions_server_registered "$target"; then
+        expect=any
+    fi
+    # The remove-only rewrite must change nothing but the table.
+    [[ "$seed" == "/dev/null" && "$mode" == "remove" ]] && (( ! fresh )) && original="$target"
+
+    # A fresh config starts as a copy of the seed, so its table must be
+    # REMOVED — `omit` only keeps the seed from adding one, and the copy
+    # already has it. A fresh `keep` is a pure seed copy: no merge at all, so
+    # its comments survive.
+    merge_mode="$mode"
+    (( fresh )) && [[ "$mode" == "omit" ]] && merge_mode=remove
+
+    local -a strategies=(merge)
+    [[ -n "$original" ]] && strategies=(text merge)
+    for strategy in "${strategies[@]}"; do
+        rc=0
+        if (( fresh )); then
+            cp "$seed" "$tmp" || { ait_atomic_discard "$tmp"; return 1; }
+        else
+            cp "$target" "$tmp" || { ait_atomic_discard "$tmp"; return 1; }
+        fi
+        case "$strategy" in
+            text)
+                _codex_config_text_remove "$tmp" >/dev/null 2>&1 || { rc=1; continue; }
+                ;;
+            merge)
+                if (( ! fresh )) || [[ "$mode" != "keep" ]]; then
+                    merge_codex_settings "$seed" "$tmp" "$merge_mode" || { rc=1; continue; }
+                fi
+                ;;
+        esac
+        _codex_config_check "$tmp" "$expect" "$original" || rc=$?
+        # Exit 1 is a validation verdict and always rejects. Any other non-zero
+        # status means the check could not run: no parser (2), or a broken or
+        # missing interpreter (e.g. 127). A fresh `keep` is a verbatim seed
+        # copy that needed no Python before this check existed, so it is
+        # published unvalidated; the registration grep below still runs. Every
+        # other mode went through Python already.
+        if (( rc != 0 && rc != 1 )) && (( fresh )) && [[ "$mode" == "keep" ]]; then
+            rc=0
+        fi
+        if (( rc == 0 )); then
+            case "$expect" in
+                present) questions_server_registered "$tmp" || rc=1 ;;
+                absent)  ! questions_server_registered "$tmp" || rc=1 ;;
+            esac
+        fi
+        (( rc == 0 )) && break
+    done
+    if (( rc != 0 )); then
+        warn "  Rejected the rewritten .codex/config.toml (validation failed) — existing config unchanged"
+        ait_atomic_discard "$tmp"
+        return 1
+    fi
+    ait_atomic_commit "$tmp" "$target" || return 1
+    return 0
+}
+
+# codex_questions_without_codex_setup <why> — the flags still act when the Codex
+# setup does not run (Codex CLI not installed, or its prompt declined): an
+# explicit --no-codex-questions removes an existing registration — touching
+# nothing else in .codex/config.toml — and records the decline. Registering
+# needs the Codex setup, so --with-codex-questions only says it had no effect.
+codex_questions_without_codex_setup() {
+    local why="$1" dest="$SCRIPT_DIR/../.codex/config.toml"
+    case "${CODEX_QUESTIONS_FLAG:-}" in
+        1)
+            info "--with-codex-questions had no effect: the Codex setup was $why."
+            ;;
+        0)
+            CODEX_QUESTIONS_ACTION=unregister
+            record_codex_questions_decision false
+            if questions_server_registered "$dest"; then
+                if apply_codex_config /dev/null "$dest" remove; then
+                    success "Removed the aitask_questions server from .codex/config.toml (nothing else changed; mcp stays in the shared venv). Restart Codex."
+                else
+                    CODEX_QUESTIONS_OPTOUT_FAILED=1
+                    warn "Could not remove the aitask_questions server from .codex/config.toml — it is still registered; mcp is not installed this run. Remove the [mcp_servers.aitask_questions] table by hand."
+                fi
+            else
+                info "aitask_questions question server: not registered; the decline is recorded."
+            fi
+            ;;
+    esac
+    return 0
+}
+
+# _codex_rendered_skill_of <rendered-dir-name> <skill>... — the longest skill
+# name S with <name> == S-<profile>-codex-, so `aitask-pickrem-x-codex-` never
+# resolves to aitask-pick. Prints the matched skill, or nothing.
+_codex_rendered_skill_of() {
+    local b="$1"; shift
+    local s best=""
+    for s in "$@"; do
+        [[ "$b" == "$s"-*-codex- ]] || continue
+        (( ${#s} > ${#best} )) && best="$s"
+    done
+    printf '%s' "$best"
+}
+
+# _render_entry_with_fragment <entry> <fragment> — renderer for ait_atomic_render:
+# <entry> with <fragment> inserted after its YAML frontmatter (at the top when
+# it has none), laid out exactly like skill_template.inject_entry_prereq. awk
+# exits 1 when it inserted nothing (an unterminated frontmatter), so a no-op
+# render is never committed.
+_render_entry_with_fragment() {
+    awk -v frag="$2" '
+        function emit_fragment(   l) {
+            while ((getline l < frag) > 0) print l
+            close(frag)
+        }
+        NR == 1 && $0 == "---" { infm = 1; print; next }
+        NR == 1 { emit_fragment(); print ""; done = 1; print; next }
+        infm && $0 == "---" { infm = 0; print; print ""; emit_fragment(); done = 1; blank = 1; next }
+        blank { blank = 0; if ($0 != "") print "" }
+        { print }
+        END { exit done ? 0 : 1 }
+    ' "$1" || return 1
+}
+
+# --- Refresh rendered Codex skills (t2297) ---
+# Every rendered .agents/skills/<skill>-<profile>-codex-/SKILL.md is a skill
+# Codex lists and can enter directly, bypassing the stub whose dispatch would
+# re-render it. After a framework update — `ait setup`, and install.sh, which is
+# the `ait upgrade` route and never runs setup — bring each one that lacks the
+# tool-mapping pointer up to date:
+#   1. a templated entry (`.claude/skills/<skill>/SKILL.md.j2`) is re-rendered
+#      through aitask_skill_render.sh (per-file atomic writes; also refreshes
+#      the closure skills it reaches);
+#   2. anything still lacking the pointer afterwards — a failed render (no
+#      python/minijinja, a profile that no longer exists) or a closure skill no
+#      entry reached — gets the fragment inserted after its frontmatter, with
+#      awk only, so a broken venv cannot leave a stale skill without it.
+# Focused on the pointer: a variant that already carries it is left to the
+# normal stub dispatch. Never fails the caller; orphans (no source skill) are
+# skipped. Optional argument: the project dir (default: this checkout).
+refresh_codex_rendered_entries() {
+    local project_dir="${1:-$SCRIPT_DIR/..}"
+    local root="$project_dir/.agents/skills"
+    local fragment="$project_dir/.aitask-scripts/skill_templates/_codex_entry_prereq.md"
+    local render="$project_dir/.aitask-scripts/aitask_skill_render.sh"
+    local marker=".agents/skills/codex_tool_mapping.md"
+    [[ -d "$root" ]] || return 0
+    if [[ ! -f "$fragment" ]]; then
+        warn "Codex tool-mapping fragment missing ($fragment) — rendered Codex skills not refreshed."
+        return 0
+    fi
+
+    local -a templated=() sources=()
+    local d name
+    for d in "$project_dir"/.claude/skills/*/; do
+        name="$(basename "$d")"
+        [[ "$name" == *- ]] && continue          # a rendered variant, not a source
+        [[ -f "$d/SKILL.md" || -f "$d/SKILL.md.j2" ]] || continue
+        sources+=("$name")
+        [[ -f "$d/SKILL.md.j2" ]] && templated+=("$name")
+    done
+
+    local refreshed=0 patched=0 skipped=0 base skill profile entry
+    # shellcheck source=lib/atomic_write.sh
+    source "$SETUP_LIB_DIR/atomic_write.sh"
+    # Pass 1: re-render templated entries that lack the pointer.
+    for d in "$root"/*-codex-/; do
+        entry="$d/SKILL.md"
+        [[ -f "$entry" ]] || continue
+        grep -qF "$marker" "$entry" && continue
+        base="$(basename "$d")"
+        skill="$(_codex_rendered_skill_of "$base" ${templated[@]+"${templated[@]}"})"
+        [[ -n "$skill" ]] || continue
+        profile="${base#"$skill"-}"
+        profile="${profile%-codex-}"
+        [[ -n "$profile" ]] || continue
+        if (cd "$project_dir" && "$render" "$skill" --profile "$profile" --agent codex) >/dev/null 2>&1 \
+            && grep -qF "$marker" "$entry"; then
+            refreshed=$((refreshed + 1))
+        fi
+    done
+
+    # Pass 2: insert the fragment wherever the pointer is still missing.
+    for d in "$root"/*-codex-/; do
+        entry="$d/SKILL.md"
+        [[ -f "$entry" ]] || continue
+        grep -qF "$marker" "$entry" && continue
+        base="$(basename "$d")"
+        skill="$(_codex_rendered_skill_of "$base" ${sources[@]+"${sources[@]}"})"
+        if [[ -z "$skill" ]]; then
+            skipped=$((skipped + 1))
+            continue
+        fi
+        if ait_atomic_render "$entry" _render_entry_with_fragment "$entry" "$fragment" \
+            && grep -qF "$marker" "$entry"; then
+            patched=$((patched + 1))
+        else
+            warn "Could not add the tool-mapping pointer to $entry"
+        fi
+    done
+
+    if (( refreshed + patched + skipped > 0 )); then
+        info "Codex rendered skills (CODEX_ENTRIES): refreshed=$refreshed patched=$patched skipped=$skipped"
+    fi
+    return 0
+}
+
 # --- Codex CLI setup (skills + config + instructions) ---
 setup_codex_cli() {
     local project_dir="$SCRIPT_DIR/.."
@@ -4341,6 +5000,7 @@ setup_codex_cli() {
     if [[ ! -d "$staging_skills" ]]; then
         info "No Codex CLI staging files found — skipping"
         info "  Re-run 'ait setup' to restore Codex CLI support files"
+        codex_questions_without_codex_setup "skipped (no Codex CLI staging files)"
         return
     fi
 
@@ -4355,14 +5015,13 @@ setup_codex_cli() {
     info "into .codex/config.toml, which records the session id so a frozen agent can"
     info "be restored. Note: the codex TUI fires it at a session's first turn (codex"
     info "0.163.0 measured); older codex fires it under \`codex exec\` only."
-    info "It also registers the aitask_questions MCP server (.aitask-scripts/aitask_questions_mcp.sh)"
-    info "in .codex/config.toml and installs its Python dependency (mcp) into the framework venv."
-    info "The server shows workflow questions as forms; restart codex after setup to load it."
+    info "The aitask_questions question server is a separate choice, asked next."
     echo ""
 
-    if [[ -t 0 ]]; then
+    local answer=""
+    if _setup_stdin_is_tty; then
         printf "  Install Codex CLI skills and config? [Y/n] "
-        read -r answer
+        read -r answer || answer=""
     else
         info "(non-interactive: auto-accepting default)"
         answer="Y"
@@ -4371,9 +5030,18 @@ setup_codex_cli() {
         [Yy]*|"") ;;
         *)
             info "Skipped Codex CLI skill installation."
+            codex_questions_without_codex_setup "declined"
             return
             ;;
     esac
+
+    # The question-server decision comes before anything is installed, so all
+    # of this step's questions are asked up front.
+    local seed_config="$project_dir/aitasks/metadata/codex_config.seed.toml"
+    local dest_config="$dest_codex/config.toml"
+    if [[ -f "$seed_config" ]]; then
+        resolve_codex_questions_action "$dest_config"
+    fi
 
     # 1. Copy skill wrappers
     mkdir -p "$dest_skills"
@@ -4404,17 +5072,46 @@ setup_codex_cli() {
         info "  Installed .codex/instructions.md (with aitasks markers)"
     fi
 
-    # 3. Merge config.toml seed
-    local seed_config="$project_dir/aitasks/metadata/codex_config.seed.toml"
+    # 3. Merge config.toml seed — with or without the aitask_questions table,
+    # per this run's decision, through the validated publish (apply_codex_config).
+    # The server's dependency is installed from main() only, so driving this
+    # function directly can never install packages.
     if [[ -f "$seed_config" ]]; then
-        mkdir -p "$dest_codex"
-        local dest_config="$dest_codex/config.toml"
-        if [[ ! -f "$dest_config" ]]; then
-            cp "$seed_config" "$dest_config"
-            info "  Created .codex/config.toml from seed"
-        else
+        local mode=keep existed=0
+        case "${CODEX_QUESTIONS_ACTION:-register}" in
+            skip)       mode=omit ;;
+            unregister) mode=remove ;;
+        esac
+        [[ -f "$dest_config" ]] && existed=1
+        if (( existed )); then
             info "  Existing .codex/config.toml found — merging aitask settings..."
-            merge_codex_settings "$seed_config" "$dest_config"
+        fi
+        if apply_codex_config "$seed_config" "$dest_config" "$mode"; then
+            (( existed )) || info "  Created .codex/config.toml from seed"
+            case "${CODEX_QUESTIONS_ACTION:-register}" in
+                register)
+                    if questions_server_registered "$dest_config"; then
+                        success "  aitask_questions question server registered in .codex/config.toml — restart Codex to load it."
+                    else
+                        warn "  aitask_questions question server not registered: the Codex config seed (aitasks/metadata/codex_config.seed.toml) carries no [mcp_servers.aitask_questions] table. 'ait setup' restores the seed when it is missing."
+                    fi ;;
+                skip)
+                    info "  aitask_questions question server not registered." ;;
+                unregister)
+                    success "  Removed the aitask_questions question server from .codex/config.toml (mcp stays in the shared venv). Restart Codex." ;;
+            esac
+        else
+            case "${CODEX_QUESTIONS_ACTION:-register}" in
+                register)
+                    warn "  .codex/config.toml was not updated, so the aitask_questions server is not newly registered. Re-run 'ait setup'." ;;
+                skip|unregister)
+                    CODEX_QUESTIONS_OPTOUT_FAILED=1
+                    if (( existed )); then
+                        warn "  The question-server opt-out failed: .codex/config.toml was not rewritten, so a registration may remain. mcp is not installed this run; re-run 'ait setup --no-codex-questions' or remove the [mcp_servers.aitask_questions] table by hand."
+                    else
+                        warn "  The question-server opt-out failed: no .codex/config.toml was created (nothing is registered). Re-run 'ait setup' to create it."
+                    fi ;;
+            esac
         fi
     fi
 
@@ -4598,10 +5295,7 @@ setup_code_agents() {
     update_claudemd_git_section "$project_dir"
 
     # Other agents: only set up if their CLI is installed
-    if _is_agent_installed codex; then
-        echo ""
-        setup_codex_cli
-    fi
+    setup_codex_agent
 
     if _is_agent_installed opencode; then
         echo ""
@@ -4613,6 +5307,21 @@ setup_code_agents() {
     # helper decides ownership by content hash, so anything the user modified or
     # authored at a retired path is preserved and reported, never deleted.
     prune_retired_skills "$project_dir"
+}
+
+# The Codex part of setup_code_agents, separate so tests can drive it with
+# _is_agent_installed stubbed. The skills and config are set up only when the
+# Codex CLI is installed, but an explicit --no-codex-questions still removes a
+# registration without it, and rendered Codex skills already on disk are
+# refreshed either way (they stay invocable whether or not the CLI is found now).
+setup_codex_agent() {
+    if _is_agent_installed codex; then
+        echo ""
+        setup_codex_cli
+    else
+        codex_questions_without_codex_setup "skipped (Codex CLI not installed)"
+    fi
+    refresh_codex_rendered_entries
 }
 
 # --- Prune retired skill surfaces (see install.sh prune_retired_skills) ---
@@ -6176,6 +6885,14 @@ Options:
                 slack-sdk) used by 'ait chatlink'
   --with-dev    Also install the opt-in dev/test tier (pytest, pytest-xdist),
                 which gives the Python test suite a parallel lane
+  --with-codex-questions
+                Register the Codex aitask_questions question server (forms for
+                workflow questions, approval enforcement) and install its
+                dependency (mcp) without asking; clears a recorded decline
+  --no-codex-questions
+                Do not register the Codex question server, remove an existing
+                registration (nothing else in .codex/config.toml changes; works
+                even without the Codex setup) and record the decline
   --hooks-only  Only install / repair the Claude Code session hook, needed to
                 restore Claude Code agents frozen later; skips every other step
   --local-engine <path>
@@ -6196,6 +6913,13 @@ Options:
 
 Each opt-in tier is remembered after the first opt-in: later plain 'ait setup'
 runs revalidate and repair it without re-passing the flag.
+
+The Codex question server is asked about during the Codex setup ([Y/n], default
+yes; a run with no terminal registers it). A yes is remembered as the
+registration in .codex/config.toml, a no as codex_questions_server: false in
+aitasks/metadata/project_config.yaml, which later runs honour with or without a
+terminal until --with-codex-questions is passed. Removing the registration
+leaves mcp in the shared venv.
 
 The test map engine is installed to $AITASKS_HOME/engine/v<VERSION>/ (default
 ~/.aitasks). AIT_TESTMAP_FETCH=0 skips the download; an explicit
@@ -6219,7 +6943,10 @@ main() {
     INSTALL_PYPY=0
     INSTALL_CHAT=0
     INSTALL_DEV=0
-    local hooks_only=0 assume_yes=0 no_home_migration=0
+    # Codex question server flag (t2297): 1 = --with-codex-questions,
+    # 0 = --no-codex-questions, "" = ask / remembered decision.
+    CODEX_QUESTIONS_FLAG=""
+    local hooks_only=0 assume_yes=0 no_home_migration=0 codex_questions_flags=0
     local args=()
     # Test map engine flags, passed through to install_engine_binary.
     local engine_args=() no_testmap=0 other_engine_flag=0 engine_path=""
@@ -6228,6 +6955,8 @@ main() {
             --with-pypy) INSTALL_PYPY=1; shift ;;
             --with-chat) INSTALL_CHAT=1; shift ;;
             --with-dev)  INSTALL_DEV=1; shift ;;
+            --with-codex-questions) CODEX_QUESTIONS_FLAG=1; codex_questions_flags=$((codex_questions_flags | 1)); shift ;;
+            --no-codex-questions)   CODEX_QUESTIONS_FLAG=0; codex_questions_flags=$((codex_questions_flags | 2)); shift ;;
             --hooks-only) hooks_only=1; shift ;;
             --yes)       assume_yes=1; shift ;;
             --no-home-migration) no_home_migration=1; shift ;;
@@ -6262,6 +6991,12 @@ main() {
     fi
     if [[ "$hooks_only" == "1" && ${#engine_args[@]} -gt 0 ]]; then
         die "--hooks-only cannot be combined with the test map engine flags"
+    fi
+    if [[ "$codex_questions_flags" == "3" ]]; then
+        die "--with-codex-questions and --no-codex-questions cannot be combined"
+    fi
+    if [[ "$hooks_only" == "1" && "$codex_questions_flags" != "0" ]]; then
+        die "--hooks-only cannot be combined with --with-codex-questions or --no-codex-questions"
     fi
     if [[ "$hooks_only" == "1" ]]; then
         local rc=0
@@ -6411,9 +7146,17 @@ main() {
     setup_code_agents
     echo ""
 
-    # The aitask_questions MCP server registered by Codex setup needs the MCP
-    # SDK in the venv. Keyed on the registration, so it also repairs on re-runs.
-    if questions_server_registered; then
+    # A question-server decision written to project_config.yaml during the
+    # Codex setup: commit_setup_metadata_writes ran before setup_code_agents, so
+    # commit it here (path-scoped; an untracked project_config.yaml is refused).
+    if [[ "${CODEX_QUESTIONS_DECISION_WRITTEN:-0}" == "1" ]]; then
+        _flush_metadata_batch 0 "aitasks/metadata/project_config.yaml"
+    fi
+
+    # The aitask_questions MCP server needs the MCP SDK in the venv. Keyed on
+    # the registration (the remembered opt-in), so it also repairs on re-runs —
+    # but never in a run that asked to opt out (questions_deps_wanted).
+    if questions_deps_wanted; then
         setup_questions_deps
         echo ""
     fi

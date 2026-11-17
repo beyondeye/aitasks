@@ -111,7 +111,7 @@ For background on why task data lives on a separate branch, see the
 - `.codex/instructions.md` — aitasks instructions for Codex
 - `.codex/config.toml` — created or merged with aitask settings, including the SessionStart hook (see [Session Hooks](../commands/setup-install/#session-hooks))
 - `.codex/rules/default.rules` — Codex CLI allow rules for aitasks helper scripts
-- The `aitask_questions` question server, registered in `.codex/config.toml`, which shows workflow questions as forms in Codex. Setup also installs the Python package it needs (`mcp`) into the framework's Python venv. Restart Codex after setup so it loads the server (see [Known Issues]({{< relref "/docs/installation/known-issues" >}}))
+- The `aitask_questions` question server, which shows workflow questions as forms in Codex. Setup asks about it separately and the default is yes. A yes registers it in `.codex/config.toml` and installs the Python package it needs (`mcp`) into the framework's Python venv. Restart Codex after setup so it loads the server. See [Guided setup flow]({{< relref "/docs/commands/setup-install" >}}) step 7 for the flags and how setup remembers your answer, and [Known Issues]({{< relref "/docs/installation/known-issues" >}}) for how Codex behaves with and without the server
 
 **Optional: OpenCode support** (when `ait setup` detects OpenCode):
 

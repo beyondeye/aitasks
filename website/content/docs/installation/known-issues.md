@@ -20,7 +20,7 @@ Use stronger reasoning/model settings when you need reliable workflow compliance
 
 #### Interactive checkpoints
 
-`ait setup` registers a small question server, `aitask_questions`, in the generated Codex config (`.codex/config.toml`) and installs the Python package it needs. The interactive workflow checkpoints — task confirmation, plan approval, commit review — are asked through it and appear as a form in the Codex pane. Restart Codex after running `ait setup`: Codex loads the server only when it starts.
+When you accept it during the Codex part of `ait setup` (the default), setup registers a small question server, `aitask_questions`, in the generated Codex config (`.codex/config.toml`) and installs the Python package it needs. The interactive workflow checkpoints — task confirmation, plan approval, commit review — are asked through it and appear as a form in the Codex pane. Restart Codex after running `ait setup`: Codex loads the server only when it starts.
 
 - **A form you do not answer is never an answer.** After five minutes the form closes, the agent says which question is waiting and ends its turn. Type your answer at the ordinary prompt and the workflow continues with the next question. Nothing is defaulted and no work that depends on the answer starts in the meantime.
 - **Esc postpones a form.** The question stays open and can be answered at the prompt in the same way.
@@ -35,6 +35,8 @@ Use stronger reasoning/model settings when you need reliable workflow compliance
 - **A question waiting at the prompt is flagged.** `ait monitor` and `ait minimonitor` show the pane as awaiting input both while a form is open and after it has fallen back to the prompt, until you answer or cancel it or the session ends. For a Codex you started by hand rather than through `ait`, the monitor cannot tell which of your hand-started Codex panes in the project holds the question, so it marks each of them `ASKED?` instead of `PROMPT`, and counts them as `asked?` rather than `awaiting`, until the question is answered.
 
 If the server cannot start, Codex lists it as failed under `/mcp` and the agent asks its questions in plain text instead. Run `ait setup` again to repair it.
+
+If you declined the server, the agent asks the same questions in plain text, and none of the approval checks above apply. `ait setup --with-codex-questions` adds the server.
 
 Asking is necessary but not sufficient for reliable compliance: see [Reasoning effort and workflow compliance](#reasoning-effort-and-workflow-compliance) below.
 

@@ -24,7 +24,7 @@ When the source skill references Claude Code tools, use these Codex CLI equivale
 
 Every `AskUserQuestion` in a source skill is a decision the workflow needs. Ask
 it through the `aitask_questions` MCP server that `ait setup` registers in
-`.codex/config.toml`. Do **not** use the built-in `request_user_input` for
+`.codex/config.toml` when the user accepts it. Do **not** use the built-in `request_user_input` for
 these: in default mode the client restricts it to optional questions and
 forbids approval requests, so a required decision can silently go unasked.
 
@@ -210,11 +210,12 @@ other change to it. The same holds for the task file: its
 description, `depends`, `gates` and `issue_type` are part of what was
 approved; status, assignment and gate records are not.
 
-**If the server is not available** (its tools are not listed, or the client
-reports it failed to start): ask the same question in plain prose, end your
-turn, and take the user's next relevant message as the answer. Do not fall
-back to defaults. `ait setup` installs the server; Codex must be restarted to
-load it.
+**If the server is not available** (its tools are not listed — including a
+project whose `ait setup` declined the server — or the client reports it failed
+to start): ask the same question in plain prose, end your turn, and take the
+user's next relevant message as the answer. Do not fall back to defaults.
+`ait setup --with-codex-questions` registers the server and installs its
+dependency; Codex must be restarted to load it.
 
 #### Multi-select
 

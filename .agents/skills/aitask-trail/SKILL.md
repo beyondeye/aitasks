@@ -3,6 +3,10 @@ name: aitask-trail
 description: Create, refresh, or show an implementation trail — a durable, wave-structured, evidence-backed task-sequencing artifact stored via ait artifact.
 ---
 
+**Tool mapping first.** Read **`.agents/skills/codex_tool_mapping.md`** before
+anything else in this skill and apply it for the whole run, including every
+file this skill tells you to read.
+
 This is a profile-aware skill stub. Execute these steps in order, then stop:
 
 1. **Resolve active profile.** Parse ARGUMENTS for `--profile <name>`. If

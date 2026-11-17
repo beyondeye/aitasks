@@ -4,6 +4,10 @@ description: Pick and implement a task on Claude Code Web. Zero interactive prom
 prerender_for_headless: true
 ---
 
+**Tool mapping first.** Read **`.agents/skills/codex_tool_mapping.md`** before
+anything else in this skill and apply it for the whole run, including every
+file this skill tells you to read.
+
 ## Overview
 
 This skill is a sandboxed version of `aitask-pickrem` designed specifically for **Claude Code Web**, where the environment has no push access to `aitask-locks`, `aitask-data`, or `main` branches. It combines task selection and implementation into a single self-contained workflow with **zero interactive prompts** and **zero cross-branch operations**.

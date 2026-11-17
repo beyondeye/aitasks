@@ -1992,6 +1992,17 @@ main() {
         setup_model_stats_migration
     fi
 
+    # Rendered Codex skills from before this update are directly invocable and
+    # never pass through the stub that would re-render them, so give each one
+    # that lacks the codex_tool_mapping.md pointer a refresh here: upgrade never
+    # runs setup (t2297). Rendered dirs are gitignored, so this commits
+    # nothing. Never fatal; same declare -F guard as above.
+    if [[ "$EXISTING_INSTALL" == true ]] && \
+       declare -F refresh_codex_rendered_entries >/dev/null; then
+        info "Checking rendered Codex skills..."
+        refresh_codex_rendered_entries "$INSTALL_DIR" || true
+    fi
+
     if [[ "$EXISTING_INSTALL" == true ]]; then
         info "Checking for superseded code-agent model defaults..."
         check_superseded_model_defaults

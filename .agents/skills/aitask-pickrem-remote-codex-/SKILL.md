@@ -4,6 +4,10 @@ description: Pick and implement a task in remote/non-interactive mode. All decis
 prerender_for_headless: true
 ---
 
+**Tool mapping first.** Read **`.agents/skills/codex_tool_mapping.md`** before
+anything else in this skill and apply it for the whole run, including every
+file this skill tells you to read.
+
 ## Overview
 
 This skill is a fully autonomous version of `aitask-pick` + `task-workflow` designed for environments where `AskUserQuestion` does not work (e.g., Claude Code Web). It combines task selection and implementation into a single self-contained workflow with **zero interactive prompts**. All decisions are driven by an execution profile.

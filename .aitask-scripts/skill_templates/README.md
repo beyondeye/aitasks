@@ -36,6 +36,20 @@ fragment to live under one pipeline's "owner" dir.
   extension marks it as a macro library rather than a standalone
   fragment.
 
+- `_codex_entry_prereq.md` — the Codex tool-mapping pointer paragraph
+  ("read `.agents/skills/codex_tool_mapping.md` first"). It is not a
+  minijinja include. Three consumers read it verbatim, so none of them
+  retypes it:
+  - `skill_template.py` `walk_closure()` injects it after the frontmatter of
+    every rendered Codex `SKILL.md`, entry points and closure skills alike
+    (`AGENT_ENTRY_PREREQ_FRAGMENTS`), and tracks it as a staleness dep;
+  - `aitask_audit_wrappers.sh` `render_agents_skill()` emits it in every
+    profile-aware Codex stub;
+  - `aitask_setup.sh` `refresh_codex_rendered_entries` inserts it into an
+    existing rendered variant when re-rendering fails.
+
+  `tests/test_codex_entrypoints_tool_mapping.sh` pins all three.
+
 The `_` prefix is a partials convention carried over from the brainstorm
 templates dir (`_section_format.md` etc.) — every file here is an include
 target, never rendered standalone.

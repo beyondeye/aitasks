@@ -63,6 +63,46 @@ AGENT_SHARED_SKILLS_ROOT = {
 }
 SOURCE_AGENT_ROOT = ".claude/skills"  # Claude is source of truth (t777_1).
 
+# Per-agent tool-mapping pointer that every rendered SKILL.md (entry point and
+# closure skill alike) carries right after its frontmatter (t2297). A rendered
+# variant is itself an invocable skill (Codex lists `.agents/skills/*/SKILL.md`),
+# so entering it directly bypasses the stub; the pointer makes every entry path
+# load the same mapping. The
+# paragraph lives in ONE fragment under .aitask-scripts/skill_templates/, which
+# the Codex stub generator (aitask_audit_wrappers.sh) and the setup/upgrade
+# refresh fallback (aitask_setup.sh refresh_codex_rendered_entries) read too.
+# Injected by walk_closure() only: render_skill() stays agent-invariant, which
+# the goldens and the per-skill Test 1b agent-invariance checks rely on.
+AGENT_ENTRY_PREREQ_FRAGMENTS = {
+    "codex": "_codex_entry_prereq.md",
+}
+
+
+def entry_prereq_fragment_path(agent: str, repo_root: Path) -> Path | None:
+    """Path of the agent's entry-prereq fragment, or None for agents without one."""
+    name = AGENT_ENTRY_PREREQ_FRAGMENTS.get(agent)
+    if name is None:
+        return None
+    return repo_root / ".aitask-scripts" / "skill_templates" / name
+
+
+def inject_entry_prereq(text: str, prereq: str) -> str:
+    """Insert `prereq` as its own paragraph right after the leading YAML
+    frontmatter (or at the top when there is none). Idempotent: text that
+    already carries the paragraph is returned unchanged."""
+    para = prereq.strip("\n")
+    if not para or para in text:
+        return text
+    if text.startswith("---\n"):
+        close = text.find("\n---\n", 3)
+        if close != -1:
+            head_end = close + len("\n---\n")
+            rest = text[head_end:]
+            if not rest.startswith("\n"):
+                rest = "\n" + rest
+            return text[:head_end] + "\n" + para + "\n" + rest
+    return para + "\n\n" + text
+
 
 def _render_dir_name(skill: str, profile_name: str, agent: str) -> str:
     """Return the rendered-dir basename for a (skill, profile, agent) triple.
@@ -363,6 +403,20 @@ def walk_closure(
     plan: list = []
     include_deps: set[Path] = set()
 
+    # Entry-point prereq (t2297). A missing fragment is a broken install, not
+    # an agent without one: fail the render rather than silently ship an entry
+    # point that never loads the agent's tool mapping.
+    prereq_text = None
+    prereq_path = entry_prereq_fragment_path(agent, repo_root)
+    if prereq_path is not None:
+        try:
+            prereq_text = prereq_path.read_text(encoding="utf-8")
+        except OSError as e:
+            raise RuntimeError(
+                f"Entry-prereq fragment for agent '{agent}' unreadable: {prereq_path} ({e})"
+            ) from e
+        include_deps.add(prereq_path.resolve())
+
     while queue:
         src, target = queue.popleft()
         # Scan raw source for {% include %} directives BEFORE rendering, so
@@ -404,6 +458,17 @@ def walk_closure(
                 continue
             visited.add(child_src)
             queue.append((child_src, child_target))
+
+        # Every rendered SKILL.md — the entry point AND each closure skill such
+        # as task-workflow / user-file-select / ait-git — is a skill the agent
+        # lists and can enter directly, so each carries the pointer. Keyed on
+        # the target's file name, never on which entry is being walked, so a
+        # closure skill renders identically from every entry. Procedure files
+        # (planning.md, …) are only read from a SKILL.md and do not get it.
+        # Applied after ref discovery and rewriting, so the prereq path is never
+        # rewritten into a rendered-dir path nor walked as a closure dep.
+        if prereq_text is not None and target.name == "SKILL.md":
+            new_raw = inject_entry_prereq(new_raw, prereq_text)
 
         plan.append((src, target, new_raw))
 

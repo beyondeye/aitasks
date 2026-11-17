@@ -160,11 +160,16 @@ checkpoint) via `AskUserQuestion`:
   - "Start first child" (description: "Continue to pick and implement the first child task")
   - "Stop here" (description: "All paired tasks + plans are written — pick children later in fresh contexts")
 - **"Start first child":** restart with `/aitask-pick <current_task_id>_1`.
-- **"Stop here":** collect the **Satisfaction Feedback Procedure** (see
-  `satisfaction-feedback.md`) with `skill_name` from context, then show the
-  **Stopped** banner (see `workflow-end.md`) with `outcome=split`, reason
-  "decomposed into paired children across `<name>` and this repo", next
-  "`/aitask-pick <current_task_id>_1`", and END the workflow.
+- **"Stop here":** execute the **Task-Data Push Procedure** (see
+  `task-data-push.md`) — the local children and plans are otherwise still
+  local. It pushes this repository only: the cross-repo project's commits were
+  pushed by its own `--commit` (Step 5). Then collect the **Satisfaction
+  Feedback Procedure** (see `satisfaction-feedback.md`) with `skill_name` from
+  context, then show the **Stopped** banner (see `workflow-end.md`) with
+  `outcome=split`, reason "decomposed into paired children across `<name>` and
+  this repo", next "`/aitask-pick <current_task_id>_1`" (prefixed as
+  `task-data-push.md` defines when `task_data_pushed` is `no`), and END the
+  workflow.
 
 In both cases the workflow does **not** continue to the normal Step 8 code
 review — the "work" was paired task creation, already committed in Steps 1-5.

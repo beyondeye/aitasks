@@ -28,9 +28,10 @@ lets dependent work start.
 | Receipt guard for the gate ledger | `.aitask-scripts/aitask_questions/approval.py`, called from `aitask_gate.sh` |
 | Versioned projections (task requirements, plan bookkeeping) | `.aitask-scripts/aitask_questions/projection.py` |
 | Paginated multi-select | `.aitask-scripts/aitask_questions/selection.py` |
-| Registration | `[mcp_servers.aitask_questions]` in `seed/codex_config.seed.toml`, merged into `.codex/config.toml` by `ait setup` |
-| Dependency | `mcp` (range in `AIT_PIP_SPECS_QUESTIONS`, `aitask_setup.sh`), installed into the framework venv when the project's Codex config registers the server |
-| Agent guidance | "Attended Questions" in `.agents/skills/codex_tool_mapping.md` |
+| Registration | `[mcp_servers.aitask_questions]` in `seed/codex_config.seed.toml`. `ait setup` merges it into `.codex/config.toml` only on opt-in, its own `[Y/n]` prompt in the Codex setup (default yes; a run with no terminal registers) or `--with-codex-questions`. Otherwise it merges the seed without the table. `--no-codex-questions` removes it, with or without the Codex setup. The writer is `apply_codex_config` (`aitask_setup.sh`), which validates a temp candidate before publishing it |
+| Recorded decline | `codex_questions_server: false` in `aitasks/metadata/project_config.yaml`, written by a "no" or `--no-codex-questions`. Later runs then neither ask nor register; `--with-codex-questions` clears it |
+| Dependency | `mcp` (range in `AIT_PIP_SPECS_QUESTIONS`, `aitask_setup.sh`), installed into the framework venv when the project's Codex config registers the server and the run did not request an opt-out (`questions_deps_wanted`). Removing the registration never uninstalls it, because the venv is shared across projects |
+| Agent guidance | "Attended Questions" in `.agents/skills/codex_tool_mapping.md`, read first by every Codex entry point: the stubs and the rendered `-codex-` variants (`_codex_entry_prereq.md`) |
 | Manual live fixture | `tests/manual/codex_questions_probe.py` |
 
 The registration is a project-level Codex setting, so every way of starting
@@ -304,7 +305,10 @@ archive script refuses while an approval is open.
 Codex tool shell (`CODEX_THREAD_ID` is set) and the project that owns the task
 data registers `[mcp_servers.aitask_questions]` in `.codex/config.toml`. Every
 other agent, a person signing with `ait gate pass` at a terminal, the headless
-orchestrator and a project without the server behave exactly as before.
+orchestrator and a project without the server behave exactly as before. Because
+the registration is half of the condition, declining the server in `ait setup`
+(or removing it with `--no-codex-questions`) also switches this enforcement off.
+The setup explanation says so at the prompt.
 
 **Recording.** `aitask_gate.sh append` — and so `aitask_gate_record.sh` —
 refuses a `pass` for `plan_approved`, `review_approved` or `merge_approved`

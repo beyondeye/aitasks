@@ -252,11 +252,20 @@ render_agents_skill() {
 
     if _skill_is_templated "$skill"; then
         local resolver_key="${skill#aitask-}"
+        # The Codex tool-mapping pointer is read from the one fragment the
+        # renderer also injects into rendered entry points (t2297) — never
+        # retyped here, so the stub and the variant cannot drift apart.
+        local prereq_file="${SCRIPT_DIR}/skill_templates/_codex_entry_prereq.md"
+        [[ -f "$prereq_file" ]] || die "Codex entry-prereq fragment missing: $prereq_file"
+        local prereq
+        prereq="$(cat "$prereq_file")"
         cat <<EOF
 ---
 name: ${skill}
 description: ${description}
 ---
+
+${prereq}
 
 This is a profile-aware skill stub. Execute these steps in order, then stop:
 
