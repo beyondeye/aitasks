@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2278
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-16 19:53
-updated_at: 2026-11-17 12:55
+updated_at: 2026-11-17 13:07
 ---
 
 ## Context
@@ -70,3 +71,8 @@ two scenes wait for this task.
   reachable as the chosen option promises.
 - `tests/test_tui_switcher*.py` and any test pinning `KNOWN_TUIS` updated and
   passing.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-17T11:07:00Z status=pass attempt=1 type=human
