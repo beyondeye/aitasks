@@ -47,6 +47,7 @@ from textual.containers import Container, Horizontal, VerticalScroll
 from textual.keys import _character_to_key
 from textual.reactive import reactive
 from textual.screen import ModalScreen
+from textual.widget import AwaitMount
 from textual.widgets import Button, Input, Label, Select, Static, TabbedContent, TabPane
 from textual.widgets._select import SelectOverlay
 
@@ -461,6 +462,8 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         self._split_horizontal = self._tmux_defaults["default_split"] == "horizontal"
         self._selected_session: str | None = None
         self._selected_window: str | None = None
+        self._tmux_ready = False
+        self._tmux_run_pending = False
         # Per-run profile editing state. Profile row is rendered only when
         # skill_name is set (operation alone is not enough — brainstorm uses
         # `operation=None` but has a slash-command-less launch).
@@ -570,7 +573,7 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         buttons.mount(Button("Cancel", variant="default", id="btn_cancel"))
 
         if self._tmux_available:
-            self._populate_tmux_tab()
+            tmux_mounts = self._populate_tmux_tab()
             # Pre-select tmux tab if prefer_tmux is enabled or running inside tmux
             if self._tmux_defaults.get("prefer_tmux") or os.environ.get("TMUX"):
                 try:
@@ -580,7 +583,22 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
 
         self._refresh_agent_row()
         self._refresh_profile_row()
+        if self._tmux_available:
+            self.call_after_refresh(self._finish_tmux_mount, tmux_mounts)
         self.call_after_refresh(self._stamp_opened)
+
+    async def _finish_tmux_mount(self, mounts: tuple[AwaitMount, ...]) -> None:
+        """Honor an early Run once both Selects have their initial values."""
+        # A screen refresh can precede the dynamic children finishing mount.
+        # Await their public mount handles rather than assuming one frame is
+        # enough, or treating an intentional blank selection as uninitialized.
+        for mount in mounts:
+            await mount
+        self._tmux_ready = True
+        pending = self._tmux_run_pending
+        self._tmux_run_pending = False
+        if pending and self.is_current:
+            self.run_tmux()
 
     def _stamp_opened(self) -> None:
         """Start the opening window once the dialog is actually on screen.
@@ -601,7 +619,7 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
             return True  # not painted yet — swallow (fail safe)
         return (_monotonic() - self._opened_at) < OPENING_DEBOUNCE_SECONDS
 
-    def _populate_tmux_tab(self) -> None:
+    def _populate_tmux_tab(self) -> tuple[AwaitMount, ...]:
         tmux = self.query_one("#tmux_content")
 
         # Session selector
@@ -614,13 +632,13 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         sess_row = Horizontal(classes="tmux-field-row")
         tmux.mount(sess_row)
         sess_row.mount(Label("(S)ession:"))
-        sess_row.mount(Select(session_options, value=initial_session, id="tmux_session_select"))
+        session_mount = sess_row.mount(Select(session_options, value=initial_session, id="tmux_session_select"))
 
         # New session name input (hidden by default)
         new_sess_row = Horizontal(id="tmux_new_session_row", classes="hidden")
         tmux.mount(new_sess_row)
         new_sess_row.mount(Label("Session (n)ame:"))
-        new_sess_row.mount(Input(
+        session_name_mount = new_sess_row.mount(Input(
             value=self._tmux_defaults["default_session"],
             id="tmux_new_session_input",
             placeholder="Session name",
@@ -641,7 +659,7 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         win_row = Horizontal(classes="tmux-field-row")
         tmux.mount(win_row)
         win_row.mount(Label("(W)indow:"))
-        win_row.mount(Select(
+        window_mount = win_row.mount(Select(
             win_options,
             value=win_value,
             allow_blank=True,
@@ -652,7 +670,7 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
         new_win_row = Horizontal(id="tmux_new_window_row", classes="hidden")
         tmux.mount(new_win_row)
         new_win_row.mount(Label("Window na(m)e:"))
-        new_win_row.mount(Input(
+        window_name_mount = new_win_row.mount(Input(
             value=self.default_window_name,
             id="tmux_new_window_input",
             placeholder="Window name",
@@ -679,6 +697,7 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
             self.call_after_refresh(self._on_window_changed, win_value)
         else:
             self.call_after_refresh(self._show_new_session_input)
+        return session_mount, session_name_mount, window_mount, window_name_mount
 
     def _initial_session(self, sessions: list[str]) -> str:
         """Initial tmux-tab session: the caller's explicit session wins (if
@@ -839,6 +858,12 @@ class AgentCommandScreen(GuardedDismissMixin, ShortcutsMixin, ModalScreen):
 
     @on(Button.Pressed, "#btn_run_tmux")
     def run_tmux(self) -> None:
+        # Dynamic Selects start at NULL until their mount handlers run. Queue
+        # a fast keypress/button action instead of validating that transient
+        # state or guessing a target from cached session/window selections.
+        if not self._tmux_ready:
+            self._tmux_run_pending = True
+            return
         config = self._build_tmux_config()
         if config:
             self._store_command()
