@@ -121,3 +121,10 @@ Notes.
 > | - A constraint worth keeping, if t2295 fixes leaks by overriding TMPDIR for a subprocess: ait_lock_dir derives the framework's SHARED mutex base from $TMPDIR. A private TMPDIR gives that process tree a private lock namespace and silently drops mutual exclusion. t2319 passes the helper an explicit --scratch-dir for that reason.
 
 > **👁 note:read** id=2026-11-17T15:22:57Z.cdcab791bbdfd2ae3da6fa2e by=t2295 at=2026-11-17T15:22:57Z mode=explicit ids=2026-11-17T15:20:03Z.05d964af11c0b9bf9a766adb
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-17T16:10:34Z status=pass attempt=1 type=human
+>
+> Note: approval:5aeb2e356f2c47b5b27cbbe6f3ab3766:5497428605d25abf
