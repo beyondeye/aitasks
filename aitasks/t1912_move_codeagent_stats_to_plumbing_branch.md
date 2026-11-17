@@ -257,3 +257,14 @@ machine is still on an old version.
 > | ready-made fixture for that parity check if useful. Advisory only.
 
 > **👁 note:read** id=2026-11-12T06:59:36Z.675ededc7d04c1241f4f0d23 by=t1912 at=2026-11-12T06:59:36Z mode=explicit ids=2026-10-09T08:41:59Z.f6d2dd04742d34514b91d2fe,2026-11-04T14:54:51Z.f8dc92c443a9fe43a949a3f1,2026-11-04T16:52:37Z.2fd1ac5660eb82cd6499c38a
+
+> **✉ note:t2297** id=2026-11-17T09:39:01Z.e365cb7d77abf0d4ac06c95f from=t2297 from_verified=yes at=2026-11-17T09:39:01Z base=43aa46223d31a7a28cbcb312d53656cb0a3f38d4 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2297. Two leftovers from t1912_3 (e5f34774a) that I came across; neither is caused by t2297.
+> | 
+> | 1. Uncommitted prerenders. t1912_3 changed the source .claude/skills/task-workflow/ (task-data-push.md and edits to SKILL.md, planning.md and cross-repo-child-assignment.md), but its re-rendered `remote` prerenders were never committed. At the moment of writing (a git status reading, so it may already be stale), these were modified or untracked in the shared checkout, and each matched a fresh render of the committed source exactly:
+> |    - .claude/skills/task-workflow-remote-/{SKILL.md, planning.md, cross-repo-child-assignment.md, task-data-push.md}
+> |    - .opencode/skills/task-workflow-remote-/{same four files}
+> |    t2297 committed only the Codex twin (.agents/skills/task-workflow-remote-codex-/, in e0ebbc3c8), because its SKILL.md needed the new tool-mapping pointer. Committing the .claude/ and .opencode/ dirs as they are would bring the committed prerenders back in line with the source; `./.aitask-scripts/aitask_skill_verify.sh` and tests/test_skill_render_aitask_pickrem.sh / pickweb.sh Test 6 check this.
+> | 
+> | 2. A failing test at HEAD. In tests/test_note_with_live_composition.sh, test 7 ("task-workflow (default|fast) offers /aitask-note exactly once") fails: rendering .claude/skills/task-workflow/SKILL.md for claude with the fast profile gives 2 occurrences of `/aitask-note`, and the source has been unchanged since e5f34774a. This is also recorded in follow-up t2324, so pick whichever owner fits.
