@@ -103,3 +103,10 @@ Base branch: main · Output branch: main · current-branch mode (profile `fast`)
   switcher. It is classified as a TUI, so it is also left out of "Other". The user
   accepted this when choosing option 3. · severity: low · → mitigation: none (accepted
   trade-off)
+
+## Final Implementation Notes
+- **Actual work done:** `tui_registry.py` diffviewer row changed to `("diffviewer", None, None, False)` and moved after `syncer` into the hidden block, with a comment. New test `TestTuiRegistry.test_diffviewer_classified_but_hidden_from_switcher` in `tests/test_git_tui_config.py` (in `TUI_NAMES`; absent from `switcher_tuis()` and `tui_switcher.KNOWN_TUIS`). CLAUDE.md diffviewer rule rewritten; `tui_conventions.md` registry-order example now reads "before `chatlink`".
+- **Deviations from plan:** None.
+- **Issues encountered:** None. Verification: switcher list now `board, trails, monitor, frozenagent, codebrowser, settings, stats, applink, chatlink, syncer`; `pytest tests/test_git_tui_config.py tests/test_tui_switcher_*.py tests/test_switcher_ring_dedupe.py` → 115 passed; `test_tui_switcher_brainstorm_session.sh`, `test_tui_switcher_multi_session.sh`, `test_tui_switcher_footer_fit.sh`, `test_shortcuts_registry_coverage.sh` all exit 0.
+- **Key decisions:** User chose option 3 (drop from switcher) over "list only while running" and "hide only for screenshots". A running diffviewer window is not shown anywhere in the switcher (accepted). `website/content/docs/tuis/_index.md` already omitted Diff Viewer, so no website edit was needed.
+- **Upstream defects identified:** None
