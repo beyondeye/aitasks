@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-16 22:26
-updated_at: 2026-11-17 09:50
+updated_at: 2026-11-17 11:38
 ---
 
 ## Origin
@@ -48,3 +49,8 @@ Either `aitask_setup.sh` gained a fifth post-repair re-check that the test's
 pinned count was never updated for, or the mutation's pattern now matches an
 unrelated line. Find which commit added the fifth match (`git log -S` on the
 mutated pattern), then update the pin or tighten the mutation.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-17T09:38:26Z status=pass attempt=1 type=human
