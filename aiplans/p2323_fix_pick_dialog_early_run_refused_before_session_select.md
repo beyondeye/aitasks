@@ -19,14 +19,14 @@ complexity; no child tasks or cross-repository work are needed.
 
 ## Implementation
 
-1. [ ] In .aitask-scripts/lib/agent_command_screen.py, track initial tmux-tab
+1. [x] In .aitask-scripts/lib/agent_command_screen.py, track initial tmux-tab
    readiness and a pending Run request on each dialog instance. Mark readiness
    after the initial refresh, following the existing deferred visibility/window
    callbacks. Have run_tmux queue requests while initialization is incomplete;
    the readiness callback clears the pending flag before dispatching exactly
    one run_tmux. Do not replace normal validation with cached session values.
    Preserve terminal-tab launches and the existing opening-key debounce.
-2. [ ] Add tests/test_agent_command_dialog_early_run.py using the real Textual
+2. [x] Add tests/test_agent_command_dialog_early_run.py using the real Textual
    headless App/screen lifecycle with mocked tmux discovery and captured dialog
    results, following the existing dialog and opening-debounce test patterns.
    Trigger Run at the first mount/refresh boundary without waiting for the
@@ -38,7 +38,7 @@ complexity; no child tasks or cross-repository work are needed.
    cancellation before deferred launch, and normal post-initialization session
    changes/clears. Keep all tests isolated from real tmux launches and restore
    per-project selection memory.
-3. [ ] Run the new regression against the old implementation to confirm it
+3. [x] Run the new regression against the old implementation to confirm it
    detects the failure, then against the fix. Run adjacent session-default,
    empty-prompt, narrow-dialog and opening-debounce tests with the framework
    Python interpreter. Inspect the scoped diff and resolve any failures.
@@ -74,3 +74,26 @@ exercise cancellation and repeated requests.
 None identified. Waiting for both selectors addresses the initialization
 window without guessing a session or window. Deterministic lifecycle tests
 plus actual key dispatch cover the reported trigger.
+
+## Final Implementation Notes
+
+- **Actual work done:** Added per-dialog readiness and pending-Run state.
+  _populate_tmux_tab returns the public AwaitMount handles for both selectors
+  and both name inputs; _finish_tmux_mount awaits them, clears the pending
+  flag and dispatches one Run only while the dialog remains current. Existing
+  selection validation and opening-key debounce stay authoritative.
+- **Deviations from plan:** The initial-refresh callback explicitly awaits
+  widget mount handles. Testing proved a refresh alone can precede completion
+  of the dynamically mounted Select widgets.
+- **Issues encountered:** The regression reproduced the original refusal
+  through both direct early action and actual r-key dispatch. Cancellation
+  is exercised at the first refresh before the deferred launch; cancelling
+  synchronously inside on_mount instead interrupted Textual's child composition
+  and was not a faithful user interaction. The final eight regression cases
+  pass. The five focused suites pass together: 55 tests in 49.17 seconds.
+  The risk_evaluated gate also passes.
+- **Key decisions:** Wait for the actual session and window controls rather
+  than launching from cached selections; coalesce early requests, and drop the
+  queued launch when the screen has been dismissed. No actual tmux process is
+  launched by the tests; discovery and per-project memory are isolated.
+- **Upstream defects identified:** None
