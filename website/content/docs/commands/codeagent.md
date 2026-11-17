@@ -90,16 +90,21 @@ Lists available models for one or all agents, with verification scores.
 ```bash
 ait codeagent list-models              # All agents
 ait codeagent list-models claudecode   # Claude models only
+ait codeagent list-models --active-only  # Skip models marked unavailable
 ```
 
 Output format:
 ```
 === claudecode ===
-MODEL:opus4_6 CLI_ID:claude-opus-4-6 NOTES:Most intelligent model VERIFIED:task-pick=80,explain=80,batch-review=0
+MODEL:opus4_6 CLI_ID:claude-opus-4-6 STATUS:active NOTES:Most intelligent model VERIFIED:batch-review=0,pick=98,explain=80
+STATS:pick(runs 298, avg 98)
+MODEL:sonnet4_6 CLI_ID:claude-sonnet-4-6 STATUS:active NOTES:Best speed/intelligence balance VERIFIED:batch-review=0,pick=80,explain=80
 
 === codex ===
-MODEL:gpt5_4 CLI_ID:gpt-5.4 NOTES:Best Codex model for complex tasks VERIFIED:task-pick=0,explain=0,batch-review=0
+MODEL:gpt5_4 CLI_ID:gpt-5.4 STATUS:active NOTES:Best Codex model for complex tasks VERIFIED:batch-review=0,pick=0,explain=0
 ```
+
+`VERIFIED:` lists the score shown for each operation: the all-time average of the recorded ratings when the operation has any, otherwise the model's `verified` starting score. A `STATS:` line follows each model that has rating counters, giving each operation's all-time number of ratings and their average. `--active-only` leaves out models whose `status` is `unavailable`.
 
 #### resolve
 
@@ -244,7 +249,7 @@ Models are defined in JSON files at `aitasks/metadata/models_<agent>.json`. Each
       "cli_id": "claude-opus-4-6",
       "notes": "Most intelligent model for agents and coding",
       "verified": {
-        "task-pick": 80,
+        "pick": 80,
         "explain": 80,
         "batch-review": 0
       }
@@ -258,11 +263,11 @@ Models are defined in JSON files at `aitasks/metadata/models_<agent>.json`. Each
 | `name` | Internal identifier used in agent strings (underscored, no dots) |
 | `cli_id` | Exact model ID passed to the CLI binary's model flag |
 | `notes` | Human-readable description |
-| `verified` | Per-operation verification scores (0-100) |
+| `verified` | Per-operation starting scores (0-100), shown until an operation has recorded ratings |
 
 #### Verification Scores
 
-Scores indicate how well a model has been tested for each operation:
+Scores indicate how well a model has been tested for each operation. Ratings recorded after each skill run replace the starting score with their all-time average; they are kept on the `aitask-stats` branch (see [Verified Scores]({{< relref "/docs/skills/verified-scores#storage" >}})):
 
 - **0** -- Not verified (untested or unknown quality)
 - **1-49** -- Partially verified (works but with known issues)
@@ -273,7 +278,7 @@ Scores are displayed in the [Settings TUI](../../tuis/settings/) Models tab and 
 
 #### Updating Models
 
-To add new models, update notes, or check for deprecated entries, use the [`/aitask-refresh-code-models`](../../skills/aitask-refresh-code-models/) skill. It researches the latest models from each provider's documentation and updates the JSON files with user approval. Verification scores can also be edited through the [Settings TUI](../../tuis/settings/) Models tab or by editing the JSON files directly.
+To add new models, update notes, or check for deprecated entries, use the [`/aitask-refresh-code-models`](../../skills/aitask-refresh-code-models/) skill. It researches the latest models from each provider's documentation and updates the JSON files with user approval. The Settings TUI Models tab only displays scores. Editing a model's `verified` values in the JSON file changes its starting scores, which are shown only for operations that have no recorded ratings.
 
 ### `implemented_with` Metadata
 

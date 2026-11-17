@@ -19,8 +19,14 @@ model to the framework's default.
 | `informational_only` | Example string, format illustration, or historical fixture that should stay as-is |
 
 Notes:
-- References inside `verifiedstats` blocks are historical scoring data and
-  are never edited by either skill — they preserve per-model history.
+- Usage and verified-score counters (`usagestats` / `verifiedstats`) are not
+  in `models_<agent>.json` once a project is migrated: they live on the
+  `aitask-stats` branch, keyed by model `name` (see `model_stats_store.md`).
+  Neither skill edits them. A registry that has not been migrated may still
+  carry them as legacy keys; leave those alone too. The store code itself
+  (`lib/model_stats_store.py`, `lib/model_stats_migrate.py`,
+  `aitask_model_stats.py`, `aitask_model_stats_strip.sh`,
+  `lib/model_stats_strip.jq`) names no model and needs no edit.
 - Files under `**/archived/**` are not in scope.
 - Alt-agent trees (`.gemini/`, `.codex/`, `.agents/`, `.opencode/`) contain
   no live model references at the time of this audit.
@@ -76,7 +82,8 @@ rule.)
 | `.aitask-scripts/aitask_crew_init.sh` | 48, 49, 57 | Help-text examples of `--add-type` arguments | `informational_only` |
 | `.aitask-scripts/aitask_brainstorm_init.sh` | 126–130 | Default fallback values passed to `_get_brainstorm_agent_string` — these ARE live defaults (used when config + hardcoded both miss) | `needed_for_promote` (brainstorm ops) |
 | `.aitask-scripts/aitask_opencode_models.sh` | 61 | Comment giving an example of the name-derivation rule | `informational_only` |
-| `.aitask-scripts/aitask_verified_update.sh` | 41 | Help text | `informational_only` |
+| `.aitask-scripts/aitask_verified_update.sh` | 48 | Help text (`--cli-id` example) | `informational_only` |
+| `.aitask-scripts/aitask_usage_update.sh` | 47 | Help text (`--cli-id` example) | `informational_only` |
 
 ### 5. Documentation (website + aidocs)
 
@@ -110,8 +117,10 @@ rule.)
 | `tests/test_resolve_detected_agent.sh` | 48, 49, 56, 57 | Env-var + exact-match resolution tests | `needed_for_add` (new opus4_7 mapping should be added) |
 | `tests/test_aitask_stats_py.py` | 81, 122, 205, 397, 499 | Fixtures containing `opus4_6` model entries + `implemented_with` strings | `needed_for_add` (add opus4_7 fixture alongside) |
 | `tests/test_brainstorm_crew.py` | 376, 380, 389, 392–394, 405, 458 | Asserts BRAINSTORM_AGENT_TYPES defaults | `needed_for_promote` |
-| `tests/test_verified_update.sh` | 107, 108, 167–330 | Fixtures pinned to `opus4_6` for verified-stats tests | `informational_only` (fixtures pinned to a specific model; stays stable) |
-| `tests/test_verified_update_flags.sh` | 48, 49, 52, 53, 56, 64 | Flag-parsing tests against `opus4_6` / `claude-opus-4-6` | `informational_only` (fixture, stable) |
+| `tests/test_verified_update.sh` | many | Writer tests whose fixtures and `UPDATED:claudecode/opus4_6:…` expectations are pinned to `opus4_6` | `informational_only` (fixtures pinned to a specific model; stays stable) |
+| `tests/test_usage_update.sh` | many | Same, for the usage writer | `informational_only` (fixture, stable) |
+| `tests/test_verified_update_flags.sh` | 57, 59, 66, 68, 76, 88 | Flag-parsing tests against `opus4_6` / `claude-opus-4-6` | `informational_only` (fixture, stable) |
+| `tests/test_stats_writers_leave_task_data.sh`, `tests/test_model_stats_parity.sh` | many | Stats-store writer and parity fixtures using `opus4_6` | `informational_only` (fixture, stable) |
 | `tests/test_crew_init.sh`, `test_crew_groups.sh`, `test_crew_template_includes.sh`, `test_crew_runner.sh`, `test_crew_status.sh`, `test_crew_report.sh`, `test_crew_setmode.sh`, `test_launch_mode_field.sh` | many | Pass `--add-type impl:claudecode/opus4_6` as a stable test argument — model choice is incidental | `informational_only` |
 | `tests/test_plan_verified.sh` | 108, 128, 148, 149, 202, 218, 222, 230, 246 | Fixtures for plan-verified append — agent string is incidental | `informational_only` |
 | `tests/test_shadow_spawn_learner.sh` | n/a (derived) | `resolve learn` against a hermetic fixture, plus no-config and missing-key fallback controls | `informational_only` (t1318 — see note below) |
@@ -195,9 +204,9 @@ Those are the files a new skill must touch to promote a model to default.
 
 #### add mode (default) — writes
 
-1. Append entry to `aitasks/metadata/models_<agent>.json` (initialize
-   `verified` + `verifiedstats` to zero-history). Preserve existing entries'
-   `verified` / `verifiedstats`.
+1. Append entry to `aitasks/metadata/models_<agent>.json` with
+   `"verified": {}` and no counter keys (counters live on `aitask-stats`).
+   Preserve existing entries' `verified`.
 2. Sync to `seed/models_<agent>.json` if `seed/` exists.
 3. Commit:
    - `./.aitask-scripts/aitask_task_commit.sh -m "ait: Add <agent>/<name> to model registry" aitasks/metadata/models_<agent>.json`
@@ -322,7 +331,8 @@ SKILL.md orchestrates these subcommands.
 
 Cover:
 1. `add-json` inserts a new entry at end of `models` array, preserving
-   existing entries' `verified` and `verifiedstats`.
+   existing entries' `verified` (and any legacy counter keys of an
+   unmigrated registry).
 2. `add-json` is idempotent: second run with same inputs fails with clear
    "already exists" error (non-zero exit).
 3. `promote-config` updates only the ops listed, leaves others intact.

@@ -214,14 +214,6 @@ Each model in `models_<agent>.json`:
     "pick": 80,
     "explain": 80,
     "batch-review": 0
-  },
-  "verifiedstats": {
-    "pick": {
-      "all_time": {"runs": 5, "score_sum": 400},
-      "month": {"period": "2026-03", "runs": 2, "score_sum": 180},
-      "prev_month": {"period": "2026-02", "runs": 1, "score_sum": 80},
-      "week": {"period": "2026-W11", "runs": 1, "score_sum": 100}
-    }
   }
 }
 ```
@@ -231,12 +223,43 @@ Each model in `models_<agent>.json`:
 | `name` | Internal identifier (underscored, no dots) |
 | `cli_id` | Exact model ID for the CLI binary's model flag |
 | `notes` | Human-readable description |
-| `verified` | Per-operation scores (all-time average): 0 = untested, 1-49 = partial, 50-79 = verified, 80-100 = highly verified |
-| `verifiedstats` | Per-operation detailed statistics with time-windowed buckets (see below) |
+| `verified` | Per-operation starting scores: 0 = untested, 1-49 = partial, 50-79 = verified, 80-100 = highly verified. Nothing updates them; see [Shown score](#shown-score) |
 
-### Verified Stats Buckets
+### Usage and Score Counters
 
 > See [Verified Scores]({{< relref "/docs/skills/verified-scores" >}}) for a user-facing overview of how these scores are collected and what they mean.
+
+The counters behind the scores, `usagestats` and `verifiedstats`, are kept on the `aitask-stats` git branch, one `<agent>.json` file per code agent with an entry per model name:
+
+```json
+{
+  "schema": 1,
+  "models": {
+    "opus4_7_1m": {
+      "usagestats": {
+        "pick": {
+          "all_time": {"runs": 7},
+          "month": {"period": "2026-03", "runs": 3},
+          "prev_month": {"period": "2026-02", "runs": 2},
+          "week": {"period": "2026-W11", "runs": 1}
+        }
+      },
+      "verifiedstats": {
+        "pick": {
+          "all_time": {"runs": 5, "score_sum": 400},
+          "month": {"period": "2026-03", "runs": 2, "score_sum": 180},
+          "prev_month": {"period": "2026-02", "runs": 1, "score_sum": 80},
+          "week": {"period": "2026-W11", "runs": 1, "score_sum": 100}
+        }
+      }
+    }
+  }
+}
+```
+
+The branch also holds a marker per agent, `migrations/<agent>.json`, written when that agent's older counters were moved out of `models_<agent>.json`. Until an agent has its marker, its `models_<agent>.json` rows can still carry `usagestats` / `verifiedstats` from before the move, and readers add them to the branch counters. Once the marker exists, readers use the branch counters only. [Verified Scores]({{< relref "/docs/skills/verified-scores#storage" >}}) explains when the move happens and how the branch is kept up to date.
+
+### Verified Stats Buckets
 
 Each skill entry in `verifiedstats` contains these buckets:
 
@@ -253,7 +276,9 @@ The buckets roll over only when the next run for that model and skill is recorde
 
 `usagestats` has the same buckets with `runs` only. Its counts go up on every task completion, whether or not a satisfaction rating is collected. The model picker's top lists rank by it.
 
-The `verified.<skill>` field is always the rounded average of `all_time` and is maintained automatically for backward compatibility.
+### Shown score
+
+The score shown for a model and operation, in `ait codeagent list-models`, the model picker and the Agent Defaults and Models tabs, is the rounded `all_time` average of its `verifiedstats` entry when that entry has runs. When it has none, the shown score is the model's `verified.<skill>` value from `models_<agent>.json`. Recording a rating never changes `verified`.
 
 Old flat-format stats (`{"runs": N, "score_sum": S}`) are migrated automatically to the bucketed format on the next update.
 
@@ -289,6 +314,10 @@ Config bundles use the `.aitcfg.json` extension and contain:
 ```
 
 Bundles include only the files matching the default patterns: `*_config.json`, `*_config.local.json`, `models_*.json`, `models_*.local.json`.
+
+An export copies each `models_*.json` file as it is on disk. Once a project's usage and score counters have moved to the `aitask-stats` branch, and the `models_*.json` files without them have reached this checkout, a bundle carries no counters. A project whose counters have not moved yet still has them in `models_*.json`, so its bundles include them. That is the case when the move is turned off with `AIT_STATS_MIGRATE=0`, when it was deferred, or before `./ait sync` brings in the moved files.
+
+An import always discards the `usagestats` / `verifiedstats` a bundle carries. When a model's row in the destination still holds counters that have not moved, the import keeps those on the imported row of the same name.
 
 ---
 

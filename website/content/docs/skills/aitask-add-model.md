@@ -34,7 +34,7 @@ Use `/aitask-add-model` when you already know the model you want to register —
 
 ### Add mode (default)
 
-Appends the model entry to `aitasks/metadata/models_<agent>.json` with empty `verified` / `verifiedstats`, syncs to `seed/models_<agent>.json`, and commits both files separately (metadata via `./ait git`, seed via plain `git`).
+Appends the model entry to `aitasks/metadata/models_<agent>.json` with an empty `verified` block, syncs to `seed/models_<agent>.json`, and commits both files separately (metadata via `./ait git`, seed via plain `git`).
 
 It also asks whether the new model succeeds an already-registered model of the same agent — offering the registered models of the same family (for example `haiku4_5` for `haiku5_5`) and "None". Naming one (or passing `--supersedes <old>`) records that lineage in `.aitask-scripts/lib/model_supersessions.json`, so projects still configured with the old model are offered the new one on `ait upgrade`. The candidates are only suggestions: nothing is recorded unless you choose a predecessor.
 
@@ -83,7 +83,7 @@ Run the suggested follow-up edits manually to complete the rollout.
 - **Idempotent** — Running `add-json` a second time with the same inputs fails with a clear "already exists" error. No silent no-op.
 - **Atomic** — Every file write goes through tempfile + `mv`; failures leave the filesystem untouched.
 - **Dry-run** — `--dry-run` prints `diff -u` per-file and exits without writing or committing.
-- **Preserves verified history** — Existing `verified` and `verifiedstats` blocks for other models are never overwritten.
+- **Leaves scores alone** — Existing models' `verified` starting scores are never overwritten. Usage and score counters live on the `aitask-stats` branch (see [Verified Scores]({{< relref "/docs/skills/verified-scores#storage" >}})), and the skill never writes them.
 
 ## Drift detection
 

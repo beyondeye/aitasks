@@ -312,8 +312,8 @@ default `^[a-z]+/[a-z0-9_]+$` covers most real CLIs.
 | File | What it iterates |
 |------|------------------|
 | `.aitask-scripts/aitask_resolve_detected_agent.sh` | Validates `--agent` flag, walks `models_<agent>.json` for cli_id → name resolution |
-| `.aitask-scripts/aitask_verified_update.sh` | Rolling verifiedstats updates (`--agent NAME` help text + accept-list) |
-| `.aitask-scripts/aitask_usage_update.sh` | Rolling usagestats updates (mirror of verified_update) |
+| `.aitask-scripts/aitask_verified_update.sh` | Verified-score writer: `--agent NAME` help text + accept-list. Reads `models_<agent>.json` only to check the model is registered; the counters go to the `aitask-stats` branch through `aitask_model_stats.py record-verified` |
+| `.aitask-scripts/aitask_usage_update.sh` | Usage writer, mirror of verified_update (`bump-usage`) |
 | `.aitask-scripts/aitask_add_model.sh` | `add-json` / `promote-config` subcommand input validation |
 | `.aitask-scripts/lib/stats_data.py` | `load_model_cli_ids()` and `load_verified_rankings()` / `load_usage_rankings()` agent loops |
 
@@ -340,8 +340,14 @@ new agent needs here if it deviates from the exact-match default.
 
 Each first-class agent has a `aitasks/metadata/models_<agent>.json`
 file listing the models the agent supports, along with `cli_id`,
-`name`, optional `status`, `notes`, and per-skill `verifiedstats` /
-`usagestats` rolling buckets.
+`name`, optional `status`, `notes`, and the per-skill `verified` starting
+scores. The usage and verified-score counters are **not** in this file:
+they live on the `aitask-stats` branch as `<agent>.json`, keyed by model
+`name` (`model_stats_store.md`). The store accepts any agent name matching
+`[a-z][a-z0-9]*`, so a new agent needs no store change and no counter keys
+in its registry. The next `ait setup` / `ait upgrade` records the agent's
+migration marker (an empty baseline, since a new registry holds no
+counters).
 
 When adding a new agent:
 
@@ -353,7 +359,9 @@ When adding a new agent:
      to the raw `cli_id` for invocation
    - `lib/agent_model_picker.py::MODEL_FILES` — UI picker registration
    - `lib/stats_data.py::load_model_cli_ids` and
-     `load_verified_rankings` / `load_usage_rankings`
+     `load_verified_rankings` / `load_usage_rankings` (the rankings merge
+     in the branch counters via `model_stats_store.overlay_rows`; any new
+     reader of counters must do the same, never read them from the file)
    - `aitask_add_model.sh` for `add-json` mutation
 3. **Refresh flow:** `aitask-refresh-code-models` is the supported way
    to populate the file from upstream sources (opencode is currently
@@ -1140,7 +1148,7 @@ instructions file).
 Per-agent model registry seed consumed by the stats/picker code.
 Also referenced in §3 (model registry), §4 (model picker), §5
 (stats). The seed is copied into `aitasks/metadata/` during install
-if absent.
+if absent. It carries no `usagestats` / `verifiedstats` counters.
 
 ### 20c. `seed/<agent>_settings.seed.json` *(optional)*
 

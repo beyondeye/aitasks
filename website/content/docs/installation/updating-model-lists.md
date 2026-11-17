@@ -13,7 +13,7 @@ The local `aitasks/metadata/models_<agent>.json` files drive:
 
 - [`ait codeagent`]({{< relref "/docs/commands/codeagent" >}}) — model selection per skill/operation.
 - [Settings TUI]({{< relref "/docs/tuis/settings" >}}) — the Agent Defaults and Models tabs.
-- [Verified scores]({{< relref "/docs/skills/verified-scores" >}}) — per-skill, per-model satisfaction ratings.
+- [Verified scores]({{< relref "/docs/skills/verified-scores" >}}) — each model's starting `verified` scores. The ratings and usage counts themselves are kept on the `aitask-stats` branch (see [Storage]({{< relref "/docs/skills/verified-scores#storage" >}})).
 
 Refreshing periodically keeps these surfaces accurate as vendor offerings change.
 
@@ -40,7 +40,7 @@ bash .aitask-scripts/aitask_opencode_models.sh --dry-run  # show diff only
 bash .aitask-scripts/aitask_opencode_models.sh --sync-seed
 ```
 
-The helper preserves `verified` scores and the `unavailable` status marker on models the local CLI cannot currently see.
+The helper preserves `verified` scores and the `unavailable` status marker on models the local CLI cannot currently see. `--sync-seed` leaves any usage and score counters out of the seed copy.
 
 ## Adding a single known model
 
@@ -56,8 +56,8 @@ Add `--promote --promote-ops <ops>` to also set the new model as the default for
 
 | File | Purpose | Branch |
 |------|---------|--------|
-| `aitasks/metadata/models_<agent>.json` | Runtime model list — read by `ait codeagent`, Settings TUI, and stats. | Task-data branch (committed via `./ait git`). |
-| `seed/models_<agent>.json` | Template for new projects bootstrapped with `ait setup`. | Source-repo branch (committed via plain `git`). Only present in the framework source repo. |
+| `aitasks/metadata/models_<agent>.json` | Runtime model list and starting `verified` scores — read by `ait codeagent`, Settings TUI, and stats. Until `ait setup` / `ait upgrade` moves them to the `aitask-stats` branch, it can also hold older usage and score counters. | Task-data branch (committed via `./ait git`). |
+| `seed/models_<agent>.json` | Template for new projects bootstrapped with `ait setup`. Carries no usage or score counters. | Source-repo branch (committed via plain `git`). Only present in the framework source repo. |
 
 `<agent>` is one of: `claudecode`, `codex`, `opencode`.
 
