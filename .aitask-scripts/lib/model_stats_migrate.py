@@ -450,21 +450,23 @@ def _local_strip(ctx: Context, agent, kind, path, blob):
     The helper prints no sha. The commit is resolved by its unique migration
     id from the new HEAD, so an unrelated commit landing right after the strip
     is never taken for it.
+
+    The helper's work dir goes in a directory this function owns and removes
+    (``--scratch-dir``), so even a SIGKILLed helper (which runs no trap) leaves
+    nothing. Its TMPDIR is deliberately NOT overridden: ait_lock_dir derives the
+    framework's shared mutex base from it.
     """
     mid = uuid.uuid4().hex
-    with tempfile.NamedTemporaryFile("w", prefix="ait-stats-strip-", suffix=".msg",
-                                     delete=False, encoding="utf-8") as fh:
-        fh.write(strip_message(agent, kind, mid))
-        msg = fh.name
-    try:
+    with tempfile.TemporaryDirectory(prefix="ait-stats-strip-") as scratch:
+        msg = os.path.join(scratch, "message")
+        with open(msg, "w", encoding="utf-8") as fh:
+            fh.write(strip_message(agent, kind, mid))
         proc = subprocess.run(
             ["bash", STRIP_HELPER, "--path", path,
              "--expect-blob", _blob_id(ctx, blob),
              "--expect-stripped-blob", _blob_id(ctx, strip_blob(blob)),
-             "--message-file", msg],
+             "--message-file", msg, "--scratch-dir", scratch],
             cwd=ctx.top, capture_output=True, text=True, check=False)
-    finally:
-        os.unlink(msg)
     lines = [ln for ln in proc.stdout.splitlines() if ln.strip()]
     last = lines[-1] if lines else ""
     if proc.returncode == 0 and last == "STRIPPED":

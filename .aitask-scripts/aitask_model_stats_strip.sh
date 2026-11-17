@@ -9,7 +9,8 @@
 #
 # Usage:
 #   aitask_model_stats_strip.sh --path <repo-rel registry path> \
-#       --expect-blob <sha> --expect-stripped-blob <sha> --message-file <file>
+#       --expect-blob <sha> --expect-stripped-blob <sha> --message-file <file> \
+#       [--scratch-dir <existing dir>]
 #
 # Steps:
 #   1. ait_cas_rewrite the registry through lib/model_stats_strip.jq. The
@@ -37,6 +38,14 @@
 # Test seam: AIT_STATS_STRIP_AFTER_REWRITE_HOOK names a script that runs between
 # the rewrite and the commit, with AIT_STATS_STRIP_PID exported (the termination
 # test SIGKILLs this process from it). Its stdout goes to stderr.
+#
+# Scratch: the work dir (under --scratch-dir, else $TMPDIR) is removed by one
+# EXIT trap on every exit, a fatal TERM/INT/HUP included (bash runs EXIT on
+# those). SIGKILL runs nothing, so the caller (lib/model_stats_migrate.py) passes
+# a --scratch-dir it owns and removes afterwards. It is a flag rather than a
+# TMPDIR override on purpose: ait_lock_dir derives the framework's shared mutex
+# base from $TMPDIR, and a private TMPDIR would give this process tree a private
+# lock namespace.
 
 set -euo pipefail
 
@@ -53,6 +62,7 @@ REG_PATH=""
 EXPECT_BLOB=""
 EXPECT_STRIPPED=""
 MSG_FILE=""
+SCRATCH_PARENT=""
 STRIP_REASON=""
 WORK_DIR=""
 
@@ -62,9 +72,15 @@ strip_error() {
 }
 
 strip_deferred() {
-    [[ -n "$WORK_DIR" ]] && rm -rf "$WORK_DIR"
     printf 'STRIP_DEFERRED:%s\n' "$1"
     exit 2
+}
+
+# EXIT handler: errexit is live inside it, so it must never fail.
+# shellcheck disable=SC2329  # invoked indirectly via the EXIT trap
+_strip_cleanup() {
+    if [[ -n "$WORK_DIR" ]]; then rm -rf -- "$WORK_DIR" 2>/dev/null || true; fi
+    return 0
 }
 
 while [[ $# -gt 0 ]]; do
@@ -73,7 +89,8 @@ while [[ $# -gt 0 ]]; do
         --expect-blob) EXPECT_BLOB="${2:-}"; shift 2 ;;
         --expect-stripped-blob) EXPECT_STRIPPED="${2:-}"; shift 2 ;;
         --message-file) MSG_FILE="${2:-}"; shift 2 ;;
-        -h|--help) sed -n '2,38p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
+        --scratch-dir) SCRATCH_PARENT="${2:-}"; shift 2 ;;
+        -h|--help) sed -n '2,48p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit 0 ;;
         *) strip_error "usage:unknown argument $1" ;;
     esac
 done
@@ -88,13 +105,19 @@ if [[ ! "$REG_PATH" =~ ^[A-Za-z0-9._-]+/metadata/models_[a-z][a-z0-9]*\.json$ ]]
 fi
 [[ "$REG_PATH" == "${TASK_DIR:-aitasks}/"* ]] || strip_error "usage:path outside ${TASK_DIR:-aitasks}/"
 [[ -f "$MSG_FILE" ]] || strip_error "usage:message file not found"
+[[ -z "$SCRATCH_PARENT" || -d "$SCRATCH_PARENT" ]] || strip_error "usage:scratch dir not found"
 command -v jq >/dev/null 2>&1 || strip_error "jq_missing"
 
 _ait_detect_data_worktree
 DEST="$_AIT_DATA_WORKTREE/$REG_PATH"
 [[ -f "$DEST" ]] || strip_deferred "missing"
 
-WORK_DIR="$(mktemp -d "${TMPDIR:-/tmp}/ait_stats_strip.XXXXXX")" || strip_error "mktemp_failed"
+# Armed before the dir exists (WORK_DIR is "" until then, so no window).
+# lib/archive_utils.sh claims the single EXIT trap at source time; the re-arm
+# chains its sweep around ours instead of dropping it (aitask_task_commit.sh).
+trap _strip_cleanup EXIT
+ait_archive_rearm_exit_trap
+WORK_DIR="$(mktemp -d "${SCRATCH_PARENT:-${TMPDIR:-/tmp}}/ait_stats_strip.XXXXXX")" || strip_error "mktemp_failed"
 ORIG_COPY="$WORK_DIR/original"
 WROTE_COPY="$WORK_DIR/stripped"
 
@@ -152,7 +175,6 @@ commit_rc=0
 commit_out="$("$SCRIPT_DIR/aitask_task_commit.sh" -m "$(cat "$MSG_FILE")" "$REG_PATH" 2>&1)" \
     || commit_rc=$?
 if [[ "$commit_rc" -eq 0 && "$commit_out" == *COMMITTED:* ]]; then
-    rm -rf "$WORK_DIR"
     echo "STRIPPED"
     exit 0
 fi

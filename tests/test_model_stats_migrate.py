@@ -681,13 +681,20 @@ class TestStripScratchHygiene(NoRemoteBase):
     """
 
     def private_tmp(self):
-        """A fresh TMPDIR for both this process's tempfile and its children."""
+        """A fresh TMPDIR for both this process's tempfile and its children.
+
+        TMPDIR is assigned directly, never through an addCleanup'd patch.dict:
+        cleanups run AFTER tearDown, so such a patch would "restore" the
+        environ snapshot it took mid-test (fake HOME, GIT_CONFIG_GLOBAL) over
+        the one MigrateBase.tearDown just restored, leaking into later tests.
+        MigrateBase's own patch.dict already undoes this assignment.
+        """
         d = self.tmp / "scratch"
         d.mkdir()
-        for p in (mock.patch.object(tempfile, "tempdir", str(d)),
-                  mock.patch.dict(os.environ, {"TMPDIR": str(d)})):
-            p.start()
-            self.addCleanup(p.stop)
+        os.environ["TMPDIR"] = str(d)
+        p = mock.patch.object(tempfile, "tempdir", str(d))
+        p.start()
+        self.addCleanup(p.stop)
         return d
 
     def assert_empty(self, d):
@@ -732,6 +739,22 @@ class TestStripScratchHygiene(NoRemoteBase):
         with mock.patch.dict(os.environ, {"AIT_STATS_STRIP_AFTER_REWRITE_HOOK": str(hook)}):
             out = self.migrate(root)
         self.assertTrue(out[0].startswith("MIGRATE_DEFERRED:claudecode|strip_interrupted"), out)
+        self.assert_empty(d)
+
+    def test_helper_inherits_callers_tmpdir(self):
+        # The caller owns the helper's WORK dir (--scratch-dir), never its
+        # TMPDIR: ait_lock_dir derives the shared mutex base from TMPDIR, so a
+        # private one would give the helper's process tree a private lock
+        # namespace and silently drop mutual exclusion.
+        root, _ = self.local_project(registry(runs=6))
+        d = self.private_tmp()
+        seen = self.tmp / "seen-tmpdir"
+        hook = self.tmp / "record.sh"
+        hook.write_text(f"#!/bin/sh\nprintf '%s' \"$TMPDIR\" > '{seen}'\n")
+        with mock.patch.dict(os.environ, {"AIT_STATS_STRIP_AFTER_REWRITE_HOOK": str(hook)}):
+            out = self.migrate(root)
+        self.assertTrue(out[0].startswith("MIGRATED:"), out)
+        self.assertEqual(seen.read_text(), str(d))
         self.assert_empty(d)
 
     # ------------------------------------------ script level (no wrapping)
