@@ -3,12 +3,13 @@ priority: medium
 effort: high
 depends: [t2278_4]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [website, documentation, tui, screenshots, skills]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2278
 created_at: 2026-11-15 18:12
-updated_at: 2026-11-15 18:12
+updated_at: 2026-11-18 23:09
 ---
 
 ## Context
