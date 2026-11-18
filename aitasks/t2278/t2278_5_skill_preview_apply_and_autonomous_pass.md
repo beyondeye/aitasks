@@ -199,3 +199,5 @@ in-flight edits from another task.
 > | website/content/docs/tuis/_index.md should no longer capture Diff Viewer, so they can be recorded.
 > | If a capture session happens to have a diffviewer window open, it is not shown in the switcher
 > | either (it is classified as a TUI and skipped from the "Other" group).
+
+> **👁 note:read** id=2026-11-18T21:08:55Z.038185b713aaa9c5c1ec3369 by=t2278_5 at=2026-11-18T21:08:55Z mode=explicit ids=2026-11-15T20:17:06Z.0477e15bbc9a9de1508ddb19,2026-11-16T17:53:54Z.b5f122f88f8d5c169a0e35d6,2026-11-17T15:21:26Z.351edf46a056fb7372cfc9dc
