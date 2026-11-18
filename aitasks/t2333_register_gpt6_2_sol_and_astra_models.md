@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-18 22:57
-updated_at: 2026-11-18 22:58
+updated_at: 2026-11-18 23:22
 ---
 
 ## Goal
@@ -113,3 +114,8 @@ Run `website/check_links.py --build` if any website page changes.
 - t2159 (aff353fe0): registered GPT-6.1 Terra and GPT-6 Astra, and refreshed the OpenCode registry.
 - t1886 (95f0394cb): registered gpt6_1_sol and promoted it to the shadow/discuss default.
 - t1919: refreshed the OpenCode registry and kept usage counters across the refresh.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-18T21:22:14Z status=pass attempt=1 type=human
