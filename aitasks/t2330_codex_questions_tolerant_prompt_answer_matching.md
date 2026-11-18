@@ -3,12 +3,13 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [codex_questions, codexcli, codeagent]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2281
 created_at: 2026-11-17 22:02
-updated_at: 2026-11-17 22:02
+updated_at: 2026-11-18 22:55
 ---
 
 ## Symptom
