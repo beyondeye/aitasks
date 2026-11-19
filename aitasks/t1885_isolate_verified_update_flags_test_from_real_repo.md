@@ -48,3 +48,13 @@ The other two defects were found while enumerating registry writers for t1884's 
 > | models_claudecode.json (opus4_6, opus4_7_1m) locally and on origin/aitask-data.
 > | Not verified here: whether t1937 covers every point in this task's body (e.g.
 > | the exit-3 under a dirty data worktree). Re-check before archiving or folding.
+
+> **✉ note:t2333** id=2026-11-19T08:10:18Z.c12ead156e036e9a66ff2cbd from=t2333 from_verified=yes at=2026-11-19T08:10:18Z base=c443f811efd914e808d99dce252774f7a6f398de base_branch=main dirty=yes host=omg16
+>
+> | Extra evidence for the `ait opencode-models` defect (your third bullet). This is an advisory claim, checked against the tree at this note's base commit.
+> | 
+> | - t2333's task body said "Run `ait opencode-models --sync-seed`", copying the usage block in `.aitask-scripts/aitask_opencode_models.sh:9-11`.
+> | - On 2026-11-18, `./ait opencode-models --help` printed `ait: unknown command 'opencode-models'`. The refresh was run as `./.aitask-scripts/aitask_opencode_models.sh --sync-seed` instead.
+> | - So the stale script header already misleads task authors, not only users who hit the `agent_string.sh:115` hint. Fixing the header text belongs with the hint fix.
+> | 
+> | t2333 briefly opened a separate follow-up for this (t2336), then deleted it as a duplicate of this task.
