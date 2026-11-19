@@ -23,7 +23,7 @@ Check the work-directions flow end to end in a real terminal, in a scratch repo 
 - [ ] Reordering at the confirmation is honoured and persists across a TUI restart
 - [ ] Completing or archiving a member task, then pressing r, turns that direction STALE with a readable reason; the others stay current
 - [ ] Harvesting a new wrap-up raises the "N items in no direction" count; Enter on that line lists exactly those items
-- [ ] The request key on a stale direction types `>d <theme>`; after the agent rewrites it the row reads current and the rank of the other directions is unchanged
+- [ ] The request key on a stale direction types `>d <direction>`; after the agent rewrites it the row reads current and the rank of the other directions is unchanged
 - [ ] z on a direction opens `ait trails` with the member tasks highlighted and the critical path marked; the banner names the overlay and the clear key removes it
 - [ ] Markers are distinguishable without colour (try a monochrome or low-colour terminal)
 - [ ] For a direction whose tasks are in no trail, the agent offers `/aitask-trail` and creates nothing until told yes

@@ -25,13 +25,14 @@ The sitrep list is a list of items without a direction. It tells what is pending
 2. **Trails: overlay, create only if uncovered.** A direction reuses existing trails through a highlight + critical-path overlay computed from the direction's tasks. Only when no trail covers a direction's tasks does the agent offer to create one with `/aitask-trail` (ad_hoc / multi_topic scope). Never one generated trail per direction by default.
 3. **Ranking: agent proposes, user confirms.** The order among directions is proposed by the agent with reasons, confirmed or reordered by the user, and persists until changed. Not a recomputed score.
 4. **TUI: one tab strip.** A "Directions" tab is appended to the item-type tab strip (separate task): ranked rows with freshness, next task, item count and a one-line summary, plus an "N items in no direction" line.
+5. **Terminology: "direction" everywhere (user-confirmed 2026-11-19).** "Theme" is too vague and is retired as a user-facing word. The TUI, the skill's codes and help (`>d <direction>`, `>w <direction>`), result lines, the website and `aidocs/framework/sitrep.md` say "direction" only. The store renames with the format bump: format 4 writes the context key `direction:` and "situation per direction"; formats 1-3 are still read with `theme:` and upgraded by the first changing write. Internal identifiers (`THEME_RE`, `store.situations`, `RECOVERY_THEME`, CLI `--theme`) are renamed in the child that touches them, with no user-visible alias left behind; each child greps its own surfaces for a leftover "theme".
 
 ## Design constraints for every child
 
 - Sitrep stays advisory: nothing here picks, pushes, edits tasks or types into another pane.
 - The store has ONE writer (`aitask_sitrep_todo.sh`); every direction write goes through writer verbs with `--expect-rev`.
 - Helpers report evidence, the agent judges: the digest, drift reasons, membership and the critical path are deterministic helper output; grouping, ranking and summary prose are the agent's, confirmed by the user.
-- The direction's identity is its theme slug (stable across refreshes and re-proposals), never its title or summary text.
+- The direction's identity is its slug (today's theme slug) (stable across refreshes and re-proposals), never its title or summary text.
 - The digest covers every input the summary was written from; staleness is `current / stale / unknown`, and an input that cannot be read is `unknown`, never `current`.
 - The virtual `crashed-agents` theme (recovery items name no theme; the mapping is read-side) must stay coherent: decide in child 1 whether it becomes a derived direction or stays outside the ranked set, and apply that everywhere.
 

@@ -24,12 +24,13 @@ First child of the sitrep work-directions task; read the parent for the confirme
   Design the exact grammar in the plan; `render(parse(x)) == x` must hold, formats 1-3 are still read and upgraded by the first changing write, and a file using format-4 fields under an older `format=` is refused (the existing rule).
 - **Membership is not stored twice**: a direction's members are the items whose context names its theme. Provide a read (`directions` list verb) that prints, per direction, the header fields and the member item ids with their state, plus the count and ids of open items naming no theme.
 - **Writer verbs** (wire lines and exit codes in the wrapper header, like the existing verbs):
-  - `direction-set <theme>`: create or update title / trails / next / summary, with `--expect-rev`. Directions need a rev: either one store-wide rev per direction or a documented reuse of the store rev; `STALE:` on mismatch.
+  - `direction-set <direction>`: create or update title / trails / next / summary, with `--expect-rev`. Directions need a rev: either one store-wide rev per direction or a documented reuse of the store rev; `STALE:` on mismatch.
   - `direction-rank`: set the whole order atomically from one ordered list (a per-direction rank write could leave duplicates or gaps); themes not named become unranked.
   - `direction-freshness --batch`: the refresh-only path writing digest / freshness / checked_at / drift, rev-checked, never touching agent-written fields.
   - removing a theme's situation (the existing delete path) must define what happens to its direction header and to members still naming the theme.
 - Decide and document how the virtual `crashed-agents` theme relates to directions (parent, "Design constraints").
 - The existing `situation` verb and `>w` keep working unchanged on a format-4 store.
+- **Rename** (parent decision 5): format 4 writes the context key `direction:` instead of `theme:` and the verbs, flags, result lines and error texts say "direction"; formats 1-3 are read with `theme:`. List every surface that prints the old word (writer, `sitrep_cli.py`, harvest, refresh, TUI model, skill template, tests, docs) in the plan and say which child renames each one.
 
 ## Fixtures and tests
 
