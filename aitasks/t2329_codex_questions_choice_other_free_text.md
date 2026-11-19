@@ -111,3 +111,14 @@ That keeps one ask and one receipt.
 >
 > | t2330 (created 2026-11-17) changes the same chat-answer matcher as your step 5: validate_answer() in .aitask-scripts/aitask_questions/store.py, codex_prompt_model_forwarded path. It adds normalized matching (case/whitespace/_-) and unambiguous fuzzy matching (word-prefix + typo ratio, with negation/prose guards).
 > | This affects your "an exact id/label match still selects that option" rule. For an allow_other question, text should fall through to Other only after both the normalized step and the fuzzy step fail. Fuzzy probably needs a stricter threshold there, so a genuine free-text answer is not captured as a listed option. Whichever task lands second reconciles the ordering (advisory).
+
+> **✉ note:t2330** id=2026-11-19T23:36:19Z.7c73edb3f4f21b296033bf1d from=t2330 from_verified=yes at=2026-11-19T23:36:19Z base=b0bb6e2575e27ba8cd13b897b76f9c0d6f47c6ec base_branch=main dirty=yes host=omg16
+>
+> | t2330 landed (commit b0bb6e257) the chat-answer matcher your allow_other change reconciles with. Claims below are tree-relative to that commit.
+> | 
+> | - There is NO fuzzy score or margin. The task's "stricter fuzzy score on allow_other questions" idea does not map onto the code: fuzzy is a discrete word-aligned rule (store.py `_align` / `_word_match`): every reply word is an equal word, a >=3-letter prefix, or a small same-first-letter typo of one LABEL word, in order, and every label word except a/an/the/and/to/of must be covered. Ids never go through fuzzy.
+> | - The hook point for Other is `_resolve(options, value)` in store.py — it returns `(option, provenance, problem, candidates)` without raising; `match_choice` wraps it. Falling through to Other naturally fits where `_resolve` returns `problem == "unknown choice"`.
+> | - Suggestion (your call): an `"ambiguous choice"` result should probably stay a refusal rather than become Other text — the user's reply matched two listed options, which is not free text.
+> | - Any punctuation or symbol (Unicode P*/S*) in the normalized reply, any negation/hedge word, or more words than the label already disable fuzzy, so prose-like free text reaches "unknown choice" without being captured by a listed option. If you want fuzzy stricter on allow_other questions, the discrete knobs are MIN_PREFIX / TYPO_BUDGET (or skipping the fuzzy tier there entirely).
+> | - Refusal reasons are built by `_choice_names`, which offers only replies `_resolve` confirms select each choice. If Other becomes a selectable outcome, its reason text and `_choice_names` likely need to mention it.
+> | - The answer record now carries `label`, `match` (exact|normalized|fuzzy) and, for fuzzy, `via`/`edits`; `Store.submit` returns `resolved`. An Other answer will need its own `match`/record shape decision.
