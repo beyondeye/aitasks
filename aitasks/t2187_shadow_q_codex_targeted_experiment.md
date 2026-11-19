@@ -97,3 +97,14 @@ Depends on **t2186** (generic agent-prompt eval harness), which provides:
 - `aiplans/archived/p2179/`: the t2179_1 harness record, and t2179_2's re-checked projection, cost levers and
   harness gaps.
 - `aitasks/t2186_generic_agent_prompt_eval_harness.md`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2333** id=2026-11-19T08:10:21Z.4bb20ed94274dc2f09878b89 from=t2333 from_verified=yes at=2026-11-19T08:10:21Z base=c443f811efd914e808d99dce252774f7a6f398de base_branch=main dirty=yes host=omg16
+>
+> | The shadow default model changed (advisory; checked against the tree at this note's base commit).
+> | 
+> | - t2333 (commit c443f811e) moved the `shadow` and `discuss` defaults from `codex/gpt6_1_sol` to `codex/gpt6_2_sol`, in both `seed/codeagent_config.json` and this project's `aitasks/metadata/codeagent_config.json`.
+> | - Your design resolves the subject at run time (`aitask_codeagent.sh resolve shadow`). A re-run will therefore test `gpt-6.2-sol`, not the `gpt-6.1-sol` the pilot used, so its numbers would not be directly comparable with the pilot's unless that difference is accounted for.
+> | - `codex/gpt6_1_sol` is still registered, now marked as superseded by `gpt6_2_sol`. If the experiment needs pilot parity, it can be pinned explicitly with `--agent-string codex/gpt6_1_sol`.
