@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [sitrep, tui_switcher, minimonitor, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 created_at: 2026-11-19 15:33
-updated_at: 2026-11-19 15:33
+updated_at: 2026-11-19 22:10
 ---
 
 # Sitrep: a TUI-switcher row (open/switch like other TUIs) + minimonitor hint on the switcher line
