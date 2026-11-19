@@ -179,6 +179,10 @@ def pane_environment(socket: str, home: Path, python: str) -> dict[str, str]:
         "COLORTERM": "truecolor",
         "HOME": str(home),
         "XDG_CONFIG_HOME": str(home / ".config"),
+        # Caches too: the framework's artifact cache links into the project,
+        # and an inherited XDG_CACHE_HOME would put those links in the user's
+        # cache, dangling once the session's temp tree is removed.
+        "XDG_CACHE_HOME": str(home / ".cache"),
         # The monitor family starts a status server whose socket, lock and log
         # live under $XDG_RUNTIME_DIR/aitasks; a private one keeps them inside
         # the session's temp tree, removed with it.
@@ -186,6 +190,9 @@ def pane_environment(socket: str, home: Path, python: str) -> dict[str, str]:
         "TERM": "tmux-256color",
         "LANG": "C.UTF-8",
         "LC_ALL": "C.UTF-8",
+        # A TUI shows stored UTC timestamps in local time (a trail's
+        # "gen 03-02 09:00"); the picture must not depend on the machine's zone.
+        "TZ": "UTC",
     }
 
 

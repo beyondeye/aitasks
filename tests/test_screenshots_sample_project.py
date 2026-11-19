@@ -156,6 +156,191 @@ class AgentsDatasetTests(unittest.TestCase):
             self.assertNotIn("status: Implementing", path.read_text(), path.name)
 
 
+def _framework_env(root):
+    """The environment a session's setup command gets, for a framework call."""
+    home = root / ".standin" / "home"
+    return {**os.environ, "HOME": str(home), "AIT_PYTHON": sys.executable,
+            # As a session pins them: a framework call must not write into the
+            # caller's configuration or cache (the artifact cache links into
+            # this temp project).
+            "XDG_CONFIG_HOME": str(home / ".config"),
+            "XDG_CACHE_HOME": str(home / ".cache"),
+            # The sample person, as a session's scratch .gitconfig names them
+            # (never the identity of whoever runs the tests).
+            "GIT_AUTHOR_NAME": sp.PERSON_NAME, "GIT_AUTHOR_EMAIL": sp.PERSON_EMAIL,
+            "GIT_COMMITTER_NAME": sp.PERSON_NAME, "GIT_COMMITTER_EMAIL": sp.PERSON_EMAIL,
+            "PYTHONDONTWRITEBYTECODE": "1",
+            "PATH": f"{root / sp.STANDIN_BIN}{os.pathsep}{os.environ['PATH']}"}
+
+
+class PinnedPythonShimTests(unittest.TestCase):
+    """A bare ``python3`` in a framework script must not be the user's wrapper,
+    which runs ``$HOME/.aitask/venv`` and breaks under the scratch HOME."""
+
+    def test_python_on_the_standin_path_is_the_pinned_interpreter(self):
+        with tempfile.TemporaryDirectory(prefix="ait_shots_test_") as tmp:
+            root = sp.build(Path(tmp) / "lumen", "base")
+            for name in ("python3", "python"):
+                shim = root / sp.STANDIN_BIN / name
+                out = subprocess.run([str(shim), "-c", "import sys; print(sys.executable)"],
+                                     capture_output=True, text=True, timeout=30,
+                                     env={**os.environ, "HOME": tmp,
+                                          "AIT_PYTHON": sys.executable})
+                self.assertEqual(out.stdout.strip(), sys.executable, out.stderr)
+                unset = {k: v for k, v in os.environ.items() if k != "AIT_PYTHON"}
+                refused = subprocess.run([str(shim), "-c", "print(1)"], capture_output=True,
+                                         text=True, timeout=30, env=unset)
+                self.assertNotEqual(refused.returncode, 0)
+
+
+class BoardLocksDatasetTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        tmp = tempfile.TemporaryDirectory(prefix="ait_shots_test_")
+        cls.addClassCleanup(tmp.cleanup)
+        cls.root = sp.build(Path(tmp.name) / "lumen", "board_locks")
+
+    def test_the_real_lock_command_takes_a_lock_on_the_local_origin(self):
+        remote = _git(self.root, "remote", "get-url", "origin").strip()
+        self.assertTrue(Path(remote).resolve().is_relative_to(self.root.resolve()))
+        env = _framework_env(self.root)
+        for argv in (["./ait", "lock", "--init"],
+                     ["./ait", "lock", "14", "--email", sp.PERSON_EMAIL]):
+            done = subprocess.run(argv, cwd=self.root, env=env, capture_output=True, text=True,
+                                  timeout=120)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        listed = _git(self.root, "ls-tree", "--name-only", "origin/aitask-locks")
+        self.assertIn("t14_lock.yaml", listed)
+
+    def test_without_the_origin_the_lock_would_be_a_silent_no_op(self):
+        """The control for the dataset's reason to exist."""
+        with tempfile.TemporaryDirectory(prefix="ait_shots_test_") as tmp:
+            root = sp.build(Path(tmp) / "lumen", "base")
+            done = subprocess.run(["./ait", "lock", "14", "--email", sp.PERSON_EMAIL], cwd=root,
+                                  env=_framework_env(root), capture_output=True, text=True,
+                                  timeout=120)
+            self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+            self.assertEqual(_git(root, "branch", "-a", "--list", "*aitask-locks*").strip(), "")
+
+
+class TrailsDatasetTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        tmp = tempfile.TemporaryDirectory(prefix="ait_shots_test_")
+        cls.addClassCleanup(tmp.cleanup)
+        cls.root = sp.build(Path(tmp.name) / "lumen", "trails")
+
+    def test_the_owner_task_carries_the_trail_artifact(self):
+        owner = (self.root / "aitasks" / "t12_add_checkout_page.md").read_text()
+        self.assertIn(sp.TRAIL_HANDLE, owner)
+        self.assertIn("implementation_trail", owner)
+        self.assertEqual(_git(self.root, "status", "--porcelain").strip(), "")
+
+    def test_the_stored_trail_is_what_the_framework_reads_back(self):
+        out = self.root / ".standin" / "read_back.json"
+        done = subprocess.run(["./ait", "artifact", "get", sp.TRAIL_HANDLE, "--out", str(out)],
+                              cwd=self.root, env=_framework_env(self.root), capture_output=True,
+                              text=True, timeout=120)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        doc = json.loads(out.read_text())
+        self.assertEqual(doc["title"], sp.TRAIL_NAME)
+        self.assertEqual([w["title"] for w in doc["waves"]],
+                         ["Unblock sign-in", "Build the checkout", "Polish after launch"])
+        # Members name the sample project, so the TUI draws local task cards.
+        refs = {e["task"] for w in doc["waves"] for e in w["entries"]}
+        self.assertEqual(refs, {f"lumen#{t}" for t in ("14", "12_1", "12_2", "12_3", "15", "9")})
+        for ref in refs:
+            task_id = ref.split("#")[1]
+            self.assertTrue(list((self.root / "aitasks").rglob(f"t{task_id}_*.md")), ref)
+
+    def test_the_trail_is_current_by_the_frameworks_own_drift_check(self):
+        """The digest is the gatherer's, over the real task files: an invented
+        one reads as stale on screen."""
+        done = subprocess.run(["./.aitask-scripts/aitask_trail_gather.sh", "drift", "--trail",
+                               sp.TRAIL_HANDLE], cwd=self.root, env=_framework_env(self.root),
+                              capture_output=True, text=True, timeout=120)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertNotIn("STALE", done.stdout)
+        self.assertNotIn("DRIFT:", done.stdout)
+        self.assertIn("CURRENT", done.stdout.upper())
+
+    def test_no_build_day_in_the_trail(self):
+        doc = (self.root / ".standin" / "trail_checkout_launch.json").read_text()
+        self.assertEqual(set(re.findall(r"20\d\d-\d\d-\d\dT[0-9:]+Z", doc)), {sp.TRAIL_STAMP})
+
+
+class HostCacheIsolationTests(unittest.TestCase):
+    """Framework commands a dataset runs cache under XDG_CACHE_HOME (the
+    artifact cache links into the project). Nothing may land in the cache the
+    caller's environment names: it would dangle once the project is removed."""
+
+    def test_building_a_dataset_leaves_the_callers_cache_untouched(self):
+        for name in ("trails", "brainstorm"):
+            with self.subTest(name), tempfile.TemporaryDirectory(prefix="ait_shots_test_") as tmp:
+                outer = Path(tmp) / "outer_cache"
+                outer.mkdir()
+                with mock.patch.dict(os.environ, {"XDG_CACHE_HOME": str(outer)}):
+                    root = sp.build(Path(tmp) / "lumen", name)
+                self.assertEqual(list(outer.rglob("*")), [])
+                if name == "trails":
+                    # Positive control: the cache WAS written, inside the tree.
+                    inner = root / ".standin" / "home" / ".cache"
+                    self.assertTrue(any(inner.rglob("sha256:*")), list(inner.rglob("*")))
+
+
+class BrainstormDatasetTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        tmp = tempfile.TemporaryDirectory(prefix="ait_shots_test_")
+        cls.addClassCleanup(tmp.cleanup)
+        cls.root = sp.build(Path(tmp.name) / "lumen", "brainstorm")
+        cls.session = cls.root / ".aitask-crews" / f"crew-brainstorm-{sp.BRAINSTORM_TASK}"
+
+    def test_the_session_holds_the_root_and_three_applied_nodes(self):
+        import yaml
+        nodes = {p.stem: yaml.safe_load(p.read_text())
+                 for p in (self.session / "br_nodes").glob("*.yaml")}
+        self.assertEqual(sorted(nodes), ["n000_init", "n001_numbered_pages", "n002_load_more",
+                                         "n003_hybrid"])
+        self.assertEqual(nodes["n001_numbered_pages"]["parents"], ["n000_init"])
+        self.assertEqual(nodes["n003_hybrid"]["parents"],
+                         ["n001_numbered_pages", "n002_load_more"])
+        for node_id in nodes:
+            self.assertTrue((self.session / "br_proposals" / f"{node_id}.md").is_file())
+        state = yaml.safe_load((self.session / "br_graph_state.yaml").read_text())
+        self.assertEqual(state["current_head"], "n003_hybrid")
+
+    def test_the_apply_step_completed_each_operation_record(self):
+        import yaml
+        groups = yaml.safe_load((self.session / "br_groups.yaml").read_text())["groups"]
+        self.assertEqual(groups["explore_001"]["status"], "Completed")
+        self.assertEqual(groups["explore_001"]["nodes_created"],
+                         ["n001_numbered_pages", "n002_load_more"])
+        self.assertEqual(groups["synthesize_002"]["status"], "Completed")
+        self.assertEqual(groups["synthesize_002"]["nodes_created"], ["n003_hybrid"])
+
+    def test_the_framework_lists_the_session(self):
+        done = subprocess.run(["./ait", "brainstorm", "status", sp.BRAINSTORM_TASK],
+                              cwd=self.root, env=_framework_env(self.root), capture_output=True,
+                              text=True, timeout=120)
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("n003_hybrid", done.stdout)
+
+    def test_no_build_day_in_the_session(self):
+        today = time.strftime("%Y-%m-%d")
+        for path in self.session.rglob("*"):
+            if path.is_file() and path.suffix in (".yaml", ".md") \
+                    and not path.name.startswith("_crew") and ".git" not in path.parts:
+                self.assertNotIn(today, path.read_text(), path.name)
+
+    def test_no_agent_was_started(self):
+        log = self.root / ".standin" / "log"
+        self.assertFalse(log.exists(), log.read_text() if log.exists() else "")
+
+    def test_the_project_stays_a_clean_repository(self):
+        self.assertEqual(_git(self.root, "status", "--porcelain").strip(), "")
+
+
 class StandinAgentTests(unittest.TestCase):
     """``standin_agent.py``: what it draws and what it records."""
 

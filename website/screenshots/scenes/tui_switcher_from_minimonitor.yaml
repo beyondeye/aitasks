@@ -1,0 +1,58 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: tui_switcher_from_minimonitor
+output: aitasks_tui_switcher_from_minimonitor.svg
+title: aitasks minimonitor
+size:
+- 126
+- 40
+window: board
+dataset: agents
+setup:
+- ./.aitask-scripts/aitask_gate.sh materialize-active 14 --profile aitasks/metadata/profiles/fast.yaml && ./.aitask-scripts/aitask_gate_record.sh 14 plan_approved pass type=human && ./.aitask-scripts/aitask_gate.sh materialize-active 15 --profile aitasks/metadata/profiles/fast.yaml && ./.aitask-scripts/aitask_gate_record.sh 15 plan_approved pass type=human
+launch: ./ait board
+steps:
+- wait:
+    text: fix login
+    timeout: 60
+- keys:
+  - Down
+  - p
+- wait: Pick Task t14
+- wait: (R)un in tmux
+- wait: lumen
+- keys:
+  - r
+- wait:
+    text: IMPLEMENT
+    pane: agent-pick-14.1
+- keys:
+  - Right
+  - p
+- wait: Pick Task t15
+- wait: (R)un in tmux
+- wait: lumen
+- keys:
+  - r
+- wait:
+    text: cache product images
+    pane: agent-pick-14.1
+- keys:
+    keys:
+    - j
+    pane: agent-pick-14.1
+- wait:
+    text: TUI Switcher
+    pane: agent-pick-14.1
+- wait:
+    text: close
+    pane: agent-pick-14.1
+expect:
+- TUI Switcher
+- this agent · lumen
+- tmux Monitor (M)
+- agent-pick-15
+- Shall I commit the fix?
+illustrates: 'The TUI switcher opened with j from a minimonitor that sits in a 40-column split beside a code agent: the same TUI list and running agent windows as elsewhere, drawn in the narrow pane.'
+capture:
+  window: agent-pick-14

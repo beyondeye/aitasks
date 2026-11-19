@@ -28,6 +28,8 @@ keys below apply.
 | `s` | Situation | Show or hide the situation text | Always |
 | `f` | Labels | Open the label filter | Some task in the list has a label, or a filter is on |
 | `F` | Clear filter | Clear the label filter | A filter is on |
+| `→` | Next tab | Show the next item-type tab; after **Watches** comes **All** again | Always |
+| `←` | (hidden) | Show the previous item-type tab; before **All** comes **Watches** | Always |
 | `r` | Refresh | Collect new wrap-ups, run the crash check, then re-check the list | Always; greyed out while a run is in progress |
 | `x` | Dismiss | Dismiss the item, with a reason | The item is open or unknown |
 | `p` | Pick | Launch `/aitask-pick` for the item's task, or switch to its running agent window | An open task item that names a task of this repository; for a crash-recovery item, only the `crashed` and `orphan` categories |
@@ -120,6 +122,7 @@ finished:
 - `<state>`: `no items yet`, or `N items · M open in Now` (`1 item` for one). While the done and
   dismissed groups are hidden it adds `· N done, M dismissed hidden`. While a
   label filter is on it adds `· filtered by: <labels> · N hidden (F clears)`.
+  Both counts cover only the items of the active tab.
 - `read`: the time of the last read of the list.
 - `<agent>`: `agent: running`, `agent: not running — press A`, or
   `agent: unknown` (the tmux query failed, or the TUI does not run in a pane of
@@ -127,6 +130,35 @@ finished:
 
 When `todo.md` cannot be read and no good copy was read earlier, `<state>` is
 `store unusable`.
+
+### Tabs
+
+The row above the column header holds one tab per item type, each with the
+number of its open items. The count includes items the label filter hides. It
+leaves out done, dismissed and unknown items, but the tab still lists the
+unknown ones.
+
+| Tab | Shows |
+|-----|-------|
+| All | Every item |
+| Triage | Triage questions, unparsed-output reviews and other questions |
+| Tasks | Tasks to pick (of this repository, of another project, or without a task reference), push reminders and other actions |
+| Recovery | Crash-recovery items, every category |
+| Watches | Watches, whether or not a re-check follows their trail |
+
+Done, dismissed and unknown items are in the tab of their kind: a question in
+**Triage**, an action or a task in **Tasks** (a crash-recovery item in
+**Recovery**), a watch in **Watches**. Inside a tab the groups, `d` and the label
+filter work as on **All**. A tab with no item to show lists the single line
+`Nothing in <tab>.`. Clicking a tab shows it.
+
+On a narrow pane the labels get shorter, so that every tab stays on the row:
+`Tri 3`, then `Tri3`, then one character and the count (`A` All, `?` Triage,
+`T` Tasks, `R` Recovery, `W` Watches), such as `?3`. When even that row is wider
+than the pane, a count that does not fit its share is cut to `999+`. Every tab
+stays visible and clickable down to 30 columns.
+
+The active tab lasts until you quit the TUI. It is never saved in the list.
 
 ### Groups
 

@@ -1,0 +1,29 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: trails_main_view
+output: aitasks_trails_main_view.svg
+title: aitasks trails
+size:
+- 140
+- 38
+dataset: trails
+setup: []
+launch: ./ait trails
+steps:
+- wait:
+    text: Select trail
+    timeout: 60
+- wait: art:trail-checkout-launch
+- keys:
+  - Enter
+- wait: W3 · Polish after launch (2)
+- wait: 1 Checkout launch ✓
+- wait: Fix the login redirect first
+expect:
+- 'By-Trail: "Checkout launch"'
+- W1 · Unblock sign-in (1)
+- W2 · Build the checkout (3)
+- W3 · Polish after launch (2)
+- t12_2 payment form validation
+- Fix the login redirect first
+illustrates: 'ait trails with one stored trail open: its three waves as columns of member cards, each card with its classification and confidence, and the trail''s summary in the pane below.'

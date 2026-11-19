@@ -9,7 +9,7 @@ depth: [intermediate]
 
 `ait trails` is a stand-alone reader for [implementation trails]({{< relref "/docs/workflows/implementation-trails" >}}): it shows a stored trail as wave columns, with each member's classification, confidence, status and drift, and the trail's summary underneath. You can keep several trails open, one tab each, and switch between them instantly. It is the [board's]({{< relref "/docs/tuis/board" >}}) By-Trail view (`z`) running on its own — the same lanes, cards and keys, without the Kanban board around them. The By-Trail view stays inside the board as well, and both read the same stored trails.
 
-<!-- screenshot: scene=trails_main_view file=aitasks_trails_main_view.svg alt="Trails showing one trail's waves as columns with the summary pane below" caption="One trail with its waves as columns and its summary below." -->
+{{< static-img src="imgs/aitasks_trails_main_view.svg" alt="Trails showing one trail's waves as columns with the summary pane below" caption="One trail with its waves as columns and its summary below." >}}
 
 > **Customizable keys:** every shortcut here can be rebound. Press `?` in this
 > TUI for the in-place editor, or open

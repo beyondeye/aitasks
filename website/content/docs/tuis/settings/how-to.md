@@ -202,7 +202,7 @@ When you run `ait settings` inside tmux, you can jump to any other integrated TU
 
 The settings TUI also hosts the **Tmux** tab, where you can edit the integration defaults (session name, split direction, refresh interval, monitor thresholds) shared by `ait ide`, `ait monitor`, and the TUI switcher itself.
 
-<!-- screenshot: scene=tui_switcher_dialog file=aitasks_tui_switcher_dialog.svg alt="TUI switcher dialog listing the integrated TUIs and their shortcut keys" caption="The TUI switcher, opened with j from any main TUI." -->
+{{< static-img src="imgs/aitasks_tui_switcher_dialog.svg" alt="TUI switcher dialog listing the integrated TUIs and their shortcut keys" caption="The TUI switcher, opened with j from any main TUI." >}}
 
 The TUI switcher requires a tmux session. If you are not running inside tmux yet, see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}) for how to launch one with `ait ide`.
 

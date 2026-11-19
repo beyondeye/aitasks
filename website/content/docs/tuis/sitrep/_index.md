@@ -9,7 +9,7 @@ depth: [intermediate]
 
 The sitrep TUI shows the repository's [sitrep]({{< relref "/docs/workflows/sitrep" >}}) todo list: the follow-up tasks, actions, questions and watches that finished agents left behind. It runs in the sitrep window, in the pane below the sitrep agent. Routine work on the list happens in the TUI itself: collecting new wrap-ups and re-checking the items, dismissing an item, restoring a damaged list, picking a task, showing a task in the board or in a trail, and showing a push command. Work that needs the agent's judgement (triage, questions, situation text, a trail refresh, advice on what to pick) is typed into the agent as a request when you press a key.
 
-<!-- screenshot: scene=sitrep_window file=aitasks_sitrep_tui_main_view.svg alt="Sitrep window with the sitrep agent above, the sitrep TUI list below and minimonitor on the right" caption="The sitrep window, with the agent above, the sitrep TUI below and minimonitor on the right." -->
+{{< static-img src="imgs/aitasks_sitrep_tui_main_view.svg" alt="Sitrep window with the sitrep agent above, the sitrep TUI list below and minimonitor on the right" caption="The sitrep window, with the agent above, the sitrep TUI below and minimonitor on the right." >}}
 
 > **Customizable keys:** every shortcut here can be rebound. Press `?` in this
 > TUI for the in-place editor, or open

@@ -11,7 +11,7 @@ The `ait brainstorm` command launches an interactive terminal-based design studi
 
 Each operation is carried out by one or more background agents, so the TUI is also a live monitor of that agent work, with full provenance: every node records which operation and which agents produced it.
 
-<!-- screenshot: scene=brainstorm_browse_tab file=aitasks_brainstorm_browse_tab.svg alt="Brainstorm Browse tab with the graph of proposal nodes and the detail pane on the right" caption="The Browse tab, with the proposal graph on the left and the selected node's details on the right." -->
+{{< static-img src="imgs/aitasks_brainstorm_browse_tab.svg" alt="Brainstorm Browse tab with the graph of proposal nodes and the detail pane on the right" caption="The Browse tab, with the proposal graph on the left and the selected node's details on the right." >}}
 
 > **Customizable keys:** every shortcut here can be rebound. Press `?` in this
 > TUI for the in-place editor, or open

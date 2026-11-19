@@ -28,6 +28,12 @@ Run through ``website/screenshots.sh`` (it picks the framework interpreter).
                                                     --crop also takes C,R,W,H
     recipe save <id> --scene ID --expect T... --illustrates TEXT [--replace]
     replay (--scene ID... | --all | --pending) [--no-keep] [--png]
+    preview --batch ID                              one HTML contact sheet of that batch
+                                                    (<batch>/preview.html)
+    apply --batch ID                                copy the batch's images to static/imgs
+                                                    and replace each marker with its
+                                                    static-img shortcode; the batch id is
+                                                    required (the one that was reviewed)
     session stop (<id> | --all) / session list
     list
 
@@ -36,17 +42,32 @@ new``) or ``<window name>.<pane index>`` for a pane the TUI created itself;
 never a tmux id. ``--window`` without a name is the main pane's window.
 
 Result lines are ``KEY:value`` (``SESSION:``, ``BATCH:``, ``SHOT:``, ``PNG:``,
-``STAGED:``, ``FAILED:``, ``REFUSED:``, ``RECIPE_SAVED:``, ``BOX:``). Exit status:
-0 done, 1 a capture, wait, replay or save failed or was refused (also when
+``STAGED:``, ``FAILED:``, ``REFUSED:``, ``RECIPE_SAVED:``, ``BOX:``, ``PREVIEW:``,
+``APPLIED:``, ``PARTIAL:``, ``SKIPPED:``, ``APPLY:``). Exit status:
+0 done, 1 a capture, wait, replay, save or apply failed or was refused (also when
 ``--png`` was asked and no preview could be made), 2 usage.
+
+``apply`` treats a scene as one unit. It applies a scene only when the staged
+image still hashes to the manifest value, the destination file is in the state
+the manifest recorded (still absent, or the same hash), and every marker of
+the scene is still in its page exactly once, byte for byte. Image and
+destination are checked again right before that scene is written, every
+output is prepared before the first file is replaced, and a failed replacement
+restores what was already replaced. A refused scene (``REFUSED:<scene>|<reason>``)
+leaves its image and its pages as they were and needs a new capture and a new
+review. ``PARTIAL:<scene>|<paths>`` means a restore failed too: those paths
+were changed and must be restored by hand (``git checkout``).
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
+import html
 import json
 import os
+import re
 import shlex
+import shutil
 import sys
 import time
 import uuid
@@ -680,6 +701,343 @@ def cmd_list(args, paths):
     return 0
 
 
+# --- preview and apply -------------------------------------------------------
+
+BATCH_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]*$")
+
+
+def _batch_dir(paths: Paths, batch_id: str) -> Path:
+    """The directory of batch ``batch_id``. The id is a name, never a path."""
+    if not BATCH_ID_RE.fullmatch(batch_id or ""):
+        raise Refused(f"batch id {batch_id!r} is not a batch name")
+    batch = paths.staging / batch_id
+    if not (batch / "manifest.json").is_file():
+        raise Refused(f"no batch {batch_id!r} under {paths.staging}")
+    try:
+        manifest = read_manifest(batch)
+    except (OSError, ValueError) as exc:
+        raise Refused(f"batch {batch_id}: unreadable manifest ({_one_line(exc)})") from None
+    if manifest.get("batch") != batch_id or not isinstance(manifest.get("scenes"), list):
+        raise Refused(f"batch {batch_id}: the manifest does not describe this batch")
+    return batch
+
+
+def _scene_markers(scene: dict):
+    """``[(page, text, Marker | reason)]`` for a manifest scene."""
+    out = []
+    for record in scene.get("markers", []):
+        parsed = markers.parse_marker(record["text"], record["page"])
+        out.append((record["page"], record["text"], parsed))
+    return out
+
+
+def cmd_preview(args, paths):
+    batch = _batch_dir(paths, args.batch)
+    manifest = read_manifest(batch)
+    esc = html.escape
+    parts = [
+        "<!doctype html>", '<html lang="en"><head><meta charset="utf-8">',
+        f"<title>Screenshot batch {esc(manifest['batch'])}</title>",
+        "<style>body{font:15px/1.5 system-ui,sans-serif;margin:2rem;background:#f4f4f2;color:#1e1e1e}"
+        "section{background:#fff;border:1px solid #d0d0cc;border-radius:8px;padding:1rem 1.25rem;"
+        "margin:0 0 1.5rem}img{max-width:100%;height:auto;border:1px solid #d0d0cc}"
+        ".pair{display:grid;grid-template-columns:1fr 1fr;gap:1rem}.pair figcaption{font-weight:600}"
+        "figure{margin:0}code{background:#eeeeea;padding:0 .25em}dt{font-weight:600;margin-top:.5rem}"
+        "dd{margin:0 0 0 1rem}.flag{color:#a4262c;font-weight:600}</style></head><body>",
+        f"<h1>Screenshot batch <code>{esc(manifest['batch'])}</code></h1>",
+        f"<p>Created {esc(str(manifest.get('created_at', '')))}. Apply exactly this batch with "
+        f"<code>website/screenshots.sh apply --batch {esc(manifest['batch'])}</code>.</p>",
+    ]
+    for scene in manifest["scenes"]:
+        output = scene["output"]
+        replaces = scene.get("destination") != "absent"
+        parts.append(f"<section><h2>{esc(scene['id'])}</h2>")
+        parts.append(f"<p>Output: <code>static/imgs/{esc(output)}</code> — "
+                     + ("<strong>replaces the existing image</strong>" if replaces
+                        else "new file") + "</p>")
+        new = f'<figure><figcaption>New</figcaption><img src="{esc(output)}" alt=""></figure>'
+        if replaces:
+            current = (paths.static / "imgs" / output).as_uri()
+            parts.append('<div class="pair"><figure><figcaption>Existing</figcaption>'
+                         f'<img src="{esc(current)}" alt=""></figure>{new}</div>')
+        else:
+            parts.append(new)
+        found = _scene_markers(scene)
+        if not found:
+            parts.append("<p>No markers — image only.</p>")
+        else:
+            parts.append("<dl>")
+            for page, text, parsed in found:
+                parts.append(f"<dt>Page <code>content/{esc(page)}</code></dt>")
+                if isinstance(parsed, markers.Marker):
+                    parts.append(f"<dd>Alt: {esc(parsed.alt)}</dd>")
+                    parts.append("<dd>Caption: " + (esc(parsed.caption) if parsed.caption
+                                                    is not None else "<em>none</em>") + "</dd>")
+                else:
+                    parts.append(f'<dd class="flag">Marker does not parse ({esc(str(parsed))}): '
+                                 f"<code>{esc(text)}</code></dd>")
+            parts.append("</dl>")
+        parts.append("</section>")
+    if manifest.get("failed"):
+        parts.append("<section><h2>Not staged</h2><ul>")
+        parts += [f"<li><code>{esc(f['id'])}</code>: {esc(f['reason'])}</li>"
+                  for f in manifest["failed"]]
+        parts.append("</ul></section>")
+    parts.append("</body></html>")
+    target = batch / "preview.html"
+    tmp = batch / "preview.html.tmp"
+    tmp.write_text("\n".join(parts) + "\n", encoding="utf-8")
+    os.replace(tmp, target)
+    for scene in manifest["scenes"]:
+        png = batch / "_preview" / f"{scene['id']}.png"
+        if png.is_file():
+            print(f"PNG:{png}")
+    print(f"SCENES:{len(manifest['scenes'])}")
+    print(f"PREVIEW:{target}")
+    return 0
+
+
+class SceneRefused(Exception):
+    """One scene of a batch cannot be applied; ``reason`` is its REFUSED text."""
+
+    def __init__(self, reason: str):
+        super().__init__(reason)
+        self.reason = reason
+
+
+class PartialWrite(Exception):
+    """A scene's write failed AND restoring the files already replaced failed."""
+
+    def __init__(self, changed: list[Path], cause: str):
+        super().__init__(cause)
+        self.changed, self.cause = changed, cause
+
+
+def _image_state(scene: dict, batch: Path, paths: Paths) -> tuple[bytes, Path, bytes | None]:
+    """Check the staged image and the destination against the manifest.
+
+    Returns ``(image bytes, destination, destination bytes or None)``. The
+    image is read once: the bytes that were hashed are the bytes a caller
+    writes, so a file swapped after the check is never what gets copied.
+    """
+    try:
+        image = (batch / scene["output"]).read_bytes()
+    except OSError:
+        raise SceneRefused("image_missing") from None
+    if hashlib.sha256(image).hexdigest() != scene["sha256"]:
+        raise SceneRefused("image_changed")
+    destination = paths.static / "imgs" / scene["output"]
+    recorded = scene["destination"]
+    try:
+        current = destination.read_bytes() if destination.is_file() else None
+    except OSError as exc:
+        raise SceneRefused(f"destination_unreadable:{_one_line(exc)}") from None
+    if recorded == "absent":
+        if current is not None or destination.exists():
+            raise SceneRefused("destination_created")
+    elif current is None:
+        raise SceneRefused("destination_removed")
+    elif hashlib.sha256(current).hexdigest() != recorded["sha256"]:
+        raise SceneRefused("destination_modified")
+    return image, destination, current
+
+
+def _page_inside(page: str, paths: Paths) -> bool:
+    """Whether a recorded page is a Markdown file inside the content tree.
+
+    A page name is whatever the author called the file (spaces, non-ASCII);
+    the image filename alphabet does not apply to it. What matters is that
+    the record cannot point apply at a file outside ``content/``: a relative
+    path with no ``..`` step that still resolves under the content root.
+    """
+    if not isinstance(page, str) or not page.endswith(".md") or "\\" in page:
+        return False
+    parts = page.split("/")
+    if page.startswith("/") or any(part in ("", ".", "..") for part in parts):
+        return False
+    root = paths.content.resolve()
+    try:
+        (paths.content / page).resolve().relative_to(root)
+    except ValueError:
+        return False
+    return True
+
+
+def _page_edits(scene: dict, paths: Paths) -> list[tuple[Path, bytes, bytes]]:
+    """``[(page path, original bytes, new bytes)]``: each marker of the scene
+    replaced by its shortcode in the page AS IT IS NOW. Markers are found by
+    their text, never by line number."""
+    if markers.path_problem(scene["output"]) or not markers.SCENE_RE.match(scene["id"]):
+        raise SceneRefused("manifest_invalid")
+    texts: dict[str, str] = {}
+    originals: dict[str, bytes] = {}
+    for page, text, parsed in _scene_markers(scene):
+        if not _page_inside(page, paths):
+            raise SceneRefused(f"marker_invalid:{page}")
+        if not isinstance(parsed, markers.Marker):
+            raise SceneRefused(f"marker_invalid:{page}")
+        if parsed.scene != scene["id"] or parsed.file != scene["output"]:
+            raise SceneRefused(f"marker_mismatch:{page}")
+        try:
+            shortcode = markers.render_static_img(parsed)
+        except ValueError:
+            raise SceneRefused(f"marker_invalid:{page}") from None
+        if page not in texts:
+            try:
+                originals[page] = (paths.content / page).read_bytes()
+                texts[page] = originals[page].decode("utf-8")
+            except (OSError, UnicodeDecodeError):
+                raise SceneRefused(f"marker_missing:{page}") from None
+        count = texts[page].count(text)
+        if count == 0:
+            raise SceneRefused(f"marker_missing:{page}")
+        if count > 1:
+            raise SceneRefused(f"marker_ambiguous:{page}")
+        texts[page] = texts[page].replace(text, shortcode, 1)
+    return [(paths.content / page, originals[page], texts[page].encode("utf-8"))
+            for page in texts]
+
+
+def validate_scene(scene: dict, batch: Path, paths: Paths) -> None:
+    """Raise ``SceneRefused`` when the scene cannot be applied as reviewed."""
+    _image_state(scene, batch, paths)
+    _page_edits(scene, paths)
+
+
+def _replace(tmp: Path, target: Path) -> None:
+    """The one place a prepared file takes its target's place (a test seam)."""
+    os.replace(tmp, target)
+
+
+def _temp_beside(target: Path) -> Path:
+    return target.with_name(f".{target.name}.{uuid.uuid4().hex[:8]}.apply-tmp")
+
+
+def _apply_scene(scene: dict, batch: Path, paths: Paths) -> int:
+    """Apply one scene as a unit; returns the number of pages rewritten.
+
+    Revalidate, prepare every output, then replace; a failure restores the
+    files already replaced. Raises ``SceneRefused`` (nothing of the scene is
+    left changed) or ``PartialWrite`` (the restore failed as well).
+    """
+    image, destination, before = _image_state(scene, batch, paths)
+    edits = _page_edits(scene, paths)
+    outputs = [(destination, before, image)] + [(p, old, new) for p, old, new in edits]
+    made_dirs: list[Path] = []
+    prepared: list[tuple[Path, Path, bytes | None]] = []     # (tmp, target, original)
+    replaced: list[tuple[Path, bytes | None]] = []
+
+    def discard_temps() -> None:
+        for tmp, _target, _old in prepared:
+            try:
+                tmp.unlink()
+            except OSError:
+                pass
+
+    def remove_made_dirs() -> None:
+        for directory in reversed(made_dirs):
+            try:
+                directory.rmdir()
+            except OSError:
+                pass
+
+    try:
+        for target, old, new in outputs:
+            parent = target.parent
+            missing = []
+            while not parent.exists():
+                missing.append(parent)
+                parent = parent.parent
+            for directory in reversed(missing):
+                directory.mkdir()
+                made_dirs.append(directory)
+            tmp = _temp_beside(target)
+            prepared.append((tmp, target, old))
+            tmp.write_bytes(new)
+            if old is not None:
+                shutil.copymode(target, tmp)      # a page keeps its mode
+    except OSError as exc:
+        discard_temps()
+        remove_made_dirs()
+        raise SceneRefused(f"write_failed:{_rel_site(prepared[-1][1] if prepared else destination, paths)}"
+                           f" ({_one_line(exc)})") from None
+    failed_at = None
+    try:
+        for tmp, target, old in prepared:
+            failed_at = target
+            _replace(tmp, target)
+            replaced.append((target, old))
+    except OSError as exc:
+        stuck = []
+        for target, old in reversed(replaced):
+            try:
+                if old is None:
+                    target.unlink()
+                else:
+                    back = _temp_beside(target)
+                    back.write_bytes(old)
+                    shutil.copymode(target, back)
+                    os.replace(back, target)
+            except OSError:
+                stuck.append(target)
+        discard_temps()
+        remove_made_dirs()
+        if stuck:
+            raise PartialWrite(stuck, _one_line(exc)) from None
+        raise SceneRefused(f"write_failed:{_rel_site(failed_at, paths)} ({_one_line(exc)})") from None
+    return len(edits)
+
+
+def _rel_site(path: Path, paths: Paths) -> str:
+    for base, prefix in ((paths.content, "content/"), (paths.static, "static/")):
+        try:
+            return prefix + path.relative_to(base).as_posix()
+        except ValueError:
+            continue
+    return str(path)
+
+
+def cmd_apply(args, paths):
+    batch = _batch_dir(paths, args.batch)
+    manifest = read_manifest(batch)
+    # Phase one: every scene's verdict, before anything is written.
+    verdicts: dict[str, str | None] = {}
+    for scene in manifest["scenes"]:
+        try:
+            validate_scene(scene, batch, paths)
+            verdicts[scene["id"]] = None
+        except SceneRefused as exc:
+            verdicts[scene["id"]] = exc.reason
+        except (KeyError, TypeError):
+            verdicts[scene.get("id", "?") if isinstance(scene, dict) else "?"] = "manifest_invalid"
+    applied = refused = 0
+    # Phase two: each passing scene, checked again right before its own writes.
+    for scene in manifest["scenes"]:
+        name = scene.get("id", "?") if isinstance(scene, dict) else "?"
+        reason = verdicts.get(name)
+        if reason is None:
+            try:
+                pages = _apply_scene(scene, batch, paths)
+            except SceneRefused as exc:
+                reason = exc.reason
+            except PartialWrite as exc:
+                refused += 1
+                listed = ", ".join(_rel_site(p, paths) for p in exc.changed)
+                print(f"PARTIAL:{name}|{listed}|restore failed after: {exc.cause}; "
+                      "restore these files by hand")
+                continue
+            else:
+                applied += 1
+                print(f"APPLIED:{name}|{scene['output']}|pages={pages}")
+                continue
+        refused += 1
+        print(f"REFUSED:{name}|{reason}")
+    for failure in manifest.get("failed", []):
+        print(f"SKIPPED:{failure['id']}|not staged ({_one_line(failure['reason'])})")
+    print(f"APPLY:applied={applied} refused={refused} batch={manifest['batch']}")
+    return 1 if refused else 0
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(prog="screenshots.sh", description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
@@ -792,6 +1150,15 @@ def build_parser() -> argparse.ArgumentParser:
     sub.add_argument("--no-keep", action="store_true")
     sub.add_argument("--png", action="store_true")
     sub.set_defaults(func=cmd_replay)
+
+    sub = verbs.add_parser("preview")
+    sub.add_argument("--batch", required=True)
+    sub.set_defaults(func=cmd_preview)
+
+    sub = verbs.add_parser("apply")
+    sub.add_argument("--batch", required=True,
+                     help="the batch that was reviewed; there is no default")
+    sub.set_defaults(func=cmd_apply)
 
     verbs.add_parser("list").set_defaults(func=cmd_list)
     return parser

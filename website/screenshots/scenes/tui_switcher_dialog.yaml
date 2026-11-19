@@ -1,0 +1,30 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: tui_switcher_dialog
+output: aitasks_tui_switcher_dialog.svg
+title: aitasks board
+size:
+- 126
+- 40
+window: board
+dataset: base
+setup: []
+launch: ./ait board
+steps:
+- wait:
+    text: 3 children
+    timeout: 60
+- wait: ╔
+- keys:
+  - j
+- wait: TUI Switcher
+- wait: Syncer (Y)
+- wait: J/Esc close
+expect:
+- TUI Switcher
+- Task Board
+- tmux Monitor (M)
+- Code Browser (C)
+- Settings (S)
+- (Shift+M) minimonitor
+illustrates: 'The TUI switcher dialog, opened with j from the board: the list of integrated TUIs with their shortcut keys, the current TUI marked, and the hint rows at the bottom including Shift+M for a minimonitor.'

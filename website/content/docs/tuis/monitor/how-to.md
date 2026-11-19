@@ -137,7 +137,7 @@ Press **j** from any zone to open the TUI switcher overlay. It lists the TUIs in
 
 Select a target and the switcher either focuses the existing tmux window running that TUI or creates a new window and launches it. This is the fastest way to move between the monitor dashboard and any other ait TUI without leaving tmux.
 
-<!-- screenshot: scene=tui_switcher_from_monitor file=aitasks_tui_switcher_from_monitor.svg alt="TUI switcher dialog opened from monitor" caption="The TUI switcher opened from monitor, where Shift+M is not offered." -->
+{{< static-img src="imgs/aitasks_tui_switcher_from_monitor.svg" alt="TUI switcher dialog opened from monitor" caption="The TUI switcher opened from monitor, where Shift+M is not offered." >}}
 
 ### How to Show Task Info for an Agent Pane
 

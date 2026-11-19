@@ -336,9 +336,68 @@ It fails on a comment that mentions `screenshot` but is not a valid marker
 marker and its scene spec, and on a `static-img`, `split-hero` or `tour-tile`
 image that has no file under `static/`. An image is checked at the path a
 browser requests, with any `?query` or `#fragment` removed and
-percent-encoding decoded. A marker whose scene spec does not
-exist yet is listed as a warning, and every valid marker is listed as
-unresolved. Markers inside fenced code blocks are ignored.
+percent-encoding decoded. It also fails on a marker whose scene has no
+recipe under `screenshots/scenes/`. Every valid marker is listed as
+unresolved until its screenshot is applied. Markers inside fenced code blocks
+are ignored.
+
+## Generating Screenshots
+
+A marker's image is made by running the real TUI on a sample project and
+capturing it. The tool for that is `screenshots.sh` in this directory. It is
+part of this repository only, and needs `tmux` and the framework's Python
+environment (`ait setup`); PNG previews need Chromium.
+
+The usual way to use it is the `/aitask-docs-screenshots` skill in Claude
+Code, run from the repository root:
+
+```
+/aitask-docs-screenshots                 # every marker and every recipe
+/aitask-docs-screenshots board_child_tasks
+```
+
+For each marker without a recipe, the skill reads the page, drives the TUI to
+the state the page describes, captures it and records the route as a recipe
+(`screenshots/scenes/<scene>.yaml`). For each existing recipe it replays the
+route and repairs it when the replay fails or the image no longer matches the
+page. It then shows you one batch of images and applies it only after you
+approve. It never commits.
+
+The same steps by hand:
+
+```bash
+cd website
+./screenshots.sh list                                   # recipes, datasets, marker counts
+./screenshots.sh replay --scene board_child_tasks --png # run one recipe; prints BATCH:<id>
+./screenshots.sh replay --all --no-keep --png           # every recipe into one batch
+./screenshots.sh preview --batch <id>                   # writes <batch>/preview.html
+./screenshots.sh apply --batch <id>                     # images to static/imgs, markers to static-img
+./screenshots.sh session stop --all                     # stop any session left open
+python3 check_links.py --build && python3 check_screenshots.py
+```
+
+`./screenshots.sh --help` lists every verb, including the ones for driving a
+session step by step (`session start`, `setup`, `run`, `screen`, `keys`,
+`wait`, `find`, `shot`, `recipe save`).
+
+What to know before using it:
+
+- **Sample data only.** Every capture runs on a throwaway project named
+  `lumen`, built from a dataset in `screenshots/sample_project.py`, in a tmux
+  server of its own. Your tmux sessions, your configuration and this
+  repository's tasks never appear in an image.
+- **Recipes are recorded, not written.** Do not edit a recipe file. When one
+  fails, find the route again and save it with `recipe save --replace`.
+- **Batches.** Captures are staged under `screenshots/.staging/<batch id>/`,
+  which git ignores. A batch is never changed after it is written.
+- **`apply` takes the batch you reviewed.** The batch id is required. A scene
+  is skipped with `REFUSED:<scene>|<reason>` when its staged image, its target
+  file or one of its markers changed after the capture; that scene needs a
+  new capture. Other edits you made to a page during review are kept.
+- **Real clocks.** An idle timer or a lock time in an image shows the moment
+  of capture, so two runs of one recipe are not byte-identical.
+
+The rules behind the tool are in `aidocs/framework/docs_screenshots.md`.
 
 ## Deployment
 

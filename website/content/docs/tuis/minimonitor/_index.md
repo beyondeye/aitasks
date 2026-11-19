@@ -11,7 +11,7 @@ depth: [intermediate]
 
 Minimonitor is **meant to be auto-spawned** alongside every code agent you launch from the ait TUIs. You rarely need to start it yourself — whenever a new agent window is created, the launching TUI also splits a minimonitor pane next to it, and minimonitor closes itself automatically when the agent pane exits. Manual launch via `ait minimonitor` is supported but is an escape hatch rather than the primary workflow.
 
-<!-- screenshot: scene=minimonitor_main_view file=aitasks_minimonitor_main_view.svg alt="Minimonitor in a right-side split beside a code agent pane" caption="Minimonitor running beside a code agent in the same tmux window." -->
+{{< static-img src="imgs/aitasks_minimonitor_main_view.svg" alt="Minimonitor in a right-side split beside a code agent pane" caption="Minimonitor running beside a code agent in the same tmux window." >}}
 
 > **Customizable keys:** every shortcut here can be rebound. Press `?` in this
 > TUI for the in-place editor, or open

@@ -328,7 +328,7 @@ Deletion performs `git rm` on all listed files and creates an automatic commit. 
 
 Parent tasks can have child subtasks stored in `aitasks/t<N>/`. The board supports expanding and collapsing child tasks inline.
 
-<!-- screenshot: scene=board_child_tasks file=aitasks_board_child_tasks.svg alt="Board with a parent task expanded to show its child tasks" caption="An expanded parent task with its child tasks joined by connector lines." -->
+{{< static-img src="imgs/aitasks_board_child_tasks.svg" alt="Board with a parent task expanded to show its child tasks" caption="An expanded parent task with its child tasks joined by connector lines." >}}
 
 **Expanding children:**
 
@@ -405,7 +405,7 @@ Task locks are a lightweight reservation mechanism that signals to other users a
 
 > **Note:** You do **not** need to manually lock a task before using `/aitask-pick` or `/aitask-pickrem`. These skills acquire the lock, set status to Implementing, and update `assigned_to` in one step. Board locks are a **manual pre-reservation tool** — useful for reserving a task ahead of time (including before sending it to `/aitask-pickweb`, which cannot acquire locks from Claude Code Web), or coordinating without the pick workflow. See the [`ait lock` command reference]({{< relref "/docs/commands/lock#when-to-use-ait-lock" >}}) for the full decision guide.
 
-<!-- screenshot: scene=board_task_detail_lock file=aitasks_board_task_detail_lock.svg alt="Task detail dialog showing the lock status and the Lock and Unlock buttons" caption="The lock status and the Lock and Unlock buttons in the task detail dialog." -->
+{{< static-img src="imgs/aitasks_board_task_detail_lock.svg" alt="Task detail dialog showing the lock status and the Lock and Unlock buttons" caption="The lock status and the Lock and Unlock buttons in the task detail dialog." >}}
 
 **Locking:** open the task detail dialog (**Enter**) → click "🔒 Lock" → confirm the email (defaults to `userconfig.yaml` or `emails.txt`) → Save. A notification confirms the lock. The button is disabled when the task is already locked or has status Done / Folded.
 
@@ -501,7 +501,7 @@ When you run `ait board` inside tmux, press **`j`** to open the **TUI switcher**
 
 A typical flow from the board: triage a task, press `j`, switch to **monitor** to watch the agents running on other panes or to **codebrowser** to review the diff produced for a completed task.
 
-<!-- screenshot: scene=tui_switcher_dialog file=aitasks_tui_switcher_dialog.svg alt="TUI switcher dialog listing the integrated TUIs and their shortcut keys" caption="The TUI switcher, opened with j from any main TUI." -->
+{{< static-img src="imgs/aitasks_tui_switcher_dialog.svg" alt="TUI switcher dialog listing the integrated TUIs and their shortcut keys" caption="The TUI switcher, opened with j from any main TUI." >}}
 
 The switcher requires a tmux session — see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}) for how to launch one with `ait ide`.
 

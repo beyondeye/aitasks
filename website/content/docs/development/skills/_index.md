@@ -16,6 +16,7 @@ These skills exist solely to support framework development. End users adopting a
 | Skill | Description |
 |-------|-------------|
 | [`/aitask-audit-wrappers`](aitask-audit-wrappers/) | Audit and port aitask skill wrappers across all four code-agent trees, plus helper-script whitelist coverage |
+| [`/aitask-docs-screenshots`](aitask-docs-screenshots/) | Generate and repair the website's TUI screenshots from the real TUIs running on a sample project |
 
 ## Useful for framework development *and* normal use
 

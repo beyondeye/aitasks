@@ -9,7 +9,7 @@ with its page and line:
 1. ``UNPARSEABLE`` -- a comment that mentions ``screenshot`` but is not a valid
    marker (a free-form TODO comment, a multi-line one, an inline one). Fails.
 2. ``NO_SCENE`` -- a marker whose scene has no ``screenshots/scenes/<scene>.yaml``.
-   Its severity is ``MISSING_SCENE_SEVERITY``.
+   Fails (``MISSING_SCENE_SEVERITY``).
 3. ``OWNERSHIP`` -- a marker whose ``file=`` differs from its scene's
    ``output:``, two specs with the same ``output:``, or a spec whose ``id:`` /
    ``output:`` is missing, unsupported or (for ``id:``) differs from its file
@@ -46,10 +46,11 @@ if str(HERE) not in sys.path:
 
 from screenshots import markers as mk  # noqa: E402
 
-#: Severity of a marker whose scene spec does not exist yet: "warning" lists it
-#: and keeps exit 0, "error" fails the check. "warning" while the scene specs
-#: are still being written; t2278_5 switches it to "error".
-MISSING_SCENE_SEVERITY = "warning"
+#: Severity of a marker whose scene has no recipe: "error" fails the check,
+#: "warning" lists it and keeps exit 0. Every scene named by a page has a
+#: recipe, so a marker without one is a typo or a recipe that was never
+#: recorded.
+MISSING_SCENE_SEVERITY = "error"
 
 
 def _rel(path: Path, base: Path) -> str:

@@ -325,21 +325,24 @@ class CheckerTests(TreeCase):
         self.assertIn("UNPARSEABLE", out)
         self.assertNotIn("SCREENSHOTS:", out)
 
-    def test_valid_marker_without_scene_is_a_warning(self):
+    def test_valid_marker_without_scene_fails(self):
+        self.assertEqual(cs.MISSING_SCENE_SEVERITY, "error")
         self.t.page("a.md", GOOD + "\n")
+        rc, out = self.t.run()
+        self.assertEqual(rc, 1)
+        self.assertIn("NO_SCENE", out)
+        self.assertIn("UNRESOLVED", out)
+        self.assertIn("SCREENSHOTS: FAILED", out)
+
+    def test_missing_scene_severity_warning_lists_and_passes(self):
+        self.t.page("a.md", GOOD + "\n")
+        old = cs.MISSING_SCENE_SEVERITY
+        cs.MISSING_SCENE_SEVERITY = "warning"
+        self.addCleanup(setattr, cs, "MISSING_SCENE_SEVERITY", old)
         rc, out = self.t.run()
         self.assertEqual(rc, 0)
         self.assertIn("NO_SCENE", out)
-        self.assertIn("UNRESOLVED", out)
         self.assertIn("SCREENSHOTS: PASSED", out)
-
-    def test_missing_scene_severity_error_fails(self):
-        self.t.page("a.md", GOOD + "\n")
-        old = cs.MISSING_SCENE_SEVERITY
-        cs.MISSING_SCENE_SEVERITY = "error"
-        self.addCleanup(setattr, cs, "MISSING_SCENE_SEVERITY", old)
-        rc, _ = self.t.run()
-        self.assertEqual(rc, 1)
 
     def test_strict_fails_on_unresolved(self):
         self.t.page("a.md", GOOD + "\n")

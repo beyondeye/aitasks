@@ -88,6 +88,12 @@ The TUI types only into an agent that is idle with an empty input box (the *comp
 
 The detailed list of results is in the [reference](../reference/#request-results).
 
+### How to Show One Kind of Item
+
+The row above the list has one tab per kind of item: **All**, **Triage** (the questions to triage or decide), **Tasks** (tasks to pick, push reminders and other actions), **Recovery** (crashed agents' tasks) and **Watches**. Each tab shows how many open items it has. Press **→** and **←** to move between the tabs, or click one. A tab with nothing in it stays selectable and says so.
+
+Inside a tab the list keeps its **Now** / **Next** / **Waiting** groups, **d** still shows the done and dismissed items of that kind, and the label filter applies on top of the tab. The header then counts what the filter hides in this tab. On a narrow pane the tab labels get shorter, down to one character and the count. The full table is in the [reference](../reference/#tabs).
+
 ### How to Filter by Label
 
 Press **f** to filter the list by task labels. The picker lists the labels of the tasks in the list, each with a count. **Space** checks a label, and **Enter** or **Apply** applies the filter. The list then shows only task items whose task has at least one of the checked labels. Items that are not tasks of this repository (triage, decisions, watches, push reminders, tasks of other projects) are hidden while the filter is on, and so are task items whose task file is missing. The header names the filter and how many items it hides.

@@ -1,0 +1,40 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: board_task_detail_lock
+output: aitasks_board_task_detail_lock.svg
+title: aitasks board
+size:
+- 134
+- 40
+dataset: board_locks
+setup:
+- ./ait lock --init
+- ./ait lock 14 --email alex@example.com
+launch: ./ait board
+steps:
+- wait: 3 children
+- wait: ╔
+- keys:
+  - Down
+- wait: ║ □ t14 fix login redirect loop
+- keys:
+  - Enter
+- wait: (U)nlock
+- keys:
+  - Down
+  - Down
+  - Down
+  - Down
+  - Down
+  - Down
+  - Down
+- keys:
+  - Enter
+- wait: 'Locked: alex@example.com on lumen-laptop'
+expect:
+- t14 fix login redirect loop
+- Lock & files
+- 'Locked: alex@example.com on lumen-laptop'
+- (L)ock
+- (U)nlock
+illustrates: 'The board''s task detail dialog for a task that is locked: the Lock & files section is expanded and shows who holds the lock, on which machine and since when, and the button row has Lock disabled and Unlock enabled.'

@@ -208,7 +208,7 @@ When you run `ait codebrowser` inside tmux, you can jump to any other integrated
 
 A typical flow is: pick a task on the board, let a code agent implement it, then press **`j`** in the codebrowser to hop to **monitor** and watch the agent, or back to **board** to move the task to the next column once the review is complete.
 
-<!-- screenshot: scene=tui_switcher_dialog file=aitasks_tui_switcher_dialog.svg alt="TUI switcher dialog listing the integrated TUIs and their shortcut keys" caption="The TUI switcher, opened with j from any main TUI." -->
+{{< static-img src="imgs/aitasks_tui_switcher_dialog.svg" alt="TUI switcher dialog listing the integrated TUIs and their shortcut keys" caption="The TUI switcher, opened with j from any main TUI." >}}
 
 The TUI switcher requires a tmux session. If you are not running inside tmux yet, see [Terminal Setup]({{< relref "/docs/installation/terminal-setup" >}}) for how to launch one with `ait ide`.
 
