@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [sitrep, tui]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 created_at: 2026-11-19 05:12
-updated_at: 2026-11-19 05:12
+updated_at: 2026-11-19 05:28
 ---
 
 ## Problem
