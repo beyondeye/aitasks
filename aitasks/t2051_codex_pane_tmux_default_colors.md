@@ -3,14 +3,15 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [codex, tmux, codeagent, opencode, monitor]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-10-18 12:33
-updated_at: 2026-11-18 23:06
+updated_at: 2026-11-19 10:13
 ---
 
 ## Problem
