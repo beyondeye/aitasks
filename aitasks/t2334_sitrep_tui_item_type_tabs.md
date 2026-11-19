@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-19 05:12
-updated_at: 2026-11-19 05:28
+updated_at: 2026-11-19 22:15
 ---
 
 ## Problem
@@ -49,3 +50,8 @@ Work directions and their tab (separate task). No store or skill change.
 
 - New cases in `tests/test_sitrep_tui_app.py` over the fixture store: per-tab membership, counts, wrap-around, empty tab, composition with `d` and the label filter, selection kept across a reload, the class-coverage test above.
 - `bash tests/run_all_python_tests.sh --test-dir tests` subset for `test_sitrep_tui_*`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-19T20:15:34Z status=pass attempt=1 type=human
