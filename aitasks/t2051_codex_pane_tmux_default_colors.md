@@ -86,6 +86,14 @@ The design must handle this, and a live test must pin it for both settings. Cand
 
 Also for planning: the helper shows up in tmux's own session surfaces (`prefix s`, `prefix (` / `)`), which cannot be filtered.
 
+## Scope decisions (user, 2026-11-19)
+
+- **This is a transport-layer fix with no UI.** The control connections belong to the shared control-client code in `monitor/monitor_core.py`, which every TUI that opens one goes through. The fix lives there, so current and future TUIs get it without knowing about it.
+- **It is not integrated into sitrep.** The sitrep window is a window inside the project session, and the bug is about which client attached to that session first. From inside the project session sitrep could only use the per-pane style alternative. Keeping the two apart also keeps one responsibility each.
+- **The helper pane stays a plain `sleep`**, not a Textual "lobby" TUI. Normally nobody sees that pane, so a TUI there would sit idle and add a Python process per tmux server.
+- **The `detach-on-destroy off` gap is handled with a plain bounce** (session option or hook, to be measured), not a TUI.
+- **Out of scope, noted on t2211:** once sitrep is the always-open backbone window of each project session, the bounce could land the terminal on another live project's sitrep window. That depends on t2211 and is not part of this task.
+
 ## Open questions for planning
 
 - **No real client attached when the agent starts** (unattended launch, or a session nobody is viewing): tmux sends no reply at all. The helper session does not change that. Codex then appears to use its own fallback (`30;30;30` backgrounds). Measure what both agents draw in that case and whether either re-queries after a client attaches. If the result is unreadable, the per-pane style is the candidate for that case only.
