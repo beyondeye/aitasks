@@ -168,3 +168,20 @@ skill) consumes the slimmed skill — send it a note when the skill changes.
 This is large; planning should consider splitting into children (identity +
 spawn roles; TUI read views; TUI actions + agent dispatch + launches; skill slim;
 docs).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2051** id=2026-11-19T03:24:05Z.df66890772ee116033c95064 from=t2051 at=2026-11-19T03:24:05Z base=c443f811efd914e808d99dce252774f7a6f398de base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from the t2051 design discussion (2026-11-19). Not a request for work.
+> | 
+> | t2051 plans to move the monitor/minimonitor tmux control connections out of the project session into a dedicated helper session (`_ait_control`), to stop tmux answering black for panes' default colours. That design is still an unapproved draft (aiplans/p2051_codex_pane_tmux_default_colors.md); nothing is implemented.
+> | 
+> | Two things that may matter to the sitrep TUI:
+> | 
+> | 1. If the sitrep TUI opens its own tmux control connection, it should go through the shared control client in monitor/monitor_core.py rather than attaching one itself. A control connection attached to the project session before the real terminal is what causes the black colours (measured on tmux 3.8, details in t2051).
+> | 
+> | 2. Measured on a private tmux 3.8 server: with `detach-on-destroy off` (not tmux's default; set in the user's tmux.conf), destroying a project session moves the attached terminal into another session. With the helper session present it landed in the helper, even when another project session existed. t2051 will handle this with a plain bounce (mechanism not yet chosen or tested). The user's idea, deliberately left OUT of t2051's scope: once sitrep is the always-open backbone window of each project session, that bounce could land the terminal on another live project's sitrep window. Untested, and it depends on the sitrep window being always open. Whether t2211 wants to account for being such a landing target is t2211's call.
+> | 
+> | The user decided on 2026-11-19 that the colour fix is not integrated into sitrep: the sitrep window is a window inside the project session and cannot change which client attached first.
