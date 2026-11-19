@@ -19,7 +19,7 @@ Check the work-directions flow end to end in a real terminal, in a scratch repo 
 ## Verification Checklist
 
 - [ ] With several open items and no directions, the Directions tab shows the empty state; the request key types `>d` into the sitrep agent
-- [ ] `>d` proposes themes, summaries, linked trails and ONE ranked order, asks once, and after "yes" the Directions tab shows the rows in that order
+- [ ] `>d` proposes directions, summaries, linked trails and ONE ranked order, asks once, and after "yes" the Directions tab shows the rows in that order
 - [ ] Reordering at the confirmation is honoured and persists across a TUI restart
 - [ ] Completing or archiving a member task, then pressing r, turns that direction STALE with a readable reason; the others stay current
 - [ ] Harvesting a new wrap-up raises the "N items in no direction" count; Enter on that line lists exactly those items
