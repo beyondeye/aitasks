@@ -298,3 +298,362 @@ then archive per task-workflow Step 9.
 
 ### Planned mitigations
 - timing: post-phase | name: guard_control_routed_explicit_targets | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: implicit-target control-routed commands silently retargeting the helper session | desc: source scan failing any control-routed tmux call without an explicit -t, with a planted-probe control
+
+## Appendix: re-verification probe scripts (2026-11-18)
+
+These are the scratch scripts behind the measurements recorded in the task file
+(`aitasks/t2051_codex_pane_tmux_default_colors.md`, "Root cause" and "`ait ide`
+integration"). They are copied verbatim so the measurements can be re-run. They are
+not repo tests. Measured with tmux 3.8, Codex 0.170.0 and OpenCode 1.18.34.
+
+How to run: put the four files in one scratch directory and run them from there.
+They use a private tmux server (`-L t2051r`, `-f /dev/null`) and drop `TMUX` /
+`TMUX_PANE` from the environment, so they never touch the live server.
+
+- `python3 harness.py`: the client-order matrix (OSC 10/11 replies per scenario).
+- `python3 agents.py opencode` / `python3 agents.py codex`: start the real agent in
+  both client orders and count the truecolor values on its start screen. No turn is
+  spent. It needs an `agentdir/` subdirectory to launch the agent in, and mirrors the
+  live server's options (`allow-passthrough on`, `*:RGB`).
+- `python3 dod.py`: where the real terminal goes when the project session is
+  destroyed, for both `detach-on-destroy` settings, plus the `ait ide` attach order
+  with the helper session.
+
+Known limits: the `refresh-client -r` attempt in `harness.py` (S8) changed nothing and
+may be wrongly quoted, so treat that alternative as untested. `agents.py` waits a fixed
+8 s for the agent's start screen.
+
+### `probe.py`
+
+```python
+#!/usr/bin/env python3
+"""Runs INSIDE a tmux pane: ask the terminal (tmux) for default fg/bg + palette."""
+import os, sys, termios, tty, select, time
+
+out = sys.argv[1]
+fd = os.open("/dev/tty", os.O_RDWR)
+old = termios.tcgetattr(fd)
+tty.setraw(fd)
+try:
+    q = b"\x1b]10;?\x1b\\" b"\x1b]11;?\x1b\\" b"\x1b]4;1;?\x1b\\" b"\x1b]4;7;?\x1b\\" b"\x1b[c"
+    os.write(fd, q)
+    buf = b""
+    end = time.time() + 1.5
+    while time.time() < end:
+        r, _, _ = select.select([fd], [], [], 0.1)
+        if r:
+            buf += os.read(fd, 4096)
+            if b"\x1b[?" in buf and buf.rstrip().endswith(b"c"):
+                break
+finally:
+    termios.tcsetattr(fd, termios.TCSANOW, old)
+with open(out + ".tmp", "w") as f:
+    f.write(repr(buf))
+os.rename(out + ".tmp", out)
+```
+
+### `harness.py`
+
+```python
+#!/usr/bin/env python3
+"""t2051 re-verification harness. Private tmux server only (-L t2051r)."""
+import os, pty, re, subprocess, sys, threading, time, fcntl, struct, termios, signal
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+SOCK = "t2051r"
+ENV = {k: v for k, v in os.environ.items() if k not in ("TMUX", "TMUX_PANE")}
+ENV["TERM"] = "xterm-256color"
+T = ["tmux", "-L", SOCK, "-f", "/dev/null"]
+FG, BG = "cccc/dddd/eeee", "2222/3333/4444"
+PALETTE = True
+_P = ["1e1e2e","f38ba8","a6e3a1","f9e2af","89b4fa","f5c2e7","94e2d5","bac2de",
+      "585b70","f38ba8","a6e3a1","f9e2af","89b4fa","f5c2e7","94e2d5","a6adc8"]
+PAL = ["/".join(h[i:i+2]*2 for i in (0,2,4)) for h in _P]
+LIVE_LIKE = False
+
+
+def tm(*a, check=True):
+    r = subprocess.run([*T, *a], env=ENV, capture_output=True, text=True)
+    if check and r.returncode:
+        raise RuntimeError(f"tmux {a}: {r.stderr.strip()}")
+    return r.stdout.strip()
+
+
+def kill_server():
+    subprocess.run([*T, "kill-server"], env=ENV, capture_output=True)
+    time.sleep(0.2)
+
+
+class FakeTerm:
+    """A pty-backed 'real' client that answers OSC 10/11 like an outer terminal."""
+
+    def __init__(self, session, answer=True):
+        self.answer = answer
+        self.seen = b""
+        self.palq = 0
+        pid, fd = pty.fork()
+        if pid == 0:
+            os.execvpe("tmux", [*T, "attach", "-t", "=" + session], ENV)
+        self.pid, self.fd = pid, fd
+        fcntl.ioctl(fd, termios.TIOCSWINSZ, struct.pack("HHHH", 40, 120, 0, 0))
+        self.stop = False
+        self.t = threading.Thread(target=self._loop, daemon=True)
+        self.t.start()
+        time.sleep(0.6)
+
+    def _loop(self):
+        tail = b""
+        while not self.stop:
+            try:
+                d = os.read(self.fd, 65536)
+            except OSError:
+                return
+            if not d:
+                return
+            self.seen += d
+            tail = (tail + d)[-200000:]
+            if not self.answer:
+                continue
+            while True:
+                m = re.search(rb"\x1b\](10|11|4;\d+);\?(\x1b\\|\x07)", tail)
+                if not m:
+                    break
+                k = m.group(1)
+                if k.startswith(b"4;"):
+                    self.palq += 1
+                    n = int(k[2:])
+                    rgb = PAL[n % 16] if PALETTE else None
+                else:
+                    rgb = FG if k == b"10" else BG
+                if rgb:
+                    os.write(self.fd, b"\x1b]" + k + b";rgb:" + rgb.encode() + b"\x1b\\")
+                tail = tail[m.end():]
+
+    def close(self):
+        self.stop = True
+        try:
+            os.kill(self.pid, signal.SIGHUP)
+        except ProcessLookupError:
+            pass
+        try:
+            os.close(self.fd)
+        except OSError:
+            pass
+        try:
+            os.waitpid(self.pid, 0)
+        except ChildProcessError:
+            pass
+
+
+class Ctl:
+    def __init__(self, argv):
+        self.p = subprocess.Popen([*T, "-C", *argv], env=ENV, stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        time.sleep(0.5)
+
+    def send(self, line):
+        self.p.stdin.write(line.encode() + b"\n")
+        self.p.stdin.flush()
+        time.sleep(0.3)
+
+    def close(self):
+        try:
+            self.p.stdin.close()
+        except Exception:
+            pass
+        try:
+            self.p.wait(timeout=2)
+        except Exception:
+            self.p.kill()
+
+
+def attach_ctl(session):
+    return Ctl(["attach", "-t", "=" + session, "-f", "no-output,ignore-size"])
+
+
+def probe(session, n=[0]):
+    n[0] += 1
+    out = f"{HERE}/out/p{os.getpid()}_{n[0]}"
+    os.makedirs(f"{HERE}/out", exist_ok=True)
+    pane = tm("new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "=" + session + ":",
+              f"python3 {HERE}/probe.py {out}; sleep 30")
+    return wait_out(out), pane
+
+
+def probe_in_pane_style(session, style):
+    """probe where the pane style is set BEFORE the program queries."""
+    out = f"{HERE}/out/s{os.getpid()}_{time.time_ns()}"
+    pane = tm("new-window", "-d", "-P", "-F", "#{pane_id}", "-t", "=" + session + ":",
+              f"sleep 1; python3 {HERE}/probe.py {out}; sleep 30")
+    tm("select-pane", "-t", pane, "-P", style)
+    return wait_out(out, 5), pane
+
+
+def wait_out(out, t=4):
+    end = time.time() + t
+    while time.time() < end:
+        if os.path.exists(out):
+            return summarize(open(out).read())
+        time.sleep(0.1)
+    return "PROBE-TIMEOUT"
+
+
+def summarize(rep):
+    raw = eval(rep)
+    res = {}
+    for k, pat in (("fg", rb"\]10;(rgb:[0-9a-f/]+)"), ("bg", rb"\]11;(rgb:[0-9a-f/]+)"),
+                   ("pal1", rb"\]4;1;(rgb:[0-9a-f/]+)"), ("pal7", rb"\]4;7;(rgb:[0-9a-f/]+)")):
+        m = re.search(pat, raw)
+        res[k] = m.group(1).decode() if m else "no-reply"
+    res["da"] = b"\x1b[?" in raw
+    return res
+
+
+def fresh(*sessions):
+    kill_server()
+    for s in sessions:
+        tm("new-session", "-d", "-s", s, "-x", "120", "-y", "40", "-c", "/tmp")
+    tm("set", "-g", "default-terminal", "tmux-256color")
+    if LIVE_LIKE:
+        tm("set", "-g", "allow-passthrough", "on")
+        tm("set", "-as", "terminal-overrides", ",*:RGB")
+        tm("set", "-s", "extended-keys", "on")
+        tm("set", "-g", "focus-events", "on")
+
+
+def show(name, r):
+    print(f"{name:58s} {r}", flush=True)
+
+
+def main():
+    print("tmux", subprocess.run(["tmux", "-V"], capture_output=True, text=True).stdout.strip())
+    # S1 no clients
+    fresh("s")
+    show("S1 no clients", probe("s")[0])
+    # S2 control only
+    fresh("s"); c = attach_ctl("s")
+    show("S2 control client only", probe("s")[0])
+    # S10 control only + pane style
+    show("S10 control only + pane style fg=#cdd6f4,bg=#1e1e2e", probe_in_pane_style("s", "fg=#cdd6f4,bg=#1e1e2e")[0])
+    show("S10b control only + pane style fg only", probe_in_pane_style("s", "fg=#cdd6f4")[0])
+    c.close()
+    # S3 control first then real
+    fresh("s"); c = attach_ctl("s"); f = FakeTerm("s")
+    show("S3 control FIRST, then real client   [BUG]", probe("s")[0])
+    show("S6 S3 + pane style", probe_in_pane_style("s", "fg=#cdd6f4,bg=#1e1e2e")[0])
+    tm("set", "-w", "-t", "=s:", "window-style", "fg=#aabbcc,bg=#112233")
+    show("S7 S3 + window-style on a window (probe in new window)", probe("s")[0])
+    r, pane = None, tm("display-message", "-p", "-t", "=s:", "#{pane_id}")
+    out = f"{HERE}/out/w{os.getpid()}"
+    tm("respawn-pane", "-k", "-t", pane, f"python3 {HERE}/probe.py {out}; sleep 30")
+    show("S7b S3 + window-style, probe in the styled window", wait_out(out))
+    # S8 refresh-client -r report
+    r, pane = probe("s")
+    c.send(f"refresh-client -r '{pane}:\\033]10;rgb:9999/8888/7777\\033\\\\'")
+    out = f"{HERE}/out/r{os.getpid()}"
+    tm("respawn-pane", "-k", "-t", pane, f"python3 {HERE}/probe.py {out}; sleep 30")
+    show("S8 S3 + control client refresh-client -r report (fg)", wait_out(out))
+    c.close(); f.close()
+    # S3b control first, real, then control leaves
+    fresh("s"); c = attach_ctl("s"); f = FakeTerm("s"); c.close(); time.sleep(0.3)
+    show("S3b control first, real, control LEAVES", probe("s")[0])
+    f.close()
+    # S4 real first then control
+    fresh("s"); f = FakeTerm("s"); c = attach_ctl("s")
+    show("S4 real FIRST, then control", probe("s")[0])
+    c.close(); f.close()
+    # S5 control in other session
+    fresh("s", "other"); c = attach_ctl("other"); f = FakeTerm("s")
+    show("S5 control (first) in OTHER session + real in s", probe("s")[0])
+    c.close(); f.close()
+    # S9 helper-session mechanism from the plan
+    fresh("s")
+    c = Ctl(["new-session", "-A", "-s", "_ait_control", "-c", "/", "-f", "no-output,ignore-size",
+             "exec sleep 2147483647"])
+    c.send("set-option -t =_ait_control: destroy-unattached on")
+    c2 = Ctl(["new-session", "-A", "-s", "_ait_control", "-c", "/", "-f", "no-output,ignore-size",
+              "exec sleep 2147483647"])
+    f = FakeTerm("s")
+    show("S9 two control clients in helper session + real in s", probe("s")[0])
+    print("   clients:", tm("list-clients", "-F", "#{client_control_mode}:#{client_session}").split())
+    c.close(); time.sleep(0.3)
+    print("   after 1st ctl leaves, sessions:", tm("list-sessions", "-F", "#S").split())
+    c2.close(); time.sleep(0.5)
+    print("   after last ctl leaves, sessions:", tm("list-sessions", "-F", "#S").split())
+    f.close()
+    # S11 real client that does NOT answer colour queries
+    fresh("s"); f = FakeTerm("s", answer=False)
+    show("S11 real client only, terminal never answers OSC 10/11", probe("s")[0])
+    c = attach_ctl("s")
+    show("S11b same + control client attached later", probe("s")[0])
+    c.close(); f.close()
+    # S12 real attached then detached (unattended)
+    fresh("s"); f = FakeTerm("s"); f.close(); time.sleep(0.3)
+    show("S12 real client attached, then detached", probe("s")[0])
+    kill_server()
+
+
+if __name__ == "__main__":
+    main()
+```
+
+### `agents.py`
+
+```python
+import sys, time, re, collections, os
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import harness
+from harness import *
+harness.LIVE_LIKE = True
+
+def colours(pane):
+    cap = tm("capture-pane", "-e", "-p", "-t", pane)
+    fg = collections.Counter(re.findall(r"\x1b\[[0-9;]*?38;2;(\d+;\d+;\d+)", cap))
+    bg = collections.Counter(re.findall(r"\x1b\[[0-9;]*?48;2;(\d+;\d+;\d+)", cap))
+    idx = collections.Counter(re.findall(r"\x1b\[((?:3|4|9|10)[0-7]|[34]8;5;\d+)m", cap))
+    text = re.sub(r"\x1b\[[0-9;]*m", "", cap)
+    return fg.most_common(6), bg.most_common(6), idx.most_common(4), text
+
+def run(label, order, cmd, wait):
+    fresh("s")
+    cl = []
+    for o in order:
+        cl.append(attach_ctl("s") if o == "ctl" else FakeTerm("s"))
+    pane = tm("new-window", "-P", "-F", "#{pane_id}", "-t", "=s:", "-c", f"{HERE}/agentdir", "-e", "COLORTERM=truecolor", cmd)
+    time.sleep(wait)
+    fg, bg, idx, text = colours(pane)
+    print(f"== {label}\n   fg truecolor: {fg}\n   bg truecolor: {bg}\n   indexed: {idx}")
+    lines = [l for l in text.splitlines() if l.strip()]
+    print("   screen:", " | ".join(l.strip()[:60] for l in lines[:6]))
+    print("   palette queries reaching outer terminal:", [c.palq for c in cl if isinstance(c, FakeTerm)])
+    for c in cl: c.close()
+    kill_server()
+
+which = sys.argv[1]
+cmd, wait = {"opencode": ("opencode", 8), "codex": ("codex", 8)}[which]
+run(f"{which}: control FIRST then real (bug order)", ["ctl", "real"], cmd, wait)
+run(f"{which}: real FIRST then control (good order)", ["real", "ctl"], cmd, wait)
+```
+
+### `dod.py`
+
+```python
+from harness import *
+def helper():
+    c = Ctl(["new-session","-A","-s","_ait_control","-c","/","-f","no-output,ignore-size","exec sleep 2147483647"])
+    c.send("set-option -t =_ait_control: destroy-unattached on"); return c
+def state(tag):
+    print(f"  {tag}: sessions={tm('list-sessions','-F','#S',check=False).split()} clients={tm('list-clients','-F','#{client_control_mode}:#{client_session}',check=False).split()}")
+for dod in ("off","on"):
+    for others in ([], ["proj2"]):
+        fresh("s", *others); tm("set","-g","detach-on-destroy",dod)
+        c = helper(); f = FakeTerm("s")
+        print(f"detach-on-destroy={dod} other project sessions={others}")
+        tm("kill-session","-t","=s"); time.sleep(0.5); state("after kill-session s")
+        c.close(); time.sleep(0.5); state("after control client leaves")
+        f.close(); kill_server()
+# ide order: session + monitor(control) first, real attaches after, with helper
+fresh("s"); c = helper(); f = FakeTerm("s")
+print("ide order w/ helper:", probe("s")[0]); c.close(); f.close(); kill_server()
+```
+
