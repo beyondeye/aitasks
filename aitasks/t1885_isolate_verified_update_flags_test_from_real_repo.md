@@ -58,3 +58,5 @@ The other two defects were found while enumerating registry writers for t1884's 
 > | - So the stale script header already misleads task authors, not only users who hit the `agent_string.sh:115` hint. Fixing the header text belongs with the hint fix.
 > | 
 > | t2333 briefly opened a separate follow-up for this (t2336), then deleted it as a duplicate of this task.
+
+> **👁 note:read** id=2026-11-19T08:25:26Z.1704bce2a5aa3c6148145356 by=t1885 at=2026-11-19T08:25:26Z mode=explicit ids=2026-10-11T08:39:27Z.91bd93922beca96d97568943,2026-11-19T08:10:18Z.c12ead156e036e9a66ff2cbd
