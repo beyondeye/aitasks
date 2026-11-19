@@ -95,6 +95,14 @@
       "gpt5_6_terra": {
         "by": "gpt6_1_terra",
         "source": "record-supersession 2026-10-27"
+      },
+      "gpt6_1_sol": {
+        "by": "gpt6_2_sol",
+        "source": "promote-config 2026-11-18"
+      },
+      "gpt6_astra": {
+        "by": "gpt6_2_astra",
+        "source": "record-supersession 2026-11-18"
       }
     },
     "opencode": {
@@ -328,6 +336,38 @@
       "openai_gpt_5_6_terra_fast": {
         "by": "openai_gpt_6_1_terra_fast",
         "source": "record-supersession 2026-10-27"
+      },
+      "openai_gpt_6_1_sol": {
+        "by": "openai_gpt_6_2_sol",
+        "source": "record-supersession 2026-11-18"
+      },
+      "openai_gpt_6_1_sol_fast": {
+        "by": "openai_gpt_6_2_sol_fast",
+        "source": "record-supersession 2026-11-18"
+      },
+      "openai_gpt_6_1_sol_ultrafast": {
+        "by": "openai_gpt_6_2_sol_ultrafast",
+        "source": "record-supersession 2026-11-18"
+      },
+      "openai_gpt_6_astra": {
+        "by": "openai_gpt_6_2_astra",
+        "source": "record-supersession 2026-11-18"
+      },
+      "openai_gpt_6_astra_fast": {
+        "by": "openai_gpt_6_2_astra_fast",
+        "source": "record-supersession 2026-11-18"
+      },
+      "openai_gpt_6_astra_ultrafast": {
+        "by": "openai_gpt_6_2_astra_ultrafast",
+        "source": "record-supersession 2026-11-18"
+      },
+      "opencode_gpt_6_1_sol": {
+        "by": "opencode_gpt_6_2_sol",
+        "source": "record-supersession 2026-11-18"
+      },
+      "opencode_gpt_6_astra": {
+        "by": "opencode_gpt_6_2_astra",
+        "source": "record-supersession 2026-11-18"
       }
     }
   }

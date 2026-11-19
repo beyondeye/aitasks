@@ -58,8 +58,8 @@ Each operation maps to a different use case with its own default model:
 | `trail` | Creating, refreshing, and showing implementation trails | `claudecode/opus5_5` |
 | `batch-review` | Batch code review | `claudecode/sonnet5_5` |
 | `qa` | Test coverage analysis | `claudecode/sonnet5_5` |
-| `shadow` | Advisory companion agent for a followed session | `codex/gpt6_1_sol` |
-| `discuss` | Advisory discussion of brainstorm proposals (compare, explain, question, risk-check) | `codex/gpt6_1_sol` |
+| `shadow` | Advisory companion agent for a followed session | `codex/gpt6_2_sol` |
+| `discuss` | Advisory discussion of brainstorm proposals (compare, explain, question, risk-check) | `codex/gpt6_2_sol` |
 | `sitrep` | The repository's sitrep steward, opened by `ait sitrep` (Claude Code only) | `claudecode/opus5_5` |
 | `relations` | Background task-relations analysis, run headless and read-only by the relations worker (Claude Code only) | `claudecode/sonnet5_5` |
 | `obsolescence` | Reserved for the backlog obsolescence assessment of the task-relations layer (Claude Code only) | `claudecode/sonnet5_5` |
