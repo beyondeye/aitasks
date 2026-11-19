@@ -121,7 +121,7 @@
     {
       "name": "gpt6_1_sol",
       "cli_id": "gpt-6.1-sol",
-      "notes": "Latest GPT-6.1 workhorse model for coding and everyday agentic work",
+      "notes": "GPT-6.1 workhorse model for coding and everyday agentic work",
       "verified": {
         "changelog": 80
       }
@@ -136,6 +136,18 @@
       "name": "gpt6_astra",
       "cli_id": "gpt-6-astra",
       "notes": "Frontier-intelligence GPT-6 model for the most demanding work",
+      "verified": {}
+    },
+    {
+      "name": "gpt6_2_sol",
+      "cli_id": "gpt-6.2-sol",
+      "notes": "Latest GPT-6.2 workhorse model for coding and everyday agentic work",
+      "verified": {}
+    },
+    {
+      "name": "gpt6_2_astra",
+      "cli_id": "gpt-6.2-astra",
+      "notes": "Frontier-intelligence GPT-6.2 model for the most demanding work, successor to GPT-6 Astra",
       "verified": {}
     }
   ]
