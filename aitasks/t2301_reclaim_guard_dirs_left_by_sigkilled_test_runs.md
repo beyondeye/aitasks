@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2290
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 13:09
-updated_at: 2026-11-19 10:18
+updated_at: 2026-11-19 10:21
 ---
 
 ## Problem
@@ -49,3 +50,8 @@ the orphaned workers. Reclaim them automatically.
 
 - `tests/lib/tmpdir_guard.sh` ("NOT COVERED" header block, `tmpdir_guard_begin`)
 - `aiplans/archived/p2290_stop_tests_and_helpers_leaking_tmp_dirs.md` (step 6 / step 8)
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-19T08:21:19Z status=pass attempt=1 type=human
