@@ -255,3 +255,49 @@ never leaks into nested runs. Set it after sourcing.
 ### Planned mitigations
 - timing: post-phase | name: reclaim_guard_mutants | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: Code-health — a verdict-ladder bug deleting an in-use dir | desc: Isolated scratch-copy mutants (owner, pgid, held, uninspectable, phase-unrecorded) must each turn only their own test cases red
 - timing: after | name: stronger_holder_evidence_for_guard_reclaim | type: enhancement | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: Goal-achievement — reclaim practically inert on non-root systemd hosts under the strict uninspectable rule | desc: Research and prototype stronger evidence (per-run cgroup / systemd-run --user scope membership, or a narrowly privileged inspector) that would let a non-root host prove a guard dir unused without trusting process start time
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-19)
+- **Requested by user:** six review findings, all verified CONFIRMED:
+  1. both phase-metadata appends were best-effort — failing both left a valid
+     header with zero pgids, so a killed run's surviving group was never checked;
+  2. the holder scan trusted `/proc/[0-9]*` as complete — `hidepid=2/4` hides
+     live processes from enumeration;
+  3. the header writer used a truncating redirect on a derived sibling path — a
+     planted symlink could redirect the write;
+  4. the lsof fallback ran with `-w`, suppressing coverage warnings, then
+     accepted exit 1 + empty output as "no holder";
+  5. the unix-socket scan matched only full paths — a relative bind is listed
+     by basename only (fd reads `socket:[inode]`), reproduced live;
+  6. the owner token was accepted as any printable word — `proc invalid` makes a
+     live owner compare unequal and read as recycled.
+- **Changes made:**
+  1. The `phase_start` intent line must be durable before the launch: a failed
+     append (either one) runs `_tg_meta_invalidate` — `rm`, else `chmod 000`
+     (needs neither space nor write permission) — and announces it. The reader
+     additionally requires the metadata file and control dir to be owned by the
+     user and the file to carry owner `rw` mode bits (checked with `find -perm`,
+     not access(2), so root sees a chmod-000 invalidation too).
+  2. `_tg_proc_view_complete`: the scan runs only when `<root>/mounts` lists the
+     proc mount at the scan root with no `hidepid` other than `0/off/1/noaccess`;
+     otherwise (or when unreadable) every candidate is `keep:proc-view-incomplete`.
+  3. Metadata moved into a private control dir `<base>/.<dirname>.ait_guard_meta/`
+     made by `mkdir -m 700` (exclusive, never follows a symlink), file `meta`.
+     `_tg_meta_create` refuses any pre-existing path at that name.
+  4. lsof runs without `-w`; any output other than a `p<pid>` line keeps the dir.
+     `_TG_EUID` (shell variable) is the test seam for the root rule.
+  5. `_tg_scan_unix_sockets` parses each `net/unix` row; a relative path or an
+     unparseable row counts as uninspectable (keeps every candidate).
+  6. `_tg_token_ok`: per-kind token shape (`proc` digits, `bsdinfo`
+     `<sec>.<6 digits>`, `ps` `[A-Za-z0-9_:]+`, `none` `-`) on write and read.
+  - Found while testing: a `while … done < file || return` loop's status is its
+    last body command's, so a non-matching `[[ … ]] &&` read as a failed
+    redirection; every such loop now ends its body with `:`.
+- **Files affected:** `tests/lib/tmpdir_guard.sh`, `tests/test_tmpdir_guard.sh`
+  (new: x/badtoken, x/badbsd, x/ctllink, x/metalink, x/mode000, x/readonly,
+  x/livebad, v/relsock, v/badrow, (y) hidepid ×6 + noaccess control, (z) lsof
+  ×4 with a fake lsof, (aa) both appends failing with a real SIGKILL ×2 modes,
+  (ab) planted-symlink writer refusal ×2). 190/190 pass.
+- **Mutants M6–M11** (one per finding), each in an isolated scratch copy, each
+  turns its own cases red; M0 baseline green.
