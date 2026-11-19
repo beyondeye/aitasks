@@ -278,3 +278,110 @@ then archive with `./.aitask-scripts/aitask_archive.sh 2330`.
 
 ### Planned mitigations
 - timing: post-phase | name: false_accept_table | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: goal-achievement (false accept / false refuse of fuzzy matching) | desc: Pinned table-driven test of refused near-misses and accepted ordinary replies over the t2323 and a destructive option set
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-19 09:40)
+- **Requested by user:** four verified findings against the first implementation —
+  (1) only ASCII `?` was treated as a question, so `start implementation？`
+  (U+FF1F) was accepted by a one-edit typo; (2) a punctuation-only reply (`!`)
+  normalized to "" and fuzzy-matched the label "A" (all filler); (3) the typo
+  path ran the quadratic `_osa` for word pairs whose length difference already
+  exceeded the budget — a long paste stalled the submit write transaction;
+  (4) refusal reasons repeated colliding labels without the id that resolves
+  them, and the candidate clause was uncapped.
+- **Changes made:** `QUESTION_MARKS` (`? ？ ¿ ؟ ⸮`) in `_hedged`; an empty
+  normalized reply is refused after the literal tier (so an option written
+  `!` still matches exactly) and `_align` returns None for an empty reply or a
+  reply with more words than the label; `_word_match` skips edit distance when
+  the length difference exceeds the budget, and `_osa(a, b, limit)` is now a
+  banded DP (cells within `limit` of the diagonal, early exit) — linear in word
+  length; worst case at the input limits (500 options, 200-char words) 0.22 s.
+  `_choice_names` names a label with its exact id when another label normalizes
+  alike, and caps both the candidate and the choices lists at 20 with
+  "… and N more". Doc paragraph updated to match.
+- **Tests added:** refusal-table rows for `？`, `¿`, `؟` and punctuation-only
+  replies; punctuation-only literal option; a long-paste test asserting
+  lopsided words never reach `_osa` and equal-length ones run only with the
+  budget as limit; a banded-vs-full OSA property test (seeded, limits 0–3);
+  reason naming/capping test with 25 colliding "Same" labels.
+- **Files affected:** `.aitask-scripts/aitask_questions/store.py`,
+  `tests/test_aitask_questions.py`, `aidocs/codeagents/codex_questions.md`.
+
+### Change Request 2 (2026-11-19 10:10)
+- **Requested by user:** (1) `?`-list guard still missed U+2047 `⁇` and U+203D
+  `‽`; `start implementation⁇` completed as `approve_start` by a one-edit typo
+  with a receipt. (2) The reason formatter compared labels only with labels:
+  with `first`/"Stop" and `Stop`/"Continue", typing "Stop" was ambiguous and
+  the reason offered "Stop" again instead of the usable id `first`.
+- **Changes made:** the fixed `QUESTION_MARKS` list is gone — `_hedged` now
+  refuses fuzzy matching for any reply holding a Unicode punctuation or symbol
+  character (category P* / S*) after normalization, so no mark can be deleted
+  by a typo edit. `_choice_names` counts every option's id and label as
+  literal forms: a label typed by more than one option is shown with this
+  option's id when the id is unique, else "(cannot be typed unambiguously)".
+- **Tests added:** a sweep over every P*/S* code point appended to a label
+  (never a fuzzy match; fails under the old fixed list — mutant checked); `⁇`,
+  `‽`, `？`, `?` through `Store.submit` leave no answer and no receipt; reason
+  naming for crossed id/label, swapped (unreachable) and case-only labels.
+- **Files affected:** `store.py`, `tests/test_aitask_questions.py`,
+  `aidocs/codeagents/codex_questions.md`.
+
+### Change Request 3 (2026-11-19 10:40)
+- **Requested by user:** (1) the reason builder predicted replies with its own
+  collision count, not the submission rule: with `first`/" Stop " and
+  `Stop`/"Continue" it offered " Stop ", which submission strips to "Stop" and
+  records Continue. (2) The mapping and the resume docstring still told the
+  agent to re-ask with labels, not the alternate replies.
+- **Changes made:** the matching rule moved into a non-raising
+  `_resolve(options, value)`; `match_choice` wraps it, and `_choice_names`
+  offers a reply only when `_resolve` on that exact reply returns the intended
+  option — label alone, else `(reply "<id>")`, else "(no typed reply selects
+  it; show the form again)". Mapping step 4, the resume docstring and the
+  aidoc now say to relay those replies verbatim and to resume with no answer
+  (re-present the form) when no typed reply works.
+- **Tests added:** padded-label regression; a helper that submits every
+  suggested reply through `Store.submit` and checks it records its own choice
+  (crossed, padded, case-only and the t2323 set). The previous count-based
+  namer fails the test (mutant checked).
+- **Files affected:** `store.py`, `server.py`, `codex_tool_mapping.md`,
+  `codex_questions.md`, `tests/test_aitask_questions.py`.
+
+## Final Implementation Notes
+- **Actual work done:** `aitask_questions/store.py` gained the prompt-answer
+  matcher: `_resolve(options, value)` (the non-raising rule: exact → normalized
+  → word-aligned fuzzy on labels only), `match_choice` (raises with a reason
+  that names, per choice, a reply verified by `_resolve` to select it),
+  `_normalize`, banded `_osa(a, b, limit)`, `_word_match`, `_align` (in-order,
+  one-to-one, only `FILLER` omittable), `_hedged` (any Unicode P*/S* char,
+  negation/hedge words), `_choice_names`, and `resolved(question, record)`.
+  `validate_answer` returns `(id, provenance)`; `Store.submit` stores `label`,
+  `match` (+`via`/`edits`) and returns `resolved` on accepted and duplicate
+  (legacy records resolve as `exact`, unrewritten). `server.py` passes
+  `resolved` through `aitask_question_resume`; docstring, the Codex mapping
+  (timeout steps 2/4/5) and `codex_questions.md` describe the rule.
+- **Deviations from plan:** the task's "min score + margin" ratio design was
+  dropped during plan review — every whole-string ratio threshold that kept
+  ordinary typos also accepted `stop implementation`, `undelete branch`,
+  `delete branch later`. Replaced by the discrete word-aligned rule, recording
+  `edits` instead of a score. Fuzzy also runs on labels only (an id prefix
+  could bypass a conflicting label), and no form word but `a an the and to of`
+  may be omitted. Post-review rounds added: any punctuation/symbol disables
+  fuzzy (not a question-mark list), empty normalized replies are refused,
+  `_osa` is banded and skipped for impossible length differences (a long paste
+  held the submit write transaction for seconds), reasons are capped at 20 and
+  suggest only replies the submission matcher confirms.
+- **Issues encountered:** each review round found a concrete false accept or
+  wrong suggestion in the previous rule; all are pinned as rows in the
+  `false_accept_table` test or dedicated tests, each with a mutant check
+  showing the test fails on the prior behaviour. One full-suite run failed on
+  `test_sitrep_tui_actions.py::RestoreTests::test_pre_fix_control_…`, which
+  passed twice in isolation and is unrelated (load flake); the final full
+  suite passed.
+- **Key decisions:** a unique literal match always wins (nothing accepted
+  before stops working); normalization collisions refuse; `match` is
+  provenance outside the receipt binding (answers never were in it); the
+  stored `value` stays the option id, so `approval._approving` is unaffected
+  (tested through `approval._eligible`). INSTRUCTIONS unchanged (512-char head
+  still pinned).
+- **Upstream defects identified:** None
