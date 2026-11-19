@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2278
+implemented_with: claudecode/fable5_2
 created_at: 2026-11-15 18:12
-updated_at: 2026-11-18 23:09
+updated_at: 2026-11-19 10:07
 ---
 
 ## Context
@@ -206,3 +207,8 @@ in-flight edits from another task.
 > | either (it is classified as a TUI and skipped from the "Other" group).
 
 > **👁 note:read** id=2026-11-18T21:08:55Z.038185b713aaa9c5c1ec3369 by=t2278_5 at=2026-11-18T21:08:55Z mode=explicit ids=2026-11-15T20:17:06Z.0477e15bbc9a9de1508ddb19,2026-11-16T17:53:54Z.b5f122f88f8d5c169a0e35d6,2026-11-17T15:21:26Z.351edf46a056fb7372cfc9dc
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-19T08:07:26Z status=pass attempt=1 type=human
