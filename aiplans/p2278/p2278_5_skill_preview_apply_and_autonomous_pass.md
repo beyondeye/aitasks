@@ -387,3 +387,203 @@ repaired and why; primitives the agent missed; the user's comments on realism
 and choice of state (child 8 reads them).
 
 Post-implementation: Step 9 of the task workflow.
+
+## Implementation log
+
+- **Pre-phase probe_new_datasets: PASS (2026-11-19).** `trails`: the real
+  `ait trails` lists "Checkout launch", shows three wave columns with local
+  task cards and reports the trail current (`✓`). Needed along the way: the
+  digest and inputs come from the real `aitask_trail_gather.sh snapshot`
+  (an invented digest reads "stale", a `board_state` input reads "drift
+  unavailable"); the parent t12 is part of the snapshot scope (otherwise
+  "new related task"); `TZ=UTC` pinned in the pane environment (the header
+  showed the stored UTC time in local time). `brainstorm`: the real
+  `ait brainstorm 9` shows a 4-node graph (root, two explorations, one
+  two-parent hybrid) and the detail pane. Needed: `python3` / `python` shims
+  in the stand-in bin (`lib/launch_modes_sh.sh` calls a bare `python3`, which
+  is the user's venv wrapper and fails under the scratch HOME); operation
+  group records written as `Waiting` before the apply step (else "Generated
+  by: ?"); `created_at` given in NODE_YAML and init's stamps rewritten to the
+  fixed date. Known wart, real behaviour: the root node's description reads
+  "priority: medium" (init builds it from the task file's frontmatter).
+- **Steps 1-3 done.** `preview`, `apply`, `tests/test_screenshots_apply.py`
+  (40 tests). 12 mutants on an isolated copy, all killed by the intended test.
+- **Step 4 done (build tests).** `board_locks`, `trails`, `brainstorm`;
+  35 tests in `test_screenshots_sample_project.py`.
+- **Step 5 done.** Skill written; `aitask_skill_verify.sh` OK.
+- **Step 8 done.** Two allow entries; whitelist-coverage 15/15, release
+  tarball 20/20.
+- **Step 6, scenario 1 (reachable): PASS.** Scratch copy of
+  `board_child_tasks` with key `x` → `e` and "order confirmation email" →
+  "order receipt email". Replay failed at step 4; the kept session showed
+  "Manage columns" (what `e` opens); `x` there expanded the parent and showed
+  the real third child title. Clean walk in a fresh session,
+  `recipe save --replace` → `RECIPE_SAVED`; a further `replay` staged it
+  (exit 0) and the image text holds "t12_3 order confirmation email" and `↳`.
+- **Step 6, scenario 2 (unreachable): PASS.** Scratch recipe
+  `board_burndown_panel` (expects "Burndown", "Remaining effort" after `B`).
+  Replay failed at step 4; in the kept session `B` did nothing, the `?`
+  shortcut list had no match for "burn", the work report (`w`) charts
+  nothing, and the board source has no "burndown". Reported as no route;
+  recipe SHA-256 `41225ac8…ef37` before and after; no image staged in any
+  batch (only `failed` entries).
+- **Step 7 done (2026-11-19).** Discovery recorded six recipes:
+  `board_task_detail_lock` (dataset `board_locks`, setup `./ait lock --init`
+  + `./ait lock 14 --email alex@example.com`; route Down, Enter, 7×Down,
+  Enter to expand "Lock & files"; 134x40 so the button row is not clipped),
+  `trails_main_view` (140x38; 134 columns clipped the third lane),
+  `brainstorm_browse_tab` (140x50; first Down only moves focus into the
+  graph, proven by the "Set HEAD" footer hint; three Downs sent at once
+  replayed racily and `recipe save` refused them), `tui_switcher_dialog`
+  (from the board, `base`), `tui_switcher_from_monitor` (via `ait ide`, two
+  picked agents; the preview needs Down to focus an agent, and the wait text
+  must not wrap at 140 columns), `tui_switcher_from_minimonitor`.
+  Repair loop: `replay --all` over all 13 recipes passed; the seven older
+  recipes still matched their pages, none needed repair. Two of my own new
+  recipes were replaced after looking at their images (trails: clipped lane;
+  brainstorm: last dimension row cut off).
+  Final batch `20261119T083706Z-3593a5`, previewed, every PNG looked at.
+  User review answer: "look good. note that ait sitrep tui, is going to be
+  redesigned soon, so its screenshot will need to be retaken".
+  `apply`: 13 applied, 0 refused, 17 markers replaced on 13 pages.
+  `MISSING_SCENE_SEVERITY = "error"`; `check_screenshots.py --strict` exits 0;
+  `check_links.py --build` passes.
+- **Step 9 done.** `aidocs/framework/docs_screenshots.md`, CLAUDE.md pointer
+  and Website line, `website/README.md` "Generating Screenshots", the skill
+  page and its index row.
+- Live tests added (`DatasetSceneTests`, the two switcher scenes in the
+  multi-pane replay test). Negative controls on an isolated copy: without
+  `TZ=UTC`, without the hostname shim, without the group records and without
+  the date pin, the matching test fails; the unmodified copy passes.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-19 11:10)
+- **Requested by user:** four review findings, each verified first:
+  (1) the skill only *told* the user about another task's page edits and went
+  on, where the task and plan require a stop; (2) dataset commands and
+  sessions inherited `XDG_CACHE_HOME`, so the artifact cache got links into
+  the temp project that dangle afterwards (reproduced: an outer cache dir
+  received `ait/artifacts/sha256:…`; this session's own runs had left such
+  links in the user's cache); (3) `apply` checked page paths with the image
+  filename alphabet, refusing a valid marker in `docs/User Guide.md`;
+  (4) the skill called any screen with today's date wrong, which contradicts
+  the lock recipe and the design's real clocks.
+- **Changes made:** (1) the skill stops on such pages at inventory and again
+  before `apply`, with a NON-SKIPPABLE "Pages" question (Stop / Leave those
+  scenes out / Proceed on these pages); (2) `XDG_CACHE_HOME` pinned inside the
+  temp tree in `sample_project._framework` and `session.pane_environment`,
+  and the dangling links this session's runs left in the user's cache
+  removed; (3) `_page_inside`: a `.md` path, relative, no `.`/`..`/empty
+  step, resolving under the content root — names are otherwise free;
+  (4) the rule now fixes dates stored in sample data and explicitly allows
+  live clocks. Tests: a page with a space and one with non-ASCII letters
+  apply; seven escaping page records (absolute, `..`, symlinked file and
+  directory, empty step, non-`.md`) are refused; building `trails` and
+  `brainstorm` under an outer `XDG_CACHE_HOME` leaves it empty (with a
+  positive control that the cache was written inside the tree); a live
+  trails session does the same. Negative controls on an isolated copy: each
+  pin removed, the old page check restored, and each half of `_page_inside`
+  removed makes its test fail.
+- **Files affected:** `.claude/skills/aitask-docs-screenshots/SKILL.md`,
+  `website/screenshots/cli.py`, `website/screenshots/sample_project.py`,
+  `website/screenshots/session.py`, `aidocs/framework/docs_screenshots.md`,
+  `tests/test_screenshots_apply.py`, `tests/test_screenshots_sample_project.py`,
+  `tests/test_screenshots_session_live.py`.
+- **Found while verifying fix (2):** the test helper `_framework_env` in
+  `tests/test_screenshots_sample_project.py` inherited `XDG_CACHE_HOME` and
+  `XDG_CONFIG_HOME` too, so the trails tests still left a cache link, and the
+  lock test had been committing with the git identity of whoever ran it (it
+  failed with "Author identity unknown" once the configuration was pinned).
+  The helper now pins both directories and names the sample person. After a
+  full run of the five screenshot test modules (212 + 2 tests) the user's
+  artifact cache holds no link into a capture temp tree.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `website/screenshots/cli.py`: `preview --batch` (one `preview.html` per
+    batch) and `apply --batch` (two-phase validation, per-scene revalidation,
+    prepare-then-replace with rollback, `REFUSED:` / `PARTIAL:` / `SKIPPED:`
+    lines), `_batch_dir`, `_page_inside`.
+  - `website/screenshots/sample_project.py`: datasets `board_locks`, `trails`,
+    `brainstorm`; `_framework` (real framework commands under a scratch
+    `HOME`, config and cache); `python3` / `python` shims in every dataset's
+    stand-in bin; a `hostname` shim in `board_locks` only.
+  - `website/screenshots/session.py`: `TZ=UTC` and `XDG_CACHE_HOME` pinned in
+    the pane environment.
+  - `.claude/skills/aitask-docs-screenshots/SKILL.md` (static, Claude-only).
+  - Six new recipes; 13 images applied from batch `20261119T083706Z-3593a5`;
+    17 markers replaced on 13 pages; `MISSING_SCENE_SEVERITY = "error"`.
+  - Docs: `aidocs/framework/docs_screenshots.md`, `website/README.md`
+    ("Generating Screenshots"), the website skill page and index row, the
+    CLAUDE.md pointer and Website line.
+  - `.claude/settings.local.json`: two allow entries for the launcher.
+  - Tests: `tests/test_screenshots_apply.py` (new, 42),
+    `test_screenshots_sample_project.py` (+18), `test_screenshots_session_live.py`
+    (+7, two scenes added to the multi-pane replay), `test_check_screenshots.py`
+    (severity default).
+- **Deviations from plan:**
+  - The `brainstorm` dataset takes its `brainstorm-*` agent defaults from the
+    `pick` agent, not from `seed/codeagent_config.json` (the seed has no such
+    keys), and writes the operation group records itself before the real
+    apply step completes them.
+  - The trail's digest and inputs come from the real
+    `aitask_trail_gather.sh snapshot`, not from invented values.
+  - Added beyond the plan: `TZ=UTC`, the `python3` and `hostname` shims, the
+    `XDG_CACHE_HOME` pin, `destination_unreadable` and `manifest_invalid`
+    refusal reasons, file modes kept on rewritten pages.
+  - CLAUDE.md was edited but NOT committed with this task: the file carries
+    another session's uncommitted hunk. Its two additions (the
+    `check_screenshots.py` line in the Website block and the
+    "Read `aidocs/framework/docs_screenshots.md`" pointer) wait in the working
+    tree for that hunk to land.
+  - The applied images were looked at as PNG renderings; they were not opened
+    on the local Hugo server.
+  - The whole Python suite passed before the post-review fixes
+    (`PYTHON SUITE: PASSED`); after them only the five screenshot modules
+    were rerun (all pass).
+- **Issues encountered:** see the Implementation log and Change Request 1.
+  The costly ones: an invented trail digest reads "stale"; keys sent before
+  the brainstorm graph holds focus replay racily; a wait text that wraps at
+  the pane width never matches; framework calls inherited the caller's cache
+  and git identity.
+- **Key decisions:**
+  - A scene is one unit in `apply`; the bytes that were hashed are the bytes
+    written; a restore failure is its own loud outcome (`PARTIAL:`).
+  - Real clocks stay real (lock "since" time, idle timers); only dates stored
+    in sample data are fixed.
+  - The `hostname` shim is limited to `board_locks`, because other framework
+    code asks Python for the host name and a disagreeing lock would read as
+    held on another machine.
+  - The minimonitor switcher image was applied with its clipped dialog: it is
+    what the TUI draws today (user reviewed it).
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/tui_switcher.py:556 — the switcher dialog has a fixed width of 44, so in the 40-column minimonitor pane its right border and the ends of the hint rows ("(S)etting", "(G)i") are clipped`
+  - `.aitask-scripts/brainstorm/brainstorm_session.py:154-157 — init builds the root node's description and the session brief from the first lines of the whole task file, frontmatter included, so they read "priority: medium | effort: medium"`
+  - `.aitask-scripts/lib/launch_modes_sh.sh:24 — falls back to a bare python3 from PATH and ignores AIT_PYTHON, so aitask_crew_init.sh fails under any HOME without ~/.aitask/venv even when AIT_PYTHON is set`
+- **Notes for sibling tasks:**
+  - **Batch applied:** `20261119T083706Z-3593a5`, 13 scenes, no `REFUSED:`.
+  - **Repairs:** none of the seven older recipes needed one. Two new recipes
+    were replaced after looking at their images (trails lane clipped at 134
+    columns; brainstorm's last dimension row cut off at 46 rows).
+  - **User comments (child 8):** "look good. note that ait sitrep tui, is
+    going to be redesigned soon, so its screenshot will need to be retaken".
+    So `sitrep_window` is expected to fail or mismatch after that redesign;
+    child 6's repair pass should expect it. The sitrep header also shows the
+    session's temp path.
+  - **Primitives the agent missed:** a way to see which widget holds focus
+    (plain `screen` text does not show it; I inferred it from footer hints);
+    a wait that tolerates line wrapping; a `--scene`-less "replay everything
+    except" for holding one scene back from a final batch.
+  - **New verbs:** `preview --batch ID`, `apply --batch ID` (id required).
+    Child 6's regeneration case (a scene without markers) applies the image
+    only, and a replaced image must still hash to what the manifest recorded
+    as the destination at capture time.
+  - **Datasets:** reuse `_framework(root, *argv)` for any real framework
+    command in a builder; it pins HOME, config, cache, PATH, git identity
+    and bytecode writing. Test helpers that call the framework need the same
+    pins (`_framework_env` in the sample-project tests).
+  - **Sizes that worked:** lock dialog 134x40, trails 140x38, brainstorm
+    140x50, switcher from monitor 140x40, switchers from board/minimonitor
+    126x40.
+  - **Not ported:** the skill exists for Claude Code only.
