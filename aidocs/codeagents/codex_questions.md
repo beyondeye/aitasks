@@ -133,8 +133,35 @@ Answer channels are recorded as `mcp_form` or `codex_prompt_model_forwarded`.
 The second is text the model passed on; it is not authenticated, and the
 server cannot tell whether a message was meant as an answer. That association
 is the agent's job, and the mapping tells it to leave status requests and
-unrelated steering alone and to ask when a message is ambiguous. A choice
-answer must match one option id or label exactly; prose is not parsed.
+unrelated steering alone and to ask when a message is ambiguous. A form answer
+must name one option id exactly. A prompt answer to a choice is matched in
+three tiers (`match_choice` in `store.py`), each consulted only when the one
+before found nothing and each refusing when it matches more than one option:
+`exact` — the id or label as written, so it always wins; `normalized` — the id
+or label up to case, spacing, `_`/`-`, surrounding quotes and trailing `.!,`
+(so distinct ids `merge_main` and `merge-main` each match themselves, while
+`MERGE MAIN` is refused as ambiguous); `fuzzy` — the label only, word by word:
+every reply word is a prefix of at least 3 letters or a small typo (same first
+letter, one edit for words of 4–7 letters, two from 8) of one label word, in
+order, and every label word except `a`/`an`/`the`/`and`/`to`/`of` is covered.
+So `start impl` and `strat implementaion` select "Start implementation", while
+`approve and` (missing "stop") and `do delete branch` (missing "not") select
+nothing. Fuzzy never runs on ids, whose prefixes could bypass a conflicting
+label, and never on a reply that still holds any punctuation or symbol after
+normalization (a question mark in any script among them — a typo edit must
+never be what deletes it), a negation or a hedge word. A reply that is only
+punctuation matches only an option written exactly that way. A refusal's
+reason lists the choices (at most 20), each with a reply checked by the same
+matcher to select exactly that choice: the label, else `(reply "<id>")` when
+typing the label would pick another choice, else a note that no typed reply
+selects it and the form must be shown again (resume with no answer). The agent
+relays those replies verbatim. Whatever matched, the stored
+`value` is the option id, so the `approve`-prefix check below is unaffected;
+the record also carries the `label` and the `match` tier (with `via` and
+`edits` for fuzzy). Like `source`, `match` is provenance: it is not part of
+the receipt binding, which covers the occurrence, its questions, the bound
+manifest and the target — not the answers. The resume result carries
+`resolved` (question id, option id, label, tier), which the agent echoes back.
 
 `cancel` in the client's form (Esc in Codex) defers the occurrence; `decline`
 cancels it. Neither produces an answer. A deferred question stays open: it can

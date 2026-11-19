@@ -2,15 +2,18 @@
 from concurrent.futures import ThreadPoolExecutor
 import json
 from pathlib import Path
+import random
 import sqlite3
 import sys
 import tempfile
 import time
+import unicodedata
 import unittest
 from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / ".aitask-scripts"))
-from aitask_questions.store import QuestionError, Store, validate_questions
+from aitask_questions.store import (QuestionError, Store, match_choice, validate_answer,
+                                    validate_questions)
 
 
 def questions():
@@ -773,6 +776,345 @@ class StoreTests(unittest.TestCase):
         self.assertEqual(state["state"], "complete")
         self.assertEqual(state["answers"]["q1"]["value"], "blue")
         self.assertEqual(state["last_event"]["event"], "answer_accepted")
+
+
+def opts(*pairs):
+    return [{"id": i, "label": label, "description": ""} for i, label in pairs]
+
+
+# The choices whose picky matching prompted t2330 (t2323's plan checkpoint).
+PLAN = opts(("approve_start", "Start implementation"), ("revise", "Revise plan"),
+            ("approve_stop", "Approve and stop here"), ("abort", "Abort task"))
+DESTRUCTIVE = opts(("delete", "Delete branch"), ("keep", "Keep branch"))
+NEGATIVE = opts(("delete", "Do not delete branch"), ("keep", "Keep branch"))
+
+
+class ChoiceMatchTests(unittest.TestCase):
+    """Prompt answers to a choice: exact, normalized, word-aligned fuzzy (t2330)."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        (self.root / "plan.md").write_text("the plan")
+        self.store = Store(self.root / "state", self.root)
+
+    def matched(self, options, value):
+        option, provenance = match_choice(options, value)
+        return option["id"], provenance["match"]
+
+    def refused(self, options, value):
+        with self.assertRaises(QuestionError) as caught:
+            match_choice(options, value)
+        return str(caught.exception)
+
+    def open(self, options, workflow="test-run", checkpoint="choice"):
+        return self.store.open(workflow, checkpoint, "o1", [
+            {"id": "decision", "text": "Proceed?", "kind": "choice", "options": options}],
+            ["plan.md"])["session_id"]
+
+    def test_exact_and_normalized(self):
+        for value in ["approve_start", "Start implementation"]:
+            self.assertEqual(self.matched(PLAN, value), ("approve_start", "exact"))
+        self.assertEqual(self.matched(PLAN, "revise"), ("revise", "exact"))
+        for value in ["start implementation", "START IMPLEMENTATION", "  Start   implementation. ",
+                      '"Start implementation"', "approve start", "`approve-start`"]:
+            self.assertEqual(self.matched(PLAN, value), ("approve_start", "normalized"), value)
+        self.assertEqual(self.matched(PLAN, "REVISE"), ("revise", "normalized"))
+        self.assertEqual(self.matched(PLAN, "approve stop"), ("approve_stop", "normalized"))
+
+    def test_fuzzy_is_word_aligned_against_the_label(self):
+        option, provenance = match_choice(PLAN, "start impl")
+        self.assertEqual((option["id"], provenance), ("approve_start",
+                                                      {"match": "fuzzy", "via": "prefix", "edits": 0}))
+        # "and" is filler and may be left out; "stop" and "here" may not.
+        self.assertEqual(self.matched(PLAN, "approve stop here"), ("approve_stop", "fuzzy"))
+        option, provenance = match_choice(PLAN, "strat implementaion")
+        self.assertEqual((option["id"], provenance["via"], provenance["edits"]),
+                         ("approve_start", "typo", 2))
+
+    def test_refusals_name_the_choices(self):
+        reason = self.refused(PLAN, "approve")
+        self.assertIn("question remains pending", reason)
+        for label in ["Start implementation", "Revise plan", "Approve and stop here", "Abort task"]:
+            self.assertIn(json.dumps(label), reason)
+        for value in ["approve and", "approve here", "don't start implementation",
+                      "do not start implementation", "not now", "no", "start implementation?",
+                      "st", "stop implementation", "start or revise",
+                      "I think we should start implementation now please"]:
+            self.refused(PLAN, value)
+
+    def test_no_is_an_answer_only_when_it_is_an_option(self):
+        yes_no = opts(("yes", "Yes"), ("no", "No"))
+        self.assertEqual(self.matched(yes_no, "no"), ("no", "exact"))
+        self.assertEqual(self.matched(yes_no, "NO."), ("no", "normalized"))
+        self.refused(PLAN, "no")
+
+    def test_a_unique_literal_match_wins_over_a_normalization_collision(self):
+        merge = opts(("merge_main", "Merge main"), ("merge-main", "Merge main now"))
+        self.assertEqual(self.matched(merge, "merge_main"), ("merge_main", "exact"))
+        self.assertEqual(self.matched(merge, "merge-main"), ("merge-main", "exact"))
+        for value in ["MERGE MAIN", "merge main"]:
+            reason = self.refused(merge, value)
+            self.assertIn('ambiguous choice (matches "Merge main" and "Merge main now")', reason)
+        go = opts(("go_a", "Go"), ("go_b", "go"))
+        self.assertEqual(self.matched(go, "Go"), ("go_a", "exact"))
+        self.assertEqual(self.matched(go, "go"), ("go_b", "exact"))
+        self.assertIn("ambiguous choice", self.refused(go, "GO"))
+
+    def test_ids_are_never_fuzzy(self):
+        self.refused(PLAN, "rev")
+        self.refused(PLAN, "approve sta")
+        # A prefix of the id "delete" must not record the option labelled
+        # "Do not delete branch". The id in full is accepted as it always was:
+        # a misleading id is the asking agent's error, the same limit the
+        # approve-prefix check documents (codex_questions.md).
+        self.refused(NEGATIVE, "del")
+        self.refused(NEGATIVE, "dele")
+        self.assertEqual(self.matched(NEGATIVE, "delete"), ("delete", "exact"))
+        self.assertEqual(self.matched(NEGATIVE, "DELETE"), ("delete", "normalized"))
+
+    def test_form_input_still_needs_the_exact_id(self):
+        question = {"id": "decision", "kind": "choice", "options": PLAN}
+        with self.assertRaises(QuestionError):
+            validate_answer(question, "Start implementation", "mcp_form")
+        self.assertEqual(validate_answer(question, "approve_start", "mcp_form"),
+                         ("approve_start", {"label": "Start implementation", "match": "exact"}))
+
+    def test_record_and_resolution_on_accept_and_duplicate(self):
+        sid = self.open(PLAN)
+        accepted = self.store.submit(sid, "decision", "start impl", "codex_prompt_model_forwarded")
+        self.assertEqual(accepted["outcome"], "accepted")
+        self.assertEqual(accepted["answers"]["decision"], {
+            "value": "approve_start", "raw": "start impl", "source": "codex_prompt_model_forwarded",
+            "label": "Start implementation", "match": "fuzzy", "via": "prefix", "edits": 0})
+        want = {"question_id": "decision", "id": "approve_start", "label": "Start implementation",
+                "match": "fuzzy", "via": "prefix", "edits": 0}
+        self.assertEqual(accepted["resolved"], want)
+        again = self.store.submit(sid, "decision", "Start implementation", "codex_prompt_model_forwarded")
+        self.assertEqual((again["outcome"], again["resolved"]), ("duplicate", want))
+        conflict = self.store.submit(sid, "decision", "abort", "codex_prompt_model_forwarded")
+        self.assertEqual(conflict["outcome"], "conflict")
+        self.assertNotIn("resolved", conflict)
+
+    def test_answer_stored_before_the_change_still_resolves_and_is_not_rewritten(self):
+        sid = self.open(PLAN)
+        self.store.submit(sid, "decision", "Start implementation", "codex_prompt_model_forwarded")
+        legacy = {"value": "approve_start", "raw": "Start implementation",
+                  "source": "codex_prompt_model_forwarded"}
+        with self.store.edit(sid) as body:
+            body["answers"]["decision"] = dict(legacy)
+        retry = self.store.submit(sid, "decision", "Start implementation", "codex_prompt_model_forwarded")
+        self.assertEqual(retry["outcome"], "duplicate")
+        self.assertEqual(retry["resolved"], {"question_id": "decision", "id": "approve_start",
+                                             "label": "Start implementation", "match": "exact"})
+        self.assertEqual(self.store.status(sid)["answers"]["decision"], legacy)
+
+    def test_fuzzy_plan_approval_still_passes_the_approve_prefix_check(self):
+        from aitask_questions import approval
+        tasks = self.root / "aitasks"
+        tasks.mkdir()
+        (tasks / "t42_sample.md").write_text("---\npriority: high\n---\n\nDo the thing.\n")
+        sid = self.open(PLAN, workflow="t42", checkpoint="plan_approved")
+        done = self.store.submit(sid, "decision", "start impl", "codex_prompt_model_forwarded")
+        self.assertEqual(done["state"], "complete")
+        reason, body = approval._eligible(self.store, 42, "plan_approved", sid)
+        self.assertEqual(reason, "")
+        self.assertEqual(body["answers"]["decision"]["value"], "approve_start")
+        sid = self.store.open("t42", "plan_approved", "o2", [
+            {"id": "decision", "text": "Proceed?", "kind": "choice", "options": PLAN}],
+            ["plan.md"])["session_id"]
+        self.store.submit(sid, "decision", "abrot task", "codex_prompt_model_forwarded")
+        self.assertEqual(approval._eligible(self.store, 42, "plan_approved", sid)[0],
+                         "answer_is_not_an_approval")
+
+    # [false_accept_table] Pinned against the real function. A row that stops
+    # holding is a rule change to justify, not a table to edit.
+    REFUSED = [
+        # A whole-string similarity would accept these (all scored >= 0.81).
+        (PLAN, "stop implementation"), (DESTRUCTIVE, "undelete branch"),
+        (DESTRUCTIVE, "maybe delete branch"), (DESTRUCTIVE, "delete branch later"),
+        # Free word skipping would accept these: the skipped word decides.
+        (PLAN, "approve and"), (PLAN, "approve here"), (PLAN, "approve and stop"),
+        (NEGATIVE, "do delete branch"), (NEGATIVE, "delete branch"), (NEGATIVE, "not delete"),
+        # A fuzzy id match would accept these against "Do not delete branch".
+        (NEGATIVE, "del"), (NEGATIVE, "dele"),
+        (PLAN, "rev"), (PLAN, "abrot"), (DESTRUCTIVE, "don't delete"),
+        (DESTRUCTIVE, "do NOT delete the branch"), (DESTRUCTIVE, "never delete"),
+        (DESTRUCTIVE, "delete?"), (DESTRUCTIVE, "de"), (DESTRUCTIVE, "branch"),
+        (DESTRUCTIVE, "please delete the branch now"), (DESTRUCTIVE, "delete or keep"),
+        (PLAN, "abort?"), (PLAN, "ab"), (PLAN, "task"),
+        (PLAN, "I don't want to start implementation"), (PLAN, "start and abort"),
+        (PLAN, "approve"), (PLAN, "apprvoe"), (PLAN, "unapprove"), (PLAN, "disapprove"),
+        (DESTRUCTIVE, "kep"), (PLAN, "start"),
+        # Only the question/hedge check refuses these: "branch?" is one edit
+        # from "branch", and "no merg" aligns word for word.
+        (DESTRUCTIVE, "delete branch?"), (PLAN, "start impl?"),
+        (opts(("no_merge", "No merge"), ("merge", "Merge")), "no merg"),
+        # Non-ASCII question marks are questions too ("implementation？" is
+        # one edit from "implementation").
+        (PLAN, "start implementation？"), (PLAN, "¿start impl"),
+        (PLAN, "start impl؟"), (PLAN, "start implementation⁇"),
+        (PLAN, "start implementation‽"),
+        # Punctuation alone normalizes to nothing; "A" is all filler.
+        (opts(("a", "A"), ("b", "B")), "!"), (opts(("a", "A"), ("b", "B")), "``"),
+    ]
+    ACCEPTED = [
+        (DESTRUCTIVE, "delete", "delete", "exact"),
+        (DESTRUCTIVE, "Delete branch.", "delete", "normalized"),
+        (DESTRUCTIVE, "keep", "keep", "exact"),
+        (DESTRUCTIVE, "del branch", "delete", "fuzzy"),
+        (DESTRUCTIVE, "delte branch", "delete", "fuzzy"),
+        (PLAN, "Revise", "revise", "normalized"),
+        (PLAN, "revise plan", "revise", "normalized"),
+        (PLAN, "abort task", "abort", "normalized"),
+        (PLAN, "abrot task", "abort", "fuzzy"),
+        (PLAN, "approve stop here", "approve_stop", "fuzzy"),
+        (PLAN, "Start implementation!", "approve_start", "normalized"),
+        (PLAN, "reviese plan", "revise", "fuzzy"),
+        (NEGATIVE, "do not delete branch", "delete", "normalized"),
+    ]
+
+    def test_punctuation_only_reply_matches_only_a_literal_option(self):
+        letters = opts(("a", "A"), ("b", "B"))
+        self.assertEqual(self.matched(letters, "A"), ("a", "exact"))
+        self.assertEqual(self.matched(letters, "a."), ("a", "normalized"))
+        self.assertEqual(self.matched(opts(("bang", "!"), ("b", "B")), "!"), ("bang", "exact"))
+        sid = self.open(letters)
+        with self.assertRaises(QuestionError):
+            self.store.submit(sid, "decision", "!", "codex_prompt_model_forwarded")
+        self.assertEqual(self.store.status(sid)["answers"], {})
+
+    def test_long_paste_never_runs_unbounded_edit_distance(self):
+        from aitask_questions import store as module
+        big = opts(*[(f"o{i}", "x" + "y" * 199) for i in range(500)])
+        calls = []
+        real = module._osa
+
+        def counted(a, b, limit):
+            calls.append((len(a), len(b), limit))
+            return real(a, b, limit)
+        with patch("aitask_questions.store._osa", counted):
+            for paste in ["x" + "y" * 19999, " ".join(["xy"] * 5000)]:
+                self.refused(big, paste)
+            self.assertEqual(calls, [])  # lopsided words never reach _osa
+            # Equal-length long words do, but only inside the edit budget band.
+            self.assertIn("ambiguous choice", self.refused(big, "x" + "y" * 198 + "z"))
+        self.assertTrue(calls and all(limit == 2 for _, _, limit in calls))
+
+    def test_banded_edit_distance_matches_the_full_table(self):
+        from aitask_questions.store import _osa
+
+        def full(a, b):
+            d = [[i + j if not i * j else 0 for j in range(len(b) + 1)] for i in range(len(a) + 1)]
+            for i in range(1, len(a) + 1):
+                for j in range(1, len(b) + 1):
+                    d[i][j] = min(d[i - 1][j] + 1, d[i][j - 1] + 1,
+                                  d[i - 1][j - 1] + (a[i - 1] != b[j - 1]))
+                    if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                        d[i][j] = min(d[i][j], d[i - 2][j - 2] + 1)
+            return d[-1][-1]
+        rng = random.Random(2330)
+        for _ in range(3000):
+            a, b = ("".join(rng.choice("abc") for _ in range(rng.randint(0, 9))) for _ in "ab")
+            for limit in (0, 1, 2, 3):
+                self.assertEqual(_osa(a, b, limit), min(full(a, b), limit + 1), (a, b, limit))
+
+    def test_no_punctuation_or_symbol_is_absorbed_by_a_typo_edit(self):
+        # Every punctuation/symbol character, appended to a label: the result
+        # is either the label up to normalization (trailing .!, and quotes
+        # are stripped) or refused — never a fuzzy match that edited it away.
+        fuzzy = []
+        for code in range(sys.maxunicode + 1):
+            ch = chr(code)
+            if unicodedata.category(ch)[0] not in "PS":
+                continue
+            try:
+                _, provenance = match_choice(PLAN, "start implementation" + ch)
+            except QuestionError:
+                continue
+            if provenance["match"] == "fuzzy":
+                fuzzy.append(f"U+{code:04X}")
+        self.assertEqual(fuzzy, [])
+
+    def test_question_marks_leave_the_question_open_without_a_receipt(self):
+        for mark in ["⁇", "‽", "？", "?"]:
+            sid = self.store.open("test-run", "choice", f"o-{ord(mark)}", [
+                {"id": "decision", "text": "Proceed?", "kind": "choice", "options": PLAN}],
+                ["plan.md"])["session_id"]
+            with self.subTest(mark=f"U+{ord(mark):04X}"):
+                with self.assertRaises(QuestionError):
+                    self.store.submit(sid, "decision", "start implementation" + mark,
+                                      "codex_prompt_model_forwarded")
+                state = self.store.status(sid)
+                self.assertEqual((state["answers"], state["receipt"]), ({}, None))
+
+    def assert_suggestions_select_their_choice(self, options, reason):
+        """Every reply a reason suggests, submitted verbatim, records its own
+        choice — checked through Store.submit, the path the agent relays to."""
+        for o in options:
+            label = json.dumps(o["label"], ensure_ascii=False)
+            reply = None
+            if f'{label} (reply {json.dumps(o["id"])})' in reason:
+                reply = o["id"]
+            elif f"{label} (no typed reply" not in reason:
+                reply = o["label"]
+            if reply is None:
+                continue
+            sid = self.store.open("test-run", "choice", f"o-{o['id']}-{len(reason)}", [
+                {"id": "decision", "text": "Pick", "kind": "choice", "options": options}],
+                ["plan.md"])["session_id"]
+            done = self.store.submit(sid, "decision", reply, "codex_prompt_model_forwarded")
+            self.assertEqual(done["answers"]["decision"]["value"], o["id"], (reply, reason))
+
+    def test_reasons_show_a_reply_that_picks_each_choice(self):
+        # A label that is another option's id: typing it is ambiguous, so the
+        # reason offers this option's own id, which the exact tier accepts.
+        crossed = opts(("first", "Stop"), ("Stop", "Continue"))
+        reason = self.refused(crossed, "Stop")
+        self.assertIn('answer with one of: "Stop" (reply "first"), "Continue"', reason)
+        self.assert_suggestions_select_their_choice(crossed, reason)
+        # Padded label: submission strips the reply, so " Stop " verbatim
+        # would record the option whose id is "Stop" — never suggest it.
+        padded = opts(("first", " Stop "), ("Stop", "Continue"))
+        reason = self.refused(padded, "zzz")
+        self.assertIn('" Stop " (reply "first")', reason)
+        self.assertEqual(self.matched(padded, " Stop ")[0], "Stop")
+        self.assert_suggestions_select_their_choice(padded, reason)
+        swapped = opts(("x", "y"), ("y", "x"))
+        reason = self.refused(swapped, "z")
+        self.assertEqual(reason.count("(no typed reply selects it; show the form again)"), 2)
+        # Labels that differ only in case are each typed literally: named alone.
+        go = opts(("a", "Go"), ("b", "go"))
+        reason = self.refused(go, "GO")
+        self.assertIn('answer with one of: "Go", "go"', reason)
+        self.assert_suggestions_select_their_choice(go, reason)
+        self.assert_suggestions_select_their_choice(PLAN, self.refused(PLAN, "approve"))
+
+    def test_reasons_name_ids_where_labels_collide_and_stay_bounded(self):
+        same = opts(*[(f"s{i}", "Same") for i in range(25)]) + opts(("other", "Other"))
+        reason = self.refused(same, "Same")
+        self.assertIn('"Same" (reply "s0")', reason)
+        self.assertNotIn('(reply "other")', reason)
+        lead, _, choices = reason.partition("; question remains pending; answer with one of: ")
+        for part in (lead, choices):
+            self.assertEqual(part.count('"Same"'), 20)
+            self.assertIn("… and", part)
+        self.assertIn("… and 5 more", lead)
+        self.assertIn("… and 6 more", choices)
+        # The id the reason names is the one that works.
+        self.assertEqual(self.matched(same, "s0"), ("s0", "exact"))
+        # Distinct labels are named alone.
+        self.assertIn('answer with one of: "Start implementation", "Revise plan"',
+                      self.refused(PLAN, "approve"))
+
+    def test_false_accept_and_false_refuse_table(self):
+        for options, value in self.REFUSED:
+            with self.subTest(refused=value):
+                self.refused(options, value)
+        for options, value, want, how in self.ACCEPTED:
+            with self.subTest(accepted=value):
+                self.assertEqual(self.matched(options, value), (want, how))
 
 
 if __name__ == "__main__":

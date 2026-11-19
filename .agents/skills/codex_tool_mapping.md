@@ -75,20 +75,35 @@ question is still open:
 1. Do not pick a default, infer consent, skip the question, or start any work
    that depends on it (implementation, commit, gate record, archive).
 2. Tell the user in plain prose which question is waiting, what the choices
-   are, and that they can answer right here at the prompt. State the
-   `session_id` in full, unbroken and unabbreviated — the monitor finds the
-   waiting pane by it. Plain sentences only — no numbered menu of options.
+   are, and that they can answer right here at the prompt. Name each choice
+   by quoting its label exactly as written — never paraphrase it. Say they can
+   type a label in any case, and may shorten or slightly mistype each of its
+   words as long as every word is there in order (small joining words such as
+   "and" or "the" may be left out) — for example `start impl` for "Start
+   implementation", `approve stop here` for "Approve and stop here". Do not
+   suggest dropping a word or answering with only a first word: those are
+   refused. State the `session_id` in full, unbroken and unabbreviated — the
+   monitor finds the waiting pane by it. Plain sentences only — no numbered
+   menu of options.
 3. **End your turn.** Do not poll `aitask_question_status` and do not re-ask
    in a loop.
 4. On the user's next message: if it clearly answers the pending question,
    call `aitask_question_resume` with `session_id`, the `question_id` and
-   their **exact** text as `prompt_answer`. If it is a status request or
+   their **exact** text as `prompt_answer` — unchanged, never rewritten into
+   a label; the server does the matching. If it is a status request or
    unrelated steering, handle that and leave the question open. If it is
-   ambiguous, ask what they meant; an `invalid_prompt_answer` result means the
-   same.
+   ambiguous, ask what they meant. An `invalid_prompt_answer` result means the
+   same: its `reason` lists every choice by label with the exact reply that
+   selects it. Re-ask relaying those replies exactly: the quoted label, or —
+   when a choice carries `(reply "<x>")` — that `<x>` instead, since typing
+   its label would pick another choice. A choice marked `(no typed reply
+   selects it; show the form again)` cannot be answered at the prompt: call
+   `aitask_question_resume` with only the `session_id` to show the form again.
 5. The resume call records the answer and shows the remaining questions as
-   forms. Answered questions are never asked again. Another timeout repeats
-   steps 1–5; nothing already answered is lost.
+   forms. When the result carries `resolved`, tell the user which option was
+   recorded (e.g. "Recorded: Start implementation"). Answered questions are
+   never asked again. Another timeout repeats steps 1–5; nothing already
+   answered is lost.
 
 `cancelled` means the user declined: treat it as the source skill's abort or
 "no" path only if the skill defines one for dismissal, otherwise stop and ask

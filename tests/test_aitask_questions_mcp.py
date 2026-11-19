@@ -210,6 +210,20 @@ class MCPTests(unittest.TestCase):
                 self.assertEqual(result["pending"][0]["id"], "q1")
                 self.assertEqual(result["answers"], {})
                 self.assertIsNone(result["receipt"])
+                self.assertIn('answer with one of: "Blue", "Green"', result["reason"])
+        anyio.run(scenario)
+
+    def test_accepted_prompt_choice_reports_the_option_it_recorded(self):
+        async def scenario():
+            async with self.client() as client:
+                state = await self.ask(client)
+                result = data(await client.call_tool("aitask_question_resume", {
+                    "session_id": state["session_id"], "question_id": "q1",
+                    "prompt_answer": "BLUE"}))
+                self.assertEqual(result["resolved"], {"question_id": "q1", "id": "blue",
+                                                      "label": "Blue", "match": "normalized"})
+                self.assertEqual(result["answers"]["q1"]["value"], "blue")
+                self.assertEqual(result["answers"]["q1"]["raw"], "BLUE")
         anyio.run(scenario)
 
     def test_prompt_json_text_is_preserved_before_validation(self):

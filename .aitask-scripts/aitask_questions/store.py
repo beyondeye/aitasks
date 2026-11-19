@@ -16,6 +16,7 @@ from pathlib import Path
 import sqlite3
 import subprocess
 import time
+import unicodedata
 import uuid
 
 from .errors import QuestionError
@@ -98,21 +99,249 @@ def validate_questions(questions):
             selection.validate_shape(q)
 
 
+# Matching a choice typed at the chat prompt (codex_prompt_model_forwarded).
+# A fuzzy acceptance is consent read from heuristic evidence, so every rule
+# below errs towards refusing: the question then stays pending and the user is
+# shown the labels to answer with.
+MIN_PREFIX = 3                    # an abbreviated word keeps at least 3 letters
+TYPO_BUDGET = ((8, 2), (4, 1))    # (shorter word length >=, edits allowed)
+FILLER = frozenset({"a", "an", "the", "and", "to", "of"})  # may be left out of a label
+HEDGE_WORDS = frozenset({"not", "no", "never", "without", "instead", "but", "or", "nor",
+                         "except", "unless", "neither", "maybe", "later", "dont", "cant",
+                         "wont"})
+_QUOTES = "\"'`“”‘’"
+REASON_LABELS = 20                # labels listed in a refusal reason
+
+
+def _normalize(text):
+    """Case, spacing, `_`/`-`, surrounding quotes and trailing .!, removed."""
+    text = text.strip()
+    while True:
+        trimmed = text.strip(_QUOTES).strip().rstrip(".!,").strip()
+        if trimmed == text:
+            break
+        text = trimmed
+    return " ".join(text.casefold().replace("_", " ").replace("-", " ").split())
+
+
+def _osa(a, b, limit):
+    """Optimal string alignment distance (insert, delete, substitute, swap), or
+    limit + 1 once it exceeds limit. Only cells within `limit` of the diagonal
+    are computed, so the cost is linear in the word length."""
+    over = limit + 1
+    if abs(len(a) - len(b)) > limit:
+        return over
+    width = len(b) + 1
+    before = None                                   # row i - 2
+    prev = [j if j <= limit else over for j in range(width)]  # row 0
+    for i in range(1, len(a) + 1):
+        row = [over] * width
+        if i <= limit:
+            row[0] = i
+        for j in range(max(1, i - limit), min(len(b), i + limit) + 1):
+            cell = min(prev[j] + 1, row[j - 1] + 1, prev[j - 1] + (a[i - 1] != b[j - 1]))
+            if i > 1 and j > 1 and a[i - 1] == b[j - 2] and a[i - 2] == b[j - 1]:
+                cell = min(cell, before[j - 2] + 1)
+            row[j] = min(cell, over)
+        if min(row) > limit:
+            return over
+        before, prev = prev, row
+    return prev[-1]
+
+
+def _word_match(reply, word):
+    """Edits needed for one reply word to stand for one label word, or None."""
+    if reply == word or (len(reply) >= MIN_PREFIX and word.startswith(reply)):
+        return 0
+    shorter = min(len(reply), len(word))
+    budget = next((edits for size, edits in TYPO_BUDGET if shorter >= size), 0)
+    # The distance is at least the length difference, so a word that cannot
+    # fit the budget never reaches the quadratic _osa (a long paste would
+    # otherwise stall the write transaction submit holds).
+    if budget and reply[0] == word[0] and abs(len(reply) - len(word)) <= budget:
+        edits = _osa(reply, word, budget)
+        if edits <= budget:
+            return edits
+    return None
+
+
+def _align(reply, label):
+    """Fewest edits mapping every reply word, in order and one-to-one, onto the
+    label's words, leaving out nothing but FILLER; None when there is no such
+    mapping. So a reply can neither add a qualifier nor drop a word that
+    decides the action ("approve and" is not "Approve and stop here", "do
+    delete branch" is not "Do not delete branch").
+    """
+    if not reply or len(reply) > len(label):
+        return None  # nothing typed, or more words than the label has
+    best = {}
+
+    def walk(i, j):
+        if (i, j) not in best:
+            if i == len(reply):
+                result = 0 if all(w in FILLER for w in label[j:]) else None
+            elif j == len(label):
+                result = None
+            else:
+                options = []
+                edits = _word_match(reply[i], label[j])
+                rest = walk(i + 1, j + 1) if edits is not None else None
+                if rest is not None:
+                    options.append(edits + rest)
+                if label[j] in FILLER and (skipped := walk(i, j + 1)) is not None:
+                    options.append(skipped)
+                result = min(options) if options else None
+            best[(i, j)] = result
+        return best[(i, j)]
+
+    return walk(0, 0)
+
+
+def _hedged(text):
+    """Not plain words, or a negation or hedge: never read as a fuzzy choice.
+
+    Any punctuation or symbol left after normalization refuses fuzzy matching
+    outright. A question mark in any script ("?", "？", "⁇", "‽", …) is
+    one of them, and a typo edit must never be what silently deletes it.
+    """
+    if any(unicodedata.category(ch)[0] in "PS" for ch in text):
+        return True
+    for word in text.split():
+        bare = word.replace("'", "").replace("’", "")
+        if bare in HEDGE_WORDS or word.endswith(("n't", "n’t")):
+            return True
+    return False
+
+
+def _resolve(options, value):
+    """The matching rule itself, without raising: (option, provenance, problem,
+    candidates). option is None when the reply picks nothing; problem is then
+    "ambiguous choice" (candidates = the options it matched) or
+    "unknown choice".
+
+    Tiers, each consulted only when the one before found nothing, and each
+    refusing when more than one option matches:
+      exact       the id or label as written (today's rule, so it always wins);
+      normalized  the id or label up to case, spacing, `_`/`-`, quotes and
+                  trailing .!, ;
+      fuzzy       the LABEL (never the id — a prefix of an id could bypass a
+                  conflicting label), word by word: every reply word abbreviates
+                  (>= MIN_PREFIX letters) or slightly mistypes (same first
+                  letter, within TYPO_BUDGET) one label word, in order, and
+                  every label word except FILLER is covered. Never for a reply
+                  holding punctuation or a symbol, a negation or a hedge.
+    """
+    def tier(found, provenance):
+        if len(found) > 1:
+            return None, None, "ambiguous choice", found
+        if found:
+            return found[0], provenance, None, ()
+        return None
+
+    raw = value.strip()
+    hit = tier([o for o in options if raw in (o["id"], o["label"])], {"match": "exact"})
+    if hit:
+        return hit
+    reply = _normalize(value)
+    if not reply:
+        # Only punctuation/quotes ("!"): it would equal an empty normalized
+        # label and, in fuzzy, omit every word of a label like "A" (filler).
+        return None, None, "unknown choice", ()
+    hit = tier([o for o in options if reply in (_normalize(o["id"]), _normalize(o["label"]))],
+               {"match": "normalized"})
+    if hit:
+        return hit
+    if not _hedged(reply):
+        scored = [(o, _align(reply.split(), _normalize(o["label"]).split())) for o in options]
+        scored = [(o, edits) for o, edits in scored if edits is not None]
+        if scored:
+            edits = scored[0][1]
+            return tier([o for o, _ in scored],
+                        {"match": "fuzzy", "via": "typo" if edits else "prefix", "edits": edits})
+    return None, None, "unknown choice", ()
+
+
+def _choice_names(options, chosen):
+    """How to name each chosen option in a reason, at most REASON_LABELS of
+    them. A suggested reply is offered only when submitting it verbatim,
+    under _resolve, records exactly this option: the label alone when it
+    does; else the label plus `(reply "<id>")` when the literal id does; else
+    a note that no typed reply can pick it, so the form must be shown again.
+    """
+    def picks(reply, option):
+        return _resolve(options, reply)[0] is option
+
+    names = []
+    for o in chosen[:REASON_LABELS]:
+        name = json.dumps(o["label"], ensure_ascii=False)
+        if not picks(o["label"], o):
+            if picks(o["id"], o):
+                name += f" (reply {json.dumps(o['id'], ensure_ascii=False)})"
+            else:
+                name += " (no typed reply selects it; show the form again)"
+        names.append(name)
+    if len(chosen) > REASON_LABELS:
+        names.append(f"… and {len(chosen) - REASON_LABELS} more")
+    return names
+
+
+def _choices_reason(problem, options, candidates=()):
+    shown = ", ".join(_choice_names(options, options))
+    lead = problem
+    if candidates:
+        named = _choice_names(options, list(candidates))
+        lead += f" (matches {', '.join(named[:-1])} and {named[-1]})"
+    return f"{lead}; question remains pending; answer with one of: {shown}"
+
+
+def match_choice(options, value):
+    """The option a prompt answer names: (option, provenance) or QuestionError
+    whose reason lists, for every choice, a reply that selects it (_resolve
+    holds the rule). The stored answer is always the option id; provenance
+    says how it matched.
+    """
+    option, provenance, problem, candidates = _resolve(options, value)
+    if option is None:
+        raise QuestionError(_choices_reason(problem, options, candidates))
+    return option, provenance
+
+
 def validate_answer(question, value, source):
+    """(stored value, provenance) for an answer, or QuestionError.
+
+    Form input carries stable ids and must name one exactly. A prompt answer
+    is matched by match_choice; whatever matched, the option id is stored.
+    """
     if not isinstance(value, str) or not 1 <= len(value.strip()) <= 20000:
         raise QuestionError("missing or invalid answer")
     if question["kind"] == "text":
-        return value
-    # Form input carries stable IDs. Prompt input may carry an unambiguous
-    # label, but never parse prose/substring matches as consent.
+        return value, {}
     options = question["options"]
     if source == "mcp_form":
-        matches = {o["id"] for o in options if value == o["id"]}
+        option = next((o for o in options if value == o["id"]), None)
+        if option is None:
+            raise QuestionError(_choices_reason("unknown choice", options))
+        found = (option, {"match": "exact"})
     else:
-        matches = {o["id"] for o in options if value.strip() in {o["id"], o["label"]}}
-    if len(matches) != 1:
-        raise QuestionError("ambiguous or unknown choice; question remains pending")
-    return matches.pop()
+        found = match_choice(options, value)
+    option, provenance = found
+    return option["id"], {"label": option["label"], **provenance}
+
+
+def resolved(question, record):
+    """Which option a stored choice answer recorded, for the agent to echo.
+
+    Built from the question's options and the stored id, so an answer stored
+    before `label`/`match` were recorded still resolves; the only thing the
+    validator accepted then was a literal id or label, hence "exact".
+    """
+    option = next((o for o in question["options"] if o["id"] == record["value"]), None)
+    if option is None:
+        return None
+    found = {"question_id": question["id"], "id": option["id"], "label": option["label"],
+             "match": record.get("match", "exact")}
+    found.update({k: record[k] for k in ("via", "edits") if k in record})
+    return found
 
 
 class Store:
@@ -672,21 +901,30 @@ class Store:
                 raise QuestionError("unknown question id")
             if question["kind"] == "multi":
                 return self._submit_selection(body, question, value, source, attempt_id, page_id)
-            answer = validate_answer(question, value, source)
+            answer, provenance = validate_answer(question, value, source)
             old = body["answers"].get(question_id)
             if old:
-                return self.view(body, outcome="duplicate" if old["value"] == answer else "conflict")
+                if old["value"] != answer:
+                    return self.view(body, outcome="conflict")
+                return self.view(body, outcome="duplicate", **self._resolution(question, old))
             pending_id = next(q["id"] for q in body["questions"] if q["id"] not in body["answers"])
             if pending_id != question_id:
                 raise QuestionError("answer must address the current pending question")
             if source == "mcp_form" and (not body["attempt"] or body["attempt"]["id"] != attempt_id):
                 return self.view(body, outcome="stale_attempt")
-            body["answers"][question_id] = {"value": answer, "raw": value, "source": source}
+            record = {"value": answer, "raw": value, "source": source, **provenance}
+            body["answers"][question_id] = record
             body["attempt"] = None
             body["state"] = "pending"
             self._event(body, "answer_accepted", question_id=question_id, source=source)
             self._complete(body)
-            return self.view(body, outcome="accepted")
+            return self.view(body, outcome="accepted", **self._resolution(question, record))
+
+    @staticmethod
+    def _resolution(question, record):
+        """{"resolved": …} for a choice answer, else nothing."""
+        found = resolved(question, record) if question["kind"] == "choice" else None
+        return {"resolved": found} if found else {}
 
     def _complete(self, body):
         if len(body["answers"]) == len(body["questions"]):

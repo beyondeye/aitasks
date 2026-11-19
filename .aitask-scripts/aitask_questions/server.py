@@ -191,6 +191,17 @@ def build_server(store, timeout, multi_mode="native"):
         Supply both question_id and exact prompt_answer only for a message clearly
         answering that question. Status requests/unrelated steering are not answers.
         Free-text intent is model-associated, not authenticated. Never fabricate it.
+        Pass the user's text unchanged; never rewrite it into a label. A choice
+        accepts an option's id or label in any case/spacing, or the label typed
+        word by word with each word shortened (3+ letters) or slightly mistyped,
+        as long as every word but a/an/the/and/to/of is there in order. It
+        refuses questions, negations, added or missing words and ambiguity.
+        An accepted choice returns resolved {id, label, match}: tell the user
+        which option was recorded ("Recorded: <label>"). invalid_prompt_answer
+        reason gives each choice's label and, when typing the label would pick
+        another choice, (reply "<x>"): re-ask relaying exactly those replies.
+        A choice marked "no typed reply selects it" needs the form: resume with
+        no answer.
         Without an answer, re-present the next pending form (also resumes defer).
         With an accepted answer, show the next question. Conflict/stale/ambiguous
         answers stay stopped. Prior accepted questions are never repeated.
@@ -202,6 +213,7 @@ def build_server(store, timeout, multi_mode="native"):
         # our own validator unchanged. question_id signals answer presence.
         if question_id is None and prompt_answer != "":
             raise QuestionError("supply question_id and prompt_answer together")
+        resolution = {}
         if question_id is not None:
             try:
                 result = store.submit(session_id, question_id, prompt_answer, "codex_prompt_model_forwarded", page_id=page_id)
@@ -210,7 +222,9 @@ def build_server(store, timeout, multi_mode="native"):
                         "reason": str(exc), "next_action": "end_turn_and_clarify_pending_question"}
             if result.get("outcome") not in {"accepted", "duplicate"}:
                 return result
-        return await present(session_id, ctx)
+            if result.get("resolved"):
+                resolution = {"resolved": result["resolved"]}
+        return {**(await present(session_id, ctx)), **resolution}
 
     @server.tool(annotations=writes)
     def aitask_question_cancel(session_id: str, defer: bool = False) -> dict:
