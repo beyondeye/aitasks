@@ -1,7 +1,7 @@
 ---
 priority: medium
 effort: high
-depends: [t2335_3]
+depends: [t2335_2, t2335_3]
 issue_type: feature
 status: Ready
 labels: [sitrep, skills]
