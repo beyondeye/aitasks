@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2281
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-17 22:02
-updated_at: 2026-11-18 22:56
+updated_at: 2026-11-19 10:11
 ---
 
 ## Symptom
@@ -148,3 +149,8 @@ Form input (`mcp_form`) keeps exact id matching.
   keep the edit to the one paragraph.
 - The OpenCode/Claude flows use their native question widgets and are not
   affected.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-19T08:11:55Z status=pass attempt=1 type=human
