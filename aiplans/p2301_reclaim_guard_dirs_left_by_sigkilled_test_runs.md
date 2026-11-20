@@ -343,3 +343,36 @@ never leaks into nested runs. Set it after sourcing.
 - **Mutants M12–M17** (outside-launch, reaper mount check, slurp error,
   "@"-as-abstract, `+w`, end() mount check) each red only their own cases;
   M1–M11 re-run on the final code, all still red; M0 green.
+
+### Change Request 3 (2026-11-20)
+- **Requested by user:** four further findings, all verified CONFIRMED:
+  1. `_tg_meta_invalidate` read a FAILED `find | grep` probe as "no owner-read
+     bit" — with append, rm, chmod and the probe all failing, the phase still
+     ran inside the guard over a record with zero pgids;
+  2. the three control-dir cleanups (reclaim, orphan sweep, end) still used
+     recursive `chmod -R` / `rm -rf` without the mount check;
+  3. the off-Linux `mount` parser split on the first " on " — an NFS source
+     containing " on " hid a target nested under the candidate;
+  4. case (u) demanded `held:<pid>` even on a hidepid host, where the guard
+     correctly answers `proc-view-incomplete` before scanning.
+- **Changes made:**
+  1. `_tg_meta_confirmed_unusable`: `invalid` only when a SUCCEEDING find on
+     the control dir shows the record absent, or a succeeding find shows it
+     present without owner-read. A failed probe, or rm/chmod claiming success,
+     leaves `broken` → outside launch.
+  2. `_tg_remove_ctl <dir> strict|lenient`: `rm -f <dir>/meta` then `rmdir`
+     (refuses non-empty dirs and mount points); skipped when a mount is found
+     below it (strict also when the table is unreadable). Used by all three
+     sites; the only recursive operations left are the two on guard dirs, both
+     behind the mount check.
+  3. Each `mount` row must contain exactly one " on " and end in " (…)";
+     otherwise the whole table is `mounts-unverified`.
+  4. (u)'s expectation follows the host's proc mount (held:<pid> without a
+     hiding hidepid, proc-view-incomplete otherwise); new fixture twin v/cwd.
+- **Tests:** ac fault matrix [rm chmod] [rm chmod find] [rmok chmodok] [find]
+  + a confirmed-invalidation control that stays inside; ad/ctl (orphan control
+  dir with a mount, unexpected entry survives); (ae) fake `mount`: clean
+  control, nested, ambiguous NFS source, bad row, failing `mount`. 253/253 pass.
+- **Mutants M18–M20** (negative-probe confirmation, recursive control-dir
+  removal, unchecked ambiguous split — each the exact round-2 code) red only
+  their own cases; M1–M17 re-run on the final code, all red; M0 green.
