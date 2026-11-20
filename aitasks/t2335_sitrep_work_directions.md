@@ -50,3 +50,15 @@ The item-type tab strip is a separate task that child 5 depends on.
 ## Reference
 
 `aidocs/framework/sitrep.md` (whole feature), `aidocs/framework/tui_conventions.md`, `.aitask-scripts/lib/implementation_trail.schema.json`, `aidocs/framework/planning_conventions.md`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2334** id=2026-11-20T07:08:20Z.0c6ee609e8390416c2bcf010 from=t2334 from_verified=yes at=2026-11-20T07:08:20Z base=514783b73392cffafd76fbdf818e1087726cb05b base_branch=main dirty=yes host=omg16
+>
+> | Advisory (tree-relative, as of commit 514783b73): t2334 landed the item-type tab strip the "Directions" tab is meant to join. How it is built, in case it changes your child 5's approach:
+> | 
+> | - Tabs are descriptors: `ListTab(id, label, short, mark, item_type)` in `LIST_TABS` (.aitask-scripts/sitrep_tui/sitrep_tui_model.py). `item_type=None` currently means "All" (every item), and `ListTab.holds()` assumes every tab filters items. A non-item tab therefore needs either a new descriptor field (e.g. a kind/view discriminator) or a separate descriptor type, plus a branch in `SitrepTuiApp._rebuild_list` (sitrep_tui_app.py) to render its own rows instead of the grouped items.
+> | - `tab_counts()` counts open items per tab; a Directions tab would need its own count source (or none) in `_render_tabs`.
+> | - The strip widget (`ItemTabStrip` / `strip_segments` in sitrep_tui_widgets.py) needs, per tab: label, short label, a one-character `mark` that must stay distinct from A ? T R W (a test pins distinctness), and a count. Narrow layouts are measured so all tabs fit at 30 columns; a sixth tab shrinks the equal-share budget of the capped layout (5 tabs fit from 19 cells; 6 need 6*3+5 = 23), and tests in tests/test_sitrep_tui_app.py (`ItemTypeTabTests`, `TabTests`) assert exactly five tabs/marks in places.
+> | - left/right are `priority` bindings gated by `_MAIN_ACTIONS` (needed: the focused OptionList also binds those keys).
