@@ -356,3 +356,78 @@ task-workflow Step 9.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+
+- **Actual work done:** All plan steps 1–5 implemented as designed:
+  `LIST_TABS` / `CLASS_ITEM_TYPE` / `KIND_ITEM_TYPE` / `item_type` /
+  `tab_counts` in `sitrep_tui_model.py`; `ItemTabStrip` + `strip_segments`
+  (five layouts) in `sitrep_tui_widgets.py`; strip, `_in_tab` / `_label_ok`
+  split, `_render_tabs`, tab switching and the empty-state line in
+  `sitrep_tui_app.py`; docs in `aidocs/framework/sitrep.md` and the website's
+  sitrep how-to / reference; `ItemTypeTabTests` (7) and `TabTests` (12) plus
+  strip assertions in the two damaged-store tests.
+- **Deviations from plan:**
+  - The arrow bindings stay `priority`, as planned. An interim version
+    dropped it after a negative control showed default `right` still
+    switching tabs (the list's `scroll_right` raises `SkipAction`). Review
+    found two failures without it: the footer resolved `right` to the list's
+    hidden `scroll_right`, so "Next tab" was not shown, and `next_tab`
+    remapped onto `down` ran the list's `cursor_down` instead. `priority` was
+    restored, with tests for both cases
+    (`test_the_footer_shows_next_tab_over_the_lists_own_right`, and the remap
+    test now also maps `prev_tab` to `down`).
+  - The strip exposes `drawn` (styled `Text`), `drawn_text` and `spans` for
+    tests (the plan named only the spans).
+  - The exact-width narrow tests run at 30×40 (`NARROW`): at 30×16 the wrapped
+    header overflows the screen, whose vertical scrollbar leaves the strip 28
+    cells. The tests assert `strip.size.width == 30`.
+  - The site's `_index.md` gets a one-sentence tab mention in its opening
+    paragraph, which lists the list operations.
+  - Added `test_a_short_pane_with_a_wrapped_header_keeps_every_tab` (30×16,
+    strip < 30 cells because of the screen scrollbar). It and the narrow /
+    large-count tests check the line Textual actually renders
+    (`render_line(0)`, which shows `…` when clipped, as a probe confirmed), not
+    only the text handed to the widget.
+- **Issues encountered:** see the 30×16 scrollbar note above. It is a
+  property of the existing screen (it scrolls when the header wraps), not of
+  the strip, which adapts to the 28 cells correctly.
+- **Key decisions:** counts are `state == "open"` only (the header's rule).
+  Mnemonic marks `A ? T R W` are pinned distinct by a test. Capping applies
+  only when the exact mnemonic row overflows.
+- **Upstream defects identified:** None.
+- **Verification:** negative controls run, then restored: (1) without
+  `priority` the cycle test still passes (it presses the default `right`); the footer and remap tests are the ones that fail without it;
+  (2) without the tab-switch first-row rule,
+  `test_a_tab_switch_keeps_a_shown_item_else_goes_to_the_top` fails
+  (`'c2' != 'c1'`). `check_links.py --build` and `check_screenshots.py` PASSED.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-20)
+- **Requested by user:** restore `priority` on the arrow bindings (footer
+  resolved `right` to the list's `scroll_right`; a remap onto `down` lost to
+  `cursor_down`); add the tab mention to the sitrep overview `_index.md`;
+  verify the rendered line (not only the drawn text) in a short pane.
+- **Changes made:** `priority=True` restored + footer / remap-onto-`down`
+  tests (both fail without it); `_index.md` sentence; `rendered_line` /
+  `assert_rendered_whole` / bounded `settle` helpers and the 30×16 short-pane
+  test (the redraw follows a queued Resize, so under load the size can change a
+  few frames before the redraw — 8/8 concurrent runs pass).
+- **Files affected:** `sitrep_tui_app.py`, `tests/test_sitrep_tui_app.py`,
+  `website/content/docs/tuis/sitrep/_index.md`, `aidocs/framework/sitrep.md`.
+
+### Change Request 2 (2026-11-20)
+- **Requested by user:** the reference described `999+` as a fixed cap; the
+  cap depends on the usable width (`99+` at 28 cells).
+- **Changes made:** reworded the reference, aidocs and the `strip_segments`
+  docstring: equal share per tab, the width sets the cut (`999+` at 30, `99+`
+  at 28).
+- **Files affected:** `website/content/docs/tuis/sitrep/reference.md`,
+  `aidocs/framework/sitrep.md`, `sitrep_tui_widgets.py`.
+
+### Note on history
+`website/content/docs/tuis/sitrep/how-to.md` and `reference.md` (first
+version) were swept into commit `45539803d` (t2278_5) by a concurrent session
+before the t2334 commit; the t2334 commit carries only the later `reference.md`
+cap-wording fix for those two pages.
