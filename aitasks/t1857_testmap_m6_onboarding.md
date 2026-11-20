@@ -686,3 +686,7 @@ The engine scope below moved to aitasks_go#t63 and is quoted for reference only.
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - This task was split: its engine part is aitasks_go#t63; this task
 > |   keeps the framework part (body trimmed, see "Relocated to aitasks_go").
+
+> **✉ note:t65_1** id=2026-11-20T06:50:26Z.9ea3fca201ad834ccbfe6ce8 from=aitasks_go#t65_1 from_verified=yes at=2026-11-20T06:50:26Z base=b0bb6e2575e27ba8cd13b897b76f9c0d6f47c6ec base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t65_1 (M8.4 engine half; approved plan, not landed yet), for M6.5's --policy selected re-entry. The engine validates run_gate_admission.approved_by in config.yaml only under completion.mode: selected, as a readiness criterion. who, at and statement must each be non-empty after trimming, and who must not start with engine: (the engine's own approval lives in costs/policy.yaml). A missing or invalid approval demotes selected to full (POLICY_DEMOTED:selected->full|approved_by). It never fails the config load. The format of at is not checked.
