@@ -376,3 +376,35 @@ never leaks into nested runs. Set it after sourcing.
 - **Mutants M18–M20** (negative-probe confirmation, recursive control-dir
   removal, unchecked ambiguous split — each the exact round-2 code) red only
   their own cases; M1–M17 re-run on the final code, all red; M0 green.
+
+### Change Request 4 (2026-11-20)
+- **Requested by user:** three findings, all verified CONFIRMED:
+  1. the off-Linux mount parser returned `mounts-unverified` at the FIRST
+     ambiguous row, so a later clear mount under the dir was never seen — and
+     `tmpdir_guard_end` treated unverified as permission to recurse;
+  2. candidate and orphan discovery split `find` output on newlines — a legal
+     base path containing a newline handed the verdict a different path;
+  3. (follow-up) `tmpdir_guard_end` printed "are now removed" before the
+     mount check and the removal attempt.
+- **Changes made:**
+  1. `_tg_mounts_under` reads the WHOLE table (Linux and off Linux): a mount
+     found anywhere returns 0; otherwise any unreadable row returns 2. Off
+     Linux an ambiguous row is tried at EVERY " on " split, any reading below
+     the dir counting as a mount (so the round-3 "ambiguous" fixture now reads
+     `mounted:<target>`, and an ambiguous row none of whose splits is below the
+     dir no longer blocks). `tmpdir_guard_end` now removes only on 1 (table read,
+     nothing below); on 2 it leaves the dir, says so and leaves the count empty.
+     `_tg_remove_ctl` lost its lenient mode (removes only on 1).
+  2. Discovery is `find … -print0 | LC_ALL=C sort -z` / `read -r -d ''` for
+     both the candidate and the orphan-control sweeps.
+  3. The leftovers list is printed first; the second line follows the attempt
+     and states the observed outcome ("are now removed" / "were NOT removed: …").
+- **Tests:** ae/ambthenclear, ae/badthenclear, ae/ambunrelated, ae/ambiguous
+  (now mounted), ad/garbledthenbelow, ad/end message assertions,
+  ad/end-unverified, (af) newline-bearing base (stale dir + its control dir +
+  an orphan control dir). 269/269 pass.
+- **Mutants M21–M25** (early return off Linux / on Linux, lenient end on an
+  unverified table, newline-split discovery, unconditional "removed" message —
+  each the round-3 behaviour) red only their own cases; M17/M20 retargeted to
+  the rewritten code (end's positive-mount refusal; first-split-only parsing);
+  M0–M25 all re-run on the final code.
