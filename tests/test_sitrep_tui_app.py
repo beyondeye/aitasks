@@ -52,6 +52,7 @@ import sitrep_harvest as H  # noqa: E402
 import sitrep_todo as st  # noqa: E402
 from sitrep_tui import sitrep_tui_app as appmod  # noqa: E402
 from sitrep_tui import sitrep_tui_model as model  # noqa: E402
+from sitrep_tui import sitrep_tui_widgets as widgets  # noqa: E402
 from textual.widgets import OptionList, Static, TextArea  # noqa: E402
 
 WRITER = SCRIPTS / "aitask_sitrep_todo.sh"
@@ -1131,6 +1132,9 @@ class ReloadTests(_AppCase):
         async with app.run_test(size=SIZE) as pilot:
             await pilot.pause()
             before = list(app._order)
+            strip = app.screen_stack[0].query_one("#st-tabs")
+            tabs_before = strip.drawn_text
+            self.assertIn(" All 14 ", tabs_before)
             Path(self.store_dir, "todo.md").write_text("garbage\n")
             await app._poll_store()
             await pilot.pause()
@@ -1139,6 +1143,7 @@ class ReloadTests(_AppCase):
             self.assertIn("Store unusable", str(banner.content))
             self.assertIn("Showing the last good view", str(banner.content))
             self.assertEqual(app._order, before)
+            self.assertEqual(strip.drawn_text, tabs_before, "the last good counts")
 
     async def test_a_store_damaged_before_start_shows_the_banner(self):
         Path(self.store_dir, "todo.md").write_text("garbage\n")
@@ -1151,6 +1156,8 @@ class ReloadTests(_AppCase):
             self.assertEqual(app._order, [])
             header = str(app.screen_stack[0].query_one("#st-header", Static).content)
             self.assertIn("store unusable", header)
+            self.assertEqual(app.screen_stack[0].query_one("#st-tabs").drawn_text,
+                             " All 0 │ Triage 0 │ Tasks 0 │ Recovery 0 │ Watches 0 ")
 
 
 class AgeRefreshTests(_AppCase):
@@ -1498,6 +1505,503 @@ class MarkdownViewerTests(_AppCase):
 
 
 # -- the launcher ----------------------------------------------------------------
+
+# -- item-type tabs (t2334) --------------------------------------------------------
+
+#: The fixture's items per tab, by `ids` name (every state).
+TAB_MEMBERS = {
+    "triage": {"question", "review", "triage"},
+    "tasks": {"task", "push", "dismissed", "done", "hostile", "long", "pushref", "xref",
+              "unknowntask", "status_ready", "status_postponed", "status_implementing"},
+    "recovery": set(),
+    "watches": {"watch", "baddate", "trailwatch"},
+}
+#: The fixture's items whose state is not `open` (not counted on the strip).
+NOT_OPEN = {"question", "dismissed", "done", "unknowntask"}
+
+
+def _strip_rows(counts, active: str = "all") -> list:
+    return [(t.id, t.label, t.short, t.mark, n, t.id == active)
+            for t, n in zip(model.LIST_TABS, counts)]
+
+
+def _strip_line(counts, width: int) -> str:
+    return "│".join(text for _id, text, _a in
+                    widgets.strip_segments(_strip_rows(counts), width))
+
+
+def recover_item(root, tid: str, category: str, inc: str) -> int:
+    """A crash-recovery item -- `add` refuses `recover:` refs; only
+    `recovery-apply` writes them (the RecoverPickTests recipe)."""
+    ctx = (f"- background: recovery fixture\n"
+           f"- origin: task=t{tid} incarnation={inc}\n")
+    out = writer(root, "recovery-apply", "--ref", f"recover:t{tid}", "--expect-rev", "absent",
+                 "--incarnation", inc, "--state", "open",
+                 "--outcome", f"{category} · fixture evidence",
+                 "--title", f"Recover t{tid} ({category})", "--group", "now",
+                 "--checked-at", "now", "--context-file", "-", stdin=ctx)
+    return int(out.split(":")[1].split("|")[0][1:])
+
+
+class ItemTypeTabTests(_Case, unittest.TestCase):
+    def setUp(self):
+        self.make_copy()
+        self.addCleanup(self.drop_copy)
+        self.store = model.load_snapshot(self.store_dir).store
+        self.checks = model.refresh_checks(self.store)
+
+    def test_every_class_and_kind_lands_in_a_type(self):
+        # A new classify key or store kind cannot silently fall out of every tab.
+        self.assertEqual(set(model.CLASS_ITEM_TYPE), set(model.NEXT_STEPS))
+        for key, kind in model.CLASS_ITEM_TYPE.items():
+            self.assertIn(kind, (*model.ITEM_TYPES, model.BY_KIND), key)
+        self.assertEqual(set(model.KIND_ITEM_TYPE), set(st.KINDS))
+        self.assertTrue(set(model.KIND_ITEM_TYPE.values()) <= set(model.ITEM_TYPES))
+        self.assertEqual([t.item_type for t in model.LIST_TABS[1:]], list(model.ITEM_TYPES))
+        self.assertIsNone(model.LIST_TABS[0].item_type)
+
+    def test_marks_and_shorts_are_distinct(self):
+        for field in ("id", "label", "short", "mark"):
+            values = [getattr(t, field) for t in model.LIST_TABS]
+            self.assertEqual(len(set(values)), len(values), field)
+        for tab in model.LIST_TABS:
+            self.assertEqual(widgets.cell_len(tab.mark), 1, tab.id)
+
+    def test_every_item_is_in_exactly_one_type_tab(self):
+        self.assertEqual(set().union(*TAB_MEMBERS.values()), set(self.ids))
+        for name, num in self.ids.items():
+            item, check = self.store.items[num], self.checks.get(num)
+            holders = [t.id for t in model.LIST_TABS[1:] if t.holds(item, check)]
+            want = [k for k, names in TAB_MEMBERS.items() if name in names]
+            self.assertEqual(holders, want, name)
+            self.assertTrue(model.LIST_TABS[0].holds(item, check), name)
+
+    def test_recovery_items_open_and_closed(self):
+        for state in ("open", "done", "dismissed", "unknown"):
+            item = _item(kind="task", ref="recover:t42", title="R", state=state,
+                         outcome="crashed · x")
+            self.assertEqual(model.item_type(item), "recovery", state)
+        self.assertEqual(model.item_type(_item(kind="question", state="unknown")), "triage")
+        self.assertEqual(model.item_type(_item(kind="action", state="done")), "tasks")
+        self.assertEqual(model.item_type(_item(kind="nonsense", state="open")), "tasks")
+
+    def test_counts_are_open_items_only(self):
+        counts = model.tab_counts(self.store, self.checks)
+        want = {k: len(names - NOT_OPEN) for k, names in TAB_MEMBERS.items()}
+        want["all"] = len(set(self.ids) - NOT_OPEN)
+        self.assertEqual(counts, want)
+        self.assertEqual(model.tab_counts(None, {}), {t.id: 0 for t in model.LIST_TABS})
+
+    def test_layouts_by_width(self):
+        counts = [14, 2, 9, 0, 3]
+        self.assertEqual(_strip_line(counts, 100),
+                         " All 14 │ Triage 2 │ Tasks 9 │ Recovery 0 │ Watches 3 ")
+        self.assertEqual(_strip_line(counts, 45), " All 14 │ Tri 2 │ Tsk 9 │ Rec 0 │ Wat 3 ")
+        self.assertEqual(_strip_line(counts, 30), "All14│Tri2│Tsk9│Rec0│Wat3")
+        self.assertEqual(_strip_line(counts, 0),
+                         " All 14 │ Triage 2 │ Tasks 9 │ Recovery 0 │ Watches 3 ",
+                         "an unknown width draws the full labels")
+
+    def test_mnemonic_layouts_keep_five_distinct_targets_at_30(self):
+        cases = [
+            ([300, 100, 100, 100, 100], "A300│?100│T100│R100│W100"),        # exact 3-digit
+            ([2000, 1000, 1000, 0, 0], "A2000│?1000│T1000│R0│W0"),          # equal 4-digit
+            ([10000, 1000, 1000, 100, 7900], "A10000│?1000│T1000│R100│W7900"),  # 5-digit fits
+            ([10000] * 5, "A999+│?999+│T999+│R999+│W999+"),                  # genuine overflow
+            ([30010, 10000, 10000, 10000, 10], "A999+│?999+│T999+│R999+│W10"),  # mixed overflow
+            ([10000, 10000, 10000, 10000, 5], "A10000│?10000│T10000│R10000│W5"),  # exact fit
+        ]
+        for counts, want in cases:
+            with self.subTest(counts=counts):
+                segs = widgets.strip_segments(_strip_rows(counts), 30)
+                line = "│".join(text for _i, text, _a in segs)
+                self.assertEqual(line, want)
+                self.assertLessEqual(widgets.cell_len(line), 30)
+                self.assertEqual([i for i, _t, _a in segs], [t.id for t in model.LIST_TABS])
+                texts = [t for _i, t, _a in segs]
+                self.assertEqual(len(set(texts)), 5, "distinguishable")
+        self.assertEqual(widgets.cell_len(_strip_line([10000] * 5, 19)), 19)
+        self.assertEqual(_strip_line([10000] * 5, 19), "A9+│?9+│T9+│R9+│W9+")
+
+
+#: A 30-column pane tall enough that the screen does not scroll: at 30x16 the
+#: wrapped header overflows the screen, whose vertical scrollbar then leaves
+#: the strip 28 cells.
+NARROW = (30, 40)
+
+
+class TabTests(_AppCase):
+    @staticmethod
+    def strip(app):
+        return app.screen_stack[0].query_one("#st-tabs", widgets.ItemTabStrip)
+
+    @staticmethod
+    def header(app) -> str:
+        return str(app.screen_stack[0].query_one("#st-header", Static).content)
+
+    def names_in(self, app) -> set:
+        by_cid = {f"c{n}": name for name, n in self.ids.items()}
+        return {by_cid.get(cid, cid) for cid in app._order}
+
+    def active_segment(self, strip) -> str:
+        reverse = [strip.drawn.plain[s.start:s.end] for s in strip.drawn.spans
+                   if "reverse" in str(s.style)]
+        self.assertEqual(len(reverse), 1, strip.drawn_text)
+        return reverse[0]
+
+    @staticmethod
+    def rendered_line(strip) -> str:
+        """The strip's row as Textual renders it after layout (not the text
+        handed to it): what the user sees, clipping included."""
+        return "".join(seg.text for seg in strip.render_line(0))
+
+    def assert_rendered_whole(self, strip) -> None:
+        """Every tab is on screen, unclipped: the rendered row is the drawn
+        text (no ellipsis), within the strip's width, and every span ends
+        inside it."""
+        width = strip.size.width
+        line = self.rendered_line(strip)
+        self.assertLessEqual(widgets.cell_len(line), width)
+        self.assertEqual(line.rstrip(), strip.drawn_text.rstrip())
+        self.assertNotIn("…", line)
+        self.assertEqual([t for _s, _e, t in strip.spans], [t.id for t in model.LIST_TABS])
+        for start, end, tab_id in strip.spans:
+            self.assertLessEqual(end, width, tab_id)
+
+    @staticmethod
+    def layout_for_width(strip) -> str:
+        return "│".join(t for _i, t, _a in
+                        widgets.strip_segments(strip._rows, strip.size.width))
+
+    async def settle(self, pilot, strip, rounds: int = 100) -> None:
+        """Pause until the strip has redrawn for the width it now has. A resize
+        (here: the screen scrollbar appearing) reaches the strip as a queued
+        Resize event, so under load the size can change a few frames before
+        the redraw. Bounded: a strip that never redraws fails the caller's
+        assertions."""
+        for _ in range(rounds):
+            if strip.drawn_text == self.layout_for_width(strip):
+                return
+            await pilot.pause()
+
+    async def click_tab(self, pilot, app, tab_id: str) -> None:
+        start, end, _t = next(sp for sp in self.strip(app).spans if sp[2] == tab_id)
+        await pilot.click("#st-tabs", offset=((start + end - 1) // 2, 0))
+        await pilot.pause()
+
+    async def test_arrows_cycle_and_wrap_and_filter_the_rows(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            strip = self.strip(app)
+            self.assertEqual(app._tab, "all")
+            self.assertTrue(strip.drawn_text.startswith(" All 14 "), strip.drawn_text)
+            self.assertEqual(self.active_segment(strip), " All 14 ")
+            open_all = set(self.ids) - {"done", "dismissed"}
+            self.assertEqual(self.names_in(app), open_all)
+            for tab in model.LIST_TABS[1:]:
+                await pilot.press("right")
+                await pilot.pause()
+                self.assertEqual(app._tab, tab.id)
+                self.assertEqual(self.names_in(app),
+                                 TAB_MEMBERS[tab.id] - {"done", "dismissed"}, tab.id)
+                self.assertTrue(self.active_segment(strip).startswith(f" {tab.label} "))
+            await pilot.press("right")
+            await pilot.pause()
+            self.assertEqual(app._tab, "all", "right wraps")
+            await pilot.press("left")
+            await pilot.pause()
+            self.assertEqual(app._tab, "watches", "left wraps")
+            await self.assert_no_workers(app)
+
+    async def test_an_empty_tab_is_selectable_and_highlights_nothing(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            for _ in range(3):
+                await pilot.press("right")
+            await pilot.pause()
+            self.assertEqual(app._tab, "recovery")
+            self.assertIn(" Recovery 0 ", self.strip(app).drawn_text)
+            ol = self.main_list(app)
+            self.assertEqual([ol.get_option_at_index(i).id for i in range(ol.option_count)],
+                             ["empty"])
+            self.assertTrue(ol.get_option("empty").disabled)
+            self.assertIn("Nothing in Recovery.", self.label(ol, "empty"))
+            self.assertIsNone(ol.highlighted)
+            self.assertFalse(app.check_action("open_item", ()))
+            await pilot.press("enter")
+            await pilot.pause()
+            self.assertIsInstance(app.screen, appmod._SitrepScreen)
+
+    async def test_zero_open_still_lists_the_unknown_row(self):
+        for name in ("triage", "review"):
+            writer(self.root, "set-state", f"c{self.ids[name]}", "done",
+                   "--outcome", "handled")
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            await pilot.press("right")
+            await pilot.pause()
+            self.assertEqual(app._tab, "triage")
+            self.assertIn(" Triage 0 ", self.strip(app).drawn_text)
+            self.assertEqual(self.names_in(app), {"question"})
+
+    async def test_a_recovery_item_shows_in_recovery_after_a_reload(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            for _ in range(3):
+                await pilot.press("right")
+            await pilot.pause()
+            num = recover_item(self.root, "30", "crashed", "0123456789ab")
+            await app._poll_store()
+            await pilot.pause()
+            self.assertEqual(app._tab, "recovery", "a reload keeps the tab")
+            self.assertIn(" Recovery 1 ", self.strip(app).drawn_text)
+            self.assertEqual(app._order, [f"c{num}"])
+            self.assertEqual(self.main_list(app).highlighted_option.id, f"c{num}")
+
+    async def test_narrow_strip_keeps_every_target_and_clicks_select(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            await pilot.resize_terminal(*NARROW)
+            await pilot.pause()
+            strip = self.strip(app)
+            await self.settle(pilot, strip)
+            self.assertEqual(strip.size.width, 30)
+            self.assertEqual(strip.drawn_text, "All14│Tri2│Tsk9│Rec0│Wat3")
+            self.assert_rendered_whole(strip)
+            self.assertEqual(self.active_segment(strip), "All14")
+            for tab in reversed(model.LIST_TABS):
+                await self.click_tab(pilot, app, tab.id)
+                self.assertEqual(app._tab, tab.id)
+                self.assertTrue(self.active_segment(strip).startswith(tab.short))
+            await pilot.resize_terminal(*SIZE)
+            await pilot.pause()
+            await self.settle(pilot, strip)
+            self.assertTrue(strip.drawn_text.startswith(" All 14 │ Triage 2 "))
+
+    async def test_large_counts_rendered_and_clicked_at_30(self):
+        cases = [
+            ({"all": 10000, "triage": 1000, "tasks": 1000, "recovery": 100,
+              "watches": 7900}, "A10000│?1000│T1000│R100│W7900"),
+            ({t.id: 10000 for t in model.LIST_TABS}, "A999+│?999+│T999+│R999+│W999+"),
+        ]
+        for counts, want in cases:
+            with self.subTest(want=want), \
+                    mock.patch.object(model, "tab_counts", return_value=counts):
+                app = self.make_app()
+                async with app.run_test(size=NARROW) as pilot:
+                    await pilot.pause()
+                    strip = self.strip(app)
+                    await self.settle(pilot, strip)
+                    self.assertEqual(strip.size.width, 30)
+                    for tab, segment in zip(model.LIST_TABS, want.split("│")):
+                        await self.click_tab(pilot, app, tab.id)
+                        self.assertEqual(app._tab, tab.id)
+                        self.assertEqual(strip.drawn_text, want)
+                        self.assertLessEqual(widgets.cell_len(strip.drawn_text), 30)
+                        self.assert_rendered_whole(strip)
+                        self.assertEqual(self.active_segment(strip), segment)
+
+    async def test_a_short_pane_with_a_wrapped_header_keeps_every_tab(self):
+        """30x16: the wrapped header overflows the screen, whose scrollbar
+        leaves the strip fewer than 30 cells. The layout follows the cells it
+        really has, and every count and click target stays on screen."""
+        counts = {"all": 10000, "triage": 1000, "tasks": 1000, "recovery": 100,
+                  "watches": 7900}
+        with mock.patch.object(model, "tab_counts", return_value=counts):
+            app = self.make_app()
+            async with app.run_test(size=(30, 16)) as pilot:
+                await pilot.pause()
+                strip = self.strip(app)
+                await self.settle(pilot, strip)
+                header = app.screen_stack[0].query_one("#st-header", Static)
+                self.assertGreater(header.size.height, 2, "the header wrapped")
+                self.assertLess(strip.size.width, 30, "the screen scrollbar takes cells")
+                self.assertEqual(strip.drawn_text, "".join(
+                    t if i == 0 else "│" + t for i, (_id, t, _a) in enumerate(
+                        widgets.strip_segments(
+                            [(t.id, t.label, t.short, t.mark, counts[t.id], False)
+                             for t in model.LIST_TABS], strip.size.width))))
+                self.assert_rendered_whole(strip)
+                for tab in model.LIST_TABS:
+                    await self.click_tab(pilot, app, tab.id)
+                    await self.settle(pilot, strip)
+                    self.assertEqual(app._tab, tab.id)
+                    self.assertEqual(strip.drawn_text, self.layout_for_width(strip))
+                    self.assert_rendered_whole(strip)
+
+    async def test_d_composes_with_the_tab(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            await pilot.press("right", "right")
+            await pilot.pause()
+            self.assertEqual(app._tab, "tasks")
+            self.assertIn("· 1 done, 1 dismissed hidden", self.header(app))
+            before = self.names_in(app)
+            await pilot.press("d")
+            await pilot.pause()
+            self.assertEqual(self.names_in(app) - before, {"done", "dismissed"})
+            await pilot.press("right", "right")
+            await pilot.pause()
+            self.assertEqual(app._tab, "watches")
+            self.assertEqual(self.names_in(app), TAB_MEMBERS["watches"])
+            await pilot.press("d")
+            await pilot.pause()
+            self.assertEqual(self.names_in(app), TAB_MEMBERS["watches"])
+            self.assertNotIn("hidden", self.header(app), "no closed watch to report")
+
+    async def test_the_label_filter_composes_with_the_tab(self):
+        labelled = _added(writer(self.root, "add", "--kind", "task", "--title",
+                                 "t11 labelled", "--ref", "t11", "--group", "next"))
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            await pilot.press("right", "right")
+            await pilot.pause()
+            tasks_shown = set(app._order)
+            self.assertIn(f"c{labelled}", tasks_shown)
+            await pilot.press("f")
+            await pilot.pause()
+            self.assertIsInstance(app.screen, appmod.actions.LabelFilterDialog)
+            app.screen.query_one("#lf-list").select("sitrep")
+            await pilot.press("enter")
+            await pilot.pause()
+            self.assertEqual(app._label_filter, frozenset({"sitrep"}))
+            self.assertEqual(app._order, [f"c{labelled}"])
+            head = self.header(app)
+            self.assertIn("filtered by: sitrep", head)
+            self.assertIn(f"· {len(tasks_shown) - 1} hidden (F clears)", head)
+            self.assertIn(" Tasks 10 ", self.strip(app).drawn_text,
+                          "the count ignores the label filter")
+            await pilot.press("left")
+            await pilot.pause()
+            self.assertEqual(app._tab, "triage")
+            ol = self.main_list(app)
+            self.assertEqual(ol.option_count, 1)
+            self.assertEqual(ol.get_option_at_index(0).id, "empty")
+            self.assertIsNone(ol.highlighted)
+            self.assertIn(f"· {len(TAB_MEMBERS['triage'])} hidden (F clears)", self.header(app))
+
+    async def test_a_reload_keeps_the_tab_and_the_selection(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            await pilot.press("right", "right")
+            await pilot.pause()
+            cid = f"c{self.ids['pushref']}"
+            self.select(app, cid)
+            writer(self.root, "add", "--kind", "task", "--title", "Brand new", "--group", "now")
+            await app._poll_store()
+            await pilot.pause()
+            self.assertEqual(app._tab, "tasks")
+            ol = self.main_list(app)
+            self.assertEqual(ol.highlighted_option.id, cid)
+            pos = app._order.index(cid)
+            expected = app._order[pos + 1]
+            writer(self.root, "dismiss", cid, "--outcome", "user: gone")
+            await app._poll_store()
+            await pilot.pause()
+            self.assertEqual(app._tab, "tasks")
+            self.assertNotIn(cid, app._order)
+            self.assertEqual(ol.highlighted_option.id, expected, "nearest row in the tab")
+
+    async def test_a_tab_switch_keeps_a_shown_item_else_goes_to_the_top(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            ol = self.main_list(app)
+            cid = f"c{self.ids['triage']}"
+            self.select(app, cid)
+            await pilot.press("right")
+            await pilot.pause()
+            self.assertEqual(app._tab, "triage")
+            self.assertEqual(ol.highlighted_option.id, cid)
+            await pilot.press("right")
+            await pilot.pause()
+            self.assertEqual(app._tab, "tasks")
+            self.assertEqual(ol.highlighted_option.id, app._order[0])
+            await pilot.press("right", "right")
+            await pilot.pause()
+            self.assertEqual(app._tab, "watches")
+            self.assertEqual(ol.highlighted_option.id, app._order[0],
+                             "from the empty Recovery tab to the first row")
+
+    async def test_arrows_fall_through_on_sub_screens(self):
+        # A labelled task, so the label dialog can open.
+        writer(self.root, "add", "--kind", "task", "--title", "t11 labelled",
+               "--ref", "t11", "--group", "next")
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            await self.open_details(app, pilot, self.ids["task"])
+            for key in ("left", "right"):
+                await pilot.press(key)
+                await pilot.pause()
+                self.assertEqual(app._tab, "all", key)
+                self.assertIsInstance(app.screen, appmod.ItemDetailScreen)
+            # The source viewer's TextArea still gets the arrows.
+            await self.choose_link(app, pilot, "src:2")
+            self.assertIsInstance(app.screen, appmod.PointerViewerScreen)
+            area = app.screen.query_one("#pv-text", TextArea)
+            area.focus()
+            await pilot.pause()
+            row, col = area.cursor_location
+            await pilot.press("right")
+            await pilot.pause()
+            self.assertEqual(area.cursor_location, (row, col + 1))
+            self.assertEqual(app._tab, "all")
+            await pilot.press("escape", "escape")
+            await pilot.pause()
+            # The label dialog: the arrows stay inside it.
+            self.assertIsInstance(app.screen, appmod._SitrepScreen)
+            await pilot.press("f")
+            await pilot.pause()
+            self.assertIsInstance(app.screen, appmod.actions.LabelFilterDialog)
+            await pilot.press("right", "left")
+            await pilot.pause()
+            self.assertIsInstance(app.screen, appmod.actions.LabelFilterDialog)
+            self.assertEqual(app._tab, "all")
+            await self.assert_no_workers(app)
+
+    async def test_a_remapped_key_steps_the_tab(self):
+        import keybinding_registry
+        keybinding_registry._reset_for_tests()
+        self.addCleanup(keybinding_registry._reset_for_tests)
+        # `down` is also bound by the focused list (cursor_down): the tab
+        # binding must still win, which only `priority` gives it.
+        keybinding_registry._OVERRIDES_CACHE = {"sitrep_tui": {"next_tab": "N",
+                                                               "prev_tab": "down"}}
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            self.assertIs(app.focused, self.main_list(app))
+            await pilot.press("N")
+            await pilot.pause()
+            self.assertEqual(app._tab, "triage")
+            await pilot.press("down")
+            await pilot.pause()
+            self.assertEqual(app._tab, "all", "a key the focused list claims")
+            self.assertEqual(app.screen.active_bindings["down"].binding.action, "prev_tab")
+
+    async def test_the_footer_shows_next_tab_over_the_lists_own_right(self):
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            self.assertIs(app.focused, self.main_list(app))
+            right = app.screen.active_bindings["right"].binding
+            self.assertEqual((right.action, right.description, right.show),
+                             ("next_tab", "Next tab", True))
+            footer = " ".join(str(w.render()) for w in app.screen.query("FooterKey"))
+            self.assertIn("Next tab", footer)
+            await self.open_details(app, pilot, self.ids["task"])
+            footer = " ".join(str(w.render()) for w in app.screen.query("FooterKey"))
+            self.assertNotIn("Next tab", footer, "inert, hence hidden, on details")
+
 
 class LauncherTests(unittest.TestCase):
     def run_tui(self, *args):

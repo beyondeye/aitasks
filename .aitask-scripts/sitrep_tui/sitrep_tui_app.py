@@ -11,7 +11,11 @@ type a request into the sitrep agent, ``sitrep_tui_requests.AGENT_REQUESTS``,
 delivered by ``monitor/agent_request_delivery.py``). A task item's
 details also list the trails its task is in (``sitrep_tui_trails``, t2211_10):
 a ``Trails`` line, and one links row per trail that Enter opens in
-``ait trails`` with the task's card focused.
+``ait trails`` with the task's card focused. A one-row tab strip above the list
+(t2334, ``sitrep_tui_widgets.ItemTabStrip``) shows one item type at a time --
+All / Triage / Tasks / Recovery / Watches (``sitrep_tui_model.LIST_TABS``) --
+switched with left / right or a click; the grouping, ``d`` and the label filter
+compose with it.
 
 Rules this module keeps:
 
@@ -74,6 +78,7 @@ from sitrep_tui.sitrep_tui_requests import AGENT_REQUESTS  # noqa: E402,F401
 from sitrep_tui import sitrep_tui_trails as trails_model  # noqa: E402
 # Moved to sitrep_tui_widgets (t2211_10); the name stays importable from here.
 from sitrep_tui.sitrep_tui_widgets import SelectOnClickList  # noqa: E402,F401
+from sitrep_tui.sitrep_tui_widgets import ItemTabStrip  # noqa: E402
 from tui_switcher import TuiSwitcherMixin  # noqa: E402
 
 #: Seconds between store polls (a hash of two small files, off the event loop).
@@ -82,6 +87,7 @@ RELOAD_INTERVAL = 2.0
 #: Main-screen actions; hidden (and inert) while a sub-screen is on top.
 _MAIN_ACTIONS = frozenset({"open_item", "toggle_closed", "qa_log", "toggle_situation",
                            "filter_labels", "clear_label_filter",
+                           "prev_tab", "next_tab",
                            *actions.MAIN_ACTIONS})
 
 #: The `d` footer label by state (closed groups shown?) -- t2211_9.
@@ -666,6 +672,15 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
         # t2211_9: filter the list by task labels; `F` only while filtered.
         Binding("f", "filter_labels", "Labels"),
         Binding("F", "clear_label_filter", "Clear filter"),
+        # t2334: the item-type tabs. `priority`, because the focused list owns
+        # bindings for these keys too: without it the footer resolves `right`
+        # to the list's hidden scroll_right (no "Next tab" shown), and a remap
+        # onto a key the list claims (`down`) runs the list's action instead.
+        # Off the main screen check_action returns False (_MAIN_ACTIONS), so
+        # run_action declines and the key falls through to the sub-screen's
+        # widgets -- a TextArea keeps its cursor keys.
+        Binding("left", "prev_tab", "Prev tab", show=False, priority=True),
+        Binding("right", "next_tab", "Next tab", priority=True),
         # t2211_3: shown only where they apply (check_action).
         *(Binding(key, action, label) for action, key, label in actions.ACTION_BINDINGS),
     ]
@@ -692,6 +707,8 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
         self._show_closed = False
         #: The label filter (t2211_9): per-session UI state, never written.
         self._label_filter: frozenset = frozenset()
+        #: The active item-type tab (t2334): per-session UI state, never written.
+        self._tab = model.LIST_TABS[0].id
         self._show_situation = True
         self._loaded_at = ""
         #: Visible item cids in list order, and the label each row shows.
@@ -712,6 +729,7 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
         yield Static("", id="st-banner")
         with VerticalScroll(id="st-situation"):
             yield Static("", id="st-situation-text")
+        yield ItemTabStrip(id="st-tabs")
         yield Static(_text(model.header_text()), id="st-columns")
         yield SelectOnClickList(id="st-list")
         yield _footer()
@@ -828,14 +846,22 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
             return None
         return opt.id
 
-    def _passes(self, item: st.Item) -> bool:
+    def _in_tab(self, item: st.Item) -> bool:
+        """Whether the active tab shows ``item`` (t2334)."""
+        return model.tab_by_id(self._tab).holds(item, self._checks.get(item.num))
+
+    def _label_ok(self, item: st.Item) -> bool:
+        """Whether the label filter lets ``item`` through (t2211_9)."""
         return model.filter_match(self._metas.get(item.num), self._label_filter)
+
+    def _passes(self, item: st.Item) -> bool:
+        return self._in_tab(item) and self._label_ok(item)
 
     def _visibility_note(self) -> str:
         """What the list is NOT showing, for the header (t2211_9): the closed
         items `d` would reveal (those passing the label filter) while they are
         hidden, and the active label filter with the items it hides from the
-        groups on show."""
+        groups on show. Both count only items of the active tab (t2334)."""
         note = ""
         if self.store is None:
             return note
@@ -849,9 +875,10 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
             if parts:
                 note += f" · {', '.join(parts)} hidden"
         if self._label_filter:
-            hidden = sum(len([it for it in items if not self._passes(it)])
+            hidden = sum(len([it for it in items
+                              if self._in_tab(it) and not self._label_ok(it)])
                          for _slot, _h, items in model.group_items(self.store,
-                                                                   self._show_closed))
+                                                                    self._show_closed))
             shown = ", ".join(model.label_display(label, model.LABEL_DISPLAY_MAX)
                               for label in sorted(self._label_filter))
             note += (f" · filtered by: {shown}"
@@ -869,14 +896,18 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
         except Exception:  # noqa: BLE001 - a hint, never fatal
             return default
 
-    def _rebuild_list(self, focus_closed: bool = False) -> None:
+    def _rebuild_list(self, focus_closed: bool = False,
+                      tab_switched: bool = False) -> None:
         """Re-render the rows, keeping the highlighted item by cid. A highlighted
         item that vanished (or that the closed toggle or the label filter hid)
         hands the highlight to the item now at its position, clamped to the last
         row. ``focus_closed`` (the closed toggle turning ON, t2211_9) moves the
         highlight to the first visible item of the first non-empty closed group
         instead, which also scrolls it into view: those groups are appended at
-        the BOTTOM, off-screen in a short pane."""
+        the BOTTOM, off-screen in a short pane. ``tab_switched`` (t2334): an
+        item the new tab does not show hands the highlight to its FIRST row --
+        a position in another tab's list means nothing here. A type tab with no
+        row shows one disabled empty-state line, and nothing is highlighted."""
         ol = self._list()
         prev = self._selected_cid()
         prev_pos = self._order.index(prev) if prev in self._order else None
@@ -899,6 +930,10 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
                     options.append(Option(_row(label), id=it.cid))
                     order.append(it.cid)
                     labels[it.cid] = label
+        tab = model.tab_by_id(self._tab)
+        if tab.item_type is not None and not order:
+            options = [Option(Text(f"Nothing in {tab.label}.", style="dim"),
+                              id="empty", disabled=True)]
         ol.clear_options()
         ol.add_options(options)
         self._order, self._row_labels = order, labels
@@ -908,10 +943,20 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
         elif prev in order:
             target = prev
         elif order:
-            target = order[min(prev_pos or 0, len(order) - 1)]
+            target = order[0] if tab_switched else order[min(prev_pos or 0,
+                                                             len(order) - 1)]
         if target is not None:
             ol.highlighted = ol.get_option_index(target)
+        self._render_tabs()
         self.refresh_bindings()
+
+    def _render_tabs(self) -> None:
+        """Redraw the tab strip: each tab's open count (the label filter NOT
+        applied) and the active one. A store that never parsed counts 0."""
+        counts = model.tab_counts(self.store, self._checks)
+        self._main().query_one("#st-tabs", ItemTabStrip).set_tabs(
+            [(t.id, t.label, t.short, t.mark, counts.get(t.id, 0), t.id == self._tab)
+             for t in model.LIST_TABS])
 
     def _refresh_ages(self) -> None:
         """The files did not change but the clock did: relabel only the rows
@@ -1056,6 +1101,32 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
                                 if getattr(b, "action", None) == action else b
                                 for b in bucket]
         self.refresh_bindings()
+
+    # the item-type tabs (t2334) -----------------------------------------------
+
+    def _select_tab(self, tab_id: str) -> None:
+        """Show ``tab_id``'s items. Main screen only (a click cannot reach the
+        strip under a pushed screen, but the actions re-check)."""
+        if not isinstance(self.screen, _SitrepScreen):
+            return
+        self._tab = model.tab_by_id(tab_id).id
+        self._rebuild_list(tab_switched=True)
+        self._render_header()
+
+    def _step_tab(self, step: int) -> None:
+        ids = [t.id for t in model.LIST_TABS]
+        idx = ids.index(self._tab) if self._tab in ids else 0
+        self._select_tab(ids[(idx + step) % len(ids)])
+
+    def action_next_tab(self) -> None:
+        self._step_tab(1)
+
+    def action_prev_tab(self) -> None:
+        self._step_tab(-1)
+
+    def on_item_tab_strip_selected(self, event: ItemTabStrip.Selected) -> None:
+        event.stop()
+        self._select_tab(event.tab_id)
 
     # the label filter (t2211_9) ------------------------------------------------
 

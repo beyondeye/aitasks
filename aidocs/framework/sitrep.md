@@ -199,6 +199,35 @@ polled every `AGENT_POLL_INTERVAL` (3.0 s).
   (`_set_binding_label`). A fixed column header (Item / Checked / Pri/Eff /
   Created / What to do) sits outside the list, so it never scrolls. Rows are
   one line, cut with an ellipsis.
+- **Tabs** (t2334). A one-row strip above the column header filters the list
+  by item type: All / Triage / Tasks / Recovery / Watches. The tabs are
+  descriptors, `LIST_TABS` (`ListTab`: id, label, short label, one-character
+  mark, item type; `None` = every item), not an enum, so a later tab of another
+  kind can be appended. An item's type is `CLASS_ITEM_TYPE[classify(item)]`,
+  the one table keyed by the guidance's own classification, so tabs and "What
+  to do" never disagree. The closed, unknown and raw classes map to `BY_KIND`
+  and resolve by store kind (`KIND_ITEM_TYPE`; a `recover:` task → Recovery). A
+  test pins that every `NEXT_STEPS` key and every `sitrep_todo.KINDS` value
+  lands in a type. A tab's count is its `state == "open"` items without the label filter
+  (`tab_counts`; `None` store → 0). The header's done / filter notes count the
+  active tab only (`_in_tab` / `_label_ok`). The active tab is session state,
+  never written. A reload keeps it, and the selection follows the usual
+  keep-by-cid / nearest-row rule inside it. A tab switch keeps a shown item,
+  else goes to the first row, and an empty type tab shows one disabled
+  `empty` line with nothing highlighted.
+  The widget is `ItemTabStrip` (`sitrep_tui_widgets.py`), modelled on but not
+  imported from `TrailTabStrip`, which lives in the trails App and calls its
+  private selector. It posts `ItemTabStrip.Selected`. `strip_segments` picks
+  the first layout that fits the measured width (full → short → compact →
+  mark + exact count), else mark + a count capped to its equal share of the
+  measured width (`999+` at 30 cells, `99+` at 28): all five targets fit
+  at 30 columns whatever the counts. `left` / `right` are `priority` bindings
+  in `_MAIN_ACTIONS`. The focused list binds those keys too: without `priority`
+  the footer resolves `right` to the list's hidden `scroll_right` (no "Next
+  tab"), and a remap onto a key the list claims (`down`) runs the list's
+  action. Off the main screen `check_action` returns False, `run_action`
+  declines, and the key falls through, so a sub-screen's TextArea keeps the
+  arrows.
 - **"What to do" / "How".** `classify` + `NEXT_STEPS` in `sitrep_tui_model.py`
   are the single source. The `{k_*}` placeholders resolve to the **effective**
   keys (user overrides included), so a remap is what the text names. A recovery

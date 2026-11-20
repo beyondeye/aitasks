@@ -155,8 +155,10 @@ filter work as on **All**. A tab with no item to show lists the single line
 On a narrow pane the labels get shorter, so that every tab stays on the row:
 `Tri 3`, then `Tri3`, then one character and the count (`A` All, `?` Triage,
 `T` Tasks, `R` Recovery, `W` Watches), such as `?3`. When even that row is wider
-than the pane, a count that does not fit its share is cut to `999+`. Every tab
-stays visible and clickable down to 30 columns.
+than the pane, each tab gets an equal share of the row, and a count too wide for
+its share is cut to nines and a `+`. The pane's width sets the cut: `999+` in a
+30-column strip, `99+` in a 28-column one. Every tab stays visible and clickable
+down to 30 columns.
 
 The active tab lasts until you quit the TUI. It is never saved in the list.
 

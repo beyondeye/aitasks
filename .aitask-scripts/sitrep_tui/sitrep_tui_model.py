@@ -15,6 +15,9 @@ Everything the TUI shows is computed here, so it is unit-testable without an App
   here: repo-relative paths must stay inside the repository after symlinks are
   resolved, store passages inside the store, and a handle that reaches a CLI
   must not start with ``-``. Every subprocess is an argv list with a timeout.
+* **Item-type tabs** (t2334). ``LIST_TABS`` (descriptors) and ``item_type``
+  (one table, ``CLASS_ITEM_TYPE``, keyed by ``classify``) decide which items a
+  tab shows; ``tab_counts`` counts each tab's open items.
 
 The store is ``<canonical root>/.aitask-sitrep`` -- what every read-side consumer
 uses (``sitrep_cli``, ``monitor/sitrep_close.py``, harvest, refresh); only the
@@ -415,6 +418,99 @@ def next_step(item: "st.Item", refresh_check: "str | None" = None,
         fields = {"kind": getattr(item, "kind", "?"), "state": getattr(item, "state", "?"),
                   "title": getattr(item, "title", "")}
         return NextStep("raw", what.format(**fields), how)
+
+
+# --- item-type tabs (t2334) ------------------------------------------------------
+#
+# Per-session UI state: the main list can show one TYPE of item at a time. The
+# type of an item comes from its `classify` key -- the same classification the
+# "What to do" guidance uses -- through ONE table, so the tabs and the guidance
+# never disagree about what an item is. The tabs themselves are descriptors
+# (`LIST_TABS`), not an enum: the strip and the app iterate them, so a later tab
+# is a new descriptor, not a new branch.
+
+#: `CLASS_ITEM_TYPE` value: the class says nothing about the type (closed,
+#: unknown or unparseable items) -- the item's kind decides (`KIND_ITEM_TYPE`).
+BY_KIND = "by_kind"
+#: The item types, in tab order.
+ITEM_TYPES = ("triage", "tasks", "recovery", "watches")
+#: classification key (every `NEXT_STEPS` key) -> item type or BY_KIND.
+CLASS_ITEM_TYPE = {
+    "triage": "triage", "review": "triage", "decide": "triage",
+    "pick": "tasks", "pick_xref": "tasks", "pick_noref": "tasks",
+    "push": "tasks", "do": "tasks",
+    "recover": "recovery",
+    "watch": "watches", "watch_manual": "watches",
+    "done": BY_KIND, "dismissed": BY_KIND, "unknown": BY_KIND,
+    "unknown_manual": BY_KIND, "raw": BY_KIND,
+}
+#: Store kind (every `sitrep_todo.KINDS` value) -> item type, for the BY_KIND
+#: classes. A `task` item with a `recover:` ref is a recovery item instead.
+KIND_ITEM_TYPE = {"question": "triage", "task": "tasks",
+                  "action": "tasks", "watch": "watches"}
+
+
+def item_type(item: "st.Item", refresh_check: "str | None" = None) -> str:
+    """The item type (one of ``ITEM_TYPES``) of ``item``. Never raises (render
+    time). A kind the writer would refuse falls back to ``tasks``, so every
+    item lands in exactly one type tab."""
+    try:
+        kind = CLASS_ITEM_TYPE.get(classify(item, refresh_check), BY_KIND)
+    except Exception:  # noqa: BLE001
+        kind = BY_KIND
+    if kind != BY_KIND:
+        return kind
+    if getattr(item, "kind", None) == "task" and st.parse_recover_ref(
+            getattr(item, "ref", "") or ""):
+        return "recovery"
+    return KIND_ITEM_TYPE.get(getattr(item, "kind", None), "tasks")
+
+
+@dataclass(frozen=True)
+class ListTab:
+    """One tab of the main list's strip."""
+    id: str
+    label: str      # the full label ("Triage")
+    short: str      # the narrow-pane label ("Tri")
+    mark: str       # one distinct character, the narrowest form ("?")
+    item_type: "str | None"   # None: every item
+
+    def holds(self, item: "st.Item", refresh_check: "str | None" = None) -> bool:
+        return self.item_type is None or item_type(item, refresh_check) == self.item_type
+
+
+LIST_TABS = (ListTab("all", "All", "All", "A", None),
+             ListTab("triage", "Triage", "Tri", "?", "triage"),
+             ListTab("tasks", "Tasks", "Tsk", "T", "tasks"),
+             ListTab("recovery", "Recovery", "Rec", "R", "recovery"),
+             ListTab("watches", "Watches", "Wat", "W", "watches"))
+
+
+def tab_by_id(tab_id: str) -> ListTab:
+    """The tab named ``tab_id``; the first (All) for an unknown id."""
+    return next((t for t in LIST_TABS if t.id == tab_id), LIST_TABS[0])
+
+
+def tab_counts(store: "st.TodoStore | None", checks: "dict | None" = None) -> dict:
+    """``{tab id: n}`` -- the items each tab holds whose state is ``open`` (the
+    header's "open in Now" rule: ``unknown`` items are listed, not counted).
+    The label filter is NOT applied, so a tab's number stays steady. A store
+    that never parsed counts 0 everywhere. Never raises."""
+    counts = {t.id: 0 for t in LIST_TABS}
+    if store is None:
+        return counts
+    checks = checks or {}
+    try:
+        for num, item in store.items.items():
+            if item.state != "open":
+                continue
+            kind = item_type(item, checks.get(num))
+            for tab in LIST_TABS:
+                if tab.item_type is None or tab.item_type == kind:
+                    counts[tab.id] += 1
+    except Exception:  # noqa: BLE001 - decoration
+        pass
+    return counts
 
 
 # --- the list's columns --------------------------------------------------------
