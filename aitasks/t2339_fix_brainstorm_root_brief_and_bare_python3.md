@@ -1,0 +1,56 @@
+---
+priority: medium
+effort: low
+depends: []
+issue_type: bug
+status: Ready
+labels: [brainstorm]
+gates: [risk_evaluated]
+anchor: 2278
+followup_kind: upstream_defect
+created_at: 2026-11-20 01:36
+updated_at: 2026-11-20 08:59
+---
+
+## Origin
+
+Spawned from t2278_5 during Step 8b review. Both were found while driving
+the real TUIs on a sample project for the docs screenshots.
+
+## Upstream defect
+
+- `.aitask-scripts/brainstorm/brainstorm_session.py:154-157 — init builds the root node's description and the session brief from the first lines of the whole task file, frontmatter included, so they read "priority: medium | effort: medium"`
+- `.aitask-scripts/lib/launch_modes_sh.sh:24 — falls back to a bare python3 from PATH and ignores AIT_PYTHON, so aitask_crew_init.sh fails under any HOME without ~/.aitask/venv even when AIT_PYTHON is set`
+
+## Diagnostic context
+
+- **Brainstorm root brief.** `aitask_brainstorm_init.sh` copies the whole task
+  file into the spec (`cat "$TASK_FILE" > "$SPEC_FILE"`), and `init_session`
+  takes the first non-empty lines that do not start with `---`. Those are YAML
+  frontmatter lines. Visible in the Browse tab's root node and "Brief:" line
+  (`website/static/imgs/aitasks_brainstorm_browse_tab.svg`; scene
+  `brainstorm_browse_tab`). After the fix, regenerate that image with
+  `/aitask-docs-screenshots brainstorm_browse_tab`.
+- **Bare python3.** `ait brainstorm init` under a scratch `HOME` with
+  `AIT_PYTHON` set failed with "failed to load launch_modes vocabulary":
+  `launch_modes_sh.sh` uses `${_AIT_RESOLVED_PYTHON:-python3}`, and `python3`
+  on PATH is the `~/.aitask/bin/python3` wrapper, which execs
+  `$HOME/.aitask/venv/bin/python`. The screenshot tool works around it with a
+  `python3` shim in its sample projects.
+
+## Suggested fix
+
+- Brainstorm: skip the frontmatter block when deriving the brief (or pass
+  only the task body as the spec).
+- launch_modes: honour `AIT_PYTHON` (or source `python_resolve.sh`) before
+  falling back to `python3`.
+
+The two are independent; split if that suits the work better.
+
+## Deliberately not in scope
+
+The TUI switcher dialog (`.aitask-scripts/lib/tui_switcher.py:556`, fixed
+width 44) is clipped on the right in the 40-column minimonitor pane. The user
+decided (2026-11-20) not to fix it for now: fitting the dialog costs two or
+three columns of content. The docs screenshot
+`aitasks_tui_switcher_from_minimonitor.svg` shows the clipped dialog as it is.
