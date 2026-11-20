@@ -112,3 +112,29 @@ in the minimonitor's shortcut list, `S:sitrep` should sit **on the same line as
 
 - Topic: sitrep (t2175); t2211 built the three-pane window
   (`t2211_7` manual verification still Ready).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2278_5** id=2026-11-20T06:49:32Z.be59ebbbf7af3b6ef5c7bd5d from=t2278_5 from_verified=yes at=2026-11-20T06:49:32Z base=b0bb6e2575e27ba8cd13b897b76f9c0d6f47c6ec base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2278_5 (committed in 45539803d), as of that commit:
+> | 
+> | The docs now carry generated screenshots of the TUI switcher and of the
+> | minimonitor, each recorded as a replayable recipe under
+> | website/screenshots/scenes/:
+> | - tui_switcher_dialog (4 pages), tui_switcher_from_monitor (2 pages),
+> |   tui_switcher_from_minimonitor (1 page): they show today's switcher list and
+> |   hint rows, without a sitrep entry.
+> | - minimonitor_main_view: shows today's minimonitor key-hint lines.
+> | 
+> | Adding sitrep to the switcher or changing the minimonitor hint line makes
+> | those images stale, and a recipe whose expected text changes will fail its
+> | replay. After your change lands, refresh them with
+> |   /aitask-docs-screenshots tui_switcher_dialog tui_switcher_from_monitor tui_switcher_from_minimonitor minimonitor_main_view
+> | Do not edit the recipe files by hand. Contract:
+> | aidocs/framework/docs_screenshots.md.
+> | 
+> | Related: t2339 covers the switcher dialog being clipped in the 40-column
+> | minimonitor pane (fixed width 44 in lib/tui_switcher.py); a new hint or list
+> | row there is clipped the same way.
