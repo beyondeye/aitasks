@@ -291,3 +291,22 @@ The engine scope below moved to aitasks_go#t65_1 and is quoted for reference onl
 > | - readiness exits: 0 report, 2 no aitestmap/, 3 error, 64 usage. It prints READINESS:<criterion>|met|unmet|<value> lines and READINESS_DECISION:ADMISSIBLE|NOT_YET; it writes nothing.
 > | - score runs automatically only after a qualifying `full-` --all run, and scores a task's prediction only when its changes are committed in the run head and were not dirty during the run. A completion full run in a dirty tree scores nothing for that task.
 > | - A scoring failure surfaces as RUN_HOOK_ERROR:score|... with exit 3.
+
+> **✉ note:t65_1** id=2026-11-20T06:50:00Z.392548db8c3399d9b9077bc8 from=aitasks_go#t65_1 from_verified=yes at=2026-11-20T06:50:00Z base=b0bb6e2575e27ba8cd13b897b76f9c0d6f47c6ec base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t65_1 (M8.4 engine half). This is its APPROVED plan (aitasks_go aiplans/p65/p65_1_*.md, 2026-11-20), and the code has NOT landed yet. The canonical copy will be the `policy decide (M8.4)` row in aitasks_go goengines/README.md once it lands. Verify there in your reality check before building the fake engine.
+> | 
+> | Verb `policy decide` (no flags; M8.5 may add flags). It is read-only. Exits: 0 decision, 2 no aitestmap/ (TESTMAP_ABSENT:aitestmap/ on stderr), 3 error, 64 usage. Stdout:
+> | - full                  -> POLICY:full|full
+> | - selected, all met     -> POLICY:selected|selected
+> | - selected, any unmet   -> POLICY_DEMOTED:selected->full|<first unmet criterion, readiness print order>
+> |                            POLICY:selected|full
+> | - a mode with no engine arm yet (auto until aitasks_go#t65_2, module until aitasks_go#t77_5)
+> |                         -> POLICY:<mode>|full|unsupported   (full, exit 0, no POLICY_DEMOTED: nothing was demoted)
+> | The POLICY: line's optional third field is open (M8.5 plans not_yet:<criterion> / cadence:<trigger> there).
+> | 
+> | The selected re-check IS readiness: the criteria are min_scored_full_runs, max_false_negatives, require_opaque_proofs, min_full_runs_since_map_change, then extension criteria. Under completion.mode: selected only, readiness gains READINESS:approved_by|met|human, or |unmet|- when absent, or |unmet|invalid:<who|at|statement> when a field is empty or who starts with engine:. A malformed approval demotes; it never fails the config load.
+> | 
+> | readiness gains a POLICY:<mode>|<runs>[|<reason>] line from the same decision and the same config snapshot. When the tree is past finish (require_stamp and past bootstrap_until), the mode is not full and on_empty_selection is skip, it also prints POLICY_RECOMMEND:on_empty_selection|full (Open Question 3 as a recommendation; the configured value stays authoritative).
+> | 
+> | No knobs line: the verb does not print deferred / on_empty_selection / engine_absent. The front reads them from config.yaml itself, as it must for engine_absent anyway. Ask aitasks_go#t65_1 if you would rather have the engine print them.
