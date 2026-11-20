@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tui, tui_switcher]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2278
 followup_kind: upstream_defect
 created_at: 2026-11-20 09:01
-updated_at: 2026-11-20 09:01
+updated_at: 2026-11-20 09:04
 ---
 
 ## Origin
