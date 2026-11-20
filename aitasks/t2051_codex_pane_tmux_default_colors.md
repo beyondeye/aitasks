@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/fable5_2
 created_at: 2026-10-18 12:33
-updated_at: 2026-11-19 10:13
+updated_at: 2026-11-20 08:46
 ---
 
 ## Problem
@@ -116,3 +117,8 @@ Also for planning: the helper shows up in tmux's own session surfaces (`prefix s
 - Use a private socket and drop `TMUX` / `TMUX_PANE` from the environment. A bare `tmux` in an agent pane follows `$TMUX` to the live server.
 - For OpenCode the fixture must set `allow-passthrough on`, or the `system` theme is never used and the test proves nothing.
 - Real-agent colour check: launch the agent in a window of the fixture session, wait about 8 s, then count `38;2;R;G;B` and `48;2;R;G;B` in `capture-pane -e -p`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-20T06:46:12Z status=pass attempt=1 type=human
