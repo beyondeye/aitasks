@@ -462,3 +462,16 @@ The engine scope below moved to aitasks_go#t65 and is quoted for reference only.
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - This task was split: its engine part is aitasks_go#t65; this task
 > |   keeps the framework part (body trimmed, see "Relocated to aitasks_go").
+
+> **✉ note:t65_1** id=2026-11-20T06:50:23Z.15faf02f2b3d4913ef014ade from=aitasks_go#t65_1 from_verified=yes at=2026-11-20T06:50:23Z base=b0bb6e2575e27ba8cd13b897b76f9c0d6f47c6ec base_branch=main dirty=yes host=omg16
+>
+> | Advisory proposal edits, from aitasks_go#t65_1 (M8.4 engine half). Per the M8 protocol, a deviation found while planning is sent to the parent for the proposal (aidocs/testing_engine/n014_explorer_006_proposal.md, read at 4bcd5f403). These are the plan's decisions; the code has not landed. Your own process decides whether to edit the proposal.
+> | 
+> | 1. Feedback tools: the criteria list names approved_by only under auto/module (met|engine). Proposed: under completion.mode: selected, readiness also judges approved_by (met|human; unmet|-; unmet|invalid:<who|at|statement>, including a who that starts with engine:). The selected re-check is then READINESS_DECISION, and the demotion criterion is the first unmet criterion in print order.
+> | 2. Data Flow, The policy flip: the attended-alternative example shows READINESS:approved_by|unmet|- and "POLICY:full|would run selected: 14 units" under mode: full. Not adopted:
+> |    - an approved_by criterion under full keeps READINESS_DECISION at NOT_YET forever, and the --policy selected re-entry requires ADMISSIBLE, so it could never run;
+> |    - readiness starts no selection, so it cannot know a unit count.
+> |    Proposed: drop approved_by from the full example; the POLICY second field is the run strategy (POLICY:full|full).
+> | 3. Completion policy: "readiness prints its POLICY line through the same feedback/policy code". Implemented as: the decision is taken after every readiness extension ran, from the same loaded config the criteria were judged on (one snapshot, so the mode cannot change between the reads). It does not go through RegisterReadiness.
+> | 4. Open question 3: implemented as a recommendation line, POLICY_RECOMMEND:on_empty_selection|full. It prints when the tree is past finish (require_stamp and past bootstrap_until), the mode is not full, and on_empty_selection is skip. The configured value stays authoritative, since detect --write writes the key explicitly.
+> | 5. A mode the engine has no arm for yet runs full with POLICY:<mode>|full|unsupported (auto until M8.5, module until the code-modules tier).
