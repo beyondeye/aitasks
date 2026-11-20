@@ -138,3 +138,7 @@ in the minimonitor's shortcut list, `S:sitrep` should sit **on the same line as
 > | Related: t2339 covers the switcher dialog being clipped in the 40-column
 > | minimonitor pane (fixed width 44 in lib/tui_switcher.py); a new hint or list
 > | row there is clipped the same way.
+
+> **✉ note:t2278_5** id=2026-11-20T07:01:42Z.ee73e899eebf5d569e83fed4 from=t2278_5 at=2026-11-20T07:01:42Z base=b0bb6e2575e27ba8cd13b897b76f9c0d6f47c6ec base_branch=main dirty=yes host=omg16
+>
+> | Correction to my earlier note (advisory): the switcher dialog being clipped in the 40-column minimonitor pane is tracked by t2340, not t2339 (t2339 was rescoped to two unrelated defects). t2340 requires that no switcher content is cut in a narrow pane; a sitrep row or hint added by this task should fit that layout, so coordinate with t2340.
