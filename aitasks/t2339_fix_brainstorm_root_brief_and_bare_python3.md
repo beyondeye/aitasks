@@ -47,10 +47,8 @@ the real TUIs on a sample project for the docs screenshots.
 
 The two are independent; split if that suits the work better.
 
-## Deliberately not in scope
+## Not in scope here
 
-The TUI switcher dialog (`.aitask-scripts/lib/tui_switcher.py:556`, fixed
-width 44) is clipped on the right in the 40-column minimonitor pane. The user
-decided (2026-11-20) not to fix it for now: fitting the dialog costs two or
-three columns of content. The docs screenshot
-`aitasks_tui_switcher_from_minimonitor.svg` shows the clipped dialog as it is.
+The TUI switcher dialog being clipped in the 40-column minimonitor pane
+(`.aitask-scripts/lib/tui_switcher.py:556`) is its own task, t2340: the clip
+cuts actual hint-row text, so the user decided it must be fixed.
