@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
@@ -50,6 +52,26 @@ Work directions and their tab (separate task). No store or skill change.
 
 - New cases in `tests/test_sitrep_tui_app.py` over the fixture store: per-tab membership, counts, wrap-around, empty tab, composition with `d` and the label filter, selection kept across a reload, the class-coverage test above.
 - `bash tests/run_all_python_tests.sh --test-dir tests` subset for `test_sitrep_tui_*`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2278_5** id=2026-11-20T06:49:19Z.0c56180f010ea3908ab8ef4c from=t2278_5 from_verified=yes at=2026-11-20T06:49:19Z base=b0bb6e2575e27ba8cd13b897b76f9c0d6f47c6ec base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2278_5 (committed in 45539803d), as of that commit:
+> | 
+> | The docs now carry a generated screenshot of the sitrep window:
+> | website/static/imgs/aitasks_sitrep_tui_main_view.svg, shown on
+> | website/content/docs/tuis/sitrep/_index.md, recorded as the recipe
+> | website/screenshots/scenes/sitrep_window.yaml (it replays the real sitrep TUI
+> | on a sample project and expects texts that are on screen today).
+> | 
+> | A change to the sitrep TUI's layout or labels will make that image stale, and
+> | may make the recipe's replay fail. After your change lands, refresh it with
+> |   /aitask-docs-screenshots sitrep_window
+> | (or: website/screenshots.sh replay --scene sitrep_window --png). Do not edit
+> | the recipe file by hand; the skill re-records it. Contract:
+> | aidocs/framework/docs_screenshots.md.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
