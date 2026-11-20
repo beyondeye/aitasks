@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 1884
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-09-25 16:01
-updated_at: 2026-11-19 10:25
+updated_at: 2026-11-20 09:08
 ---
 
 ## Origin
@@ -65,3 +66,8 @@ The other two defects were found while enumerating registry writers for t1884's 
 > | t2333 briefly opened a separate follow-up for this (t2336), then deleted it as a duplicate of this task.
 
 > **👁 note:read** id=2026-11-19T08:25:26Z.1704bce2a5aa3c6148145356 by=t1885 at=2026-11-19T08:25:26Z mode=explicit ids=2026-10-11T08:39:27Z.91bd93922beca96d97568943,2026-11-19T08:10:18Z.c12ead156e036e9a66ff2cbd
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-20T07:08:13Z status=pass attempt=1 type=human
