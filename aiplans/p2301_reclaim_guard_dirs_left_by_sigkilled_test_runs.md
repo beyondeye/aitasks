@@ -301,3 +301,45 @@ never leaks into nested runs. Set it after sourcing.
   (ab) planted-symlink writer refusal ×2). 190/190 pass.
 - **Mutants M6–M11** (one per finding), each in an isolated scratch copy, each
   turns its own cases red; M0 baseline green.
+
+### Change Request 2 (2026-11-20)
+- **Requested by user:** five further findings, all verified CONFIRMED:
+  1. when the intent append AND both invalidation steps fail, the phase still
+     launched inside the guard, and the surviving record (valid, zero pgids) was
+     accepted;
+  2. the reaper ran recursive chmod/rm without checking for mounts at or below
+     a candidate (same-filesystem bind mounts included);
+  3. `read`-based readers returned success on a read error after the open
+     (environ/cmdline, metadata, net/unix, mounts);
+  4. "@"-prefixed net/unix paths were treated as abstract — a FILE bound by the
+     relative name "@x" prints identically (reproduced live);
+  5. dropping `-w` leaves lsof warnings at the build default; pass `+w`.
+- **Changes made:**
+  1. `_TG_META_STATE` (ok / invalid / broken / none). A phase is launched inside
+     the guard only when its intent is recorded or the record is confirmed
+     invalid; `broken` (invalidation unconfirmed) runs this and every later
+     phase OUTSIDE the guard (original TMPDIR), and `_TG_RAN_OUTSIDE` makes
+     `tmpdir_guard_end` leave `_TG_LEFTOVER_COUNT` empty (strict fails it). The
+     header write at begin routes a failure through the same invalidation.
+  2. `_tg_mounts_under`: mount points (from `<proc-root>/mounts`, octal-escaped
+     comparison; `mount` output off Linux) at or below the dir →
+     `keep:mounted:<mp>`; unreadable/garbled table → `keep:mounts-unverified`;
+     checked immediately before the recursive chmod/rm. `tmpdir_guard_end` also
+     refuses to remove its own dir when a mount is found below it (only on a
+     positive find, so an unreadable table keeps the old behaviour) — the same
+     hazard existed there since t2290.
+  3. `_tg_slurp` reads every file through `cat` (`&& printf x` sentinel), so a
+     read error after the open fails; all parsers work on the slurped text.
+  4. "@" rows count as unresolved, like relative rows.
+  5. `lsof +w -F p +D`.
+  - Performance: the line splitting moved to one `mapfile` per text
+    (`_tg_lines`); peeling lines off a string was quadratic (1.4s for a
+    1089-row net/unix → 0.08s). Full real-/proc scan here: 0.87s.
+- **Tests:** v/atsock, v/sockdir, v/sockpartial, w/environdir, x/readerror,
+  y/readerror, y/readpartial (selective `cat` fault injection via the probe's
+  `P_PRELUDE`), z/+w, (ac) intent + both invalidations failing (normal run and
+  real SIGKILL), (ad) mounts below/at/escaped-space/garbled + control + end().
+  227/227 pass.
+- **Mutants M12–M17** (outside-launch, reaper mount check, slurp error,
+  "@"-as-abstract, `+w`, end() mount check) each red only their own cases;
+  M1–M11 re-run on the final code, all still red; M0 green.
