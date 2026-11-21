@@ -97,3 +97,8 @@ regenerated image must show the same state its alt and caption describe.
 - `bash tests/run_all_python_tests.sh --test-dir tests` passes, with a build
   test for each new dataset.
 - The home page and each TUI page are viewed on the local Hugo server.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-21T17:22:11Z status=pass attempt=1 type=human
