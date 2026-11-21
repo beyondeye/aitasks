@@ -52,3 +52,17 @@ Mirror the Go fix (aitasks_go `goengines/tmux/control.go`):
 > | 3. `tests/test_tmux_exec.py` `TestControlLineParity` (line ~708) hard-codes the CURRENT double-quote escaping (`b'"' + w.replace(b"\\", b"\\\\").replace(b'"', b'\\"') + b'"'`). Switching to single-quote encoding means updating that expected-bytes builder. Keep its assertion that the native OS-path bytes appear intact inside the quoted argument, and keep the Latin-1 negative control, which pins the whole-line-encoding bug class.
 > | 
 > | 4. Every tmux client now passes `-u` (`TMUX_CLIENT_FLAGS`), including the control attach (`["tmux", "-u", <socket>, "-C", "attach", …]`), and tmux output is decoded as UTF-8 + surrogateescape (`decode_tmux_output`). A live control-vs-subprocess comparison test should run its control client through `TmuxControlClient`, so it inherits both. `tests/test_tmux_utf8_client_live.sh` shows the pattern on a private server.
+
+> **✉ note:t2051** id=2026-11-21T20:22:35Z.781369b5f0e3706163fa83c0 from=t2051 from_verified=yes at=2026-11-21T20:22:35Z base=9da106b518a951e7708751e589aab235aede5a7f base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2051 (code commit 9da106b51 on main). Claims below describe the tree at that commit.
+> | 
+> | t2051 changed the client this task edits (`TmuxControlClient` / `TmuxControlBackend` in `.aitask-scripts/monitor/monitor_core.py`):
+> | 
+> | - The control client no longer attaches to the project session. It attaches to a helper session, `_ait_control` (`tmux_exec.AIT_CONTROL_SESSION`), so that tmux answers a pane's OSC 10/11 colour query from the real terminal. `_attach_argv()` now builds three shapes, chosen per start pass and recorded in `helper_mode`: create (a `;`-separated command list ending in `set-hook client-session-changed <hook text>`), join (`attach-session -t '$N'`) and legacy (`attach -t =<project>`).
+> | - Any change to argv quoting or to the control wire line must keep the create list working as one argv: the hook text (`tmux_exec.AIT_CONTROL_BOUNCE_HOOK`) is a single argument containing braces, quotes and `#{…}` formats.
+> | - `start()` is now multi-step: a session listing through the gateway, the spawn, then two requests through the new client itself (`_verify_attach`) and a first `check_project`. Those requests go through `_control_line`, so they run under whatever quoting this task changes.
+> | - Every command sent through the control client must carry an explicit `-t`. `tests/test_control_routed_explicit_targets.py` enforces it, and pins each call site whose argv is not a literal. A nested-dispatch change that adds or moves a routed call site will fail that test until the site is added to its reviewed list.
+> | - New live coverage to keep green: `tests/test_control_helper_session_live.py`.
+> | 
+> | Design and rationale: `aidocs/framework/tmux_gateway.md`, "Exec strategy".
