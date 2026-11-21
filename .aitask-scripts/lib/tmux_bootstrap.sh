@@ -367,7 +367,7 @@ _tmux_bootstrap_report_unreadable() {
             # value, and the file IS valid YAML. The value was read correctly and
             # is simply unusable as a tmux target.
             # shellcheck disable=SC2016  # the backticks are literal text
-            printf 'Warning: tmux.default_session in %s is a name tmux cannot address (%s: `.` and `:` are tmux target separators); write a name without them\n' "$1" "$2" >&2
+            printf 'Warning: tmux.default_session in %s is a name tmux cannot address (%s: `.` and `:` are tmux target separators, and `%s` is reserved for the framework'"'"'s own helper session); write another name\n' "$1" "$2" "$AIT_CONTROL_SESSION" >&2
             return 0
             ;;
         encoding|non_printable)
@@ -423,8 +423,14 @@ _tmux_bootstrap_resolve_session() {
 # Returns 1 when <name> holds `.` or `:` — tmux reads both as target separators,
 # so such a session can be created but never addressed. Shared by `ait setup`
 # (which falls back to the default) and `ait ide --session` (which refuses).
+#
+# Also returns 1 for the reserved helper-session name (t2051,
+# ait_tmux_session_name_reserved): the monitor's control clients live in a
+# session of that name, and a project session there would be taken for a
+# foreign helper and push them back onto the project session.
 _tmux_bootstrap_session_name_ok() {
-    [[ "$1" != *[.:]* ]]
+    [[ "$1" != *[.:]* ]] || return 1
+    ! ait_tmux_session_name_reserved "$1"
 }
 
 # _tmux_bootstrap_default_session_scan_checked <project_root>

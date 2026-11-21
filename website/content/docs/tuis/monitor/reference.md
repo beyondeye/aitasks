@@ -160,6 +160,21 @@ cannot be read.
 
 If no second aitasks session exists on the tmux server, both TUIs' multi-session view is visually identical to the single-session view (one project, one session's worth of agents).
 
+### The `_ait_control` session
+
+While a monitor or minimonitor is running, the tmux server has one extra session named `_ait_control`. It holds a single idle pane. The monitors talk to tmux through a connection attached to that session instead of to your project session. All projects on the same tmux server share it, and tmux removes it when the last monitor closes.
+
+It exists because of how tmux reports colours. A program in a pane can ask the terminal for its default text and background colours, and tmux answers with the colours of the first connection attached to that pane's session. A monitor's connection has no colours, so tmux would answer black for both. Some coding agents build parts of their interface from that answer, and would draw unreadable black text. With the monitor's connection in `_ait_control`, the first connection attached to your project session is your real terminal, and agents get its colours.
+
+What you may notice:
+
+- `_ait_control` appears in tmux's own session lists (`tmux ls`, the session chooser). The session pickers inside the aitasks TUIs leave it out.
+- If your terminal ends up in `_ait_control`, tmux moves it to the next session in name order. This happens when you pick it in the session chooser, or when the session you were in is destroyed and your tmux is configured with `detach-on-destroy off`. If `_ait_control` is the only session left, tmux detaches the terminal.
+- The name is reserved. `ait ide --session _ait_control` is refused, and a `tmux.default_session` set to it is treated like an unusable name: `ait ide` warns and uses `aitasks`.
+- If you already have a session of your own called `_ait_control`, the framework does not touch it. Monitors then attach to the project session as a fallback, and agents in that project may get black as their default colours again. Rename your session to avoid this.
+
+An agent reads the terminal's colours once, when it starts. An agent started while no terminal was attached to its session uses its own built-in colours, and keeps them until you restart it.
+
 ### Preview Size Presets
 
 Pressing `z` cycles through six preview size presets:

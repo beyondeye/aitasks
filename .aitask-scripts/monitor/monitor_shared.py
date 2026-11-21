@@ -32,6 +32,8 @@ from followup_kinds import marker_for  # noqa: E402
 # The ONE authority for the multi-select mark glyph and its colours (t1638),
 # shared with the board and both brainstorm views — imported, never mirrored.
 from mark_glyphs import mark_markup  # noqa: E402
+# Whole-session target for a pane-typed `-t` (the frozen `run-shell`, t2051).
+from agent_launch_utils import tmux_session_scope_target  # noqa: E402
 
 # `PaneSnapshot` + the task-context symbols moved to monitor_core (t822_6);
 # re-exported here so `from monitor.monitor_shared import TaskInfo, …` keeps
@@ -1364,10 +1366,20 @@ class AgentMarksMixin:
         """
         if self._monitor is None:
             return False
-        rc, _out = self._monitor.tmux_run(
-            ["run-shell", "-b", shlex.join([str(_FROZEN_SH), *argv])]
-        )
+        rc, _out = self._monitor.tmux_run(self._frozen_detached_args(argv))
         return rc == 0
+
+    def _frozen_detached_args(self, argv: list[str]) -> list[str]:
+        """The ``run-shell -b`` argv for a frozen coordinator.
+
+        The target is explicit (t2051). tmux runs a ``run-shell`` job in the cwd
+        of the target's session, falling back to the issuing client's session.
+        That client is the control client, which lives in the framework's
+        helper session whose cwd is ``/`` — so without ``-t`` the job would no
+        longer start in this app's project session.
+        """
+        return ["run-shell", "-b", "-t", tmux_session_scope_target(self._session),
+                shlex.join([str(_FROZEN_SH), *argv])]
 
     def _poll_frozen_outcome(self, record_id: str) -> None:
         """Watch the store for a dispatched drop's outcome and notify.

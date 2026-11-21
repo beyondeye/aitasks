@@ -468,28 +468,40 @@ class TmuxExitTests(LiveCase):
         self.assertIn("EXIT:exit_seen", self.server_log(sock),
                       "the server exited, but not through the %exit path")
 
-    def control_clients(self) -> list[str]:
-        out = self.tmux("list-clients", "-F", "#{client_control_mode} #{session_name}",
+    def control_clients(self) -> list[tuple[str, str]]:
+        """``(session, client pid)`` of every attached control client."""
+        out = self.tmux("list-clients", "-F",
+                        "#{client_control_mode} #{client_pid} #{session_name}",
                         check=False)
-        return [ln.split(" ", 1)[1] for ln in out.splitlines() if ln.startswith("1 ")]
+        rows = [ln.split(" ", 2) for ln in out.splitlines() if ln.startswith("1 ")]
+        return [(name, cpid) for _, cpid, name in rows]
+
+    # Since t2051 the control client lives in the `_ait_control` helper
+    # session, so destroying the SERVED session sends it neither %exit nor a
+    # session switch, under either `detach-on-destroy` setting. The client's
+    # project check is what notices, and it raises the same exit_seen signal
+    # the two routes below used to raise by themselves. Both settings are kept:
+    # they are the two ways tmux treats the destroyed session's own clients,
+    # and the server must restart on a live session under each. (The t2245
+    # switch rule itself is covered where it still applies — a client attached
+    # to the project session — in tests/test_tmux_control_resilience.sh B3.)
 
     def test_session_switch_restarts_the_control_client(self):
-        # t2245: under `detach-on-destroy off` destroying the served session
-        # moves the control client onto another session instead of sending
-        # %exit. The server must restart its client, not keep serving the
-        # switched one.
         self._served_session_destroyed("off")
 
     def test_session_destroy_restarts_on_a_live_session(self):
-        # The %exit route (`detach-on-destroy on`): the restart must pick a live
-        # session, not the destroyed one the last tick's mapping still lists.
+        # The restart must pick a live session, not the destroyed one the last
+        # tick's mapping still lists.
         self._served_session_destroyed("on")
 
     def _served_session_destroyed(self, detach_on_destroy: str):
         self.session("s1", self.project("pa"), "agent-pick-1")
         self.session("s2", self.project("pb"), "agent-pick-2")
         self.tmux("set-option", "-g", "detach-on-destroy", detach_on_destroy)
-        _, sock, pid = self.ensure("--version", "sw", "--grace", "120")
+        # The served session is named, not inferred: the control client no
+        # longer sits in it, so `list-clients` cannot say which one it is.
+        _, sock, pid = self.ensure("--version", "sw", "--grace", "120",
+                                   "--session", "s1")
 
         async def control_state(c):
             await c.send({"type": "refresh", "id": "r"})
@@ -511,18 +523,18 @@ class TmuxExitTests(LiveCase):
                 state = await control_state(c) or state
                 await asyncio.sleep(0.2)
             self.assertEqual(state, "connected")
-            served = self.control_clients()
-            self.assertEqual(len(served), 1, served)
-            self.tmux("kill-session", "-t", f"={served[0]}")
+            before = self.control_clients()
+            self.assertEqual([name for name, _ in before], ["_ait_control"], before)
+            self.tmux("kill-session", "-t", "=s1")
             end = time.monotonic() + DEADLINE
             while ("restarting the control client" not in self.server_log(sock)
                    and time.monotonic() < end):
                 await asyncio.sleep(0.2)
                 await control_state(c)
             await c.close()
-            return served[0]
+            return before[0][1]
 
-        killed = self.run_async(go())
+        old_pid = self.run_async(go())
         log = self.server_log(sock)
         self.assertIn("restarting the control client", log,
                       "the destroyed session was not treated as the session going away")
@@ -530,12 +542,20 @@ class TmuxExitTests(LiveCase):
                          "the restart did not reach the live session")
         self.assertNotIn("EXIT:", log)
         self.assertTrue(_alive(pid), "the server exited on a session switch")
-        survivor = ({"s1", "s2"} - {killed}).pop()
+        # Exactly one control client again, a NEW process, in the helper. With
+        # s1 gone the only session it can be serving is s2 — a start for a
+        # missing session fails, which the "subprocess fallback" check rules out.
+        def restarted():
+            now = self.control_clients()
+            return len(now) == 1 and now[0][0] == "_ait_control" and now[0][1] != old_pid
         end = time.monotonic() + DEADLINE
-        while self.control_clients() != [survivor] and time.monotonic() < end:
+        while not restarted() and time.monotonic() < end:
             time.sleep(0.2)
-        self.assertEqual(self.control_clients(), [survivor],
-                         "the switched control client was left attached, or none restarted")
+        self.assertTrue(restarted(),
+                        f"the old control client was left attached, or none "
+                        f"restarted: {self.control_clients()!r} (old pid {old_pid})")
+        self.assertEqual(self.tmux("list-sessions", "-F", "#{session_name}",
+                                   check=False).split(), ["_ait_control", "s2"])
 
 
 class LiveStreamTests(LiveCase):

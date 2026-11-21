@@ -98,12 +98,20 @@ async def main():
     assert await c.start(), "start() returned False"
     assert c.is_alive
 
-    # Case 1a: parity smoke — display-message #S
-    rc, out = await c.request(["display-message", "-p", "#S"])
+    # Case 1a: parity smoke — display-message #S. The target is explicit: the
+    # control client lives in the helper session (t2051), so an untargeted
+    # query would describe that session, not the project.
+    who = ["display-message", "-p", "-t", f"={session}:", "#S"]
+    rc, out = await c.request(who)
     assert rc == 0, f"display-message rc={rc} out={out!r}"
     assert out.strip() == session, f"display-message body={out!r}"
+    # ...and the untargeted form is what proves where the client actually is.
+    rc_own, own = await c.request(["display-message", "-p", "#S"])
+    assert (rc_own, own.strip()) == (0, "_ait_control"), (
+        f"control client is not in the helper session: {(rc_own, own)!r}"
+    )
 
-    sub_rc, sub_out = subprocess_tmux(["display-message", "-p", "#S"])
+    sub_rc, sub_out = subprocess_tmux(who)
     assert (rc, out.strip()) == (sub_rc, sub_out.strip()), (
         f"parity mismatch: ctrl={(rc, out)} sub={(sub_rc, sub_out)}"
     )
@@ -249,8 +257,8 @@ assert b.start(), "backend.start() returned False"
 assert b.is_alive, "backend not alive after start"
 assert b._thread is not None and b._thread.is_alive(), "bg thread not alive"
 
-# Smoke: display-message
-rc, out = b.request_sync(["display-message", "-p", "#S"])
+# Smoke: display-message (explicit target — see case 1a)
+rc, out = b.request_sync(["display-message", "-p", "-t", f"={session}:", "#S"])
 assert rc == 0, f"display-message rc={rc} out={out!r}"
 assert out.strip() == session, f"display-message body={out!r}"
 
@@ -615,10 +623,15 @@ F12=""
 # ---------------------------------------------------------------------------
 # Case 13: start() never prefix-attaches to another session (t2242)
 # ---------------------------------------------------------------------------
-# Only a decoy `<S>_mob` runs. A bare `-t <S>` prefix-matches it, so the control
-# client would serve every query from the wrong project. The pre-fix control
-# re-creates the bare argv on one instance and must reproduce the cross-attach;
-# without it, "the real client did not attach" could be vacuous.
+# Only a decoy `<S>_mob` runs. A bare `-t <S>` prefix-matches it, so a control
+# client attached that way would serve every query from the wrong project. The
+# pre-fix control attaches a raw control client with the old bare argv and must
+# reproduce the cross-attach; without it, "the real client did not attach" could
+# be vacuous on a tmux that does not prefix-match.
+#
+# Since t2051 two things refuse the decoy: start() looks the project up by exact
+# name before spawning anything, and every argv shape names it as `=<S>`. The
+# argv half is pinned in tests/test_tmux_exec.py; this case pins the behaviour.
 echo "== case 13: no prefix attach to a decoy session =="
 F13=$(make_fixture)
 trap 'teardown_fixture "${F13:-}"' EXIT
@@ -638,55 +651,80 @@ trap 'teardown_fixture "${F13:-}"' EXIT
     "$PYTHON_BIN" - <<'PYEOF'
 import asyncio
 import os
+import subprocess
 import time
 
-from monitor.monitor_core import TmuxControlClient
-from tmux_exec import TMUX_CLIENT_FLAGS
+from monitor.monitor_core import HELPER_MODE_CREATE, TmuxControlClient
+from tmux_exec import TMUX_CLIENT_FLAGS, tmux_socket_args
 
 target = os.environ["AIT_TEST_SESSION"]
 decoy = os.environ["AIT_TEST_DECOY"]
-WHO = ["display-message", "-p", "#{session_name}"]
+SOCK = tmux_socket_args()
+
+
+def tmux(*args):
+    r = subprocess.run(["tmux", *SOCK, *args], capture_output=True, text=True)
+    return r.stdout.strip()
+
+
+def control_clients():
+    out = tmux("list-clients", "-F", "#{client_control_mode}\t#{client_session}")
+    return [row.split("\t")[1] for row in out.splitlines() if row.startswith("1\t")]
+
+
+def bare_attach_lands_on():
+    """Pre-fix control: the old bare-target argv, as a raw control client."""
+    p = subprocess.Popen(
+        ["tmux", *TMUX_CLIENT_FLAGS, *SOCK, "-C", "attach", "-t", target,
+         "-f", "no-output,ignore-size"],
+        stdin=subprocess.PIPE, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+    )
+    try:
+        deadline = time.monotonic() + 3.0
+        while time.monotonic() < deadline:
+            where = control_clients()
+            if where:
+                return where
+            if p.poll() is not None:
+                return []
+            time.sleep(0.05)
+        return []
+    finally:
+        p.stdin.close()
+        p.wait(timeout=3)
 
 
 async def main():
-    # Pre-fix control: the old bare-target argv on this one instance.
-    ctl = TmuxControlClient(session=target)
-    sock = list(ctl._socket_args)
-    ctl._attach_argv = lambda: [
-        "tmux", *TMUX_CLIENT_FLAGS, *sock, "-C", "attach",
-        "-t", target, "-f", "no-output,ignore-size",
-    ]
-    assert await ctl.start(), (
-        "control: bare -t did not attach to the decoy -- the regression "
-        "below would be vacuous on this tmux"
+    landed = bare_attach_lands_on()
+    assert landed == [decoy], (
+        f"control: a bare -t did not prefix-attach to {decoy!r} (got {landed!r}) "
+        "-- the regression below would be vacuous on this tmux"
     )
-    rc, out = await ctl.request(WHO)
-    assert rc == 0 and out.strip() == decoy, (
-        f"control: expected the prefix match to land on {decoy!r}, got {(rc, out)!r}"
-    )
-    await ctl.close()
+    deadline = time.monotonic() + 3.0
+    while control_clients() and time.monotonic() < deadline:
+        time.sleep(0.05)
+    assert control_clients() == [], "control client did not leave"
 
-    # Fix: the real client must not attach. The oracle is "never served from
-    # the decoy", not the 50 ms attach-fail window, so a slow failure that
-    # start() briefly reports as alive must still die without answering.
+    # Fix: the real client must not attach to anything, and must create no
+    # helper session for a project that does not exist.
     c = TmuxControlClient(session=target)
     started = await c.start()
-    if started:
-        deadline = time.monotonic() + 2.0
-        while c.is_alive and time.monotonic() < deadline:
-            rc, out = await c.request(WHO)
-            assert out.strip() != decoy, f"real client served the decoy: {(rc, out)!r}"
-            await asyncio.sleep(0.05)
-        assert not c.is_alive, "real client is still attached to something"
+    assert started is False, "start() attached although the project is absent"
+    assert not c.is_alive
+    assert control_clients() == [], f"a client stayed attached: {control_clients()!r}"
+    assert "_ait_control" not in tmux("list-sessions", "-F", "#{session_name}").splitlines()
     await c.close()
 
-    # Exact match still attaches.
+    # Exact match still attaches — to the helper, serving the decoy by name.
     d = TmuxControlClient(session=decoy)
-    assert await d.start(), "exact-match attach to the decoy failed"
-    rc, out = await d.request(WHO)
+    assert await d.start(), "exact-match start for the decoy failed"
+    assert d.helper_mode == HELPER_MODE_CREATE, d.helper_mode
+    assert control_clients() == ["_ait_control"], control_clients()
+    rc, out = await d.request(
+        ["display-message", "-p", "-t", f"={decoy}:", "#{session_name}"])
     assert rc == 0 and out.strip() == decoy, (rc, out)
     await d.close()
-    print(f"OK case 13 (start() returned {started})")
+    print("OK case 13")
 
 
 asyncio.run(main())

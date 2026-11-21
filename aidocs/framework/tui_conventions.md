@@ -732,6 +732,14 @@ and `aitasks_mob`) in different terminals. Each project must stay fully
 isolated in its own tmux session so TUIs and singletons (lazygit, brainstorm,
 monitor) do not cross-contaminate between projects.
 
+One session on the server belongs to no project: `_ait_control`, the helper
+session the monitors' control clients attach to (why, and its rules:
+`aidocs/framework/tmux_gateway.md`, *Exec strategy*). Its name is reserved — the
+three session-name validators refuse it — and it is not a place to launch
+anything: `get_tmux_sessions()` leaves out a helper the framework owns, and
+discovery cannot attribute it to a project. A real terminal that lands in it is
+moved to the next session by name.
+
 How to apply:
 - Any tmux lookup that scans across sessions (e.g., `find_window_by_name`
   iterating `get_tmux_sessions()`) is architecturally incorrect and must be

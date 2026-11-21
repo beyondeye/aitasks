@@ -29,9 +29,14 @@ from typing import NamedTuple
 from artifact_manifest import HANDLE_RE
 from tui_registry import TUI_NAMES as _DEFAULT_TUI_NAMES
 from tmux_exec import (
+    AIT_CONTROL_SESSION,
+    SESSION_ID_NAME_FORMAT,
     TmuxClient,
+    control_helper_owned,
     decode_tmux_output,
     encode_tmux_argv,
+    is_reserved_session_name,
+    parse_session_rows,
     session_scope_target,
     tmux_os_path,
     tmux_stderr_is,
@@ -193,8 +198,13 @@ def _tmux_session_name_ok(name: str) -> bool:
     cannot distinguish its callers, and :func:`read_default_session_status` must
     still tell an illegal name apart from a blank one to report a shape for it.
     Both readers apply this check themselves (t1828).
+
+    The reserved helper-session name (t2051, ``is_reserved_session_name``) is
+    refused here too: a project session of that name would be taken for a
+    foreign helper by every monitor's control client.
     """
-    return "." not in name and ":" not in name
+    return ("." not in name and ":" not in name
+            and not is_reserved_session_name(name))
 
 
 @dataclass(frozen=True)
@@ -432,11 +442,27 @@ def is_tmux_available() -> bool:
 
 
 def get_tmux_sessions() -> list[str]:
-    """List running tmux session names. Returns empty list if tmux not running."""
-    rc, out = _TMUX.run(["list-sessions", "-F", "#{session_name}"])
-    if rc == 0:
-        return [s for s in out.strip().splitlines() if s]
-    return []
+    """List running tmux session names. Returns empty list if tmux not running.
+
+    The framework's own control-client helper session (t2051,
+    ``tmux_exec.AIT_CONTROL_SESSION``) is left out: it holds one ``sleep`` pane
+    and is not a place to launch anything. Only a session that carries the
+    framework's marker **as its own option** is dropped — a user's session that
+    happens to share the name, or merely inherits the marker text from a global
+    option, or whose marker could not be read, stays listed. The marker is read
+    by session id, and only when a row with that name exists.
+    """
+    rc, out = _TMUX.run(["list-sessions", "-F", SESSION_ID_NAME_FORMAT])
+    if rc != 0:
+        return []
+    names = []
+    for sid, name in parse_session_rows(out):
+        if not name:
+            continue
+        if name == AIT_CONTROL_SESSION and control_helper_owned(_TMUX.run, sid):
+            continue
+        names.append(name)
+    return names
 
 
 def get_tmux_windows_result(

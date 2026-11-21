@@ -621,8 +621,12 @@ class FrozenActionTests(_Fixture):
                 app._poll_frozen_outcome = lambda *a, **k: None
                 app._drop_frozen(snap)
                 argv = app._monitor.tmux_calls[-1]
-                self.assertEqual(argv[:2], ["run-shell", "-b"])
-                self.assertTrue(argv[2].endswith(f"drop {RECORD}"))
+                # Explicit target (t2051): the command rides the control
+                # client, which lives in the helper session, so without -t the
+                # job would start in that session's cwd.
+                self.assertEqual(argv[:4], ["run-shell", "-b", "-t", f"={SESSION}:"])
+                self.assertEqual(len(argv), 5)
+                self.assertTrue(argv[4].endswith(f"drop {RECORD}"))
 
     def test_the_live_row_keeps_its_own_binding_meaning(self):
         """The monitor's `R` is still Restart and its `z` still Zoom; the

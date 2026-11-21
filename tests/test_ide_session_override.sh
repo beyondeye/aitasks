@@ -132,6 +132,43 @@ for v in a.b a:b; do
     assert_eq "ait ide --session '$v' makes no tmux call" "" "$(cat "$STUB_LOG")"
 done
 
+# --- 2b'. --session refuses the reserved helper-session name (t2051) ----------
+#
+# The monitor's control clients live in a session called `_ait_control`. A
+# project session of that name would be taken for a foreign helper and push
+# every control client back onto its project session.
+
+rc=0
+bash -c 'source "$1"; _tmux_bootstrap_session_name_ok "$2"' _ "$LIB" "_ait_control" || rc=$?
+assert_eq "session_name_ok rejects the reserved name" "1" "$rc"
+for v in _ait_control2 ait_control _AIT_CONTROL; do
+    rc=0
+    bash -c 'source "$1"; _tmux_bootstrap_session_name_ok "$2"' _ "$LIB" "$v" || rc=$?
+    assert_eq "session_name_ok accepts the near-miss '$v'" "0" "$rc"
+done
+
+STUB_LOG="$TMP/ide_reserved.log"
+: > "$STUB_LOG"
+rc=0
+err="$(cd "$TMP/plain" && isolated TMUX="$TMP/ait,1,0" AITASKS_TMUX_SOCKET=ait \
+    bash "$IDE" --session _ait_control 2>&1 >/dev/null)" || rc=$?
+assert_eq "ait ide --session _ait_control exits 1" "1" "$rc"
+assert_contains "ait ide says the name is reserved" \
+    "Session name is reserved for the framework's control-client helper session: _ait_control" "$err"
+assert_not_contains "the reserved refusal is not reported as invalid chars" \
+    "invalid chars" "$err"
+assert_eq "ait ide --session _ait_control makes no tmux call" "" "$(cat "$STUB_LOG")"
+
+make_project "$TMP/reserved" 'tmux:\n  default_session: _ait_control\n'
+rc=0
+raw_err="$(bash -c 'source "$1"; _tmux_bootstrap_default_session_raw "$2"' \
+    _ "$LIB" "$TMP/reserved" 2>&1 >/dev/null)" || rc=$?
+assert_eq "raw reader exits 2 on a configured reserved name" "2" "$rc"
+assert_contains "raw reader reports the reserved name as unusable" \
+    "DEFAULT_SESSION_UNREADABLE:illegal_tmux_name:" "$raw_err"
+assert_contains "the warning names the reserved session" \
+    "\`_ait_control\` is reserved for the framework's own helper session" "$raw_err"
+
 # --- 2c. a CONFIGURED illegal name is refused by the readers too (t1828) ------
 #
 # t1825 covered only the name a user types. A hand-edited `default_session: a.b`

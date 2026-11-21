@@ -176,10 +176,15 @@ class MonitorRefreshNoSyncTmuxTests(unittest.TestCase):
                     ),
                     fake.async_calls,
                 )
-                self.assertIn(
-                    ("display-message", "-p", "#S"),
-                    fake.async_calls,
-                )
+                # Explicit target (t2051): the control client lives in the
+                # helper session, so an untargeted `#S` would name that one.
+                # The target is the monitor's own pane when $TMUX_PANE is set.
+                attached = tuple(app._attached_session_args())
+                self.assertEqual(attached[:3], ("display-message", "-p", "-t"))
+                self.assertEqual(attached[3], app._own_pane_id or "=demo:")
+                self.assertEqual(attached[4:], ("#S",))
+                self.assertIn(attached, fake.async_calls)
+                self.assertNotIn(("display-message", "-p", "#S"), fake.async_calls)
 
         self._run(runner())
 

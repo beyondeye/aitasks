@@ -35,6 +35,7 @@ from tmux_exec import (  # noqa: E402
     tmux_socket_args,
     window_target,
 )
+from monitor import monitor_core  # noqa: E402
 from monitor.monitor_core import TmuxMonitor  # noqa: E402
 from monitor.tmux_control import TmuxControlClient  # noqa: E402
 
@@ -776,18 +777,65 @@ class TestClientFlag(unittest.TestCase):
 
 
 class TestControlAttachArgv(unittest.TestCase):
-    """The `tmux -C attach` argv threads the socket flag (t952_3)."""
+    """The control client's `tmux -C` argv: the three shapes of t2051.
 
-    def test_socket_flag_in_attach_argv(self):
-        c = TmuxControlClient(session="mysess", socket_args=["-L", "sock"])
+    create (also the shape before any start pass ran), join and legacy. Each
+    threads the socket flag (t952_3) and names the project as an exact-match
+    target (t2242).
+    """
+
+    HEAD = ["tmux", "-u", "-L", "sock", "-C"]
+    GUARD = ["has-session", "-t", "=mysess", ";"]
+
+    def client(self, mode="", socket_args=("-L", "sock")):
+        c = TmuxControlClient(session="mysess", socket_args=list(socket_args))
+        c.helper_mode = mode
+        return c
+
+    def test_create_argv(self):
+        expected = self.HEAD + self.GUARD + [
+            "new-session", "-s", "_ait_control", "-c", "/",
+            "-f", "no-output,ignore-size", "exec sleep 2147483647", ";",
+            "set-option", "@aitask_control_helper", "aitasks-control-v1", ";",
+            "set-option", "destroy-unattached", "on", ";",
+            "set-hook", "client-session-changed",
+            tmux_exec.AIT_CONTROL_BOUNCE_HOOK,
+        ]
+        self.assertEqual(self.client(monitor_core.HELPER_MODE_CREATE)._attach_argv(),
+                         expected)
+        # Before any pass chose a mode the argv is the create shape.
+        self.assertEqual(self.client("")._attach_argv(), expected)
+
+    def test_create_writes_only_to_the_new_session(self):
+        # The option and hook commands carry no -t: they act on the session
+        # this client just created, whatever happens to the name meanwhile.
+        argv = self.client(monitor_core.HELPER_MODE_CREATE)._attach_argv()
+        after_new = argv[argv.index("new-session"):]
+        self.assertNotIn("-t", after_new)
+        self.assertNotIn("-A", argv)
+        self.assertNotIn("-g", argv)
+
+    def test_join_argv_names_the_inspected_id(self):
+        c = self.client(monitor_core.HELPER_MODE_JOIN)
+        c._helper_id = "$7"
         self.assertEqual(
             c._attach_argv(),
-            ["tmux", "-u", "-L", "sock", "-C", "attach", "-t", "=mysess",
-             "-f", "no-output,ignore-size"],
+            self.HEAD + self.GUARD
+            + ["attach-session", "-t", "$7", "-f", "no-output,ignore-size"],
+        )
+        # A join writes nothing to the helper.
+        self.assertNotIn("set-option", c._attach_argv())
+        self.assertNotIn("set-hook", c._attach_argv())
+        self.assertNotIn("_ait_control", c._attach_argv())
+
+    def test_legacy_argv_is_the_old_project_attach(self):
+        self.assertEqual(
+            self.client(monitor_core.HELPER_MODE_LEGACY)._attach_argv(),
+            self.HEAD + ["attach", "-t", "=mysess", "-f", "no-output,ignore-size"],
         )
 
     def test_no_socket_flag_when_empty(self):
-        c = TmuxControlClient(session="mysess", socket_args=[])
+        c = self.client(monitor_core.HELPER_MODE_LEGACY, socket_args=())
         self.assertEqual(
             c._attach_argv(),
             ["tmux", "-u", "-C", "attach", "-t", "=mysess",
@@ -799,11 +847,143 @@ class TestControlAttachArgv(unittest.TestCase):
             c = TmuxControlClient(session="s")
         self.assertEqual(c._attach_argv()[:4], ["tmux", "-u", "-L", "envsock"])
 
-    def test_attach_target_is_exact_match(self):
+    def test_project_target_is_exact_match_in_every_shape(self):
         # t2242: a bare `-t <session>` prefix-matches, so a control client for an
         # absent `aitasks` would attach to a running `aitasks_mob`.
-        argv = TmuxControlClient(session="mysess", socket_args=[])._attach_argv()
-        self.assertEqual(argv[argv.index("-t") + 1], session_target("mysess"))
+        for mode in (monitor_core.HELPER_MODE_CREATE, monitor_core.HELPER_MODE_JOIN,
+                     monitor_core.HELPER_MODE_LEGACY):
+            with self.subTest(mode=mode):
+                c = self.client(mode)
+                c._helper_id = "$7"
+                argv = c._attach_argv()
+                self.assertEqual(argv[argv.index("-t") + 1], session_target("mysess"))
+                self.assertNotIn("mysess", argv)
+
+
+class TestControlHelperPrimitives(unittest.TestCase):
+    """The helper-session primitives in the gateway (t2051)."""
+
+    def test_reserved_name(self):
+        self.assertTrue(tmux_exec.is_reserved_session_name("_ait_control"))
+        self.assertFalse(tmux_exec.is_reserved_session_name("aitasks"))
+        self.assertFalse(tmux_exec.is_reserved_session_name("_ait_control2"))
+
+    def test_python_validators_refuse_the_reserved_name(self):
+        # Twins of tmux_bootstrap.sh::_tmux_bootstrap_session_name_ok, whose
+        # shell half is pinned in tests/test_ide_session_override.sh.
+        import agent_launch_utils
+        import agent_restore
+        for ok in (agent_launch_utils._tmux_session_name_ok,
+                   agent_restore.session_name_ok):
+            with self.subTest(validator=ok.__module__):
+                self.assertFalse(ok("_ait_control"))
+                self.assertTrue(ok("_ait_control2"))
+                self.assertTrue(ok("aitasks"))
+                self.assertFalse(ok("a.b"))
+
+    def test_get_tmux_sessions_drops_only_an_owned_helper(self):
+        import agent_launch_utils
+
+        class FakeTmux:
+            def __init__(self, marker_reply):
+                self.marker_reply = marker_reply
+                self.calls = []
+
+            def run(self, args, timeout=5.0):
+                self.calls.append(args)
+                if args[0] == "list-sessions":
+                    return 0, "$0\ts\n$4\t_ait_control\n$2\tp2\n"
+                return self.marker_reply
+
+        cases = [
+            ((0, "aitasks-control-v1\n"), ["s", "p2"]),             # ours
+            ((0, "\n"), ["s", "_ait_control", "p2"]),                # unmarked / inherited
+            ((0, "other-v1\n"), ["s", "_ait_control", "p2"]),        # someone else's
+            ((1, ""), ["s", "_ait_control", "p2"]),                   # unreadable
+            ((-1, ""), ["s", "_ait_control", "p2"]),
+        ]
+        for reply, expected in cases:
+            with self.subTest(reply=reply):
+                fake = FakeTmux(reply)
+                with patch.object(agent_launch_utils, "_TMUX", fake):
+                    self.assertEqual(agent_launch_utils.get_tmux_sessions(), expected)
+                # The marker is read by session id, once, for that row only.
+                self.assertEqual(
+                    fake.calls[1:],
+                    [["show-options", "-qv", "-t", "$4:", "@aitask_control_helper"]])
+
+    def test_get_tmux_sessions_makes_one_call_without_a_helper_row(self):
+        import agent_launch_utils
+
+        class FakeTmux:
+            calls = 0
+
+            def run(self, args, timeout=5.0):
+                FakeTmux.calls += 1
+                return 0, "$0\ts\n$2\tp2\n"
+
+        with patch.object(agent_launch_utils, "_TMUX", FakeTmux()):
+            self.assertEqual(agent_launch_utils.get_tmux_sessions(), ["s", "p2"])
+        self.assertEqual(FakeTmux.calls, 1)
+
+    def test_parse_session_rows(self):
+        out = "$1\t_ait_control\n$0\ts\n\nnot-a-row\n$x\tbad\n$12\ta\tb\n"
+        self.assertEqual(tmux_exec.parse_session_rows(out),
+                         [("$1", "_ait_control"), ("$0", "s"), ("$12", "a\tb")])
+
+    def test_parse_session_rows_splits_on_newline_only(self):
+        # U+2028 / U+0085 / form feed are line boundaries for str.splitlines()
+        # and legal bytes of a session name; tmux frames rows with "\n" alone.
+        for sep in ("\u2028", "\u0085", "\x0c", "\x1c", "\r"):
+            with self.subTest(sep=repr(sep)):
+                name = f"a{sep}b"
+                rows = tmux_exec.parse_session_rows(f"$3\t{name}\n$4\tother\n")
+                self.assertEqual(rows, [("$3", name), ("$4", "other")])
+                self.assertEqual(tmux_exec.session_id_by_name(rows, name), "$3")
+
+    def test_session_id_by_name_is_exact(self):
+        rows = [("$1", "aitasks_mob"), ("$2", "aitasks")]
+        self.assertEqual(tmux_exec.session_id_by_name(rows, "aitasks"), "$2")
+        self.assertIsNone(tmux_exec.session_id_by_name(rows, "aitask"))
+
+    def test_marker_args_read_the_sessions_own_value(self):
+        # show-options without -A returns only the session-local value; a
+        # format (`#{@aitask_control_helper}`) would follow inheritance.
+        self.assertEqual(tmux_exec.control_helper_marker_args("$3"),
+                         ["show-options", "-qv", "-t", "$3:", "@aitask_control_helper"])
+        self.assertEqual(tmux_exec.control_helper_marker_args(),
+                         ["show-options", "-qv", "@aitask_control_helper"])
+        self.assertNotIn("-A", tmux_exec.control_helper_marker_args("$3"))
+
+    def test_marker_owned_verdicts(self):
+        owned = tmux_exec.control_helper_marker_owned
+        self.assertIs(owned(0, "aitasks-control-v1\n"), True)
+        self.assertIs(owned(0, ""), False)
+        self.assertIs(owned(0, "aitasks-control-v2\n"), False)
+        self.assertIs(owned(0, " aitasks-control-v1\n"), False)
+        self.assertIsNone(owned(1, ""))
+        self.assertIsNone(owned(-1, ""))
+
+    def test_control_helper_owned_asks_by_id(self):
+        calls = []
+
+        def run(args):
+            calls.append(args)
+            return 0, "aitasks-control-v1\n"
+
+        self.assertIs(tmux_exec.control_helper_owned(run, "$9"), True)
+        self.assertEqual(calls, [tmux_exec.control_helper_marker_args("$9")])
+
+    def test_bounce_hook_is_tmux_commands_only(self):
+        hook = tmux_exec.AIT_CONTROL_BOUNCE_HOOK
+        # No job, no shell, no file: the helper can outlive any checkout.
+        for token in ("run-shell", "$", "/", "sh ", ".sh"):
+            self.assertNotIn(token, hook)
+        # Both guard conditions, evaluated when the hook runs.
+        self.assertIn("#{==:#{client_control_mode},0}", hook)
+        self.assertIn("#{==:#{client_session},_ait_control}", hook)
+        self.assertIn("#{==:#{server_sessions},1}", hook)
+        self.assertTrue(hook.startswith("if-shell -F '#{&&:"))
 
 
 @unittest.skipIf(shutil.which("tmux") is None, "tmux not installed")

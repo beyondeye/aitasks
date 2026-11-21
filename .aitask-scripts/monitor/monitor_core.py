@@ -42,11 +42,20 @@ for _extra_path in (_SCRIPTS_DIR / "lib",):
         sys.path.insert(0, str(_extra_path))
 from tui_registry import BRAINSTORM_PREFIX, TUI_NAMES  # noqa: E402
 from tmux_exec import (  # noqa: E402  (gateway: exec-strategy dispatch + socket flag + text model)
+    AIT_CONTROL_BOUNCE_HOOK,
+    AIT_CONTROL_MARKER,
+    AIT_CONTROL_MARKER_OPTION,
+    AIT_CONTROL_SESSION,
+    SESSION_ID_NAME_FORMAT,
     TMUX_CLIENT_FLAGS,
     TmuxClient,
+    control_helper_marker_args,
+    control_helper_marker_owned,
     decode_tmux_output,
     encode_tmux_argv,
     encode_tmux_wire,
+    parse_session_rows,
+    session_id_by_name,
     session_target,
     tmux_os_path,
     tmux_socket_args,
@@ -1512,8 +1521,37 @@ _EXIT_RE = re.compile(r"^%exit(?:\s+.*)?$")
 # stable across `rename-session` (which sends %session-renamed instead).
 _SESSION_CHANGED_RE = re.compile(r"^%session-changed\s+(\$\d+)(?:\s.*)?$")
 
+# %sessions-changed / %session-renamed <id> <name> — some session was created,
+# destroyed or renamed. A `no-output` client still receives both. They are the
+# only signal a client living in the helper session gets that its PROJECT
+# session may be gone (t2051), so each one schedules a project check.
+_SESSIONS_EVENT_RE = re.compile(r"^%(?:sessions-changed|session-renamed)(?:\s.*)?$")
+
 _DEFAULT_STREAM_LIMIT = 4 * 1024 * 1024  # 4 MiB; default asyncio is 64 KiB
 _DEFAULT_CLOSE_TIMEOUT = 2.0
+
+# -- Helper-session attach (t2051) ----------------------------------------------
+#
+# Why the control client does not attach to the project session, and what the
+# helper session is: see `lib/tmux_exec.py` ("The control-client helper
+# session") and `aidocs/framework/tmux_gateway.md`.
+
+#: The helper's one pane. It exists only so the session can exist.
+_HELPER_PANE_COMMAND = "exec sleep 2147483647"
+#: Client flags of every control attach, helper or project.
+_CONTROL_CLIENT_FLAGS = "no-output,ignore-size"
+#: A pass that loses a create/join race is retried from the listing.
+_HELPER_START_PASSES = 3
+#: Timeout of each start-time query (the listing, the marker read, the
+#: post-attach self-check) and of the project check.
+_START_QUERY_TIMEOUT = 2.0
+_PROJECT_CHECK_TIMEOUT = 2.0
+
+#: `helper_mode` values. The legacy mode is today's attach to the project
+#: session, used when a session named like the helper exists and is not ours.
+HELPER_MODE_CREATE = "helper:create"
+HELPER_MODE_JOIN = "helper:join"
+HELPER_MODE_LEGACY = "legacy:foreign-helper"
 
 
 def _quote_arg(arg: str) -> str:
@@ -1552,9 +1590,22 @@ class TmuxControlClient:
         session: str,
         command_timeout: float = 5.0,
         socket_args: list[str] | None = None,
+        expected_project_id: str | None = None,
     ):
         self.session = session
         self.command_timeout = command_timeout
+        #: Id the project session had under the client this one replaces (the
+        #: supervisor passes it on reconnect). A start listing that proves that
+        #: session gone, or replaced under the same name, records it in
+        #: ``lost_project`` — the project can be destroyed in the window where
+        #: no client is connected to notice (t2051).
+        self._expected_project_id = expected_project_id
+        #: ``"gone"`` / ``"replaced"`` when a successful start listing proved
+        #: the expected project session is no longer there, ``"server_gone"``
+        #: when tmux itself said there is no server to list; ``""`` otherwise.
+        #: A listing that merely FAILED (timeout, a stalled server, no tmux
+        #: binary) proves nothing and leaves it empty.
+        self.lost_project: str = ""
         # Socket flag (``-L <name>`` or ``[]``) cached once — never re-read
         # per request (this client serves the monitor refresh hot path). When
         # not supplied, resolved from ``AITASKS_TMUX_SOCKET`` via the gateway so
@@ -1574,52 +1625,196 @@ class TmuxControlClient:
         #: attached session was destroyed. Also set when tmux moved this client
         #: onto a different session (t2245) — what destroying the attached
         #: session does under ``detach-on-destroy off`` — so both settings of
-        #: that option end the client the same way. Read by the backend
-        #: supervisor and the shared status server, which tells the server-gone
-        #: and session-gone cases apart by probing.
+        #: that option end the client the same way. And set when a project
+        #: check found the PROJECT session gone or replaced (t2051): a client
+        #: in the helper session gets neither of the two signals above when its
+        #: project is destroyed. Read by the backend supervisor and the shared
+        #: status server, which tells the server-gone and session-gone cases
+        #: apart by probing.
         self.saw_exit = False
         #: Id (``$N``) of the session this client attached to, anchored by the
         #: first ``%session-changed`` tmux sends after attach. A later one
         #: naming another id means the client now serves another session.
+        #: Since t2051 that is normally the HELPER session, not the project.
         self._session_id: Optional[str] = None
+        #: Which attach the current (or last) start pass chose — one of the
+        #: ``HELPER_MODE_*`` values; ``""`` before the first pass. Diagnostics
+        #: and tests read it; ``_attach_argv`` builds from it.
+        self.helper_mode: str = ""
+        #: Id of the owned helper a join pass inspected. The join names this
+        #: id, never the name, so a same-name replacement is not attached to.
+        self._helper_id: Optional[str] = None
+        #: Id of the session this client verified it is attached to. A listing
+        #: counts as evidence only when it contains this row.
+        self._own_session_id: Optional[str] = None
+        #: Id of the PROJECT session as listed when this client started. The
+        #: project is identified by it, not by its name: a session killed and
+        #: recreated under the same name is a different session.
+        self._project_id: Optional[str] = None
+        #: Verdict of the last project check: ``present`` / ``gone`` /
+        #: ``replaced`` / ``transport`` / ``unknown``; ``""`` before the first.
+        self.last_project_check: str = ""
+        #: Set by ``close()`` before it closes stdin. tmux answers that EOF
+        #: with ``%exit``, and an exit this client caused itself is not the
+        #: session going away — it must not raise ``saw_exit``. (Since t2051
+        #: the supervisor closes a timed-out client, so this exit now happens
+        #: on a path where the server and the project are both still there.)
+        self._closing = False
+        self._check_task: Optional[asyncio.Task] = None
+        self._check_again = False
+        # Gateway client for the start-time listing: a plain subprocess on the
+        # same socket, since no control connection exists yet.
+        self._gateway = TmuxClient(socket_args=self._socket_args)
 
     @property
     def is_alive(self) -> bool:
         return self._alive
 
     def _attach_argv(self) -> list[str]:
-        """Build the ``tmux -C attach`` argv, with the socket flag threaded in.
+        """Build the ``tmux -C`` argv for the mode this pass chose.
 
         The cached socket flag goes between ``"tmux"`` and ``"-C"`` so a
         dedicated-socket move (``AITASKS_TMUX_SOCKET``) reaches the control
         channel exactly as it reaches TmuxClient's subprocess path. Extracted as
         a method so the argv is unit-testable without spawning a process.
 
-        The target is exact-match (``session_target`` → ``=<session>``, gateway
-        policy 2): with a bare name tmux prefix-matches, so a control client for
-        an absent ``aitasks`` would attach to a running ``aitasks_mob`` and serve
-        every query from the other project. Both the initial start and the
-        supervisor's reconnect build their argv here.
+        Three shapes (t2051), selected by ``self.helper_mode``:
+
+        - **create** (also the shape before any pass ran) — make the helper
+          session and attach to it. The option and hook commands carry no
+          ``-t``: they act on the session this client just created, whatever
+          happens to the name meanwhile, and write session-local values. No
+          ``-A``: if another client created the helper in between,
+          ``new-session`` fails, this client exits, and the next pass joins.
+        - **join** — attach to the inspected helper **by id**. A join writes
+          nothing to the helper.
+        - **legacy** — attach to the project session, as every client did
+          before t2051.
+
+        Every shape that leaves the project session first runs
+        ``has-session -t =<project>``, so the project guard is atomic with the
+        attach. Session targets are exact-match (``session_target`` →
+        ``=<session>``, gateway policy 2): with a bare name tmux prefix-matches,
+        so a client for an absent ``aitasks`` would serve ``aitasks_mob``. Both
+        the initial start and the supervisor's reconnect build their argv here.
         """
-        return [
-            "tmux", *TMUX_CLIENT_FLAGS, *self._socket_args, "-C", "attach",
-            "-t", session_target(self.session), "-f", "no-output,ignore-size",
+        head = ["tmux", *TMUX_CLIENT_FLAGS, *self._socket_args, "-C"]
+        project = session_target(self.session)
+        if self.helper_mode == HELPER_MODE_LEGACY:
+            return head + ["attach", "-t", project, "-f", _CONTROL_CLIENT_FLAGS]
+        guard = ["has-session", "-t", project, ";"]
+        if self.helper_mode == HELPER_MODE_JOIN:
+            return head + guard + [
+                "attach-session", "-t", self._helper_id or "",
+                "-f", _CONTROL_CLIENT_FLAGS,
+            ]
+        return head + guard + [
+            "new-session", "-s", AIT_CONTROL_SESSION, "-c", "/",
+            "-f", _CONTROL_CLIENT_FLAGS, _HELPER_PANE_COMMAND, ";",
+            "set-option", AIT_CONTROL_MARKER_OPTION, AIT_CONTROL_MARKER, ";",
+            "set-option", "destroy-unattached", "on", ";",
+            "set-hook", "client-session-changed", AIT_CONTROL_BOUNCE_HOOK,
         ]
 
     async def start(self) -> bool:
-        """Spawn `tmux -C attach` and start the reader task.
+        """Attach a control client and start the reader task.
 
-        Returns False if `tmux` is not on PATH or the attach fails (e.g.,
-        the target session does not exist). Does not raise on those paths
-        — callers fall back to subprocess.
+        Returns False if `tmux` is not on PATH or the project session does not
+        exist. Does not raise on those paths — callers fall back to subprocess.
+
+        Up to ``_HELPER_START_PASSES`` passes: a pass that loses a helper
+        create/join race is abandoned and retried from the listing. Until this
+        returns True nobody else holds the process a pass spawned, so every
+        abandoned pass closes it, and a cancellation or any other exception
+        ends it synchronously (see :meth:`_abort_spawned`).
         """
         if self._proc is not None:
             return self._alive
-        # The anchor belongs to one attachment: after close() this object can
-        # be started again, and the new process may attach to a recreated
-        # session with a different id. A stale anchor would read that new
-        # attachment's first %session-changed as a switch and end the client.
+        for attempt in range(_HELPER_START_PASSES):
+            final = attempt == _HELPER_START_PASSES - 1
+            outcome = await self._start_pass(final)
+            if outcome is not None:
+                return outcome
+        return False
+
+    async def _inspect(self) -> Optional[list[tuple[str, str]]]:
+        """List the server's sessions as ``(id, name)`` rows; None on failure.
+
+        A listing, never ``display-message -t``: that verb tolerates a target it
+        cannot find and answers ``rc 0`` with an empty body, so it cannot prove
+        that the project is absent (measured on tmux 3.8).
+        """
+        rc, out = await self._gateway.run_async(
+            ["list-sessions", "-F", SESSION_ID_NAME_FORMAT],
+            timeout=_START_QUERY_TIMEOUT,
+        )
+        return parse_session_rows(out) if rc == 0 else None
+
+    async def _server_is_gone(self) -> bool:
+        """Whether tmux positively reports that no server is running.
+
+        Asked only after a reconnect's listing failed. The server can go away
+        while the previous client is being closed: the ``%exit`` it sends then
+        is ignored (``_closing``), so this is the one place left that can tell
+        "tmux shut down" from "the probe did not get through". Only tmux's own
+        no-server answer counts — a timeout or any other failure is not it.
+        """
+        try:
+            result = await asyncio.to_thread(
+                self._gateway.run_checked,
+                ["list-sessions", "-F", SESSION_ID_NAME_FORMAT], _START_QUERY_TIMEOUT,
+            )
+        except Exception:
+            # Not being able to ask is not an answer. (An exception here would
+            # also end the supervisor's reconnect loop for good.)
+            return False
+        return result.outcome == "no_server"
+
+    async def _helper_owned(self, helper_id: str) -> Optional[bool]:
+        """Whether session ``helper_id`` carries our marker as ITS OWN option."""
+        rc, out = await self._gateway.run_async(
+            control_helper_marker_args(helper_id), timeout=_START_QUERY_TIMEOUT
+        )
+        return control_helper_marker_owned(rc, out)
+
+    async def _start_pass(self, final: bool) -> Optional[bool]:
+        """One start pass. True: attached. False: give up. None: retry."""
+        rows = await self._inspect()
+        if rows is None:
+            if self._expected_project_id is not None and await self._server_is_gone():
+                self.lost_project = "server_gone"
+            return False
+        project_id = session_id_by_name(rows, self.session)
+        expected = self._expected_project_id
+        if expected is not None and project_id != expected:
+            self.lost_project = "gone" if project_id is None else "replaced"
+        if project_id is None:
+            return False
+        helper_id = session_id_by_name(rows, AIT_CONTROL_SESSION)
+        if helper_id is None:
+            mode = HELPER_MODE_CREATE
+        else:
+            owned = await self._helper_owned(helper_id)
+            if owned is True:
+                mode = HELPER_MODE_JOIN
+            elif owned is None and not final:
+                # Unreadable is usually the helper vanishing under us. Look
+                # again; only a persistent unknown is treated as foreign.
+                return None
+            else:
+                mode = HELPER_MODE_LEGACY
+
+        # These belong to one attachment: after close() this object can be
+        # started again, and the new process may attach to a recreated session
+        # with a different id. A stale anchor would read that new attachment's
+        # first %session-changed as a switch and end the client.
         self._session_id = None
+        self._own_session_id = None
+        self._project_id = project_id
+        self._helper_id = helper_id
+        self.helper_mode = mode
+        self.last_project_check = ""
+        self._closing = False
         try:
             self._proc = await asyncio.create_subprocess_exec(
                 *encode_tmux_argv(self._attach_argv()),
@@ -1632,18 +1827,166 @@ class TmuxControlClient:
             self._proc = None
             return False
 
-        # Attach can fail asynchronously — give the child a brief moment to
-        # decide. If it has already exited by the time we look, the attach
-        # failed (typically: session does not exist). asyncio's Process
-        # exposes `returncode` which is non-None once exited.
-        await asyncio.sleep(0.05)
-        if self._proc.returncode is not None:
-            self._proc = None
-            return False
+        try:
+            # The attach can fail asynchronously — give the child a brief moment
+            # to decide. If it has already exited, the attach failed: the
+            # project vanished, a concurrent client created the helper first,
+            # or the helper to join is gone. The next pass tells which.
+            await asyncio.sleep(0.05)
+            if self._proc.returncode is not None:
+                self._proc = None
+                return None
+            self._alive = True
+            self._reader_task = asyncio.create_task(self._reader_loop())
+            if await self._verify_attach() and await self._project_still_ours():
+                return True
+            await self.close()
+            return None
+        except BaseException:
+            self._abort_spawned()
+            raise
 
-        self._alive = True
-        self._reader_task = asyncio.create_task(self._reader_loop())
+    async def _verify_attach(self) -> bool:
+        """Ask the new client where it is, and accept only what this mode expects.
+
+        Both queries carry no target on purpose: they ask about the session
+        THIS client is in, and the marker read returns only that session's own
+        value. They are the only target-free commands sent through a control
+        client (``tests/test_control_routed_explicit_targets.py``).
+
+        - create: the helper's name, and our marker.
+        - join: the same, and the id the pass inspected.
+        - legacy: the project's id. The client is in the project session on
+          purpose, so there is no helper name or marker to find.
+        """
+        rc, out = await self.request(
+            ["display-message", "-p", SESSION_ID_NAME_FORMAT],
+            timeout=_START_QUERY_TIMEOUT,
+        )
+        rows = parse_session_rows(out) if rc == 0 else []
+        if len(rows) != 1:
+            return False
+        own_id, own_name = rows[0]
+        if self.helper_mode == HELPER_MODE_LEGACY:
+            if own_id != self._project_id:
+                return False
+        else:
+            if own_name != AIT_CONTROL_SESSION:
+                return False
+            if self.helper_mode == HELPER_MODE_JOIN and own_id != self._helper_id:
+                return False
+            rc, out = await self.request(
+                control_helper_marker_args(), timeout=_START_QUERY_TIMEOUT
+            )
+            if control_helper_marker_owned(rc, out) is not True:
+                return False
+        self._own_session_id = own_id
         return True
+
+    async def _project_still_ours(self) -> bool:
+        """The first project check, closing the gap between listing and attach."""
+        return await self.check_project() == "present"
+
+    def _abort_spawned(self) -> None:
+        """End the process a start pass spawned, without awaiting anything.
+
+        Runs when a pass is cancelled (``stop()`` cancels a reconnect; the
+        backend's ``start()`` gives up after ``_BACKEND_START_TIMEOUT``) or
+        raises. A task that is being cancelled cannot rely on another ``await``,
+        so this is synchronous: close stdin, kill, cancel the reader. Without it
+        the client stays attached and pins the helper session forever, since
+        ``destroy-unattached`` never fires.
+        """
+        self._alive = False
+        proc, self._proc = self._proc, None
+        if proc is not None:
+            stdin = getattr(proc, "stdin", None)
+            with contextlib.suppress(Exception):
+                if stdin is not None and not stdin.is_closing():
+                    stdin.close()
+            with contextlib.suppress(Exception):
+                if proc.returncode is None:
+                    proc.kill()
+        task, self._reader_task = self._reader_task, None
+        if task is not None and not task.done():
+            task.cancel()
+        self._teardown_pending()
+
+    # -- project liveness (t2051) ------------------------------------------------
+    #
+    # A client in the helper session no longer dies with its project: destroying
+    # the project sends it neither %exit nor %session-changed. So the reader
+    # schedules a check on every session create / destroy / rename.
+
+    async def check_project(self) -> str:
+        """Is the project session still the one this client started for?
+
+        Asks for a listing through this same client and looks the project up by
+        exact name, then compares ids. Returns (and records) one of:
+
+        - ``present`` — same name, same id.
+        - ``replaced`` — same name, another id: the session was destroyed and a
+          new one took its name.
+        - ``gone`` — a whole listing without the name (a rename reads as gone,
+          which matches what every ``=<name>:`` target already does).
+        - ``transport`` — the request failed (``rc -1``). Never read as gone.
+        - ``unknown`` — the listing errored or was not whole. A listing counts
+          only when it contains the row of the session this client is in.
+        """
+        rc, out = await self.request(
+            ["list-sessions", "-F", SESSION_ID_NAME_FORMAT],
+            timeout=_PROJECT_CHECK_TIMEOUT,
+        )
+        if rc == -1:
+            verdict = "transport"
+        elif rc != 0:
+            verdict = "unknown"
+        else:
+            rows = parse_session_rows(out)
+            own = self._own_session_id
+            if own is None or own not in {sid for sid, _ in rows}:
+                verdict = "unknown"
+            else:
+                project_id = session_id_by_name(rows, self.session)
+                if project_id is None:
+                    verdict = "gone"
+                elif project_id == self._project_id:
+                    verdict = "present"
+                else:
+                    verdict = "replaced"
+        self.last_project_check = verdict
+        return verdict
+
+    def _schedule_project_check(self) -> None:
+        """Run a project check soon; coalesce with one already in flight.
+
+        Called from the reader, which must never await a request (it is the
+        task that delivers the reply). A notification that arrives during a
+        check sets a flag and the check runs once more, so a deletion that lands
+        mid-check is not lost.
+        """
+        if not self._alive or self._own_session_id is None:
+            return
+        if self._check_task is not None and not self._check_task.done():
+            self._check_again = True
+            return
+        self._check_task = asyncio.get_running_loop().create_task(
+            self._project_check_loop()
+        )
+
+    async def _project_check_loop(self) -> None:
+        while True:
+            self._check_again = False
+            verdict = await self.check_project()
+            if verdict in ("gone", "replaced"):
+                # The same signal %exit gives (t2037_1): the backend supervisor
+                # and the shared status server read it to notice that the
+                # served session went away.
+                self.saw_exit = True
+                await self.close()
+                return
+            if not self._check_again or not self._alive:
+                return
 
     async def _reader_loop(self) -> None:
         assert self._proc is not None and self._proc.stdout is not None
@@ -1675,7 +2018,8 @@ class TmuxControlClient:
                     deliver = (int(m.group(3)) & 1) != 0
                     self._capturing = (int(m.group(2)), [], deliver)
                 elif _EXIT_RE.match(line):
-                    self.saw_exit = True
+                    if not self._closing:
+                        self.saw_exit = True
                     break  # tmux server (or the attached session) is going away
                 elif (sc := _SESSION_CHANGED_RE.match(line)) and self._switched_away(
                     sc.group(1)
@@ -1686,10 +2030,11 @@ class TmuxControlClient:
                     self.saw_exit = True
                     self._detach_switched_client()
                     break
+                elif _SESSIONS_EVENT_RE.match(line):
+                    self._schedule_project_check()
                 # Any other %-line outside a Capturing block is an async
                 # event (filtered to `no-output`-only by the spawn flags,
-                # but tmux can still emit %sessions-changed, %client-detached,
-                # etc.). Discard.
+                # but tmux can still emit %client-detached, etc.). Discard.
         except (asyncio.CancelledError, ConnectionResetError, OSError):
             pass
         finally:
@@ -1787,6 +2132,7 @@ class TmuxControlClient:
         Idempotent.
         """
         self._alive = False
+        self._closing = True
         proc = self._proc
         if proc is None:
             self._teardown_pending()
@@ -1808,6 +2154,14 @@ class TmuxControlClient:
             self._reader_task.cancel()
             with contextlib.suppress(asyncio.CancelledError, Exception):
                 await self._reader_task
+
+        # A project check still in flight would only learn that the client is
+        # dead. Never cancel the task that is running this close() — the check
+        # loop closes the client itself when the project is gone.
+        check = self._check_task
+        if (check is not None and not check.done()
+                and check is not asyncio.current_task()):
+            check.cancel()
 
         self._teardown_pending()
         self._proc = None
@@ -1872,6 +2226,15 @@ class TmuxControlBackend:
             list(socket_args) if socket_args is not None else tmux_socket_args()
         )
         self._client: Optional[TmuxControlClient] = None
+        #: A client whose ``start()`` is in flight — set before the start is
+        #: scheduled, cleared when ownership moves to ``_client``. ``stop()``
+        #: closes it too: a start that is cancelled or times out after it
+        #: attached would otherwise leave a client nobody holds (t2051).
+        self._starting: Optional[TmuxControlClient] = None
+        #: Id of the project session under the last connected client. Carried
+        #: into every reconnect so a project destroyed while NO client was
+        #: connected (after a timeout, say) still raises ``exit_seen``.
+        self._last_project_id: Optional[str] = None
         self._loop: Optional[asyncio.AbstractEventLoop] = None
         self._thread: Optional[threading.Thread] = None
         self._ready = threading.Event()
@@ -1929,13 +2292,20 @@ class TmuxControlBackend:
         client = TmuxControlClient(
             self.session, self.command_timeout, socket_args=self._socket_args
         )
+        self._starting = client
         cf = asyncio.run_coroutine_threadsafe(client.start(), self._loop)
         try:
             ok = cf.result(timeout=_BACKEND_START_TIMEOUT)
         except Exception:
+            # Gave up waiting. Cancel the start so it ends whatever it spawned;
+            # stop() below closes `_starting` as well, for the case where the
+            # cancellation lands after the attach.
+            cf.cancel()
             ok = False
         if ok:
             self._client = client
+            self._starting = None
+            self._last_project_id = client._project_id
             self._set_state(TmuxControlState.CONNECTED)
             self._spawn_supervisor()
             return True
@@ -1988,6 +2358,15 @@ class TmuxControlBackend:
                 if self._client is not None and self._client.saw_exit:
                     self._exit_seen.set()
                 self._set_state(TmuxControlState.RECONNECTING)
+                # A dead client is not always an exited process: a request that
+                # timed out only MARKS the client dead, and its `tmux -C` stays
+                # attached. Left alone it would pin the helper session and
+                # survive stop(), which closes only the current client. close()
+                # is idempotent, so the %exit route pays nothing; a hung process
+                # costs up to `_DEFAULT_CLOSE_TIMEOUT` before it is killed.
+                if self._client is not None:
+                    with contextlib.suppress(Exception):
+                        await self._client.close()
                 attempts = 0
                 reconnected = False
                 while (
@@ -2003,12 +2382,30 @@ class TmuxControlBackend:
                     new_client = TmuxControlClient(
                         self.session, self.command_timeout,
                         socket_args=self._socket_args,
+                        expected_project_id=self._last_project_id,
                     )
-                    if await new_client.start():
+                    # Held in `_starting` across the await: if stop() cancels
+                    # this task mid-start, it still finds the candidate.
+                    self._starting = new_client
+                    started = await new_client.start()
+                    # The project went away (or was replaced under its name)
+                    # while no client was connected to see it. The start's own
+                    # listing proved it, so raise the same signal a connected
+                    # client's project check would have. So does tmux saying
+                    # there is no server at all (it may have shut down while
+                    # the old client was closing, whose %exit is ignored). A
+                    # listing that merely failed leaves `lost_project` empty:
+                    # transport is not absence.
+                    if new_client.lost_project:
+                        self._exit_seen.set()
+                    if started:
                         self._client = new_client
+                        self._starting = None
+                        self._last_project_id = new_client._project_id
                         self._set_state(TmuxControlState.CONNECTED)
                         reconnected = True
                         break
+                    self._starting = None
                     attempts += 1
 
                 if not reconnected:
@@ -2042,7 +2439,6 @@ class TmuxControlBackend:
         """
         self._stop_requested = True
         loop = self._loop
-        client = self._client
         thread = self._thread
         # Cancel the supervisor before closing the client so it can't
         # respawn a fresh one in the gap between client.close() and the
@@ -2053,15 +2449,19 @@ class TmuxControlBackend:
                     self._cancel_reconnect_task(), loop
                 )
                 cf.result(timeout=1.0)
-        if loop is not None and client is not None:
-            with contextlib.suppress(Exception):
-                cf = asyncio.run_coroutine_threadsafe(client.close(), loop)
-                cf.result(timeout=_BACKEND_STOP_TIMEOUT)
+        # Read AFTER the supervisor is cancelled: it may have swapped `_client`
+        # or left a candidate in `_starting` while it was being cancelled.
+        for client in (self._starting, self._client):
+            if loop is not None and client is not None:
+                with contextlib.suppress(Exception):
+                    cf = asyncio.run_coroutine_threadsafe(client.close(), loop)
+                    cf.result(timeout=_BACKEND_STOP_TIMEOUT)
         if loop is not None and loop.is_running():
             loop.call_soon_threadsafe(loop.stop)
         if thread is not None and thread.is_alive():
             thread.join(timeout=_BACKEND_THREAD_JOIN_TIMEOUT)
         self._client = None
+        self._starting = None
         self._loop = None
         self._thread = None
         self._reconnect_task = None

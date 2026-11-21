@@ -81,7 +81,7 @@ from shortcuts_mixin import ShortcutsMixin  # noqa: E402
 from tui_clipboard import copy_to_system_clipboard  # noqa: E402
 
 import subprocess  # noqa: E402
-from agent_launch_utils import resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, mark_monitor_pane, tmux_session_target, unmark_monitor_pane, load_tmux_defaults  # noqa: E402
+from agent_launch_utils import resolve_dry_run_command, resolve_agent_string, TmuxLaunchConfig, launch_in_tmux, maybe_spawn_minimonitor, mark_monitor_pane, tmux_session_scope_target, tmux_session_target, unmark_monitor_pane, load_tmux_defaults  # noqa: E402
 from agent_command_screen import AgentCommandScreen, build_pick_screen  # noqa: E402
 from tmux_exec import TMUX_CLIENT_FLAGS, TmuxClient, tmux_text_kwargs  # noqa: E402
 
@@ -1894,11 +1894,24 @@ class MonitorApp(
                 f"  [dim]Tab: switch panel[/]"
             )
 
+    def _attached_session_args(self) -> list[str]:
+        """The argv that asks which session this monitor's own pane is in.
+
+        The target is explicit (t2051). The command rides the control client,
+        and that client lives in the framework's helper session, so an
+        untargeted ``display-message -p '#S'`` would answer the helper's name.
+        The monitor's own pane is the exact subject; without ``$TMUX_PANE`` the
+        session the monitor was started for is what the old untargeted form
+        answered too.
+        """
+        target = self._own_pane_id or tmux_session_scope_target(self._session)
+        return ["display-message", "-p", "-t", target, "#S"]
+
     async def _read_attached_session(self) -> str | None:
         """Return the currently-attached tmux session name, or None on failure."""
         if self._monitor is None:
             return None
-        rc, stdout = await self._monitor.tmux_run_async(["display-message", "-p", "#S"])
+        rc, stdout = await self._monitor.tmux_run_async(self._attached_session_args())
         if rc != 0:
             return None
         return stdout.strip() or None

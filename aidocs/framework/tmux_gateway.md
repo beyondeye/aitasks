@@ -136,6 +136,62 @@ connection) duck-typed; if it is alive they route through it, otherwise they fal
 back to `run` / `run_async`. The gateway owns the *strategy* without depending on
 `monitor/`. The `(rc, stdout)` / `(-1, "")` fallback branch is load-bearing.
 
+**The control client lives in the helper session, not in the project session
+(t2051).** tmux answers a pane's OSC 10/11 default-colour query from the FIRST
+client attached to the pane's session, and a control-mode client reports
+colour 0. A `tmux -C attach` to the project session that came before the real
+terminal (which is the order `ait ide` produces) made every pane there answer
+black/black, and agents that derive their palette from that answer (Codex,
+OpenCode's `system` theme) drew unreadable text. So `TmuxControlClient` attaches
+to `_ait_control` (`tmux_exec.AIT_CONTROL_SESSION`): one session per server,
+shared by every project, holding one `sleep` pane, destroyed with its last
+client (`destroy-unattached on`). What follows from that:
+
+- **Every command sent through the control client names its target.** There is
+  no "current session" to rely on: `display-message -p '#S'` answers
+  `_ait_control`, and `run-shell` starts in its cwd (`/`).
+  `tests/test_control_routed_explicit_targets.py` scans every control-routed
+  call and fails on an argv without `-t` (short allowlist of server-wide verbs),
+  and on an argv built at a site nobody reviewed.
+- **Three attach shapes** (`TmuxControlClient._attach_argv`, chosen per start
+  pass and recorded in `helper_mode`): *create* the helper, *join* it, or the
+  *legacy* attach to the project session when a session named `_ait_control`
+  exists that is not ours. Create and join run `has-session -t =<project>` first
+  in the same command list.
+- **Identity is a session id, never a name.** The start lists sessions as
+  `(id, name)`, the join attaches to the inspected id (`$N`), and the project is
+  remembered by its id. A same-name replacement between two steps is therefore
+  a different session, not the same one.
+- **Ownership is the session's own option.** The helper carries
+  `@aitask_control_helper = aitasks-control-v1`, read only through
+  `tmux_exec.control_helper_owned` (`show-options -qv` on that session). A
+  format such as `#{@aitask_control_helper}` follows option inheritance and
+  reports a global option of the same name for every session.
+- **`saw_exit` also means "the project session is gone".** A client in the
+  helper gets neither `%exit` nor `%session-changed` when its project is
+  destroyed. Each `%sessions-changed` / `%session-renamed` schedules
+  `check_project`, a `list-sessions` through the same client; a whole listing
+  without the project (`gone`) or with another id under its name (`replaced`)
+  sets `saw_exit` and closes the client. A failed request is `transport`, never
+  gone. Never probe absence with `display-message -t`: it tolerates a missing
+  target and answers `rc 0` with an empty body.
+- **Nobody may be left attached.** A leftover `tmux -C` pins the helper forever.
+  A start pass ends the process it spawned when it is abandoned, cancelled or
+  times out; the backend keeps the candidate in `_starting` so `stop()` closes
+  it; and the supervisor closes a dead client before replacing it (a request
+  that timed out only marks the client dead — its process is still attached).
+- **The bounce hook** (`tmux_exec.AIT_CONTROL_BOUNCE_HOOK`, a
+  `client-session-changed` hook on the helper) moves a real terminal that lands
+  there to the next session by name, or detaches it when the helper is the only
+  session. tmux puts a terminal there when its session is destroyed under
+  `detach-on-destroy off`. The hook is tmux commands only: it names no file (the
+  helper can outlive any checkout) and starts no job. Its `if-shell -F` guard is
+  evaluated when it runs, because tmux queues a hook behind the rest of the
+  command list that triggered it.
+
+A second implementation of the control connection (another language, another
+process) must keep all of the above: attach to the helper, not the project.
+
 **Pane-creating verbs never ride the control client.** `new-session`,
 `new-window`, `split-window`, `respawn-pane` and `respawn-window` (anywhere in
 the argv, so `\;` chains count) go straight to `run` / `run_async` even when the
@@ -353,8 +409,13 @@ backends that already reach the gateway socket — not as an escape hatch.
    uses `ait_tmux_client_args`, never the bare socket emitter. A `-F` format's
    TAB separator is a real byte (`$'\t'` in shell): tmux keeps a single-quoted
    `\t` literally (see *Client UTF-8*).
-6. Don't add yourself to the `test_no_raw_tmux.sh` allowlist.
-7. Run `bash tests/test_no_raw_tmux.sh` before committing.
+6. A command that rides a monitor's control client (`tmux_run`,
+   `tmux_run_async`, `run_via_control`, `request_sync`, …) always carries an
+   explicit `-t`: that client is in the `_ait_control` helper session, so there
+   is no current session to fall back on (see *Exec strategy*).
+   `tests/test_control_routed_explicit_targets.py` enforces it.
+7. Don't add yourself to the `test_no_raw_tmux.sh` allowlist.
+8. Run `bash tests/test_no_raw_tmux.sh` before committing.
 
 ## Multiple real agents per window — state keyed by `pane_id`
 
@@ -425,8 +486,15 @@ Two of these are self-stamped by the app that owns the pane
 the companion-pane section in `tui_conventions.md` for why a stamp applied on
 another process's behalf cannot mean what it claims.
 
+One **session** option belongs here too, although it is not a pane option:
+`@aitask_control_helper`, set to `aitasks-control-v1` on the `_ait_control`
+helper session by the control client that creates it, in the same command list
+as `new-session`. It marks a helper this framework owns. Read it only with
+`tmux_exec.control_helper_owned` (see *Exec strategy*); it dies with the session.
+
 `respawn-pane` and `run-shell -b` are ordinary gateway calls like everything
-else here. `run-shell -b` in particular is how a TUI dispatches an operation that
+else here. Sent through a monitor's control client, `run-shell -b` carries an
+explicit `-t` so the job starts in the project session's cwd, not the helper's. `run-shell -b` in particular is how a TUI dispatches an operation that
 must **outlive the pane it is issued from** — a freeze or a restore respawns the
 issuing pane, so the coordinator cannot be a child of it.
 

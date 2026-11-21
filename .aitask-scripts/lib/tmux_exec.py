@@ -408,6 +408,122 @@ def window_target(session: str, window: str | int) -> str:
     return f"={session}:{window}"
 
 
+# -- The control-client helper session (t2051) ----------------------------------
+#
+# tmux takes a pane's default fg/bg (what it answers to OSC 10/11) from the FIRST
+# client attached to the pane's session, and a control-mode client reports
+# colour 0. A monitor's `tmux -C` client attached to the project session before
+# the real terminal therefore makes every pane there answer black/black. So the
+# control clients attach to this dedicated session instead. It is shared by
+# every project on the server, holds one `sleep` pane, and is destroyed with its
+# last client (`destroy-unattached on`).
+
+#: Name of the helper session. Reserved: no project session may use it
+#: (:func:`is_reserved_session_name`).
+AIT_CONTROL_SESSION = "_ait_control"
+
+#: Session user option marking a helper this framework created, and its value.
+#: Read it ONLY through :func:`control_helper_owned` — a format such as
+#: ``#{@aitask_control_helper}`` follows tmux's option inheritance, so a session
+#: that sets nothing reads back a global option of the same name (measured on
+#: tmux 3.8).
+AIT_CONTROL_MARKER_OPTION = "@aitask_control_helper"
+AIT_CONTROL_MARKER = "aitasks-control-v1"
+
+#: ``list-sessions`` format for every by-identity session lookup: the id (``$N``,
+#: never reused within a server) then the name. Parsed by
+#: :func:`parse_session_rows`.
+SESSION_ID_NAME_FORMAT = "#{session_id}\t#{session_name}"
+
+#: The ``client-session-changed`` hook installed on the helper. It moves a real
+#: terminal that lands there — tmux puts it there when its project session is
+#: destroyed under ``detach-on-destroy off``, and a user can pick it in
+#: ``prefix s`` — to the next session by name, or detaches it when the helper is
+#: the only session left.
+#:
+#: tmux commands only, on purpose: the helper can outlive the checkout whose
+#: backend created it, so the hook names no file; and it starts no job, so there
+#: is no shell quoting and nothing that acts late. The guard is evaluated when
+#: the hook RUNS — tmux queues a hook behind the rest of the command list that
+#: triggered it, and an unguarded hook acted on a terminal that had already
+#: moved on to another session (measured on tmux 3.8). Both conditions are
+#: required: not a control client, and still in the helper.
+AIT_CONTROL_BOUNCE_HOOK = (
+    "if-shell -F '#{&&:#{==:#{client_control_mode},0},"
+    "#{==:#{client_session}," + AIT_CONTROL_SESSION + "}}' "
+    "{ if-shell -F '#{==:#{server_sessions},1}' "
+    "{ detach-client } { switch-client -n } }"
+)
+
+
+def is_reserved_session_name(name: str) -> bool:
+    """Whether ``name`` is reserved for the framework's own helper session."""
+    return name == AIT_CONTROL_SESSION
+
+
+def parse_session_rows(out: str) -> list[tuple[str, str]]:
+    """Parse :data:`SESSION_ID_NAME_FORMAT` output into ``(id, name)`` pairs.
+
+    Rows that do not start with a ``$``-id are dropped rather than guessed at.
+    A name may itself contain a tab; only the first one separates.
+
+    Rows are split on ``"\n"`` only — tmux's own framing byte. ``str.splitlines``
+    also breaks on U+2028, U+0085 and friends, which a session name may contain;
+    it would cut such a name in two and the session would read as absent.
+    """
+    rows = []
+    for line in out.split("\n"):
+        sid, sep, name = line.partition("\t")
+        if sep and sid.startswith("$") and sid[1:].isdigit():
+            rows.append((sid, name))
+    return rows
+
+
+def session_id_by_name(rows: list[tuple[str, str]], name: str) -> str | None:
+    """The id of the session called exactly ``name`` in parsed ``rows``."""
+    for sid, row_name in rows:
+        if row_name == name:
+            return sid
+    return None
+
+
+def control_helper_marker_args(session_id: str | None = None) -> list[str]:
+    """The argv that reads a session's OWN helper marker.
+
+    ``show-options -qv`` without ``-A`` returns only the value set on that
+    session, never an inherited one. With ``session_id`` the session is named by
+    id; without it the command asks about the session the issuing client is in.
+    """
+    args = ["show-options", "-qv"]
+    if session_id is not None:
+        args += ["-t", f"{session_id}:"]
+    return args + [AIT_CONTROL_MARKER_OPTION]
+
+
+def control_helper_marker_owned(rc: int, out: str) -> bool | None:
+    """Interpret a :func:`control_helper_marker_args` reply.
+
+    ``True`` — the session carries this framework's marker as its own value.
+    ``False`` — it was read and is something else (empty included).
+    ``None`` — it could not be read. Callers must treat that as *not owned*.
+    """
+    if rc != 0:
+        return None
+    return out.strip("\n") == AIT_CONTROL_MARKER
+
+
+def control_helper_owned(run, session_id: str) -> bool | None:
+    """Whether session ``session_id`` is a helper this framework created.
+
+    ``run`` is any ``(args) -> (rc, stdout)`` callable (``TmuxClient.run``, a
+    monitor's ``tmux_run``). One definition for every ownership read — the
+    control client's start, its post-attach check and the session listing — so
+    they cannot drift.
+    """
+    rc, out = run(control_helper_marker_args(session_id))
+    return control_helper_marker_owned(rc, out)
+
+
 def _systemd_user_available() -> bool:
     """Whether a usable ``systemd --user`` manager is reachable for systemd-run.
 

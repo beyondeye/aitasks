@@ -18,6 +18,8 @@ while [[ $# -gt 0 ]]; do
         --session)
             SESSION_OVERRIDE="${2:-}"
             [[ -z "$SESSION_OVERRIDE" ]] && die "--session requires a name"
+            ait_tmux_session_name_reserved "$SESSION_OVERRIDE" \
+                && die "Session name is reserved for the framework's control-client helper session: $SESSION_OVERRIDE"
             _tmux_bootstrap_session_name_ok "$SESSION_OVERRIDE" \
                 || die "Session name contains invalid chars (. or :): $SESSION_OVERRIDE"
             shift 2
@@ -38,7 +40,8 @@ back to the SessionRenameDialog.
 
 Options:
   --session NAME     Use NAME instead of the configured default_session.
-                     NAME may not contain '.' or ':' (tmux target separators).
+                     NAME may not contain '.' or ':' (tmux target separators),
+                     and may not be '_ait_control' (reserved).
   --no-frozen-check  Do not offer to bring back frozen agents (see below).
   -h, --help         Show this help.
 

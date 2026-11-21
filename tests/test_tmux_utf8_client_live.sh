@@ -386,8 +386,24 @@ if ASCII:
     real_line = monitor_core._control_line
     monitor_core._control_line = lambda args: (
         " ".join(monitor_core._quote_arg(a) for a in args) + "\n").encode("utf-8")
+    # The fsdecode'd name goes into a REQUEST, on a client attached for an
+    # ASCII session. Since t2051 start() looks the project up by exact name in
+    # a listing decoded with the tmux text model, so a client constructed with
+    # the fsdecode'd name no longer attaches at all — it would return
+    # "nostart" before the strict line ever saw the name, and this control
+    # would pass or fail for the wrong reason.
+    async def control_strict_request():
+        c = TmuxControlClient(session="stamped")
+        try:
+            assert await c.start()
+            return await c.request(
+                ["display-message", "-p", "-t",
+                 session_scope_target(os.fsdecode(B["EUR"])), "#{session_name}"])
+        finally:
+            await c.close()
+
     try:
-        asyncio.run(control(os.fsdecode(B["EUR"])))
+        asyncio.run(control_strict_request())
         b2 = "no error"
     except UnicodeEncodeError:
         b2 = "UnicodeEncodeError"

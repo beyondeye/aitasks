@@ -167,6 +167,18 @@ ait_tmux_session_target() {
     printf '=%s' "$1"
 }
 
+# Name of the control-client helper session (t2051). Mirrored verbatim in
+# lib/tmux_exec.py (AIT_CONTROL_SESSION), which documents what it is for.
+# Reserved: no project session may use it (ait_tmux_session_name_reserved).
+AIT_CONTROL_SESSION="_ait_control"
+
+# ait_tmux_session_name_reserved <name>
+# Returns 0 when <name> is reserved for the framework's own helper session.
+# Twin of tmux_exec.py::is_reserved_session_name.
+ait_tmux_session_name_reserved() {
+    [[ "$1" == "$AIT_CONTROL_SESSION" ]]
+}
+
 # ait_tmux_window_target <session> <window>  -> "=<session>:<window>"
 # Only the session part is anchored with `=`. Pass window="" for the
 # trailing-colon `new-window` idiom ("create in this session").

@@ -124,6 +124,7 @@ for _p in (str(_SCRIPTS_DIR), str(_LIB_DIR)):
 
 import agent_frozen_ops as frozen_ops  # noqa: E402
 import agent_sessions  # noqa: E402
+from tmux_exec import is_reserved_session_name  # noqa: E402
 # Re-exported names only — never swapped, so an import alias is safe. Every
 # shared FUNCTION is called as `frozen_ops.<name>(...)` instead (seam rule).
 from agent_frozen_ops import (  # noqa: E402,F401
@@ -371,8 +372,10 @@ def session_name_ok(name: str) -> bool:
     Non-empty, no `.` and no `:` (tmux target separators). A leading `-` is
     ALLOWED: `ait ide --session -n` opens a session literally named `-n`, and the
     frozen-agent commands it drives must be able to target that same session.
+    The reserved helper-session name (t2051) is refused, as it is there.
     """
-    return bool(name) and "." not in name and ":" not in name
+    return (bool(name) and "." not in name and ":" not in name
+            and not is_reserved_session_name(name))
 
 
 def take_session_arg(args: list[str]) -> tuple[list[str], str | None, str]:
