@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [codex, tmux, codeagent, opencode, monitor]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -14,7 +14,8 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 implemented_with: claudecode/fable5_2
 created_at: 2026-10-18 12:33
-updated_at: 2026-11-20 08:46
+updated_at: 2026-11-21 22:22
+completed_at: 2026-11-21 22:22
 ---
 
 ## Problem
@@ -126,3 +127,14 @@ Also for planning: the helper shows up in tmux's own session surfaces (`prefix s
 > **✅ gate:plan_approved** run=2026-11-20T06:46:12Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-21T18:15:27Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-21T20:22:47Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:651a77a66b8d8b89
+
+> **✅ gate:risk_evaluated** run=2026-11-21T20:22:47Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2051/risk_evaluated_2026-11-21T20:22:47Z-risk_evaluated-a1.log`
