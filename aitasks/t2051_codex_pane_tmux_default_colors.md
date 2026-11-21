@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
@@ -122,3 +124,5 @@ Also for planning: the helper shows up in tmux's own session surfaces (`prefix s
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-20T06:46:12Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-21T18:15:27Z status=pass attempt=1 type=human
