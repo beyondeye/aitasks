@@ -1020,3 +1020,730 @@ fresh("s"); c = helper(); f = FakeTerm("s")
 print("ide order w/ helper:", probe("s")[0]); c.close(); f.close(); kill_server()
 ```
 
+## Appendix B: implementation-time scripts and their output (2026-11-20)
+
+Copied verbatim so the measurements can be re-run. They are not repo tests. Measured
+with tmux 3.8, Codex 0.171.0 and OpenCode 1.18.34.
+
+### `spike.py` (pre-phase `spike_bounce_and_notifications`)
+
+Run from a scratch directory that also holds `probe.py` and `harness.py` from the
+appendix above, with `SOCK = "t2051s"` in `harness.py` and its `fresh()` creating
+sessions with `-c` set to that directory:
+`env -u TMUX -u TMUX_PANE python3 spike.py`.
+
+```python
+#!/usr/bin/env python3
+"""t2051 pre-phase spike (items a-i). Private tmux server only (-L t2051s)."""
+import os, subprocess, sys, threading, time
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import harness
+from harness import T, ENV, tm, fresh, kill_server, FakeTerm, probe
+
+HELPER = "_ait_control"
+MOPT = "@aitask_control_helper"
+MARK = "aitasks-control-v1"
+HOOK = ("if-shell -F '#{&&:#{==:#{client_control_mode},0},#{==:#{client_session},_ait_control}}' "
+        "{ if-shell -F '#{==:#{server_sessions},1}' { detach-client } { switch-client -n } }")
+UNGUARDED = ("if-shell -F '#{client_control_mode}' '' "
+             "{ if-shell -F '#{==:#{server_sessions},1}' { detach-client } { switch-client -n } }")
+
+
+def create_argv(project, hook=HOOK):
+    a = ["has-session", "-t", "=" + project, ";",
+         "new-session", "-s", HELPER, "-c", "/", "-f", "no-output,ignore-size",
+         "exec sleep 2147483647", ";",
+         "set-option", MOPT, MARK, ";",
+         "set-option", "destroy-unattached", "on"]
+    if hook:
+        a += [";", "set-hook", "client-session-changed", hook]
+    return a
+
+
+def join_argv(project, hid):
+    return ["has-session", "-t", "=" + project, ";",
+            "attach-session", "-t", hid, "-f", "no-output,ignore-size"]
+
+
+class Ctl:
+    def __init__(self, argv):
+        self.argv = argv
+        self.p = subprocess.Popen([*T, "-C", *argv], env=ENV, stdin=subprocess.PIPE,
+                                  stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        self.lines = []
+        threading.Thread(target=self._rd, daemon=True).start()
+        time.sleep(0.5)
+
+    def _rd(self):
+        for raw in self.p.stdout:
+            self.lines.append(raw.decode(errors="replace").rstrip("\n"))
+
+    def alive(self):
+        return self.p.poll() is None
+
+    def req(self, line, wait=0.4):
+        n = len(self.lines)
+        self.p.stdin.write(line.encode() + b"\n")
+        self.p.stdin.flush()
+        time.sleep(wait)
+        return self.lines[n:]
+
+    def close(self):
+        try:
+            self.p.stdin.close()
+        except Exception:
+            pass
+        try:
+            self.p.wait(timeout=2)
+        except Exception:
+            self.p.kill()
+
+
+def clients():
+    out = tm("list-clients", "-F", "#{client_name}|#{client_control_mode}|#{client_session}", check=False)
+    return sorted(out.split("\n")) if out else []
+
+
+def sessions():
+    out = tm("list-sessions", "-F", "#{session_id}|#{session_name}", check=False)
+    return out.split("\n") if out else []
+
+
+def sid(name):
+    for row in sessions():
+        i, n = row.split("|", 1)
+        if n == name:
+            return i
+    return None
+
+
+def term_session(ft):
+    """Where the fake terminal is now: session name, or DETACHED."""
+    time.sleep(0.6)
+    pid, _ = os.waitpid(ft.pid, os.WNOHANG)
+    if pid:
+        ft.pid_reaped = True
+        return "DETACHED(exited)"
+    rows = [r for r in clients() if r.split("|")[1] == "0"]
+    return ",".join(r.split("|")[2] for r in rows) or "NO-REAL-CLIENT"
+
+
+def term_name():
+    rows = [r for r in clients() if r.split("|")[1] == "0"]
+    return rows[0].split("|")[0]
+
+
+def close_term(ft):
+    if getattr(ft, "pid_reaped", False):
+        try:
+            os.close(ft.fd)
+        except OSError:
+            pass
+        return
+    ft.close()
+
+
+def hdr(t):
+    print(f"\n=== {t}", flush=True)
+
+
+def main():
+    print("tmux", subprocess.run(["tmux", "-V"], capture_output=True, text=True).stdout.strip())
+
+    hdr("A/g: exact create list installs; marker + hook are session-local; no -t acts on new session")
+    fresh("s")
+    c = Ctl(create_argv("s"))
+    print("  ctl alive:", c.alive(), "| startup lines:", c.lines[:12])
+    print("  stderr:", c.p.stderr.read1(4096) if not c.alive() else "(alive)")
+    H = sid(HELPER)
+    print("  sessions:", sessions(), "helper id:", H)
+    print("  local marker (show-options -qv -t H:):", repr(tm("show-options", "-qv", "-t", H + ":", MOPT)))
+    print("  destroy-unattached local:", repr(tm("show-options", "-qv", "-t", H + ":", "destroy-unattached")))
+    print("  show-hooks -t H: ->", repr(tm("show-hooks", "-t", H + ":")))
+    print("  show-hooks -g client-session-changed ->", repr(tm("show-hooks", "-g", "client-session-changed", check=False)))
+    print("  marker on project s (local):", repr(tm("show-options", "-qv", "-t", "=s:", MOPT)))
+    print("  post-attach self query:", c.req("display-message -p '#{session_id}\t#{session_name}'"))
+    print("  post-attach self marker:", c.req("show-options -qv " + MOPT))
+
+    hdr("g/b: join by id; control join does nothing")
+    c2 = Ctl(join_argv("s", H))
+    print("  c2 alive:", c2.alive(), "clients:", clients())
+    print("  c2 self:", c2.req("display-message -p '#{session_id}\t#{session_name}'"))
+    c3 = Ctl(join_argv("s", "$999"))
+    print("  join to bogus id alive:", c3.alive(), "stderr:", c3.p.stderr.read1(4096) if not c3.alive() else "")
+    c3.close()
+
+    hdr("i/h/e: listing through control; display-message on deleted; notifications")
+    tm("new-session", "-d", "-s", "gone", "-c", harness.HERE)
+    n0 = len(c.lines)
+    print("  list-sessions via ctl:", c.req("list-sessions -F '#{session_id}\t#{session_name}'"))
+    tm("kill-session", "-t", "=gone")
+    time.sleep(0.4)
+    print("  notifications after new+kill 'gone':", [l for l in c.lines[n0:] if l.startswith("%s")])
+    print("  display-message -t =gone: via ctl:", c.req("display-message -p -t =gone: '#{session_id}'"))
+    print("  has-session -t =gone via ctl:", c.req("has-session -t =gone"))
+    print("  list-sessions via ctl after:", c.req("list-sessions -F '#{session_id}\t#{session_name}'"))
+    n0 = len(c.lines)
+    tm("new-session", "-d", "-s", "ren", "-c", harness.HERE)
+    tm("rename-session", "-t", "=ren", "ren2")
+    time.sleep(0.4)
+    print("  notifications after new+rename:", [l for l in c.lines[n0:] if l.startswith("%s")])
+    tm("kill-session", "-t", "=ren2")
+    # kill and recreate under the same name in one command list
+    tm("new-session", "-d", "-s", "p1", "-c", harness.HERE)
+    old = sid("p1")
+    n0 = len(c.lines)
+    tm("kill-session", "-t", "=p1", ";", "new-session", "-d", "-s", "p1", "-c", harness.HERE)
+    time.sleep(0.4)
+    print("  kill+recreate p1: old id", old, "new id", sid("p1"),
+          "| has-session:", c.req("has-session -t =p1"),
+          "| notifs:", [l for l in c.lines[n0:] if l.startswith("%s")])
+    tm("kill-session", "-t", "=p1")
+    c2.close(); time.sleep(0.3)
+    print("  after c2 leaves sessions:", sessions())
+    c.close(); time.sleep(0.5)
+    print("  after last ctl leaves sessions:", sessions())
+    kill_server()
+
+    hdr("d2: marker inheritance")
+    fresh("s")
+    tm("set-option", "-g", MOPT, MARK)
+    tm("new-session", "-d", "-s", HELPER, "-c", harness.HERE)
+    U = sid(HELPER)
+    print("  format read:", repr(tm("list-sessions", "-F", "#{session_name}|#{" + MOPT + "}")))
+    print("  show-options -qv -t U: ->", repr(tm("show-options", "-qv", "-t", U + ":", MOPT)))
+    cc = Ctl(["attach-session", "-t", U, "-f", "no-output,ignore-size"])
+    print("  via client, no target:", cc.req("show-options -qv " + MOPT))
+    cc.close()
+    kill_server()
+
+    for dod in ("off", "on"):
+        for others in (["p2"], ["p2", "p3"], []):
+            hdr(f"a/d: bounce, detach-on-destroy={dod}, other sessions={others}")
+            fresh("s", *others)
+            tm("set", "-g", "detach-on-destroy", dod)
+            c = Ctl(create_argv("s"))
+            ft = FakeTerm("s")
+            print("  before:", clients())
+            tm("kill-session", "-t", "=s")
+            print("  terminal now in:", term_session(ft), "| clients:", clients())
+            c.close(); time.sleep(0.5)
+            print("  after ctl leaves, sessions:", sessions())
+            close_term(ft); kill_server()
+
+    hdr("negative control: no hook, dod off, p2 present")
+    fresh("s", "p2"); tm("set", "-g", "detach-on-destroy", "off")
+    c = Ctl(create_argv("s", hook=None)); ft = FakeTerm("s")
+    tm("kill-session", "-t", "=s")
+    print("  terminal now in:", term_session(ft))
+    c.close(); time.sleep(0.5)
+    print("  after ctl leaves, sessions:", sessions())
+    close_term(ft); kill_server()
+
+    hdr("c: direct attach to the helper by a real client")
+    fresh("s", "p2")
+    c = Ctl(create_argv("s")); ft = FakeTerm(HELPER)
+    print("  terminal now in:", term_session(ft))
+    close_term(ft); c.close(); kill_server()
+
+    hdr("c2: switch-client into the helper (prefix s)")
+    fresh("s", "p2")
+    c = Ctl(create_argv("s")); ft = FakeTerm("s")
+    tm("switch-client", "-c", term_name(), "-t", "=" + HELPER)
+    print("  terminal now in:", term_session(ft))
+    close_term(ft); c.close(); kill_server()
+
+    for label, hook in (("guarded", HOOK), ("UNGUARDED control", UNGUARDED)):
+        hdr(f"finding 16: two switches in one command list ({label})")
+        fresh("s", "p2", "p3")
+        c = Ctl(create_argv("s", hook=hook)); ft = FakeTerm("s")
+        tn = term_name()
+        tm("switch-client", "-c", tn, "-t", "=" + HELPER, ";", "switch-client", "-c", tn, "-t", "=p3")
+        print("  terminal now in:", term_session(ft))
+        close_term(ft); c.close(); kill_server()
+
+    hdr("colours: ide order with full create list (control first, then real)")
+    fresh("s")
+    c = Ctl(create_argv("s")); ft = FakeTerm("s")
+    print("  probe:", probe("s")[0])
+    close_term(ft); c.close(); kill_server()
+
+    hdr("f: is an unmarked helper ever observable during create? (40 rounds)")
+    seen_unmarked = 0; seen = 0
+    for _ in range(40):
+        fresh("s")
+        stop = []
+        obs = []
+        def poll():
+            while not stop:
+                r = subprocess.run([*T, "list-sessions", "-F", "#{session_name}|#{" + MOPT + "}"],
+                                   env=ENV, capture_output=True, text=True).stdout
+                for row in r.split("\n"):
+                    if row.startswith(HELPER + "|"):
+                        obs.append(row)
+        th = threading.Thread(target=poll, daemon=True); th.start()
+        p = subprocess.Popen([*T, "-C", *create_argv("s")], env=ENV, stdin=subprocess.PIPE,
+                             stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        time.sleep(0.15)
+        stop.append(1); th.join()
+        seen += len(obs); seen_unmarked += sum(1 for o in obs if o == HELPER + "|")
+        p.stdin.close(); p.wait(timeout=2)
+        kill_server()
+    print(f"  helper rows observed: {seen}, unmarked: {seen_unmarked}")
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Output:
+
+```
+tmux tmux 3.8
+
+=== A/g: exact create list installs; marker + hook are session-local; no -t acts on new session
+  ctl alive: True | startup lines: ['%begin 1795157233 317 0', '%end 1795157233 317 0', '%begin 1795157233 318 0', '%end 1795157233 318 0', '%sessions-changed', '%session-changed $1 _ait_control', '%begin 1795157233 319 0', '%end 1795157233 319 0', '%begin 1795157233 320 0', '%end 1795157233 320 0', '%begin 1795157233 321 0', '%end 1795157233 321 0']
+  stderr: (alive)
+  sessions: ['$1|_ait_control', '$0|s'] helper id: $1
+  local marker (show-options -qv -t H:): 'aitasks-control-v1'
+  destroy-unattached local: 'on'
+  show-hooks -t H: -> 'client-session-changed[0] if-shell -F "#{&&:#{==:#{client_control_mode},0},#{==:#{client_session},_ait_control}}" { if-shell -F "#{==:#{server_sessions},1}" { detach-client } { switch-client -n } }'
+  show-hooks -g client-session-changed -> 'client-session-changed'
+  marker on project s (local): ''
+  post-attach self query: ['%begin 1795157234 337 1', '$1\t_ait_control', '%end 1795157234 337 1']
+  post-attach self marker: ['%begin 1795157234 338 1', 'aitasks-control-v1', '%end 1795157234 338 1']
+
+=== g/b: join by id; control join does nothing
+  c2 alive: True clients: ['client-1013032|1|_ait_control', 'client-1013781|1|_ait_control']
+  c2 self: ['%begin 1795157235 345 1', '$1\t_ait_control', '%end 1795157235 345 1']
+  join to bogus id alive: False stderr: b''
+
+=== i/h/e: listing through control; display-message on deleted; notifications
+  list-sessions via ctl: ['%begin 1795157236 351 1', '$1\t_ait_control', '$2\tgone', '$0\ts', '%end 1795157236 351 1']
+  notifications after new+kill 'gone': ['%sessions-changed']
+  display-message -t =gone: via ctl: ['%begin 1795157237 354 1', '', '%end 1795157237 354 1']
+  has-session -t =gone via ctl: ['%begin 1795157237 355 1', "can't find session: gone", '%error 1795157237 355 1']
+  list-sessions via ctl after: ['%begin 1795157237 356 1', '$1\t_ait_control', '$0\ts', '%end 1795157237 356 1']
+  notifications after new+rename: ['%sessions-changed', '%session-renamed $3 ren2']
+  kill+recreate p1: old id $4 new id $5 | has-session: ['%begin 1795157239 372 1', '%end 1795157239 372 1', '%unlinked-window-renamed @5 bash'] | notifs: ['%sessions-changed', '%sessions-changed']
+  after c2 leaves sessions: ['$1|_ait_control', '$0|s']
+  after last ctl leaves sessions: ['$0|s']
+
+=== d2: marker inheritance
+  format read: '_ait_control|aitasks-control-v1\ns|aitasks-control-v1'
+  show-options -qv -t U: -> ''
+  via client, no target: ['%begin 1795157241 329 1', '%end 1795157241 329 1']
+
+=== a/d: bounce, detach-on-destroy=off, other sessions=['p2']
+  before: ['/dev/pts/115|0|s', 'client-1017472|1|_ait_control']
+  terminal now in: p2 | clients: ['/dev/pts/115|0|p2', 'client-1017472|1|_ait_control']
+  after ctl leaves, sessions: ['$1|p2']
+
+=== a/d: bounce, detach-on-destroy=off, other sessions=['p2', 'p3']
+  before: ['/dev/pts/116|0|s', 'client-1018605|1|_ait_control']
+  terminal now in: p2 | clients: ['/dev/pts/116|0|p2', 'client-1018605|1|_ait_control']
+  after ctl leaves, sessions: ['$1|p2', '$2|p3']
+
+=== a/d: bounce, detach-on-destroy=off, other sessions=[]
+  before: ['/dev/pts/112|0|s', 'client-1019897|1|_ait_control']
+  terminal now in: DETACHED(exited) | clients: ['client-1019897|1|_ait_control']
+  after ctl leaves, sessions: []
+
+=== a/d: bounce, detach-on-destroy=on, other sessions=['p2']
+  before: ['/dev/pts/115|0|s', 'client-1021308|1|_ait_control']
+  terminal now in: DETACHED(exited) | clients: ['client-1021308|1|_ait_control']
+  after ctl leaves, sessions: ['$1|p2']
+
+=== a/d: bounce, detach-on-destroy=on, other sessions=['p2', 'p3']
+  before: ['/dev/pts/116|0|s', 'client-1023172|1|_ait_control']
+  terminal now in: DETACHED(exited) | clients: ['client-1023172|1|_ait_control']
+  after ctl leaves, sessions: ['$1|p2', '$2|p3']
+
+=== a/d: bounce, detach-on-destroy=on, other sessions=[]
+  before: ['/dev/pts/112|0|s', 'client-1025015|1|_ait_control']
+  terminal now in: DETACHED(exited) | clients: ['client-1025015|1|_ait_control']
+  after ctl leaves, sessions: []
+
+=== negative control: no hook, dod off, p2 present
+  terminal now in: _ait_control
+  after ctl leaves, sessions: ['$2|_ait_control', '$1|p2']
+
+=== c: direct attach to the helper by a real client
+  terminal now in: p2
+
+=== c2: switch-client into the helper (prefix s)
+  terminal now in: p2
+
+=== finding 16: two switches in one command list (guarded)
+  terminal now in: p3
+
+=== finding 16: two switches in one command list (UNGUARDED control)
+  terminal now in: s
+
+=== colours: ide order with full create list (control first, then real)
+  probe: {'fg': 'rgb:cccc/dddd/eeee', 'bg': 'rgb:2222/3333/4444', 'pal1': 'rgb:f3f3/8b8b/a8a8', 'pal7': 'rgb:baba/c2c2/dede', 'da': True}
+
+=== f: is an unmarked helper ever observable during create? (40 rounds)
+  helper rows observed: 3711, unmarked: 0
+```
+
+### `agents_verify.py` (real-agent verification)
+
+`env -u TMUX -u TMUX_PANE <framework python> agents_verify.py opencode`, and
+`… agents_verify.py codex --turn` (one model turn). Uses the repo's
+`tests/lib/fake_terminal.py` and the framework's `launch_in_tmux` on the private
+socket `t2051v`.
+
+```python
+#!/usr/bin/env python3
+"""t2051 real-agent verification (scratch script, not a repo test).
+
+Usage: agents_verify.py <codex|opencode> [--turn]
+
+Private tmux server only (AITASKS_TMUX_SOCKET=t2051v, started with -f /dev/null,
+TMUX / TMUX_PANE dropped). Mirrors the live server's options that matter
+(allow-passthrough on, *:RGB). Agents are launched through the framework's own
+launch_in_tmux. Colours are counted from `capture-pane -e -p`.
+
+Scenarios:
+  A  backend (fix) first, then the fake terminal  -- the `ait ide` order
+  B  no real client at launch; fake terminal attached afterwards
+  C  control: OLD attach (control client in the project session) first
+  D  agent started under C, then the old client leaves and the fix backend starts
+With --turn (codex only) scenario A also runs one short turn and samples the
+"Working" shimmer.
+"""
+import collections
+import os
+import re
+import subprocess
+import sys
+import time
+
+REPO = "/home/ddt/Work/aitasks"
+SOCK = "t2051v"
+for k in ("TMUX", "TMUX_PANE", "TMUX_TMPDIR"):
+    os.environ.pop(k, None)
+os.environ["AITASKS_TMUX_SOCKET"] = SOCK
+sys.path[:0] = [REPO + "/.aitask-scripts", REPO + "/.aitask-scripts/lib", REPO + "/tests/lib"]
+
+from agent_launch_utils import TmuxLaunchConfig, launch_in_tmux  # noqa: E402
+from fake_terminal import FakeTerminal  # noqa: E402
+from monitor.monitor_core import TmuxControlBackend  # noqa: E402
+
+ENV = dict(os.environ)
+T = ["tmux", "-L", SOCK, "-f", "/dev/null"]
+WHICH = sys.argv[1]
+TURN = "--turn" in sys.argv
+COMMANDS = {"codex": "codex --sandbox read-only", "opencode": "opencode"}
+WAIT = 9
+
+
+def tm(*a, check=True):
+    r = subprocess.run([*T, *a], env=ENV, capture_output=True, text=True)
+    if check and r.returncode:
+        raise RuntimeError(f"tmux {a}: {r.stderr.strip()}")
+    return r.stdout
+
+
+def fresh():
+    subprocess.run([*T, "kill-server"], env=ENV, capture_output=True)
+    time.sleep(0.3)
+    tm("new-session", "-d", "-s", "s", "-x", "120", "-y", "40", "-c", REPO, "sleep 36000")
+    tm("set", "-g", "default-terminal", "tmux-256color")
+    tm("set", "-g", "allow-passthrough", "on")
+    tm("set", "-as", "terminal-overrides", ",*:RGB")
+    tm("set", "-s", "extended-keys", "on")
+    tm("set", "-g", "focus-events", "on")
+    tm("set-environment", "-g", "COLORTERM", "truecolor")
+
+
+def clients():
+    return tm("list-clients", "-F", "#{client_control_mode}:#{client_session}", check=False).split()
+
+
+def launch():
+    pid, err = launch_in_tmux(COMMANDS[WHICH], TmuxLaunchConfig(
+        session="s", window=f"agent-{WHICH}", new_session=False, new_window=True, cwd=REPO))
+    if err:
+        raise RuntimeError(err)
+    panes = tm("list-panes", "-s", "-t", "=s:", "-F", "#{pane_id} #{window_name}").splitlines()
+    return [p.split()[0] for p in panes if p.endswith(f"agent-{WHICH}")][-1]
+
+
+def colours(pane):
+    cap = tm("capture-pane", "-e", "-p", "-t", pane)
+    fg = collections.Counter(re.findall(r"38;2;(\d+;\d+;\d+)", cap))
+    bg = collections.Counter(re.findall(r"48;2;(\d+;\d+;\d+)", cap))
+    text = re.sub(r"\x1b\[[0-9;]*m", "", cap)
+    lines = [ln.strip()[:50] for ln in text.splitlines() if ln.strip()]
+    return fg.most_common(5), bg.most_common(5), lines[:4]
+
+
+def report(label, pane, terms=()):
+    fg, bg, lines = colours(pane)
+    print(f"== {WHICH} {label}\n   clients: {clients()}\n   fg: {fg}\n   bg: {bg}")
+    print("   screen:", " | ".join(lines))
+    if terms:
+        print("   palette queries reaching the terminal:", [t.palette_queries for t in terms])
+    sys.stdout.flush()
+
+
+def shimmer(pane):
+    """Send one short prompt and sample the 'Working' line's colours."""
+    tm("send-keys", "-t", pane, "-l", "--", "reply with: ok")
+    time.sleep(0.5)
+    tm("send-keys", "-t", pane, "Enter")
+    seen = collections.Counter()
+    samples = 0
+    end = time.time() + 25
+    while time.time() < end:
+        cap = tm("capture-pane", "-e", "-p", "-t", pane)
+        for line in cap.splitlines():
+            plain = re.sub(r"\x1b\[[0-9;]*m", "", line)
+            if "Working" in plain:
+                samples += 1
+                seen.update(re.findall(r"38;2;(\d+;\d+;\d+)", line))
+        time.sleep(0.1)
+    print(f"   shimmer: {samples} 'Working' lines sampled; fg colours: {seen.most_common(12)}")
+    print("   black (0;0;0) on the Working line:", seen.get("0;0;0", 0))
+    sys.stdout.flush()
+
+
+def old_attach():
+    return subprocess.Popen([*T, "-C", "attach", "-t", "=s", "-f", "no-output,ignore-size"],
+                            env=ENV, stdin=subprocess.PIPE, stdout=subprocess.DEVNULL,
+                            stderr=subprocess.DEVNULL)
+
+
+def main():
+    # A: fix, ide order
+    fresh()
+    b = TmuxControlBackend("s"); assert b.start()
+    time.sleep(0.3)
+    ft = FakeTerminal(T, ENV, "s", palette=True); time.sleep(1.0)
+    pane = launch(); time.sleep(WAIT)
+    report("A: fix, backend first then terminal (ide order)", pane, [ft])
+    if TURN:
+        shimmer(pane)
+        report("A: after the turn", pane)
+    ft.close(); b.stop()
+
+    # B: no real client at launch
+    fresh()
+    b = TmuxControlBackend("s"); assert b.start()
+    pane = launch(); time.sleep(WAIT)
+    report("B1: fix, NO real client at launch", pane)
+    ft = FakeTerminal(T, ENV, "s", palette=True); time.sleep(4.0)
+    report("B2: same agent, terminal attached afterwards (+4s)", pane, [ft])
+    ft.close(); b.stop()
+
+    # C: control, old attach first
+    fresh()
+    old = old_attach(); time.sleep(0.5)
+    ft = FakeTerminal(T, ENV, "s", palette=True); time.sleep(1.0)
+    pane = launch(); time.sleep(WAIT)
+    report("C: CONTROL, old attach first then terminal", pane, [ft])
+
+    # D: the same agent, after the old client leaves and the fix starts
+    old.stdin.close(); old.wait(timeout=3)
+    b = TmuxControlBackend("s"); assert b.start()
+    time.sleep(5.0)
+    report("D: agent from C, old client gone + fix backend (+5s)", pane)
+    tm("resize-window", "-t", "=s:", "-x", "110", "-y", "38", check=False)
+    time.sleep(3.0)
+    report("D2: same, after a resize (+3s)", pane)
+    ft.close(); b.stop()
+    subprocess.run([*T, "kill-server"], env=ENV, capture_output=True)
+
+
+if __name__ == "__main__":
+    main()
+```
+
+Output, OpenCode:
+
+```
+== opencode A: fix, backend first then terminal (ide order)
+   clients: ['1:_ait_control', '0:s']
+   fg: [('255;255;255', 25), ('174;174;174', 13), ('204;221;238', 7), ('245;194;231', 6), ('69;82;95', 1)]
+   bg: [('48;73;97', 5), ('69;82;95', 4), ('77;94;111', 4)]
+   screen: ▄ | █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█ | █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀ | ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+   palette queries reaching the terminal: [17]
+== opencode B1: fix, NO real client at launch
+   clients: ['1:_ait_control']
+   fg: [('255;255;255', 25), ('128;128;128', 13), ('238;238;238', 7), ('92;156;245', 6), ('40;40;40', 1)]
+   bg: [('10;10;10', 16), ('30;30;30', 5), ('40;40;40', 4), ('67;67;67', 4)]
+   screen: ▄ | █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█ | █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀ | ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+== opencode B2: same agent, terminal attached afterwards (+4s)
+   clients: ['1:_ait_control', '0:s']
+   fg: [('255;255;255', 25), ('128;128;128', 13), ('238;238;238', 7), ('92;156;245', 6), ('40;40;40', 1)]
+   bg: [('10;10;10', 16), ('30;30;30', 5), ('40;40;40', 4), ('67;67;67', 4)]
+   screen: ▄ | █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█ | █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀ | ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+   palette queries reaching the terminal: [17]
+== opencode C: CONTROL, old attach first then terminal
+   clients: ['1:s', '0:s']
+   fg: [('255;255;255', 25), ('180;180;180', 13), ('0;0;0', 7), ('245;194;231', 6), ('45;45;45', 1)]
+   bg: [('25;25;25', 5), ('45;45;45', 4), ('0;0;0', 4)]
+   screen: ▄ | █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█ | █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀ | ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+   palette queries reaching the terminal: [17]
+== opencode D: agent from C, old client gone + fix backend (+5s)
+   clients: ['0:s', '1:_ait_control']
+   fg: [('255;255;255', 25), ('180;180;180', 13), ('0;0;0', 7), ('245;194;231', 6), ('45;45;45', 1)]
+   bg: [('25;25;25', 5), ('45;45;45', 4), ('0;0;0', 4)]
+   screen: ▄ | █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█ | █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀ | ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+== opencode D2: same, after a resize (+3s)
+   clients: ['0:s', '1:_ait_control']
+   fg: [('255;255;255', 25), ('180;180;180', 13), ('0;0;0', 7), ('245;194;231', 6), ('45;45;45', 1)]
+   bg: [('25;25;25', 5), ('45;45;45', 4), ('0;0;0', 4)]
+   screen: ▄ | █▀▀█ █▀▀█ █▀▀█ █▀▀▄ █▀▀▀ █▀▀█ █▀▀█ █▀▀█ | █  █ █  █ █▀▀▀ █  █ █    █  █ █  █ █▀▀▀ | ▀▀▀▀ █▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀ ▀▀▀▀
+```
+
+Output, Codex (lines cut at 600 characters):
+
+```
+== codex A: fix, backend first then terminal (ide order)
+   clients: ['1:_ait_control', '0:s']
+   fg: [('44;61;80', 8), ('56;72;89', 8), ('37;55;75', 7), ('58;74;89', 7), ('138;155;171', 7)]
+   bg: [('60;75;90', 3)]
+   screen: >_ OpenAI Codex (v0.171.0) | ~/Work/aitasks | ⣀⣤⣤⣤⣀⣀ | ⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣦⣤⣤⣤⣤⣤⣤⡀
+   palette queries reaching the terminal: [0]
+   shimmer: 41 'Working' lines sampled; fg colours: [('204;221;238', 66), ('119;136;153', 41), ('151;168;185', 4), ('103;120;137', 4), ('65;82;99', 4), ('189;206;223', 3), ('120;137;154', 3), ('203;220;237', 3), ('150;167;184', 2), ('199;216;233', 2), ('51;68;85', 2), ('163;180;197', 1)]
+   black (0;0;0) on the Working line: 0
+== codex A: after the turn
+   clients: ['1:_ait_control', '0:s']
+   fg: [('138;155;171', 8), ('204;221;238', 3), ('242;181;144', 2), ('99;168;248', 1), ('246;226;183', 1)]
+   bg: [('60;75;90', 3), ('69;83;97', 2)]
+   screen: >_ OpenAI Codex (v0.171.0) | ~/Work/aitasks | › reply with: ok | • ok
+== codex B1: fix, NO real client at launch
+   clients: ['1:_ait_control']
+   fg: [('99;168;248', 1), ('246;226;183', 1), ('171;223;167', 1), ('242;181;144', 1), ('196;167;103', 1)]
+   bg: []
+   screen: >_ OpenAI Codex (v0.171.0) | ~/Work/aitasks | ⣀⣤⣤⣤⣀⣀ | ⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣦⣤⣤⣤⣤⣤⣤⡀
+== codex B2: same agent, terminal attached afterwards (+4s)
+   clients: ['1:_ait_control', '0:s']
+   fg: [('99;168;248', 1), ('246;226;183', 1), ('171;223;167', 1), ('242;181;144', 1), ('196;167;103', 1)]
+   bg: []
+   screen: >_ OpenAI Codex (v0.171.0) | ~/Work/aitasks | ⣀⣤⣤⣤⣀⣀ | ⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣦⣤⣤⣤⣤⣤⣤⡀
+   palette queries reaching the terminal: [0]
+== codex C: CONTROL, old attach first then terminal
+   clients: ['1:s', '0:s']
+   fg: [('30;31;33', 9), ('9;12;18', 8), ('28;30;32', 8), ('117;117;117', 8), ('16;19;23', 7)]
+   bg: [('30;30;30', 3)]
+   screen: >_ OpenAI Codex (v0.171.0) | ~/Work/aitasks | ⣀⣤⣤⣤⣀⣀ | ⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣦⣤⣤⣤⣤⣤⣤⡀
+   palette queries reaching the terminal: [0]
+== codex D: agent from C, old client gone + fix backend (+5s)
+   clients: ['0:s', '1:_ait_control']
+   fg: [('30;31;33', 9), ('9;12;18', 8), ('28;30;32', 8), ('117;117;117', 8), ('16;19;23', 7)]
+   bg: [('30;30;30', 3)]
+   screen: >_ OpenAI Codex (v0.171.0) | ~/Work/aitasks | ⣀⣤⣤⣤⣀⣀ | ⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣦⣤⣤⣤⣤⣤⣤⡀
+== codex D2: same, after a resize (+3s)
+   clients: ['0:s', '1:_ait_control']
+   fg: [('30;31;33', 9), ('9;12;18', 8), ('28;30;32', 8), ('117;117;117', 8), ('16;19;23', 7)]
+   bg: [('30;30;30', 3)]
+   screen: >_ OpenAI Codex (v0.171.0) | ~/Work/aitasks | ⣀⣤⣤⣤⣀⣀ | ⣠⣶⣿⣿⣿⣿⣿⣿⣿⣿⣦⣤⣤⣤⣤⣤⣤⡀
+```
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-20 10:30)
+- **Requested by user:** four review findings, all confirmed. (1) A project deleted
+  between a request timeout and the reconnect reached FALLBACK with `exit_seen`
+  unset, so the status server never refreshed. (2) `parse_session_rows` used
+  `str.splitlines()`, which cuts a session name containing U+2028 / U+0085 in two.
+  (3) The explicit-target guard scanned only positional argv, missing `args=`.
+  (4) `test_deletion_during_a_check_is_not_lost` paused before the first query, so
+  it passed even with notifications dropped during a check.
+- **Changes made:** (1) the backend remembers the last connected client's project
+  session id and passes it to each reconnecting client (`expected_project_id`); a
+  successful start listing that shows it gone or replaced sets `lost_project`, and
+  the supervisor then raises `exit_seen`. A failed listing sets nothing. (2) rows
+  are split on `"\n"` only. (3) the guard also reads the `args=` keyword. (4) the
+  test now holds a first result that already saw the project present, deletes the
+  project during the hold, and requires a second query to report `gone`. Each fix
+  has a regression test and a pre-fix control.
+- **Files affected:** `.aitask-scripts/monitor/monitor_core.py`,
+  `.aitask-scripts/lib/tmux_exec.py`, `tests/test_control_helper_session_live.py`,
+  `tests/test_control_routed_explicit_targets.py`, `tests/test_tmux_exec.py`.
+
+### Change Request 2 (2026-11-21)
+- **Requested by user:** one review finding, confirmed. After a request timeout, a
+  tmux shutdown while the timed-out client was closing reached FALLBACK with
+  `exit_seen` unset: the client's `%exit` is ignored while it closes, and a
+  reconnect listing cannot prove project loss once the server is gone.
+- **Changes made:** when a reconnect's listing fails, the client asks the gateway's
+  classified probe (`TmuxClient.run_checked`) whether tmux reports no server. Only
+  that answer sets `lost_project = "server_gone"`, which raises `exit_seen`. A
+  timeout or any other failure sets nothing. Tests: shutdown between timeout and
+  reconnect, its pre-fix control, and a server stalled through every reconnect
+  attempt (must not read as a shutdown).
+- **Files affected:** `.aitask-scripts/monitor/monitor_core.py`,
+  `tests/test_control_helper_session_live.py`.
+
+## Final Implementation Notes
+- **Actual work done:** The monitor's control clients (`TmuxControlClient`) attach to
+  the `_ait_control` helper session instead of the project session, in three shapes
+  (create / join by session id / legacy attach when a foreign session has the name).
+  Added: the gateway primitives in `lib/tmux_exec.py` (constants, bounce hook text,
+  `parse_session_rows`, `control_helper_owned`), the name reservation in the three
+  validators, the owned-helper filter in `get_tmux_sessions()`, the project check
+  (`check_project`, scheduled on `%sessions-changed` / `%session-renamed`), explicit
+  targets for `_read_attached_session` and `_run_frozen_detached`, the supervisor's
+  close-before-replace and `_starting` ownership, docs (`tmux_gateway.md`,
+  `tui_conventions.md`, website monitor reference). Tests: new
+  `tests/test_control_helper_session_live.py` (47 cases) and
+  `tests/test_control_routed_explicit_targets.py` (11), helpers
+  `tests/lib/fake_terminal.py` and `tests/lib/osc_probe.py`, and rewrites of the
+  control, resilience (B2, B3), status-server-live, argv, UTF-8, frozen-filter and
+  refresh tests that asked the client for its session with no target.
+- **Pre-phase spike (`spike_bounce_and_notifications`):** every item a–i held on
+  tmux 3.8; script and full output are in Appendix B. Notable: a direct attach to
+  the helper also fires `client-session-changed`, so one hook is enough; startup
+  command replies are flag-0 blocks; an unmarked helper was never observable during
+  creation (3711 rows over 40 rounds).
+- **Real-agent verification (Appendix B):** fix in the `ait ide` order: Codex shimmer
+  0 black of 41 sampled lines, backgrounds `60;75;90`; OpenCode text `204;221;238`,
+  no `0;0;0`. Old attach (control): Codex `30;30;30` backgrounds, OpenCode text and
+  panels `0;0;0`. No real client at launch: OpenCode uses its built-in theme
+  (readable); Codex start screen readable, shimmer in that case NOT sampled (it
+  would cost a second model turn). Neither agent re-queries after the fix lands, so
+  the website text says agents keep startup colours until restarted. Decision rule
+  outcome: no follow-up task created for the no-client case.
+- **Deviations from plan:**
+  - `close()` now sets `_closing`, and a `%exit` that arrives while closing does not
+    set `saw_exit`. Closing a timed-out client (new in §3b) makes tmux send `%exit`,
+    which would otherwise read as "the session went away" on a path where server
+    and project are both alive.
+  - The backend carries the project session id into reconnects
+    (`expected_project_id` → `lost_project`), and a reconnect whose listing fails
+    asks `run_checked` whether tmux reports no server (Change Requests 1 and 2).
+  - Plan live case 15b's "bounce failure detaches" became "the hook starts no job"
+    when the hook changed to tmux commands only (already in the approved plan).
+  - The plan's status-server item 16 is covered by the rewritten cases in
+    `tests/test_monitor_status_server_live.py`, not by the new file. The served
+    session is now passed with `--session s1` because the control client no longer
+    sits in it.
+  - The notes to t2161 and t2038 are sent at Step 8e, after this commit.
+- **Issues encountered:** the first full Python run had 2 failures, both tests
+  pinning the old untargeted argv (`test_monitor_frozen_filter.py`,
+  `test_monitor_refresh_no_sync_tmux.py`); updated. A pre-fix control in
+  `tests/test_tmux_utf8_client_live.sh` no longer reached the strict encoder because
+  start() now looks the project up by name first; it now injects the name into a
+  request. tmux socket paths under the long scratchpad directory exceed the
+  AF_UNIX limit, so private servers use a short `-L` name in the default directory.
+- **Tests not run:** seven live shell tests refuse to run beside a live `ait` tmux
+  server (exit 2): `test_restore_flows_live.sh`, `test_freeze_engine_live.sh`,
+  `test_cleanup_rule_parity.sh`, `test_monitor_harvest_close_live.sh`,
+  `test_scratchpad_spawn_live.sh`, `test_monitor_shadow_spawn_live.sh`,
+  `test_sitrep_window_hook_live.sh`. The full Python suite was run once, before the
+  two review rounds (12,683 + 62 passed, 2 failed and since fixed); after the review
+  fixes only the affected suites were re-run.
+- **Key decisions:** identity is the tmux session id everywhere (join, project
+  check, reconnect); ownership is the session-local marker read through one helper;
+  the bounce hook is tmux commands only and lands on the next session by name (user
+  decision); absence is proved only by a whole `list-sessions` reply or tmux's own
+  no-server answer, never by a failed probe.
+- **Upstream defects identified:**
+  - `tests/test_workflow_phase_standalone.sh:155-157 — Guard 3 expects 2 matches of 'agent_key_from_command(shadow_command)' in minimonitor_app.py; the committed file has 0, so the test fails at HEAD`
+  - `.aitask-scripts/monitor/monitor_core.py:_supervisor_loop — any exception other than CancelledError raised by a reconnect's start() ends the supervisor task silently and leaves the backend in RECONNECTING forever`
