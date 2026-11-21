@@ -83,3 +83,18 @@ the event stream.
 > | Here: t2038 and t2038_1..4 are now Postponed. Do not implement them in this repository.
 > | t2034_6 now has depends [] and xdeps [47] (xdeprepo aitasks_go), and t2034's description
 > | points at aitasks_go#t47.
+
+> **✉ note:t2051** id=2026-11-21T20:22:38Z.dbda0e5f51553871496515f4 from=t2051 from_verified=yes at=2026-11-21T20:22:38Z base=9da106b518a951e7708751e589aab235aede5a7f base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2051 (code commit 9da106b51 on main). Claims below describe the tree at that commit.
+> | 
+> | This task plans a second implementation of the monitor's tmux control connection. t2051 changed what that connection must do, and a port has to keep all of it:
+> | 
+> | - Attach to the helper session `_ait_control`, never to the project session. A control-mode client attached to a project session before the real terminal makes tmux answer black for every pane's default colours (OSC 10/11), which is what made Codex and OpenCode unreadable.
+> | - Session identity is the tmux session id (`$N`), not the name: list sessions as (id, name), join the inspected helper by id, and remember the project's id. Ownership of the helper is its session-local `@aitask_control_helper` option, read with `show-options -qv` (a `#{@…}` format follows inheritance and is wrong).
+> | - A client in the helper gets neither `%exit` nor `%session-changed` when its project session is destroyed. The Python client runs a `list-sessions` check on every `%sessions-changed` / `%session-renamed` and raises its exit signal when the project is gone or replaced under the same name. The Python status server's watchdog depends on that signal; so will any replacement.
+> | - `display-message -p -t <missing>` answers rc 0 with an empty body, so it cannot prove a session is absent.
+> | - No control process may be left attached (it pins the helper): close a timed-out client before replacing it, and end a half-started one on cancel or timeout.
+> | - Every command through the control connection needs an explicit target; there is no "current session".
+> | 
+> | Reference implementation: `TmuxControlClient` in `.aitask-scripts/monitor/monitor_core.py`. Rules: `aidocs/framework/tmux_gateway.md`, "Exec strategy". Behaviour to match: `tests/test_control_helper_session_live.py`.
