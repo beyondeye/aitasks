@@ -408,3 +408,26 @@ never leaks into nested runs. Set it after sourcing.
   each the round-3 behaviour) red only their own cases; M17/M20 retargeted to
   the rewritten code (end's positive-mount refusal; first-split-only parsing);
   M0–M25 all re-run on the final code.
+
+### Change Request 5 (2026-11-21)
+- **Requested by user:** one finding, verified CONFIRMED: with no
+  `<proc-root>/mounts`, `_tg_mounts_under` parsed `mount` stdout as BSD output
+  on Linux too; util-linux prints `<src> on <target> type <fs> (<opts>)`, so the
+  extracted target ended in ` type <fs>`, a mount AT the guard dir read as "no
+  mount", and normal exit recursed into it.
+- **Changes made:** the mount-table source is chosen by platform
+  (`_TG_OSTYPE`, default `$OSTYPE`): `<proc-root>/mounts` when present, else on
+  Linux the kernel's table `_TG_SELF_MOUNTS` (default `/proc/self/mounts`) —
+  never `mount` stdout; `mount` stdout only on Darwin/FreeBSD/NetBSD/OpenBSD/
+  DragonFly; any other platform → unverified (kept). The BSD parser also reads a
+  split target of the form `<dir> …` as a possible mount (a format-added
+  suffix; reading a sibling "<dir> x" as a mount only keeps a dir).
+- **Tests:** (ag) Linux without `<proc-root>/mounts`, a util-linux fake `mount`
+  on PATH: selfhit (kernel table names the dir → mounted), selfclean (control →
+  reclaimed), selfmissing (no kernel table → mounts-unverified, `mount` stdout
+  not consulted), unknownos (→ mounts-unverified), and the reported normal-exit
+  case (mount at the run's own dir → not removed, data intact); (ae) pinned to
+  `darwin23`, plus ae/typesuffix. 279/279 pass.
+- **Mutants:** M26 = the exact round-4 source selection (reds every (ag) case,
+  including the normal-exit one), M27 = no `<dir> …` rule (reds ae/typesuffix);
+  M0–M27 re-run on the final code.
