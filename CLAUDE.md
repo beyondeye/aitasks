@@ -29,6 +29,9 @@ failed (t1207).
 Hunting `/tmp` leaks: `bash tests/run_shell_test.sh tests/test_foo.sh` runs one
 test under a private per-run `TMPDIR`, then prints `TMPDIR LEFTOVERS (<n>): …`
 for whatever it left there (warn-only, the test's exit status is unchanged).
+A guard dir left by a killed run is reclaimed by the next guarded run only when
+it is provably unused, and otherwise reported with the reason it was kept (see
+the header of `tests/lib/tmpdir_guard.sh`).
 It is optional. Running the file directly stays the default. The Python
 runner below always uses the same guard (`tests/lib/tmpdir_guard.sh`). The guard
 sees only `$TMPDIR`, so hard-coded `/tmp` paths and `TMUX_TMPDIR` bypass it.
