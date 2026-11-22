@@ -6,9 +6,13 @@ issue_type: feature
 status: Implementing
 labels: [sitrep, monitor, minimonitor, frozen_agents]
 gates: [risk_evaluated]
+active_gates: [risk_evaluated]
+active_gates_filtered: []
+active_gates_profile: fast
+active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-19 15:32
-updated_at: 2026-11-22 11:46
+updated_at: 2026-11-22 11:47
 ---
 
 # Show a frozen agent's sitrep state (harvested / triaged) so "safe to drop" is visible
