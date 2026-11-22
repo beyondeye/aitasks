@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -63,3 +65,5 @@ cuts actual hint-row text, so the user decided it must be fixed.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-22T08:47:33Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-22T09:46:40Z status=pass attempt=1 type=human
