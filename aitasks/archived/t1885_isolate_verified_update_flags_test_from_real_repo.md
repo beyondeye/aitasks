@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [codeagent, models]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 1884
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-09-25 16:01
-updated_at: 2026-11-20 09:08
+updated_at: 2026-11-22 10:48
+completed_at: 2026-11-22 10:48
 ---
 
 ## Origin
@@ -75,3 +76,14 @@ The other two defects were found while enumerating registry writers for t1884's 
 > **✅ gate:plan_approved** run=2026-11-20T07:08:13Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-22T08:42:28Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-22T08:48:22Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:70e2de6424a9b773
+
+> **✅ gate:risk_evaluated** run=2026-11-22T08:48:22Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/1885/risk_evaluated_2026-11-22T08:48:22Z-risk_evaluated-a1.log`
