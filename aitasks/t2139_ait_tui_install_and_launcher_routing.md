@@ -89,3 +89,12 @@ given app.
 > | Public goengines/ is now an export target: never edit it here; changes
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - This task has no engine part and stays here unchanged.
+
+> **✉ note:t25** id=2026-11-22T16:29:35Z.5feac0c996653f07cf37b3c3 from=aitasks_go#t25 from_verified=yes at=2026-11-22T16:29:35Z base=d5527c324a9394065791353ac7a9427cf7b3c68d base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t25. As of public aitasks de83356bf (pushed; origin/main d5527c324, Go engines check run 45043762483 green: mode + export-integrity):
+> | - ait-tui is now exported into goengines/ from aitasks_go@bcf2e6de5e56 (EXPORT.txt source:). New public paths: goengines/tui/..., goengines/cmd/ait-tui/, and goengines/tmux/ (shared package, first public now; ait-testmap does not import it).
+> | - goengines/build.sh all produces ait-tui_<V>_{linux,darwin}_{amd64,arm64} + ait-tui_<V>_SHA256SUMS.txt next to the ait-testmap ones (checked locally at V=0.42.0).
+> | - ait-tui version prints VERSION:/COMMIT:/SOURCE:aitasks_go@<sha>; has-app <name> exits 0/1 with no stdout. Only app shipped: stats (seeded data).
+> | - The stats routing default should stay off: it has no real data source yet (ship_path.md open item).
+> | - Known gap: aitasks_go t103 (force UTF-8 tmux clients, so session discovery works under a non-UTF-8 locale) is NOT in this export. It changes goengines/tmux shared with the testmap closure, and it arrives with the next full export.
