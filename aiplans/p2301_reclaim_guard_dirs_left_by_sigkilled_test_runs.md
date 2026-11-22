@@ -460,3 +460,19 @@ never leaks into nested runs. Set it after sourcing.
   M0–M29 re-run on the final code (M28 unused).
 - **Follow-up (deferred by the user):** whether a socket file under a stale dir
   still has a live listener — to be filed as a separate task.
+
+### Change Request 7 (2026-11-22)
+- **Requested by user:** two findings, verified CONFIRMED:
+  1. `mksock` bound the full absolute path; under a valid long TMPDIR it
+     overflows `sun_path` (`AF_UNIX path too long`), no socket is created, and
+     the reaper rightly reclaims the socket-free dir — four false failures;
+  2. (follow-up) the header still said reclaim needs a host with no "@" or
+     relative unix socket bound.
+- **Changes made:** `mksock` binds the basename from inside the parent dir;
+  each (ah) socket case checks `-S` on the fixture BEFORE probing and reports a
+  setup FAIL otherwise. Header now says sockets bound elsewhere never affect a
+  reclaim and a stale socket file in the candidate keeps it for manual cleanup.
+- **Verification:** 279/279 pass normally and under a 148-character TMPDIR;
+  control: the absolute-path bind of a 217-character dir raises
+  `AF_UNIX path too long`, the basename bind succeeds. M0/M10/M15/M29 re-run
+  (still red on their own (ah) cases; M0 green). Strict mode passes.
