@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -71,3 +73,5 @@ The other two defects were found while enumerating registry writers for t1884's 
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-20T07:08:13Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-22T08:42:28Z status=pass attempt=1 type=human
