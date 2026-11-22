@@ -288,3 +288,62 @@ and the positive controls pin the legitimate rename path. The one behaviour
 change is intended: a refresh that used to merge two colliding models (or
 duplicate rows) silently now refuses. Its recovery text never moves a name
 away from its stats history.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-20)
+- **Requested by user:** (1) the new test forwarded an inherited `TASK_DIR`, so its refreshes could write a real registry; (2) the guard passed all registry rows as one `--argjson` argv string, which fails with "Argument list too long" on a large registry (2,400 rows); (3) the seed was staged in `$TMPDIR` and `mv`d, a non-atomic copy across filesystems, contrary to `shell_conventions.md`'s `lib/atomic_write.sh` rule.
+- **Changes made:**
+  - `run_refresh` pins `TASK_DIR=aitasks` (the nested refresh in `inject.sh` inherits it). The test exports `TASK_DIR` to an outside sentinel registry for the whole run and asserts at the end that the sentinel is byte-identical.
+  - `collision_guard_message` reads the registry with `--slurpfile regdoc`; the no-registry case is an explicit `--argjson regdoc '[{"models": []}]'`.
+  - The seed is written via `ait_atomic_render "$SEED_FILE" render_seed` (staged beside the resolved seed path). `render_seed` strips the checked bytes, and its last act is the live-registry compare (`SEED_DIVERGED=true; return 1` on divergence), the same shape as `_ait_cas_render`. The script now sources `lib/atomic_write.sh` explicitly.
+  - New tests: T6c (a staging temp sits beside the seed during the render, none left behind), T6d (a 2,400-row / 597 KB registry refreshes), plus the isolation sentinel.
+- **Files affected:** `.aitask-scripts/aitask_opencode_models.sh`, `tests/test_opencode_models_collision.sh`
+- **Negative controls:** the test without the `TASK_DIR` pin fails the sentinel check (and T6b); a guard mutant passing the registry as argv fails T6d with "Argument list too long"; the pre-fix script fails T6c.
+
+### Change Request 2 (2026-11-20)
+- **Requested by user:** `ait_atomic_render` follows the final seed symlink, so a seed linked to the live registry made the refresh overwrite the registry with the stripped seed (losing its counters) and report success. Publish without following the final symlink, keep the compare immediately before publication, and add a regression test.
+- **Changes made:** the seed is published with `ait_atomic_write_text_nofollow` (staged beside the seed, `mv -T` onto the path itself, so a link is replaced as the original `mv` did). The strip renders into a variable, the live-registry compare runs next, and publication follows immediately; `render_seed` / `SEED_DIVERGED` are gone. T6c now detects staging through a fixture `mktemp` wrapper (the staging no longer happens during the strip). New T6e: a seed symlinked to the registry is replaced by a regular file and the registry keeps its verifiedstats.
+- **Files affected:** `.aitask-scripts/aitask_opencode_models.sh`, `tests/test_opencode_models_collision.sh`
+- **Negative controls:** the round-1 script (follows the link) fails T6e (registry verifiedstats lost, link still present); the pre-fix script fails T6c (staged in `$TMPDIR`) and passes T6e (its plain `mv` replaced the link).
+
+### Change Request 3 (2026-11-21)
+- **Requested by user:** the live-registry compare ran before `ait_atomic_write_text_nofollow` staged the seed, so a newer refresh completing during staging had its seed replaced by the older bytes (reported as success). Compare after staging, immediately before the rename, keeping same-directory staging and symlink replacement; cover a newer refresh that completes during staging.
+- **Changes made:**
+  - `lib/atomic_write.sh`: new `ait_atomic_write_text_nofollow_if <dest> <content> <check_fn> [args...]`. `ait_atomic_write_text_nofollow` and the new function share `_ait_atomic_nofollow_publish`; the check runs after the content is written to the staging temp and immediately before the rename, and a failing check discards the temp and returns 3 (write failures stay 1). The existing function's behaviour is unchanged.
+  - `aitask_opencode_models.sh`: the seed is published with `ait_atomic_write_text_nofollow_if "$SEED_FILE" "$seed_content" registry_unchanged`; rc 0 → synced, 3 → "not synced" warning, else write warning.
+  - Test fixture: the `mktemp` wrapper is a second injection point (`INJECT_AT=stage`, fires right after the seed's staging temp is created, for both the fixed and the pre-fix staging templates). New T5b-3: a newer refresh completing during seed staging keeps its registry and seed.
+  - `tests/test_atomic_write_sh.sh`: new `_if` cases (pass publishes; fail returns 3, publishes nothing, leaves no temp; the check sees the staged content; a link survives a refused write and is replaced by a published one).
+  - `aidocs/framework/shell_conventions.md`: documents the new helper next to `ait_atomic_write_text_nofollow`.
+- **Files affected:** `.aitask-scripts/lib/atomic_write.sh`, `.aitask-scripts/aitask_opencode_models.sh`, `tests/test_opencode_models_collision.sh`, `tests/test_atomic_write_sh.sh`, `aidocs/framework/shell_conventions.md`
+- **Negative controls:** a mutant with the round-2 order (check, then `ait_atomic_write_text_nofollow`) fails T5b-3 (the older seed replaced the newer one); the fix passes 69/69. Every shell test that sources `atomic_write.sh` still passes.
+
+### Change Request 4 (2026-11-21)
+- **Requested by user:** (1) `_ait_atomic_nofollow_publish` ran the rename-mode probe (`ait_atomic_nofollow_native`: `mv --help | grep`) after the check, so a newer refresh finishing during the probe still had its seed overwritten without a warning. Decide the rename mode before the precondition and cover the probe timing. (2) The Change Request 3 record claimed `shell_conventions.md` documents the new helper, but that edit had failed (its `old_string` did not match) and the guide was unchanged.
+- **Changes made:**
+  - `lib/atomic_write.sh`: `native` is computed at the top of `_ait_atomic_nofollow_publish`, before staging. The check is now the last act before the selected `mv`.
+  - `aidocs/framework/shell_conventions.md`: the `ait_atomic_write_text_nofollow_if` paragraph is actually added (verified by grep).
+  - `tests/test_atomic_write_sh.sh`: a call-order case (a shell-function `mv` records every call). In the default run the probe precedes the check, and in both runs the only step after the check is the rename (`mv -fT` / `mv -f`).
+  - `tests/test_opencode_models_collision.sh`: an `mv` wrapper is a third injection point (`INJECT_AT=probe`, at `mv --help`). T5b-3/T5b-4 run the newer-refresh case at the stage and probe points. An `ATOMIC_WRITE_LIB` override selects the library under test.
+- **Files affected:** `.aitask-scripts/lib/atomic_write.sh`, `aidocs/framework/shell_conventions.md`, `tests/test_atomic_write_sh.sh`, `tests/test_opencode_models_collision.sh`
+- **Negative controls:** the round-3 library (probe after the check) fails T5b-4 (older seed published, no warning) and both new order assertions in `test_atomic_write_sh.sh`. The fix passes the collision test 74/74 and `test_atomic_write_sh.sh` 62/62. Every shell test that sources `atomic_write.sh` passes.
+
+### Change Request 5 (2026-11-22)
+- **Requested by user:** T5b-4 inherited `AIT_ATOMIC_PORTABLE_MV=1`, which short-circuits the writer's `mv --help` probe, so the probe injection never ran and the case failed under that override.
+- **Changes made:** T5b-4 runs with `AIT_ATOMIC_PORTABLE_MV` cleared for that case alone. Every other case keeps the inherited value.
+- **Files affected:** `tests/test_opencode_models_collision.sh`
+- **Verification:** 74/74 by default and 74/74 with `AIT_ATOMIC_PORTABLE_MV=1`. Under that override the round-3 library still fails T5b-4.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - Defect 1 (flags test isolation): no change. It was already fixed by t1937 (`579dd60bc`); `tests/test_verified_update_flags.sh` passes in its no-remote fixture.
+  - Defect 2 (non-injective names): `collision_guard_message` in `.aitask-scripts/aitask_opencode_models.sh` refuses classes (a)-(d) at the pre-write point and inside the CAS render. Its recovery text never advises a rename, because aitask-stats history is keyed by name. The registry goes in as a jq file input (`--slurpfile`). The seed is rendered from the exact swapped bytes (`RENDERED_REGISTRY`) and published with the new `ait_atomic_write_text_nofollow_if`: staged beside the seed, a seed symlink replaced rather than followed, and the live-registry compare as the last act before the rename (rename mode decided before staging).
+  - Defect 3 (stale `ait opencode-models`): the script header and `--help` usage now name `bash .aitask-scripts/aitask_opencode_models.sh`. The `lib/agent_string.sh` unavailable-model hint names `/aitask-refresh-code-models`, plus the opencode script.
+  - `lib/atomic_write.sh`: new `ait_atomic_write_text_nofollow_if` (check after staging, immediately before the rename; returns 3 when the check fails). `ait_atomic_write_text_nofollow` shares the body and behaves as before. Documented in `aidocs/framework/shell_conventions.md`; unit cases in `tests/test_atomic_write_sh.sh`.
+  - New `tests/test_opencode_models_collision.sh` (74 assertions). Injection points need no runtime seam: fixture `jq` / `mktemp` / `mv` wrappers (strip / stage / probe). There is a `TASK_DIR` isolation sentinel, and `OPENCODE_MODELS_SCRIPT` / `ATOMIC_WRITE_LIB` overrides select what is under test.
+- **Deviations from plan:** Five review rounds widened the plan (see Post-Review Changes 1-5): `TASK_DIR` pinning and a sentinel; `--slurpfile`; atomic same-directory seed publication; no-follow publication; the compare moved after staging (a new library helper); the rename-mode probe moved before the check; the probe case isolated from an inherited portable-mv override. The planned runtime test seam was replaced by fixture-local command wrappers.
+- **Issues encountered:** `'` escapes typed into a tool parameter arrived decoded as literal apostrophes and broke the bash-quoted jq program. The strings were reworded to contain no apostrophes. A `shell_conventions.md` edit failed (its `old_string` did not match) and was wrongly reported as done in Change Request 3. It was fixed and verified in Change Request 4.
+- **Key decisions:** text fix instead of a new `ait opencode-models` route (no new public verb); fail closed with no migration (recovery is manual and history-preserving); a `_if` variant in the shared library rather than a hand-rolled publish in the script. Pre-fix control: the original script fails Tests 1-5b-1 and 6c, and passes 5b-2/5b-3 file assertions, 6a/6b/6d/6e; round mutants each fail exactly the case their round added.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_opencode_models.sh:merge_with_existing` — the cli_id-keyed rename (registry `legacy_name` → derived name) renames the registry row, but the aitask-stats history stays keyed under the old name. The renamed model loses its usage and verification history, and the old name's history is orphaned.
+  - `tests/test_opencode_models_reserved.sh:run_refresh` / `tests/test_opencode_models_merge.sh:run_refresh` — forward an inherited `TASK_DIR`, so a run with `TASK_DIR` set writes the real registry it names (the same isolation defect fixed in the new collision test).
