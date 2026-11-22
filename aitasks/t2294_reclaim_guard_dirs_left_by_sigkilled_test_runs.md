@@ -63,3 +63,33 @@ Age dirs with `touch -d '2 hours ago'`. Cases:
 
 - `tests/lib/tmpdir_guard.sh` (the "NOT COVERED" header section)
 - `aiplans/archived/p2290_stop_tests_and_helpers_leaking_tmp_dirs.md`
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2301** id=2026-11-22T09:45:03Z.f21f64ff10e850adafcc51c1 from=t2301 from_verified=yes at=2026-11-22T09:45:03Z base=d5680956ecce76e61ba2456f933d0e1056605205 base_branch=main dirty=yes host=omg16
+>
+> | t2301 (commit d5680956e) implemented this task's goal: tmpdir_guard_begin now
+> | reclaims guard dirs left by SIGKILLed runs only on positive evidence, and
+> | otherwise keeps them and reports a reason.
+> | 
+> | Covered (tests/lib/tmpdir_guard.sh, KILLED RUNS header; tests in
+> | tests/test_tmpdir_guard.sh):
+> | - per-run metadata in a private control dir .<dirname>.ait_guard_meta/meta
+> |   (not <dir>.meta as sketched here);
+> | - dead owner by pid + start-time token; every recorded pgid empty;
+> | - no process with cwd/fd/environ/cmdline under the dir (/proc; lsof +w as
+> |   root otherwise); complete proc view (hidepid);
+> | - nothing mounted below; no socket file inside;
+> | - retained dirs reported with reasons (no-metadata, owner-unverified,
+> |   pgid-live, held:<pid>, holder-unverified:<n>, mounted, socket, ...).
+> | 
+> | Differences from this task's sketch:
+> | 1. no 60-minute age threshold — t2301 relies on evidence instead;
+> | 2. no dedicated setsid-writer test (a writer that left the pgid is caught by
+> |    the cwd/fd/environ holder scan, cases u/v);
+> | 3. the "no /proc and no lsof" path (verdict no-holder-scan) exists but has
+> |    no test.
+> | 
+> | Claim, as of d5680956e: this task can likely be closed as covered by t2301,
+> | or narrowed to the differences above. Advisory only.
