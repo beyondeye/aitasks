@@ -18,8 +18,12 @@ sys.path.insert(0, str(REPO_ROOT / ".aitask-scripts"))
 from brainstorm.brainstorm_cli import main  # noqa: E402
 from brainstorm.brainstorm_session import (  # noqa: E402
     SESSION_FILE,
+    _legacy_root_brief,
+    display_node_description,
     init_session,
     crew_worktree,
+    root_brief,
+    spec_brief_lines,
 )
 from brainstorm.brainstorm_dag import (  # noqa: E402
     GRAPH_STATE_FILE,
@@ -276,6 +280,209 @@ class TestInitWithProposalFile(CLITestBase):
 
         mock_reg.assert_not_called()
         mock_start.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
+# t2339 — brief derivation skips YAML frontmatter; legacy root briefs display
+# corrected.
+# ---------------------------------------------------------------------------
+
+TASK_SPEC = (
+    "---\n"
+    "priority: medium\n"
+    "effort: low\n"
+    "labels: [brainstorm]\n"
+    "---\n"
+    "\n"
+    "## Origin\n"
+    "\n"
+    "Fix the widget brief.\n"
+)
+
+
+class TestSpecBriefLines(unittest.TestCase):
+
+    def test_task_frontmatter_is_skipped(self):
+        self.assertEqual(spec_brief_lines(TASK_SPEC),
+                         ["## Origin", "Fix the widget brief."])
+
+    def test_plain_markdown_between_rules_is_kept(self):
+        # Two `---` rules around prose are NOT frontmatter: the block is not a
+        # YAML mapping, so the instruction must survive.
+        spec = "---\nFix the widget.\n---\nmore\n"
+        self.assertEqual(spec_brief_lines(spec), ["Fix the widget.", "more"])
+
+    def test_indented_delimiter_inside_block_scalar_does_not_close(self):
+        spec = "---\ndesc: |\n  a\n  ---\n  b\nprio: x\n---\nBody\n"
+        self.assertEqual(spec_brief_lines(spec), ["Body"])
+
+    def test_unconstructible_yaml_value_keeps_old_filtering(self):
+        # yaml.safe_load raises ValueError (not YAMLError) for an impossible
+        # date; the documented fallback must still apply, never an exception.
+        spec = "---\nreview_on: 2026-02-29\n---\nBody\n"
+        self.assertEqual(spec_brief_lines(spec),
+                         ["review_on: 2026-02-29", "Body"])
+        self.assertEqual(root_brief(spec), "review_on: 2026-02-29")
+
+    def test_unclosed_block_keeps_old_filtering(self):
+        spec = "---\npriority: high\nno closing delimiter\n"
+        self.assertEqual(spec_brief_lines(spec),
+                         ["priority: high", "no closing delimiter"])
+
+    def test_invalid_yaml_keeps_old_filtering(self):
+        spec = "---\nkey: [unclosed\n---\nBody\n"
+        self.assertEqual(spec_brief_lines(spec), ["key: [unclosed", "Body"])
+
+    def test_no_frontmatter_unchanged(self):
+        spec = "Test spec content.\n\nsecond line\n"
+        self.assertEqual(spec_brief_lines(spec),
+                         ["Test spec content.", "second line"])
+
+    def test_body_rules_still_dropped(self):
+        spec = TASK_SPEC + "\n---\n\nAfter the rule.\n"
+        self.assertNotIn("---", spec_brief_lines(spec))
+        self.assertIn("After the rule.", spec_brief_lines(spec))
+
+    def test_frontmatter_only_is_empty(self):
+        self.assertEqual(spec_brief_lines("---\npriority: low\n---\n"), [])
+        self.assertEqual(root_brief("---\npriority: low\n---\n"),
+                         "Initial specification")
+
+    def test_legacy_brief_reproduces_the_old_bug(self):
+        # The frozen derivation must still produce what pre-t2339 init wrote,
+        # or existing sessions are never recognised.
+        self.assertEqual(_legacy_root_brief(TASK_SPEC), "priority: medium")
+
+
+class TestInitSessionRootBrief(CLITestBase):
+
+    def test_root_description_is_the_body(self):
+        init_session(self.task_num, task_file="aitasks/t999_test.md",
+                     user_email="t@example.com", initial_spec=TASK_SPEC)
+        node = read_yaml(str(self.wt_path / NODES_DIR / "n000_init.yaml"))
+        self.assertEqual(node["description"], "## Origin")
+
+    def test_unconstructible_date_spec_initialises_fully(self):
+        spec = "---\nreview_on: 2026-02-29\n---\nBody\n"
+        init_session(self.task_num, task_file="aitasks/t999_test.md",
+                     user_email="t@example.com", initial_spec=spec)
+        self.assertTrue((self.wt_path / SESSION_FILE).is_file())
+        node = read_yaml(str(self.wt_path / NODES_DIR / "n000_init.yaml"))
+        self.assertEqual(node["description"], "review_on: 2026-02-29")
+
+    def test_brief_failure_writes_no_session_files(self):
+        # The root brief is derived before any write: if derivation ever
+        # fails, no half-written session (br_session.yaml without n000_init)
+        # is left behind.
+        import brainstorm.brainstorm_session as bs_mod
+        with patch.object(bs_mod, "root_brief",
+                          side_effect=RuntimeError("boom")):
+            with self.assertRaises(RuntimeError):
+                init_session(self.task_num, task_file="aitasks/t999_test.md",
+                             user_email="t@example.com",
+                             initial_spec=TASK_SPEC)
+        self.assertFalse((self.wt_path / SESSION_FILE).exists())
+        self.assertFalse((self.wt_path / NODES_DIR).exists())
+
+    def test_frontmatter_only_spec_falls_back(self):
+        init_session(self.task_num, task_file="aitasks/t999_test.md",
+                     user_email="t@example.com",
+                     initial_spec="---\npriority: low\n---\n")
+        node = read_yaml(str(self.wt_path / NODES_DIR / "n000_init.yaml"))
+        self.assertEqual(node["description"], "Initial specification")
+
+
+class TestDisplayNodeDescription(unittest.TestCase):
+
+    def setUp(self):
+        self._td = tempfile.TemporaryDirectory()
+        self.session = Path(self._td.name)
+
+    def tearDown(self):
+        self._td.cleanup()
+
+    def _session(self, **fields):
+        data = {"initial_spec": TASK_SPEC}
+        data.update(fields)
+        write_yaml(str(self.session / SESSION_FILE), data)
+        return data
+
+    def test_legacy_root_brief_is_shown_corrected(self):
+        self._session()
+        node = {"description": "priority: medium"}
+        self.assertEqual(
+            display_node_description(self.session, "n000_init", node),
+            "## Origin")
+
+    def test_unconstructible_date_spec_displays_without_raising(self):
+        # An older session whose spec has an impossible date: the legacy brief
+        # is the date line, the new derivation falls back to the same text,
+        # and display never raises.
+        spec = "---\nreview_on: 2026-02-29\n---\nBody\n"
+        self._session(initial_spec=spec)
+        node = {"description": _legacy_root_brief(spec)}
+        self.assertEqual(
+            display_node_description(self.session, "n000_init", node),
+            "review_on: 2026-02-29")
+
+    def test_passed_session_data_is_used_without_reading(self):
+        node = {"description": "priority: medium"}
+        self.assertEqual(
+            display_node_description(self.session, "n000_init", node,
+                                     {"initial_spec": TASK_SPEC}),
+            "## Origin")
+
+    def test_imported_proposal_is_never_rewritten(self):
+        self._session(initial_proposal_file="/abs/x.md")
+        for desc in ("Imported proposal (awaiting reformat): x.md",
+                     "priority: medium"):
+            node = {"description": desc}
+            self.assertEqual(
+                display_node_description(self.session, "n000_init", node),
+                desc)
+
+    def test_hand_edited_description_unchanged(self):
+        self._session()
+        node = {"description": "priority: medium (edited)"}
+        self.assertEqual(
+            display_node_description(self.session, "n000_init", node),
+            "priority: medium (edited)")
+
+    def test_non_root_node_unchanged(self):
+        self._session()
+        node = {"description": "priority: medium"}
+        self.assertEqual(
+            display_node_description(self.session, "n001_x", node),
+            "priority: medium")
+
+    def test_missing_session_file_returns_stored(self):
+        node = {"description": "priority: medium"}
+        self.assertEqual(
+            display_node_description(self.session, "n000_init", node),
+            "priority: medium")
+
+    def test_malformed_session_file_returns_stored(self):
+        (self.session / SESSION_FILE).write_text(
+            "initial_spec: [unclosed\n", encoding="utf-8")
+        node = {"description": "priority: medium"}
+        self.assertEqual(
+            display_node_description(self.session, "n000_init", node),
+            "priority: medium")
+
+    def test_non_str_spec_or_description_returns_stored(self):
+        self._session(initial_spec=["not", "a", "string"])
+        node = {"description": "priority: medium"}
+        self.assertEqual(
+            display_node_description(self.session, "n000_init", node),
+            "priority: medium")
+        self.assertEqual(
+            display_node_description(self.session, "n000_init",
+                                     {"description": 42}, {"initial_spec": TASK_SPEC}),
+            42)
+        self.assertEqual(
+            display_node_description(self.session, "n000_init", None,
+                                     {"initial_spec": TASK_SPEC}),
+            "")
 
 
 if __name__ == "__main__":

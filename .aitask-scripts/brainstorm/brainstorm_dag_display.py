@@ -35,7 +35,11 @@ from brainstorm.brainstorm_dag import (
     read_node,
 )
 from brainstorm.brainstorm_schemas import canonical_op
-from brainstorm.brainstorm_session import GROUPS_FILE, resolve_node_group
+from brainstorm.brainstorm_session import (
+    GROUPS_FILE,
+    display_node_description,
+    resolve_node_group,
+)
 
 # ---------------------------------------------------------------------------
 # Rendering constants
@@ -133,7 +137,8 @@ def _build_graph(
         # Only keep parents that actually exist as nodes
         parents = [p for p in parents if p in nodes]
         parent_map[nid] = parents
-        node_descs[nid] = data.get("description", "")
+        # A pre-t2339 root brief (YAML frontmatter) is shown corrected.
+        node_descs[nid] = display_node_description(session_path, nid, data)
         group_name = data.get("created_by_group", "")
         op = canonical_op(
             (groups.get(group_name) or {}).get("operation", "")

@@ -59,6 +59,121 @@ def crew_worktree(task_num: int | str) -> Path:
     return Path(AGENTCREW_DIR) / f"crew-brainstorm-{task_num}"
 
 
+# ---------------------------------------------------------------------------
+# Spec brief derivation (t2339)
+# ---------------------------------------------------------------------------
+#
+# ``aitask_brainstorm_init.sh`` stores the whole task file as the spec, so the
+# brief must skip its YAML frontmatter. Before t2339 both the root-node
+# description and the Browse "Brief:" line took the first lines that do not
+# start with ``---`` — which are the frontmatter lines themselves.
+
+ROOT_NODE_ID = "n000_init"
+_BRIEF_FALLBACK = "Initial specification"
+
+
+def _split_spec_frontmatter(spec: str) -> list[str]:
+    """Return the spec's lines with a leading YAML frontmatter block removed.
+
+    A block counts as frontmatter only when ALL hold:
+      - line 0 is exactly ``---`` (trailing whitespace ignored);
+      - a later line is exactly ``---`` at column 0 (an indented ``---`` inside
+        a YAML block scalar is content, not the closing delimiter);
+      - the text between parses (``yaml.safe_load``) to a non-empty dict.
+    Anything else — plain Markdown between two ``---`` rules, an unclosed
+    block, invalid YAML, a value YAML cannot construct (an impossible date),
+    a scalar or a list — is returned unchanged. Never raises.
+    """
+    lines = spec.splitlines()
+    if not lines or lines[0].rstrip() != "---":
+        return lines
+    for i in range(1, len(lines)):
+        if lines[i].rstrip() == "---":
+            # Not just yaml.YAMLError: scalar construction raises ValueError
+            # (e.g. ``review_on: 2026-02-29``) and can raise others. Any
+            # failure means "not usable frontmatter" — the documented fallback.
+            try:
+                meta = yaml.safe_load("\n".join(lines[1:i]))
+            except Exception:
+                return lines
+            return lines[i + 1:] if isinstance(meta, dict) and meta else lines
+    return lines
+
+
+def spec_brief_lines(spec: str) -> list[str]:
+    """Non-empty body lines of a spec, used for brief / preview text."""
+    return [
+        ln for ln in _split_spec_frontmatter(spec)
+        if ln.strip() and not ln.startswith("---")
+    ]
+
+
+def _brief_from_lines(lines: list[str]) -> str:
+    if not lines:
+        return _BRIEF_FALLBACK
+    first = lines[0]
+    return (first[:80] + "…") if len(first) > 80 else first
+
+
+def root_brief(spec: str) -> str:
+    """The root node's description derived from a spec (first body line)."""
+    return _brief_from_lines(spec_brief_lines(spec))
+
+
+def _legacy_root_brief(spec: str) -> str:
+    """The pre-t2339 derivation, frozen.
+
+    Used ONLY to recognise a root description that the old ``init_session``
+    generated, so it can be displayed corrected. Never used for new output.
+    """
+    return _brief_from_lines([
+        ln for ln in spec.splitlines()
+        if ln.strip() and not ln.startswith("---")
+    ])
+
+
+def display_node_description(
+    session_path: Path | str,
+    node_id: str,
+    node_data: dict | None,
+    session_data: dict | None = None,
+) -> str:
+    """A node's description for display — the stored value, except a
+    pre-t2339 generated ``n000_init`` brief.
+
+    Returns ``root_brief(initial_spec)`` only when ALL hold: ``node_id`` is
+    ``n000_init``; the session has no ``initial_proposal_file`` (an imported
+    proposal's description is the initializer's, never rewritten); and the
+    stored description is byte-equal to ``_legacy_root_brief(initial_spec)``.
+    Byte equality is the identity rule: a hand-edited description, or one that
+    is already correct, never matches. Anything else returns the stored value.
+
+    ``session_data`` is read lazily from ``br_session.yaml``, and only for
+    ``n000_init``. This never raises for session trouble: a missing,
+    unreadable or malformed session file, a non-dict, or a non-str / empty
+    ``initial_spec`` all return the stored description unchanged — a node that
+    renders without its session summary keeps rendering.
+    """
+    stored = (node_data or {}).get("description", "")
+    if node_id != ROOT_NODE_ID or not isinstance(stored, str):
+        return stored
+    if session_data is None:
+        try:
+            session_data = read_yaml(str(Path(session_path) / SESSION_FILE))
+        except Exception:
+            return stored
+    if not isinstance(session_data, dict):
+        return stored
+    if session_data.get("initial_proposal_file"):
+        return stored
+    spec = session_data.get("initial_spec")
+    if not isinstance(spec, str) or not spec:
+        return stored
+    if stored != _legacy_root_brief(spec):
+        return stored
+    return root_brief(spec)
+
+
 def init_session(
     task_num: int | str,
     task_file: str,
@@ -99,6 +214,20 @@ def init_session(
                 f"initial_proposal_file not found: {initial_proposal_file}"
             )
         abs_proposal_path = str(proposal_path.resolve())
+
+    # Derive the root node's content BEFORE writing anything (t2339): a
+    # derivation failure must not leave a half-written session behind.
+    # When an imported proposal is pending, seed n000_init with a
+    # placeholder; the initializer agent will overwrite it.
+    if abs_proposal_path is not None:
+        basename = os.path.basename(abs_proposal_path)
+        brief = f"Imported proposal (awaiting reformat): {basename}"
+        proposal_body = f"Awaiting initializer agent output for `{basename}`.\n"
+        reference_files: list[str] | None = [abs_proposal_path]
+    else:
+        brief = root_brief(initial_spec)
+        proposal_body = initial_spec
+        reference_files = None
 
     # Create subdirectories
     for subdir in (NODES_DIR, PROPOSALS_DIR):
@@ -142,27 +271,8 @@ def init_session(
     # Write empty br_groups.yaml
     write_yaml(str(wt / GROUPS_FILE), {"groups": {}})
 
-    # Create root node (n000_init) so the session is immediately usable.
-    # When an imported proposal is pending, seed n000_init with a
-    # placeholder; the initializer agent will overwrite it.
-    if abs_proposal_path is not None:
-        basename = os.path.basename(abs_proposal_path)
-        brief = f"Imported proposal (awaiting reformat): {basename}"
-        proposal_body = f"Awaiting initializer agent output for `{basename}`.\n"
-        reference_files: list[str] | None = [abs_proposal_path]
-    else:
-        spec_lines = [
-            ln for ln in initial_spec.splitlines()
-            if ln.strip() and not ln.startswith("---")
-        ]
-        brief = (
-            (spec_lines[0][:80] + "…")
-            if spec_lines and len(spec_lines[0]) > 80
-            else (spec_lines[0] if spec_lines else "Initial specification")
-        )
-        proposal_body = initial_spec
-        reference_files = None
-
+    # Create root node (n000_init) so the session is immediately usable
+    # (its content was derived above, before any file was written).
     create_node(
         session_path=wt,
         node_id="n000_init",

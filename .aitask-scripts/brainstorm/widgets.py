@@ -23,6 +23,7 @@ from textual.widgets import (
     Label,
     Static,
 )
+from textual.content import Content
 from textual.message import Message
 from textual.reactive import reactive
 from brainstorm.brainstorm_dag import (
@@ -41,6 +42,7 @@ from brainstorm.brainstorm_dag_display import (
 )
 from brainstorm.brainstorm_session import (
     crew_worktree,
+    display_node_description,
     resolve_node_group,
 )
 from launch_modes import DEFAULT_LAUNCH_MODE, VALID_LAUNCH_MODES
@@ -433,12 +435,16 @@ class NodeRow(Static):
         self.is_head = is_head
         self.can_focus = True
 
-    def render(self) -> str:
+    def render(self) -> Content:
         head_marker = " [bold green]HEAD[/]" if self.is_head else ""
         mark = f"{mark_markup(self.marked)} "
-        return (
-            f"{mark}[bold]{self.node_id}[/]{head_marker}  "
-            f"{self.node_description}"
+        # The id and description are substituted as literal text (t2339): a
+        # description is task / agent text, where `[x]` would vanish and `[/]`
+        # would raise MarkupError. Only the fixed framework markup is parsed.
+        return Content.from_markup(
+            f"{mark}[bold]$node_id[/]{head_marker}  $description",
+            node_id=self.node_id,
+            description=self.node_description,
         )
 
     def action_open_operation(self) -> None:
@@ -554,14 +560,16 @@ def render_node_detail_widgets(
     except Exception:
         return (f"Node: {node_id}", [Static("(node not readable)")])
 
-    desc = node_data.get("description", "")
+    desc = display_node_description(session_path, node_id, node_data)
     parents = node_data.get("parents", [])
     created = node_data.get("created_at", "")
     group = node_data.get("created_by_group", "")
 
     widgets: list = []
+    # Description substituted literally (t2339) — task / agent text.
     widgets.append(Static(
-        f"[bold $accent]Description:[/] {desc}", classes="meta_field"))
+        Content.from_markup("[bold $accent]Description:[/] $desc", desc=desc),
+        classes="meta_field"))
     widgets.append(Static(
         f"[bold $accent]Parents:[/] "
         f"{', '.join(parents) if parents else 'root'}",
@@ -686,21 +694,34 @@ class OperationRow(Static):
             super().__init__()
             self.row = row
 
-    def __init__(self, op_key: str, label: str, description: str, disabled: bool = False):
+    def __init__(self, op_key: str, label: str, description: str, disabled: bool = False,
+                 literal_description: bool = False):
         super().__init__()
         self.op_key = op_key
         self.op_label = label
         self.op_description = description
         self.op_disabled = disabled
+        # Opt-in (t2339): most callers pass framework markup as the description;
+        # a node description is task / agent text and must render verbatim.
+        self.literal_description = literal_description
         self.can_focus = not disabled
 
-    def render(self) -> str:
+    def render(self) -> str | Content:
+        # The label is framework markup on every route (e.g. "[green]HEAD[/]").
         if self.op_disabled:
             # `strike`, not Rich's `strikethrough`: Textual's markup parser does
             # not know the latter and fails *silently*, dropping the whole span
             # — so a disabled row rendered identically to an enabled one (t1453).
+            if self.literal_description:
+                return Content.from_markup(
+                    f"[dim strike]{self.op_label}[/]  [dim]$desc[/]",
+                    desc=self.op_description)
             return f"[dim strike]{self.op_label}[/]  [dim]{self.op_description}[/]"
         marker = "[bold cyan]> [/]" if self.selected else "  "
+        if self.literal_description:
+            return Content.from_markup(
+                f"{marker}[bold]{self.op_label}[/]  $desc",
+                desc=self.op_description)
         return f"{marker}[bold]{self.op_label}[/]  {self.op_description}"
 
     def on_click(self) -> None:

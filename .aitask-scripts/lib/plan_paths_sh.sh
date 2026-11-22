@@ -38,11 +38,31 @@ _plan_paths_python() {
         printf '%s' "$_AIT_PLAN_PATHS_PY"
         return 0
     fi
-    # Defensive: this lib may be sourced before python_resolve.sh. If the cache
-    # is set, use it; otherwise rely on python3 from PATH (the t695_3 symlink in
-    # $HOME/.aitask/bin/python3 means python3 still resolves to the framework
-    # interpreter on local installs).
-    _AIT_PLAN_PATHS_PY="${_AIT_RESOLVED_PYTHON:-python3}"
+    # Interpreter order (t2339): the cached resolution, then an executable
+    # $AIT_PYTHON, then lib/python_resolve.sh (venv → wrapper → PATH python3),
+    # then bare python3 from PATH. An explicit AIT_PYTHON is honoured even when
+    # the PATH python3 is the ~/.aitask/bin wrapper of another HOME.
+    # python_resolve.sh is sourced lazily and only when HOME is set: it expands
+    # $HOME at top level, which aborts a `set -u` caller with HOME unset, and
+    # every candidate it adds beyond AIT_PYTHON lives under HOME anyway. A
+    # bridge copied on its own into a test scaffold (no python_resolve.sh
+    # beside it) keeps the plain python3 fallback exactly as before.
+    local pycmd="${_AIT_RESOLVED_PYTHON:-}"
+    if [[ -z "$pycmd" && -n "${AIT_PYTHON:-}" && -x "${AIT_PYTHON:-}" ]]; then
+        pycmd="$AIT_PYTHON"
+    fi
+    if [[ -z "$pycmd" && -n "${HOME:-}" ]]; then
+        local _lib_dir
+        _lib_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+        if [[ -r "$_lib_dir/python_resolve.sh" ]]; then
+            # shellcheck source=lib/python_resolve.sh
+            source "$_lib_dir/python_resolve.sh"
+            resolve_python >/dev/null
+            pycmd="${_AIT_RESOLVED_PYTHON:-}"
+        fi
+    fi
+    pycmd="${pycmd:-python3}"
+    _AIT_PLAN_PATHS_PY="$pycmd"
     printf '%s' "$_AIT_PLAN_PATHS_PY"
 }
 

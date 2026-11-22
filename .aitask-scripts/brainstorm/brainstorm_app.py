@@ -47,6 +47,7 @@ from textual import (
     on,
     work,
 )
+from textual.content import Content
 from brainstorm.brainstorm_dag import (
     UMBRELLA_SUBGRAPH,
     _node_module,
@@ -89,6 +90,7 @@ from brainstorm.brainstorm_session import (
     _write_module_deferred,
     archive_session,
     crew_worktree,
+    display_node_description,
     finalize_session,
     GROUPS_FILE,
     load_session,
@@ -100,6 +102,7 @@ from brainstorm.brainstorm_session import (
     run_prune_operation,
     save_session,
     session_exists,
+    spec_brief_lines,
 )
 from brainstorm.brainstorm_crew import (
     register_comparator,
@@ -1147,14 +1150,18 @@ class ActionsWizardScreen(RowNavMixin, GuardedModalScreen):
 
         for nid in nodes:
             node_data = read_node(self.app.session_path, nid)
-            desc = node_data.get("description", "")
+            desc = display_node_description(
+                self.app.session_path, nid, node_data,
+                getattr(self.app, "session_data", None),
+            )
 
             lbl_parts = [nid]
             if nid == head:
                 lbl_parts.append("[green]HEAD[/]")
             lbl = " ".join(lbl_parts)
 
-            container.mount(OperationRow(nid, lbl, desc))
+            # Node descriptions are task/agent text: render them literally.
+            container.mount(OperationRow(nid, lbl, desc, literal_description=True))
 
         container.mount(
             Button("Next \u25b6", variant="primary", classes="btn_actions_next", disabled=True)
@@ -5067,13 +5074,18 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
 
         spec = sd.get("initial_spec", "")
         if spec:
-            preview_lines = [ln for ln in spec.splitlines() if ln.strip() and not ln.startswith("---")][:2]
+            # spec_brief_lines skips the task file's YAML frontmatter (t2339).
+            preview_lines = spec_brief_lines(spec)[:2]
             preview = " | ".join(preview_lines)
             if len(preview) > 100:
                 preview = preview[:97] + "…"
             info_lines.append(f"Brief: {preview}  [press b for full text]")
 
-        self.query_one("#session_status_info", Label).update("\n".join(info_lines))
+        # Rendered literally: the Brief is task text (a `[x]` or `[/]` would be
+        # eaten or raise MarkupError), and the bracketed "[READ ONLY]" /
+        # "[press b …]" hints are meant to be seen. No line carries markup.
+        self.query_one("#session_status_info", Label).update(
+            Content("\n".join(info_lines)))
 
     def _update_module_status(self) -> None:
         """Render the per-module fluid-status view (§4.7, UC-2, t756_5).
@@ -5127,7 +5139,10 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
         marked = self._selection.marked
         for nid in nodes:
             node_data = read_node(self.session_path, nid)
-            desc = node_data.get("description", "")
+            desc = display_node_description(
+                self.session_path, nid, node_data,
+                getattr(self, "session_data", None),
+            )
             row = NodeRow(nid, desc, is_head=(nid == head))
             # Reflect the Browse marked set on the freshly-built rows (t983_3),
             # so marks survive a list rebuild (reload, HEAD change, delete).
@@ -5155,8 +5170,9 @@ class BrainstormApp(TuiSwitcherMixin, ShortcutsMixin, RowNavMixin, App):
             preview = "\n".join(lines[:30]) + "\n\n… (truncated — see n000_init proposal for full text)"
         else:
             preview = spec
+        # markup=False: the spec is task text, shown verbatim (t2339).
         self.query_one("#browse_node_panel", NodeDetailPanel).show_content(
-            "Task Brief", [Static(preview)])
+            "Task Brief", [Static(preview, markup=False)])
 
     def on_dimension_row_activated(self, event: DimensionRow.Activated) -> None:
         """Enter on a DimensionRow → push SectionViewerScreen filtered to matching sections."""
