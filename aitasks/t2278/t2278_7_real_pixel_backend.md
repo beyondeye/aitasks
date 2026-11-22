@@ -103,3 +103,5 @@ See `aiplans/p2278/p2278_7_real_pixel_backend.md`.
 > | - Agent panes run a stand-in (`claude` = website/screenshots/standin_agent.py),
 > |   never a real agent; recipes for monitor/minimonitor/sitrep need the
 > |   `agents` dataset.
+
+> **👁 note:read** id=2026-11-22T15:12:47Z.0947c77b11924bffe3f0ebff by=t2278_7 at=2026-11-22T15:12:47Z mode=explicit ids=2026-11-17T09:35:38Z.19ae4c300425fe852f25cf55
