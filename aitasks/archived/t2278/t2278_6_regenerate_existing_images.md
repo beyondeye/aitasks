@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t2278_5]
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [website, documentation, tui, screenshots]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2278
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 18:12
-updated_at: 2026-11-21 19:22
+updated_at: 2026-11-22 11:12
+completed_at: 2026-11-22 11:12
 ---
 
 ## Context
@@ -107,3 +108,14 @@ regenerated image must show the same state its alt and caption describe.
 > **✅ gate:plan_approved** run=2026-11-21T17:22:11Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-22T09:06:31Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-22T09:12:29Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:22aaba4e1561cc3d
+
+> **✅ gate:risk_evaluated** run=2026-11-22T09:12:29Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2278_6/risk_evaluated_2026-11-22T09:12:29Z-risk_evaluated-a1.log`
