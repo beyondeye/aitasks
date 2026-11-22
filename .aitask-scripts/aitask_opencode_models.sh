@@ -4,17 +4,20 @@
 # Uses `opencode models --verbose` to discover available models from connected
 # providers and updates aitasks/metadata/models_opencode.json.
 #
-# Usage:
-#   ait opencode-models              # Discover and update model config
-#   ait opencode-models --dry-run    # Show what would change without writing
-#   ait opencode-models --list       # List discovered model names
-#   ait opencode-models --sync-seed  # Also update seed/models_opencode.json
+# Usage (there is no `ait` subcommand for this script; the
+# /aitask-refresh-code-models skill runs it the same way):
+#   bash .aitask-scripts/aitask_opencode_models.sh              # Discover and update model config
+#   bash .aitask-scripts/aitask_opencode_models.sh --dry-run    # Show what would change without writing
+#   bash .aitask-scripts/aitask_opencode_models.sh --list       # List discovered model names
+#   bash .aitask-scripts/aitask_opencode_models.sh --sync-seed  # Also update seed/models_opencode.json
 
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# shellcheck source=lib/atomic_write.sh
+source "$SCRIPT_DIR/lib/atomic_write.sh"
 # shellcheck source=lib/registry_cas.sh
 source "$SCRIPT_DIR/lib/registry_cas.sh"
 
@@ -37,7 +40,7 @@ while [[ $# -gt 0 ]]; do
         --list)     LIST_ONLY=true; shift ;;
         --sync-seed) SYNC_SEED=true; shift ;;
         -h|--help)
-            echo "Usage: ait opencode-models [--dry-run] [--list] [--sync-seed]"
+            echo "Usage: bash .aitask-scripts/aitask_opencode_models.sh [--dry-run] [--list] [--sync-seed]"
             echo ""
             echo "Discover OpenCode models via CLI and update model config."
             echo ""
@@ -64,6 +67,11 @@ fi
 # --- Name conversion ---
 # opencode/claude-opus-4-6 → opencode_claude_opus_4_6
 # openai/gpt-5.3-codex     → openai_gpt_5_3_codex
+#
+# Not injective: '-', '.' and '_' all become '_', so opencode/foo-bar,
+# opencode/foo.bar and opencode/foo_bar derive the same name. Rows (and the
+# aitask-stats history) are keyed by name, so the row-identity guard below
+# (collision_guard_message) refuses any run where that would merge two models.
 convert_to_model_name() {
     local cli_id="$1"
     local provider="${cli_id%%/*}"
@@ -295,9 +303,83 @@ $reserved_existing
     printf '%s\n' "$msg"
 }
 
+# --- Row-identity guard (fails closed BEFORE any write) ---
+# merge_with_existing selects rows through name -> row and cli_id -> row maps
+# built with `add`, which silently keep the LAST row of a repeated key, and the
+# usage/verification history on the aitask-stats branch (lib/model_stats_store.py)
+# is keyed by model name too. So the merge is only sound when every name and
+# every cli_id names one model. Refuse when:
+#   (a) a name repeats in the discovered set (convert_to_model_name is not
+#       injective: opencode/foo-bar and opencode/foo.bar both derive
+#       opencode_foo_bar);
+#   (b) a name repeats in the registry (even with one cli_id — the rows can hold
+#       different verified values);
+#   (c) a name is on both sides with different cli_ids (the discovered model
+#       would take over the registry row's name and its aitask-stats history);
+#   (d) a cli_id repeats in the registry under different names (the merge keeps
+#       one row and drops the other).
+# One matching row per side, and the cli_id-keyed rename (registry
+# legacy_name/<id> -> discovered derived_name/<id>), break none of these.
+# The advice never says to rename: renaming or removing a row does not move the
+# aitask-stats history recorded under its name.
+
+# collision_guard_message <registry_file> — print the refusal message when any
+# of (a)-(d) holds; print nothing when clean. <registry_file> may be "" (no
+# registry yet). Returns 1 only when jq fails.
+collision_guard_message() {
+    local registry_file="$1"
+    # The registry goes in as a jq file input, never as an argv string: a large
+    # registry (thousands of unavailable rows) would exceed the per-argument
+    # limit and fail with "Argument list too long". No registry yet is an
+    # explicit empty document.
+    local -a reg_input=(--argjson regdoc '[{"models": []}]')
+    if [[ -n "$registry_file" && -f "$registry_file" ]]; then
+        reg_input=(--slurpfile regdoc "$registry_file")
+    fi
+    jq -r "${reg_input[@]}" --arg file "$METADATA_FILE" '
+        ($regdoc[0].models // [] | map({name, cli_id})) as $reg |
+        def dups(f): group_by(f) | map(select(length > 1));
+        def by_name: "  \(.[0].name): " + (map("\(.cli_id) (\(.src))") | join(", "));
+        def by_cli: "  \(.[0].cli_id): " + (map("\(.name) (\(.src))") | join(", "));
+        (map({name, cli_id, src: "discovered"})) as $d |
+        ($reg | map(. + {src: "registry"})) as $r |
+        ($d | dups(.name)) as $a |
+        ($r | dups(.name)) as $b |
+        ([$d[], $r[]] | group_by(.name)
+            | map(select(length == 2
+                         and (map(.src) | unique | length) == 2
+                         and (map(.cli_id) | unique | length) == 2))) as $c |
+        ($r | dups(.cli_id)) as $x |
+        if ($a + $b + $c + $x | length) == 0 then empty else
+            ["Refusing to update \($file): its rows (and the usage/verification history on the aitask-stats branch) are keyed by model name, and these models would be merged into one. Nothing was written."]
+            + (if ($a | length) > 0 then
+                ["Discovered models that derive the same name:"]
+                + ($a | map(by_name))
+                + ["  Fix: the name is derived from the cli_id (with every - and . replaced by _), so the naming scheme cannot tell these apart and editing \($file) cannot fix it. Disconnect one of them in OpenCode and report the collision."]
+               else [] end)
+            + (if ($c | length) > 0 then
+                ["Discovered models that would take over the name of a registry row:"]
+                + ($c | map(by_name))
+                + ["  Fix: if the discovered cli_id is the same model under a new id, change the cli_id of that registry row to it and keep its name, so the history recorded under the name stays with the model it belongs to. Otherwise leave the row as it is: renaming or removing it would not move that history, and the discovered model would inherit it. A different model cannot be registered under this name."]
+               else [] end)
+            + (if ($b | length) + ($x | length) > 0 then
+                ["Duplicate rows in \($file):"]
+                + ($b | map(by_name))
+                + ($x | map(by_cli))
+                + ["  Fix: leave these rows in place. Each may carry its own verified values and legacy counters, and each name may have its own usage/verification history on the aitask-stats branch; this refresh cannot tell which is right. Do not delete either one until you have reconciled their metadata and any separate history by hand. The refresh changes nothing until then."]
+               else [] end)
+            | join("\n")
+        end
+    ' <<< "$discovered"
+}
+
 reserved_msg="$(reserved_guard_message "$METADATA_FILE")" || die "Failed to read $METADATA_FILE"
 if [[ -n "$reserved_msg" ]]; then
     die "$reserved_msg"
+fi
+collision_msg="$(collision_guard_message "$METADATA_FILE")" || die "Failed to read $METADATA_FILE"
+if [[ -n "$collision_msg" ]]; then
+    die "$collision_msg"
 fi
 
 # --- Merge with existing ---
@@ -333,21 +415,36 @@ fi
 # --- Write output ---
 # Render for ait_cas_rewrite: re-merge from the snapshot it hands us. Runs once
 # per attempt, so a row a concurrent writer changed is merged, never erased.
-# Must return, never die (registry_cas.sh); RESERVED_MSG tells the caller why.
-RESERVED_MSG=""
+# Must return, never die (registry_cas.sh); GUARD_MSG tells the caller why.
+# Both guards re-run on every snapshot, so a guarded row a concurrent writer
+# lands between the pre-write check and the swap is still refused.
+#
+# RENDERED_REGISTRY keeps the exact bytes this render produced. ait_atomic_render
+# runs the render in this shell ("$@" > tmp), and each retry overwrites it, so
+# after a successful swap it holds the bytes that were swapped in — the bytes
+# both guards checked. The seed sync below renders from them, never from a
+# re-read of the live file.
+GUARD_MSG=""
+RENDERED_REGISTRY=""
 render_refresh() {
-    RESERVED_MSG="$(reserved_guard_message "$1")" || return 1
-    [[ -z "$RESERVED_MSG" ]] || return 1
+    local rendered
+    GUARD_MSG="$(reserved_guard_message "$1")" || return 1
+    [[ -z "$GUARD_MSG" ]] || return 1
+    GUARD_MSG="$(collision_guard_message "$1")" || return 1
+    [[ -z "$GUARD_MSG" ]] || return 1
     merged="$(merge_with_existing "$discovered" "$1")" || return 1
     # Consistent formatting: 2-space indent, sorted by name
-    jq --indent 2 '.models |= sort_by(.name)' <<< "$merged" || return 1
+    rendered="$(jq --indent 2 '.models |= sort_by(.name)' <<< "$merged")" || return 1
+    RENDERED_REGISTRY="$rendered"
+    printf '%s\n' "$rendered"
 }
 
 cas_rc=0
 ait_cas_rewrite "$METADATA_FILE" "$MAX_SWAP_ATTEMPTS" render_refresh || cas_rc=$?
-if [[ -n "$RESERVED_MSG" ]]; then
-    # A reserved row arrived after the pre-write guard (e.g. through a pull).
-    die "$RESERVED_MSG"
+if [[ -n "$GUARD_MSG" ]]; then
+    # A guarded row (reserved name or row-identity conflict) arrived after the
+    # pre-write guard (e.g. through a pull or a concurrent writer).
+    die "$GUARD_MSG"
 fi
 if (( cas_rc == 2 )); then
     die "$METADATA_FILE kept changing during the refresh ($MAX_SWAP_ATTEMPTS attempts) — a concurrent writer (usage/verified update, sync) is active. Nothing was written; re-run."
@@ -366,17 +463,45 @@ total_count=$(jq '.models | length' <<< "$merged")
 success "Updated $METADATA_FILE ($total_count models: $model_count active, $unavailable_count unavailable)"
 
 # --- Sync to seed if requested ---
+# The seed never carries stats counters (t1912_5): they live on the
+# aitask-stats branch, and a fresh project must start without any.
+#
+# It is rendered from the bytes this run's guards checked (RENDERED_REGISTRY),
+# never from a re-read of the live registry, which a concurrent writer may have
+# changed since the swap. And it is published only while the registry still
+# holds those bytes: otherwise a newer refresh that already wrote both files
+# would have its seed overwritten by this older one. The compare runs AFTER the
+# seed is staged and immediately before the rename (registry_unchanged, via
+# ait_atomic_write_text_nofollow_if), so a refresh completing during staging is
+# still caught; only the rename itself is left (without a lock it cannot be
+# closed).
+#
+# Published with the nofollow writer: staged beside the seed (so the rename
+# never degrades into a cross-filesystem copy a reader could see half-written)
+# and never dereferencing the seed path itself. A symlink at
+# seed/models_opencode.json is REPLACED, as the plain `mv` this replaces did;
+# following it could overwrite its target — e.g. the live registry — with the
+# stripped seed, dropping its counters.
+registry_unchanged() {
+    local live
+    live="$(cat "$METADATA_FILE" 2>/dev/null)" || return 1
+    [[ "$live" == "$RENDERED_REGISTRY" ]]
+}
+
 if [[ "$SYNC_SEED" == "true" ]]; then
     if [[ -d "seed" ]]; then
-        # The seed never carries stats counters (t1912_5): they live on the
-        # aitask-stats branch, and a fresh project must start without any.
-        seed_tmp="$(mktemp "${TMPDIR:-/tmp}/aitask_opencode_seed_XXXXXX")"
-        if jq -f "$SCRIPT_DIR/lib/model_stats_strip.jq" "$METADATA_FILE" > "$seed_tmp" && [[ -s "$seed_tmp" ]]; then
-            mv "$seed_tmp" "$SEED_FILE"
-            success "Synced to $SEED_FILE (stats counters stripped)"
-        else
-            rm -f "$seed_tmp"
+        seed_content=""
+        seed_content="$(jq -f "$SCRIPT_DIR/lib/model_stats_strip.jq" <<< "$RENDERED_REGISTRY")" || seed_content=""
+        if [[ -z "$seed_content" ]]; then
             warn "Could not render $SEED_FILE without stats counters — seed not synced"
+        else
+            seed_rc=0
+            ait_atomic_write_text_nofollow_if "$SEED_FILE" "$seed_content" registry_unchanged || seed_rc=$?
+            case "$seed_rc" in
+                0) success "Synced to $SEED_FILE (stats counters stripped)" ;;
+                3) warn "$METADATA_FILE changed after this refresh wrote it (a concurrent refresh or writer) — $SEED_FILE not synced; re-run with --sync-seed" ;;
+                *) warn "Could not write $SEED_FILE — seed not synced" ;;
+            esac
         fi
     else
         warn "seed/ directory not found — skipping seed sync"

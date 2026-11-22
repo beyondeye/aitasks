@@ -269,6 +269,59 @@ for run in default portable; do
     assert_eq "$run($mvmode): no residue after a successful write" "0" "$(residue_count "$d" "m640.md")"
 done
 
+# --- no-follow writer with a pre-rename check (t1885) ------------------------
+# ait_atomic_write_text_nofollow_if runs its check AFTER the content is staged
+# and immediately before the rename: a passing check publishes exactly like
+# ait_atomic_write_text_nofollow, a failing one returns 3 with the destination
+# (and any link there) untouched and no temp left behind.
+echo "--- ait_atomic_write_text_nofollow_if ---"
+d="$WORK/nofollow_if"; mkdir -p "$d"
+# The check records what is staged when it runs: proof it runs after staging.
+staged_probe() { find "$d" -maxdepth 1 -name ".$1.*" -exec cat {} \; > "$d/probe.txt"; }
+check_pass() { staged_probe "$1"; return 0; }
+check_fail() { staged_probe "$1"; return 1; }
+
+printf 'OLD\n' > "$d/ok.md"
+rc=0; ait_atomic_write_text_nofollow_if "$d/ok.md" "NEW" check_pass ok.md || rc=$?
+assert_eq "_if: a passing check publishes" "0:NEW" "$rc:$(cat "$d/ok.md")"
+assert_eq "_if: the check runs with the content already staged" "NEW" "$(cat "$d/probe.txt")"
+assert_eq "_if: no residue after a published write" "0" "$(residue_count "$d" "ok.md")"
+
+printf 'OLD\n' > "$d/no.md"
+rc=0; ait_atomic_write_text_nofollow_if "$d/no.md" "NEW" check_fail no.md || rc=$?
+assert_eq "_if: a failing check returns 3" "3" "$rc"
+assert_eq "_if: …publishes nothing" "OLD" "$(cat "$d/no.md")"
+assert_eq "_if: …after the content was staged" "NEW" "$(cat "$d/probe.txt")"
+assert_eq "_if: …and leaves no temp behind" "0" "$(residue_count "$d" "no.md")"
+
+printf 'VICTIM\n' > "$d/victim.md"; ln -s victim.md "$d/link.md"
+rc=0; ait_atomic_write_text_nofollow_if "$d/link.md" "NEW" check_fail link.md || rc=$?
+assert_eq "_if: a refused write keeps the link and its target" "3:victim.md:VICTIM" \
+    "$rc:$(readlink "$d/link.md"):$(cat "$d/victim.md")"
+rc=0; ait_atomic_write_text_nofollow_if "$d/link.md" "NEW" check_pass link.md || rc=$?
+assert_eq "_if: a published write replaces the link, target untouched" "0:no:NEW:VICTIM" \
+    "$rc:$([ -L "$d/link.md" ] && echo yes || echo no):$(cat "$d/link.md"):$(cat "$d/victim.md")"
+
+# Nothing runs between the check and the rename — in particular not the
+# rename-mode probe (`mv --help | grep`), which must come before staging. A
+# shell function shadows mv for this one call and records every invocation.
+for run in default portable; do
+    pm=""; [[ "$run" == portable ]] && pm=1
+    order="$d/order_$run.txt"; : > "$order"
+    mv() { printf 'mv %s\n' "$1" >> "$order"; command mv "$@"; }
+    check_order() { echo check >> "$order"; }
+    AIT_ATOMIC_PORTABLE_MV="$pm" ait_atomic_write_text_nofollow_if "$d/ord_$run.md" "X" check_order
+    unset -f mv
+    after_check="$(sed -n '/^check$/,$p' "$order" | tail -n +2)"
+    if [[ -z "$pm" ]] && grep -q '^mv --help' "$order"; then
+        assert_eq "_if($run): the rename-mode probe runs before the check" "mv --help" \
+            "$(sed -n '/^check$/q;p' "$order" | grep -- '--help' | head -n1)"
+    fi
+    expect_rename="mv -f"
+    if AIT_ATOMIC_PORTABLE_MV="$pm" ait_atomic_nofollow_native; then expect_rename="mv -fT"; fi
+    assert_eq "_if($run): the only step after the check is the rename" "$expect_rename" "$after_check"
+done
+
 echo
 echo "=== Results ==="
 echo "Total:  $TOTAL"

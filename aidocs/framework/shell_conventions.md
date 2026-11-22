@@ -58,7 +58,13 @@ portability quirks (BSD vs GNU tooling) live in
   layout needs that). For a file the script owns at a fixed path, where a link
   planted there must never redirect the write — even one appearing after a
   check — use `ait_atomic_write_text_nofollow`: a link at the target is replaced
-  and a directory there refuses the write.
+  and a directory there refuses the write. When the content is only valid while
+  another file still holds what it was derived from, use
+  `ait_atomic_write_text_nofollow_if "$dest" "$content" check_fn [args...]`. The
+  check runs after the content is staged and is the last thing before the
+  rename. A failing check publishes nothing and returns 3. A check made before
+  an ordinary write call would leave the whole staging step inside the race
+  window.
   **Renderers must not rely on `set -e`.** Bash disables errexit inside a
   function whose exit status is being tested, so a mid-renderer failure followed
   by a successful command commits a partial file — guard every fallible command

@@ -162,7 +162,7 @@ get_cli_model_id() {
         '.models[] | select(.name == $name) | .status // "active"' "$models_file")
 
     if [[ "$model_status" == "unavailable" ]]; then
-        die "Model '$model_name' is unavailable (not currently marked as available by connected providers). Run 'ait opencode-models' to refresh."
+        die "Model '$model_name' is unavailable (not currently marked as available by connected providers). Run /aitask-refresh-code-models (for opencode: bash .aitask-scripts/aitask_opencode_models.sh) to refresh the model list."
     fi
 
     echo "$cli_id"

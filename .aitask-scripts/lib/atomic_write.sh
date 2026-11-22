@@ -205,7 +205,29 @@ ait_atomic_write_text() {
 # fallback (a test seam); ait_atomic_nofollow_native says which path a call
 # takes, so a test derives its expectations from the same decision.
 ait_atomic_write_text_nofollow() {
-    local dest="$1" dir base tmp mode
+    _ait_atomic_nofollow_publish "$1" "$2"
+}
+
+# --- ait_atomic_write_text_nofollow_if <dest> <content> <check_fn> [args...] -
+# ait_atomic_write_text_nofollow, plus a precondition checked at the last
+# moment: `check_fn [args...]` runs AFTER the content is fully staged beside
+# <dest> and immediately BEFORE the rename. A non-zero result discards the temp,
+# publishes nothing and returns 3, so a caller can tell "the precondition no
+# longer held" (3) from a write failure (1). Use it when the content is only
+# valid while some other file still holds what it was derived from: checking
+# before the call leaves the whole staging step inside the race window.
+ait_atomic_write_text_nofollow_if() {
+    _ait_atomic_nofollow_publish "$@"
+}
+
+# _ait_atomic_nofollow_publish <dest> <content> [check_fn [args...]]
+_ait_atomic_nofollow_publish() {
+    local dest="$1" content="$2" dir base tmp mode native=0
+    shift 2
+    # Decide the rename mode FIRST: the probe forks `mv --help | grep`, and
+    # running it between the check and the rename would put that work back
+    # inside the window the check exists to close.
+    ait_atomic_nofollow_native && native=1
     dir="$(cd "$(dirname "$dest")" 2>/dev/null && pwd -P)" || return 1
     base="$(basename "$dest")"
     dest="$dir/$base"
@@ -214,8 +236,14 @@ ait_atomic_write_text_nofollow() {
     [[ -f "$dest" && ! -L "$dest" ]] && mode="$(ait_file_mode "$dest")"
     [[ -n "$mode" ]] || mode="$(printf '%o' $(( 0666 & ~0$(umask) )))"
     chmod "$mode" "$tmp" || { ait_atomic_discard "$tmp"; return 1; }
-    printf '%s\n' "$2" > "$tmp" || { ait_atomic_discard "$tmp"; return 1; }
-    if ait_atomic_nofollow_native; then
+    printf '%s\n' "$content" > "$tmp" || { ait_atomic_discard "$tmp"; return 1; }
+    # The precondition is the last act before the rename: nothing else runs
+    # between them.
+    if (( $# > 0 )) && ! "$@"; then
+        ait_atomic_discard "$tmp"
+        return 3
+    fi
+    if (( native )); then
         mv -fT -- "$tmp" "$dest" || { ait_atomic_discard "$tmp"; return 1; }
         return 0
     fi
