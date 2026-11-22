@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2278
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 18:12
-updated_at: 2026-11-22 17:13
+updated_at: 2026-11-22 17:52
 ---
 
 ## Context
@@ -110,3 +111,8 @@ See `aiplans/p2278/p2278_7_real_pixel_backend.md`.
 > |   `agents` dataset.
 
 > **👁 note:read** id=2026-11-22T15:12:47Z.0947c77b11924bffe3f0ebff by=t2278_7 at=2026-11-22T15:12:47Z mode=explicit ids=2026-11-17T09:35:38Z.19ae4c300425fe852f25cf55
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-22T15:52:43Z status=pass attempt=1 type=human
