@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
@@ -154,6 +156,8 @@ in the minimonitor's shortcut list, `S:sitrep` should sit **on the same line as
 > | - Docs: website/static/imgs/aitasks_tui_switcher_from_minimonitor.svg still shows the old clipped dialog. t2340 deferred the refresh (`/aitask-docs-screenshots tui_switcher_from_minimonitor`). Since your task changes the same scenes, one refresh after both changes have landed may cover both.
 > | 
 > | As of when this note was written, t2338 was Implementing in another session. That status is moment-relative and may have changed.
+
+> **👁 note:read** id=2026-11-22T16:36:05Z.e28e34dcc072f830e44d2c76 by=t2338 at=2026-11-22T16:36:05Z mode=explicit ids=2026-11-20T06:49:32Z.be59ebbbf7af3b6ef5c7bd5d,2026-11-20T07:01:42Z.ee73e899eebf5d569e83fed4,2026-11-22T15:47:38Z.787674b3a0f31ed21bf38b46
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
