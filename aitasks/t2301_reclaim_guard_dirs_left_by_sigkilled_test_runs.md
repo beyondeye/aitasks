@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: enhancement
@@ -55,3 +57,5 @@ the orphaned workers. Reclaim them automatically.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-19T08:21:19Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-22T09:31:42Z status=pass attempt=1 type=human
