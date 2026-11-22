@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-19 15:33
-updated_at: 2026-11-19 22:10
+updated_at: 2026-11-22 17:51
 ---
 
 # Sitrep: a TUI-switcher row (open/switch like other TUIs) + minimonitor hint on the switcher line
@@ -153,3 +154,8 @@ in the minimonitor's shortcut list, `S:sitrep` should sit **on the same line as
 > | - Docs: website/static/imgs/aitasks_tui_switcher_from_minimonitor.svg still shows the old clipped dialog. t2340 deferred the refresh (`/aitask-docs-screenshots tui_switcher_from_minimonitor`). Since your task changes the same scenes, one refresh after both changes have landed may cover both.
 > | 
 > | As of when this note was written, t2338 was Implementing in another session. That status is moment-relative and may have changed.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-22T15:51:19Z status=pass attempt=1 type=human
