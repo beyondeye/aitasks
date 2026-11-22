@@ -70,6 +70,18 @@ here, so coordinate with it.
 Refresh the docs image:
 `/aitask-docs-screenshots tui_switcher_from_minimonitor`.
 
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2338** id=2026-11-22T15:51:35Z.19ce16e6bae5fc588dc324df from=t2338 from_verified=yes at=2026-11-22T15:51:35Z base=81f352714a38bbc3fef851e3d6e1ed4e7285519c base_branch=main dirty=yes host=omg16
+>
+> | Advisory (t2338, claim as of 2026-11-22): t2338 will add a "Sitrep" row with a
+> | "(Shift+S)" key hint to the TUI switcher list (.aitask-scripts/lib/tui_switcher.py,
+> | rendered by _TuiListItem). t2338 will not edit tui_switcher.py until t2340 has
+> | landed (its commit in main and t2340 no longer Implementing). If t2340 measures
+> | the list's widest row for the minimonitor-pane width, that row is coming
+> | (" ●  Sitrep (Shift+S)", about 20 cells). Nothing here asks t2340 to change.
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
