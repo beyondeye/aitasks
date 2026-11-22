@@ -273,3 +273,125 @@ datasets added; the stats relative-date exception; the outcome of the
 any scene declined at review and the re-batch (child 8 reads it).
 
 Post-implementation: Step 9 of the task workflow.
+
+## Implementation log
+
+- **Pre-phase probe_heavy_datasets: PASS (2026-11-21).** `codebrowser`:
+  `./ait codebrowser --focus src/checkout/cart.py` (the real launch flag) opens
+  cart.py with gutter ids t3, t5_2, t6 (t4 further down); `d` shows "Plan for
+  t3" with the archived plan; `h` lists 9 completed tasks with their fixed
+  commit dates (2026-01-12 .. 2026-02-23), t5 shown `[no-code]` with
+  `[+2 children]`; selecting t6 shows its commit, affected file and context.
+  The "Annotations: <time>" stamp is a live clock. `stats`: overview layout,
+  Summary 66 total / 10 last 7 days / 46 last 30 days; Daily completions chart
+  populated over the 30 days before the build day.
+- **Step 1 done.** 12 recipes judged from batch `20261120T070547Z-7c0c5c`
+  PNGs: all still match their pages (no repair). `sitrep_window` replayed on
+  the post-`514783b73` tree (STAGED): the TUI now shows the tab bar
+  `All 4 | Triage 1 | Tasks 2 | Recovery 0 | Watches 1` with the All tab
+  (reference.md: All is a tab, the default), which matches the page and alt.
+  Its `illustrates` / `expect` still described the old list, so it was
+  re-recorded with a clean walk on the same route and `recipe save --replace`
+  (expect now pins the tab counts). Image content unchanged in kind.
+- **Step 2 done.** Datasets `settings`, `codebrowser`, `stats`
+  (`sample_project.py`); build tests in `test_screenshots_sample_project.py`
+  (13 new; negative control: without the archived-file mtime pin
+  `test_dates_are_fixed` fails), live checks in `DatasetSceneTests` (4 new).
+  `settings` carries the seed's per-operation defaults (not the stand-in
+  routing of `agents`): the Agent Defaults tab is about them, and settings
+  launches no agent. `stats` spread widened after the first image showed an
+  unnaturally regular weekly curve.
+- **Step 3 done.** 19 recipes (the inventory is 19 images, not 18):
+  board_main_view, home_board, board_task_detail, board_customize_column,
+  board_commit, home_child_tasks, home_monitor, home_settings,
+  settings_select_model_step1/2, settings_board_tab, settings_models_tab,
+  settings_profiles_tab, codebrowser_main, codebrowser_annotations,
+  codebrowser_annotations_details (renamed output), codebrowser_task_history,
+  home_codebrowser, stats_overview.
+  Sizes: home/* 160x40 (one aspect for the tiles); board 126x44 (task detail
+  140x44: at 126 its Type row and last button are clipped); codebrowser
+  160x44; settings 120x44 (Board tab 120x24, Models tab 120x64 so the second
+  agent's section is in view); sitrep unchanged 140x42.
+  Refused saves fixed by proving focus with a text before the next key:
+  board_commit (Right/Down sent together raced the board's focus → one key per
+  wait on the focused card's `║` border); settings picker (Down/Enter raced →
+  `b`, wait, `a`, wait: `_switch_to_tab` focuses the first row after the
+  refresh the wait proves); codebrowser history (Left/Down raced the list →
+  `H` on a t6 line of cart.py, which opens history at that task).
+- **User decision (step 3, settings picker):** the picker no longer has a
+  "Step 1 agent / Step 2 model + layer" flow (one list at a time,
+  Shift+Left/Right; Enter saves to the layer of the row it was opened on,
+  `settings_app.py:2504-2510`). User: two new states, keep the filenames,
+  rewrite both alt/captions, and update the how-to "Change the Default Model
+  for an Operation". Done in `settings/_index.md` and `settings/how-to.md`.
+- **Step 5 done.** `aidocs/framework/docs_screenshots.md` (datasets, stats
+  exception), skill Step 2.2 dataset list and the dates rule.
+- **Steps 6-8 done.** First candidate batch `20261121T211448Z-c6b2ad`
+  (fingerprints equal) failed `board_customize_column` at its Enter (the
+  manage-columns list was not yet focused) → re-recorded with a wait on the
+  focused row's outline (`█   1. ██ Now`); then the FULL intended set
+  replayed into `20261121T211720Z-b29857`: 20/20 staged, before/after
+  fingerprints and dirty lists equal (HEAD 9da106b5; dirty, other sessions:
+  `aitask_opencode_models.sh`, `lib/agent_string.sh`, `lib/atomic_write.sh`,
+  named in the approval question as touching board_commit, home_monitor,
+  sitrep_window and possibly settings). Every PNG looked at; old typo image
+  rendered and given beside the new one. User: "Apply". `apply`: 20 APPLIED,
+  0 refused. `codebrowser_annotations_details` APPLIED → codebrowser page src
+  renamed and the typo file removed; the unreferenced settings image removed.
+  `check_screenshots.py --strict` PASSED, `--owners` lists only the three
+  logos as hand-made; `check_links.py --build` PASSED.
+- **Verification done.** `bash tests/run_all_python_tests.sh --test-dir tests`
+  → `PYTHON SUITE: PASSED`; `website/screenshots.sh replay --all --no-keep`
+  → 32/32 staged (batch `20261122T085357Z-bd0b65`), `session list` empty;
+  home page and settings page viewed through a local `hugo server` in
+  headless Chromium (home tiles share one aspect; new captions render).
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `website/screenshots/sample_project.py`: datasets `settings`,
+    `codebrowser` (with `ArchivedTask`, `_git`, `_git_env`, `_git_date`,
+    `_set_mtime`, `CODEBROWSER_HISTORY`), `stats` (`_today`, `_stats_tasks`).
+  - 19 new recipes under `website/screenshots/scenes/`; `sitrep_window`
+    re-recorded (`--replace`) for the item-type tab redesign.
+  - 20 images applied from batch `20261121T211720Z-b29857`;
+    `aitasks_codebrowser_w_annotaitions_w_details.svg` renamed to
+    `..._annotations_w_details.svg` (page src updated);
+    `aitasks_settings_code_agent_default_models_tab.svg` deleted.
+  - Docs: settings `_index.md` (picker alt/captions), settings `how-to.md`
+    ("Change the Default Model for an Operation"), codebrowser `_index.md`
+    (src), `aidocs/framework/docs_screenshots.md`, the skill's dataset list
+    and dates rule.
+  - Tests: `test_screenshots_sample_project.py` (Settings/Codebrowser/Stats
+    dataset classes), `test_screenshots_session_live.py` (4 live checks).
+- **Deviations from plan:**
+  - 19 images, not 18 (the task's count was off by one).
+  - The two picker images now show two picker lists instead of a two-step
+    flow the TUI no longer has, with new captions and a rewritten how-to
+    (user decision).
+  - `settings` uses the seed's per-operation defaults instead of the
+    stand-in routing.
+  - `sitrep_window` was in scope (its redesign landed during planning).
+- **Issues encountered:** keys sent before a widget holds focus are
+  dropped on replay; plain screen text does not show focus. Each fix found
+  a text that proves focus (focused card's `║` border, picker row outline
+  `█   1.`) or a route that sets focus itself (`_switch_to_tab` after
+  `b`/`a`; `H` from the code viewer instead of list navigation). Settings'
+  Models tab has no focusable widget, so it cannot be scrolled with keys;
+  a taller pane (120x64) shows the second agent's section instead.
+- **Key decisions:** one shared home size (160x40); recipes never rely on
+  two keys in one `keys` step where the first changes focus; stats dates
+  relative to the build day (documented exception).
+- **Upstream defects identified:**
+  - `.aitask-scripts/codebrowser/history_list.py:470-489 — the "Recently Opened (N)" header is recomputed only in _update_headers (index load / label filter), so opening a task adds it to the recent list while the header still reads "Recently Opened (0)"`
+- **Notes for sibling tasks:**
+  - Child 7 (real pixels) and child 8 (retrospective): every image on the
+    site except the three logos now has a recipe (32 recipes).
+  - Recipes repaired in step 1: only `sitrep_window` (illustrates/expect
+    stale after t2334's tab redesign; image itself still matched).
+  - Primitive still missing (again): a focus indicator in `screen` output;
+    four of the refused saves in this child were focus races.
+  - Sizes: home/* 160x40; board 126x44 (detail 140x44); codebrowser
+    160x44; settings 120x44 (Board 120x24, Models 120x64); stats 160x40.
+  - The capture source fingerprint + saved dirty list per candidate batch
+    (plan step 6) worked; the user's review question named the in-flight
+    paths and the scenes they touch.
