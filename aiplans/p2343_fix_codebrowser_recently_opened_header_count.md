@@ -145,3 +145,10 @@ merge).
   changes) and need a recipe repair · severity: low · → mitigation: none
   (handled by the screenshot skill's repair loop if it happens; report rather
   than hand-edit)
+
+## Final Implementation Notes
+- **Actual work done:** As planned. `RecentlyOpenedList` gained a nested `Changed` message, posted at the end of `_refresh_display()` (so `on_mount`, `set_task_index` and `add_to_history` all announce changes), and a `visible_count` property (history entries present in `_index_map` — exactly the mounted rows). `HistoryLeftPane._update_headers()` now delegates the recent count to a new `_update_recent_header()`, and `on_recently_opened_list_changed` (stops the event) calls it. `history_screen.py` unchanged. New `tests/test_history_recent_header_count.py` (4 pilot tests). Screenshot `website/static/imgs/codebrowser_task_history.svg` regenerated (batch `20261122T155017Z-960510`, `APPLIED ... pages=0`); it now reads `Recently Opened (1)`.
+- **Deviations from plan:** None. Two review concerns raised at plan approval were folded in before implementation: (1) the target SVG itself was guarded — clean `git status`, last commit `f7367ae8a`, working-file sha256 == HEAD blob sha256 (`4709d1e6…`) before replay, the manifest's recorded destination sha256 matched that baseline, and the same checks were re-run immediately before `apply`; (2) the eviction test (`test_unknown_task_evicts_shown_entry_at_cap`) asserts both header `(9)` and mounted row ids after an unknown id is pushed onto a full (`MAX_RECENT`=10) list.
+- **Issues encountered:** None. Pre-fix control: running the new test file against `git show HEAD:` history_list.py in a scratch copy (no restore/stash in the shared worktree) → 3 of 4 FAIL (`'Recently Opened (0)' != '(1)'` ×2, `'(10)' != '(9)'`); `test_preexisting_history_counted_on_load` passes on both, as expected, since `set_data` already refreshed the header.
+- **Key decisions:** Message-based refresh from the list (covers every route that rebuilds rows) rather than a call added at the single `add_to_history` caller. Header text read via `Static.content` (Textual 8.2.7).
+- **Upstream defects identified:** None
