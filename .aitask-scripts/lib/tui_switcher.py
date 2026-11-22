@@ -545,15 +545,33 @@ _OVERLAY_TOGGLE_CLOSES = not (
 )
 
 
+#: The switcher dialog's width in columns — the ``width:`` of ``#switcher_dialog``
+#: in DEFAULT_CSS (pinned together by tests/test_tui_switcher_footer_fit.sh). A
+#: screen narrower than this caps the dialog to the screen and compacts it
+#: (:meth:`TuiSwitcherOverlay._apply_compact`).
+_DIALOG_WIDTH = 44
+
+#: Class put on ``#switcher_dialog`` while it is capped to a narrower screen.
+_COMPACT_CLASS = "-compact"
+
+
 class TuiSwitcherOverlay(ModalScreen):
     """Modal overlay listing known TUIs with status and quick-switch capability."""
 
+    # `max-width: 100%` caps the dialog to a pane narrower than its 44 columns
+    # (minimonitor's 40-column split, or any host in a narrow pane — t2340), and
+    # the hint label re-flows to the capped width. Re-flowed, it is taller, so
+    # the `-compact` rules (set by _apply_compact exactly while the cap engages)
+    # give rows back, and the one-row list minimum keeps the list region equal
+    # to the space clear of the docked footer, so ListView's scroll-to-highlight
+    # never parks the selection under it.
     DEFAULT_CSS = """
     TuiSwitcherOverlay {
         align: center middle;
     }
     #switcher_dialog {
         width: 44;
+        max-width: 100%;
         height: 100%;
         max-height: 30;
         background: $surface;
@@ -588,6 +606,18 @@ class TuiSwitcherOverlay(ModalScreen):
         padding: 1 0 0 0;
         color: $text-muted;
         width: 100%;
+    }
+    #switcher_dialog.-compact {
+        padding: 0 2;
+    }
+    #switcher_dialog.-compact #switcher_title {
+        padding: 0;
+    }
+    #switcher_dialog.-compact #switcher_hint {
+        padding: 0;
+    }
+    #switcher_dialog.-compact #switcher_list {
+        min-height: 1;
     }
     """
 
@@ -648,7 +678,9 @@ class TuiSwitcherOverlay(ModalScreen):
         # Whether the switcher's dialogs (currently the raw-agent
         # AgentCommandScreen) render in the narrow small-pane layout. Set by the
         # host App via _switcher_narrow() — True for minimonitor, False for the
-        # wide TUIs (board, full monitor). See action_shortcut_agent.
+        # wide TUIs (board, full monitor). See action_shortcut_agent. The
+        # switcher dialog's own compaction is width-driven instead
+        # (_apply_compact), so it does not read this flag.
         self._narrow = narrow
         self._running_names: set[str] = set()
         # Multi-session state. Populated in on_mount via
@@ -713,6 +745,9 @@ class TuiSwitcherOverlay(ModalScreen):
             yield Label("", id="switcher_hint")
 
     def on_mount(self) -> None:
+        # First, so the compact layout is in place before the list is
+        # populated (its reveal reads the class).
+        self._apply_compact(self.app.size.width)
         # include_registered=True surfaces projects from the per-user
         # registry (~/.config/aitasks/projects.yaml) even when no live
         # tmux session exists for them. Selecting one bootstraps its
@@ -730,6 +765,51 @@ class TuiSwitcherOverlay(ModalScreen):
         self._render_session_row()
         self._render_desync_line(self._selected_project_root())
         self._populate_list_for(self._session)
+
+    # ─── Narrow-screen compaction (t2340) ───────────────────────────────────
+
+    def on_resize(self, event) -> None:
+        # A resize changes the list's size without repopulating it or moving
+        # its index, so the compaction and the reveal are re-applied here.
+        self._apply_compact(event.size.width)
+
+    def _apply_compact(self, width: int) -> None:
+        """Compact the dialog exactly while it is capped to a narrower screen.
+
+        Keyed on the effective width, not the host's ``narrow`` flag: the cap
+        (``max-width: 100%``) engages for any host whose screen is narrower than
+        the dialog, and the compaction must go with it.
+        """
+        dialogs = self.query("#switcher_dialog")
+        if not dialogs:
+            return
+        dialogs.first().set_class(width < _DIALOG_WIDTH, _COMPACT_CLASS)
+        self._schedule_reveal()
+
+    def _schedule_reveal(self) -> None:
+        # Only a mounted overlay has a layout to wait for (unit tests drive
+        # _populate_list_for on unmounted overlays with stubbed queries).
+        if self.is_mounted:
+            self.call_after_refresh(self._reveal_selection)
+
+    def _reveal_selection(self) -> None:
+        """Scroll the highlighted row into view once the layout has settled.
+
+        The index is set before the list has its final size, and a resize
+        changes that size, so ListView's own scroll-on-highlight can leave the
+        selection under the docked hint. Wide layouts are left exactly as they
+        were: no-op without the compact class.
+        """
+        dialogs = self.query("#switcher_dialog")
+        lists = self.query("#switcher_list")
+        if not dialogs or not lists:
+            return
+        if not dialogs.first().has_class(_COMPACT_CLASS):
+            return
+        list_view = lists.first(ListView)
+        if list_view.highlighted_child is None:
+            return
+        list_view.scroll_to_widget(list_view.highlighted_child, animate=False)
 
     def _resolve_companion_target(self) -> _CompanionTarget | None:
         """The host TUI's own window, when a companion may be offered there.
@@ -1145,6 +1225,7 @@ class TuiSwitcherOverlay(ModalScreen):
 
         if first_selectable_idx is not None:
             list_view.index = first_selectable_idx
+            self._schedule_reveal()
 
     def action_dismiss_overlay(self) -> None:
         self.dismiss(None)

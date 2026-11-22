@@ -63,6 +63,10 @@ print("LIST_HEIGHT_FR:" + str("height: 1fr" in list_block))
 print("LIST_MIN_HEIGHT:" + str("min-height: 3" in list_block))
 print("DIALOG_HEIGHT_100:" + str("height: 100%" in dialog_block))
 print("DIALOG_MAX_HEIGHT_30:" + str("max-height: 30" in dialog_block))
+# t2340: the dialog caps to a narrower pane, and _DIALOG_WIDTH (which decides
+# when the compact layout applies) is the CSS width.
+print("DIALOG_MAX_WIDTH_100:" + str("max-width: 100%" in dialog_block))
+print("DIALOG_WIDTH_CONST:" + str(f"width: {ts._DIALOG_WIDTH};" in dialog_block))
 
 
 # --- _render_session_row: single-session hides the row ---
@@ -103,6 +107,8 @@ while IFS=':' read -r key val; do
         LIST_MIN_HEIGHT)         LIST_MIN_HEIGHT="$val" ;;
         DIALOG_HEIGHT_100)       DIALOG_HEIGHT_100="$val" ;;
         DIALOG_MAX_HEIGHT_30)    DIALOG_MAX_HEIGHT_30="$val" ;;
+        DIALOG_MAX_WIDTH_100)    DIALOG_MAX_WIDTH_100="$val" ;;
+        DIALOG_WIDTH_CONST)      DIALOG_WIDTH_CONST="$val" ;;
         SINGLE_ROW_UPDATE_CALL)  SINGLE_ROW_UPDATE_CALL="$val" ;;
         SINGLE_ROW_DISPLAY)      SINGLE_ROW_DISPLAY="$val" ;;
         MULTI_ROW_DISPLAY)       MULTI_ROW_DISPLAY="$val" ;;
@@ -116,6 +122,8 @@ assert_eq "list has height:1fr"             "True" "$LIST_HEIGHT_FR"
 assert_eq "list has min-height:3"           "True" "$LIST_MIN_HEIGHT"
 assert_eq "dialog has height:100%"          "True" "$DIALOG_HEIGHT_100"
 assert_eq "dialog keeps max-height:30"      "True" "$DIALOG_MAX_HEIGHT_30"
+assert_eq "dialog caps width to screen"     "True" "$DIALOG_MAX_WIDTH_100"
+assert_eq "_DIALOG_WIDTH is the CSS width"  "True" "$DIALOG_WIDTH_CONST"
 
 assert_eq "single-session row.update('')"   ""     "$SINGLE_ROW_UPDATE_CALL"
 assert_eq "single-session row hidden"       "False" "$SINGLE_ROW_DISPLAY"
