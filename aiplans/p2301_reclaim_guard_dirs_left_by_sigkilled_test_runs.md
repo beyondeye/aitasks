@@ -431,3 +431,32 @@ never leaks into nested runs. Set it after sourcing.
 - **Mutants:** M26 = the exact round-4 source selection (reds every (ag) case,
   including the normal-exit one), M27 = no `<dir> …` rule (reds ae/typesuffix);
   M0–M27 re-run on the final code.
+
+### Change Request 6 (2026-11-22)
+- **Requested by user (direction, not a finding):** address both socket
+  findings (relative-path rows, "@" rows) with one check scoped to each stale
+  directory: after the mount check and before any recursive chmod/removal, look
+  for socket files anywhere inside the candidate; keep it on a socket or a
+  failed scan; use that IN PLACE of the host-wide /proc/net/unix veto. Stale
+  socket files may be left for manual cleanup; whether a socket still has a
+  live listener is a follow-up.
+- **Changes made:** `_tg_scan_unix_sockets` and the net/unix block in
+  `_tg_scan_holders` removed (the holder scan no longer reads net/unix at all,
+  and `held:socket` is gone). New step 6, `_tg_socket_under <dir>`:
+  `find <dir> -type s -print -quit`; a hit → `keep:socket:<path>`, a failing
+  walk → `keep:socket-scan-failed`, else on to the removal. It runs on every
+  platform (find is portable), right after the mount check. Header ladder
+  updated (step 4 no longer mentions sockets; step 6 documents the stale-socket
+  policy). Real-/proc scan here: 0.73s (no net/unix parse).
+- **Tests:** the six net/unix cases of (v) removed; new (ah): a socket at the
+  top of the dir and one nested two levels down keep it (`socket:<path>`, socket
+  and data intact); an unrelated abstract (and a relative) socket in the host
+  table no longer blocks an otherwise eligible dir (reclaimed); a failed walk
+  keeps the dir — an unreadable subdirectory (non-root) and an injected find
+  failure (any uid). 277/277 pass.
+- **Mutants:** M10 → step 6 skipped (reds ah/top, ah/nested and the failure
+  cases), M15 → failed walk read as "none" (reds ah/unreadable, ah/injected),
+  M29 → the old net/unix "@" veto re-injected (reds exactly ah/abstract);
+  M0–M29 re-run on the final code (M28 unused).
+- **Follow-up (deferred by the user):** whether a socket file under a stale dir
+  still has a live listener — to be filed as a separate task.
