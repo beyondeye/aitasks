@@ -219,3 +219,89 @@ HOME-set path, which the existing setup and resolve tests cover.)
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-22 18:40)
+- **Requested by user:** (1) the direct resolver-caller case used
+  `aitask_add_model.sh --help`, which runs `require_jq` before dispatch, so a
+  jq-less restricted PATH fails it for an unrelated reason; use
+  `aitask_change_surface.sh --help`. (2) the fixture took `resolve_python`'s
+  answer as the interpreter, but that can be a wrapper (AIT_PYTHON, or setup's
+  `~/.aitask/bin/python3` = `exec "$HOME/.aitask/venv/bin/python"`) that needs
+  HOME inside the no-HOME children; reduce it to `sys.executable` in the parent.
+- **Changes made:** both, verified. `aitask_add_model.sh:542` does call
+  `require_jq` first; `aitask_change_surface.sh --help` prints its usage with
+  `AIT_PYTHON=/bin/false` under `env -i PATH=/usr/bin:/bin` (no interpreter or
+  external tool needed). `REAL_PY` is now `"$(resolve_python)" -c 'import sys;
+  print(sys.executable)'`, the same technique as `tests/test_python_resolve_pypy.sh:20`.
+  Result: 49/49 normally and 49/49 with
+  `AIT_PYTHON=$HOME/.aitask/bin/python3` (the reproduction).
+- **Files affected:** `tests/test_python_resolve_unset_home.sh`
+
+## Final Implementation Notes
+- **Actual work done:** As planned, plus the two review-added sites.
+  `lib/python_resolve.sh`: the `PYPY_VENV_DIR` default and both HOME-based
+  `resolve_python` candidates use `${HOME:+…}`, and the `resolve_pypy_python`
+  venv candidate is `${PYPY_VENV_DIR:+…}`, so the venv candidate is empty, never
+  `/bin/python`. `lib/aitask_path.sh` prepends nothing without HOME.
+  `ait`'s `check_for_updates` returns early without HOME. `aitask_setup.sh`
+  refuses an unset or empty HOME before deriving any install path. The
+  three-bridge comments and `tests/test_shell_bridge_python_resolve.sh` comment
+  are reworded. New test `tests/test_python_resolve_unset_home.sh`: 49 assertions.
+- **Deviations from plan:** (1) The direct entry points are
+  `aitask_change_surface.sh` (python_resolve.sh directly) and
+  `aitask_brainstorm_context.sh` (aitask_path.sh first). `aitask_add_model.sh`
+  was replaced after review because it runs `require_jq` before `--help`.
+  `aitask_board_column.sh` was rejected because its `--help` is argparse via
+  modules importing `yaml`. (2) The isolated sweep found one library-level site
+  the plan did not list: `lib/aitasks_home.sh:19`, hit by `aitask_engine.sh`
+  and `aitask_testmap.sh`. It was left unchanged on purpose. It owns
+  `$AITASKS_HOME`, the engine install/prune/migrate root, so an empty or
+  root-level default would send engine writes to `/engine/…`. It also already
+  honours an explicit `AITASKS_HOME`. The correct fix is a clear refusal, like
+  setup's (see Upstream defects).
+- **Issues encountered:** `--help` is not a safe probe for every script:
+  `aitask_lock_diag.sh` ignores it and runs `git fetch origin <lock branch>`.
+  The planning-time sweep ran once in the real tree. The `origin/aitask-locks`
+  reflog shows only push updates, so nothing was fetched. Later sweeps ran in a
+  scratch copy outside any git repo, with lock_diag excluded.
+- **Key decisions:** use `${HOME:+…}` over the suggested `${HOME:-}`, which
+  would have produced root-level `/.aitask/…` defaults. Setup refuses with a
+  plain `echo`/`exit` (`die` is not defined yet at that point). The setup test
+  only sources setup with `--source-only`, so a regressed guard cannot reach
+  `main`.
+- **Pre-fix control (verbatim evidence).** The driver,
+  `scratchpad/prefix_control.sh`, builds one fixture per guard: the fixed tree
+  with exactly one file reverted via `git show HEAD:<file>`. It runs targeted
+  probes from an empty cwd under `env -i PATH=/usr/bin:/bin`. Output:
+  ```
+  OK   old python_resolve, HOME unset                                 rc=1 :: <fx>/pr/.aitask-scripts/lib/python_resolve.sh: line 38: HOME: unbound variable
+  OK   old python_resolve, HOME= -> root-level default                rc=0 :: PYPY=/.aitask/pypy_venv
+  OK   old aitask_path, HOME unset                                    rc=1 :: <fx>/ap/.aitask-scripts/lib/aitask_path.sh: line 16: HOME: unbound variable
+  OK   old aitask_path, HOME= -> PATH gains /.aitask/bin              rc=0 :: PATH=/.aitask/bin:/usr/bin:/bin
+  OK   old ait (libs fixed), ait ls --help, HOME unset                rc=1 :: <fx>/ait/ait: line 135: HOME: unbound variable
+  OK   old ait (libs fixed), ait crew init --help (skip list)         rc=0 :: Usage: ait crew init --id <crew_id> [options] ...
+  OK   old setup (libs fixed), --source-only, HOME= -> EMPTY pypy     rc=0 :: PYPY=[]
+  OK   old setup (libs fixed), --source-only, HOME unset              rc=1 :: <fx>/st/.aitask-scripts/aitask_setup.sh: line 8: HOME: unbound variable
+  UNEXPECTED=0
+  ```
+  Probe shape (python_resolve row 1):
+  `env -i PATH=/usr/bin:/bin bash -c 'set -euo pipefail; source "$1/python_resolve.sh"' _ <fixture>/.aitask-scripts/lib`.
+  The setup rows use `bash -c 'source "$1" --source-only; printf "PYPY=[%s]\n" "$PYPY_VENV_DIR"' _ <fixture>/.aitask-scripts/aitask_setup.sh`.
+  The ait rows use `env -i PATH=/usr/bin:/bin AIT_PYTHON=<venv py> bash <fixture>/ait ls --help`.
+- **Verification run:** new test 49/49 (also 49/49 with
+  `AIT_PYTHON=$HOME/.aitask/bin/python3`). Regression tests pass:
+  test_python_resolve, test_python_resolve_pypy,
+  test_shell_bridge_python_resolve, test_aitasks_home,
+  test_stats_tui_dispatch, test_setup_python_install,
+  test_setup_pip_install_guards (147/147) and test_setup_verify_venv_imports
+  (30/30). Shellcheck at warning level shows no new findings against HEAD in the
+  four changed scripts, and the new test is clean. The isolated sweep leaves only
+  script-own HOME lines (`aitask_agent_marks.sh:55`,
+  `aitask_agent_sessions.sh:132`, `aitask_plan_externalize.sh:142`,
+  `aitask_project_resolve.sh:77`, `aitask_projects.sh:47`,
+  `aitask_questions_mcp.sh:34`), plus `lib/aitasks_home.sh:19` ×2 and setup's
+  explicit "needs HOME" refusal.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/aitasks_home.sh:19 — AITASKS_HOME default expands $HOME at source time, so aitask_engine.sh / aitask_testmap.sh abort with a raw "HOME: unbound variable" when HOME is unset (an empty HOME instead yields a root-level /.aitasks); it should refuse clearly, as aitask_setup.sh now does, rather than default to empty`
