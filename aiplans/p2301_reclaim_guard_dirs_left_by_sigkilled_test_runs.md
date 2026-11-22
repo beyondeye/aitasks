@@ -247,14 +247,14 @@ never leaks into nested runs. Set it after sourcing.
 - Under the user-chosen strict rule for uninspectable processes, reclaim
   practically never fires on a non-root systemd dev host (`sd-pam`), so the
   "reclaim automatically" goal is realized mainly for root/CI runs. The user
-  accepted this knowingly, and it is documented. · severity: medium · → mitigation: stronger_holder_evidence_for_guard_reclaim
+  accepted this knowingly, and it is documented. · severity: medium · → mitigation: t2345 (stronger_holder_evidence_for_guard_reclaim)
 - The positive reclaim path is exercised against a fixture proc root, not the
   real `/proc`. The real-`/proc` cases only prove the keep directions.
   · severity: low · → mitigation: none
 
 ### Planned mitigations
 - timing: post-phase | name: reclaim_guard_mutants | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: Code-health — a verdict-ladder bug deleting an in-use dir | desc: Isolated scratch-copy mutants (owner, pgid, held, uninspectable, phase-unrecorded) must each turn only their own test cases red
-- timing: after | name: stronger_holder_evidence_for_guard_reclaim | type: enhancement | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: Goal-achievement — reclaim practically inert on non-root systemd hosts under the strict uninspectable rule | desc: Research and prototype stronger evidence (per-run cgroup / systemd-run --user scope membership, or a narrowly privileged inspector) that would let a non-root host prove a guard dir unused without trusting process start time
+- timing: after | name: stronger_holder_evidence_for_guard_reclaim | type: enhancement | priority: low | effort: medium | inline_risk: low | added_complexity: medium | addresses: Goal-achievement — reclaim practically inert on non-root systemd hosts under the strict uninspectable rule | desc: Research and prototype stronger evidence (per-run cgroup / systemd-run --user scope membership, or a narrowly privileged inspector) that would let a non-root host prove a guard dir unused without trusting process start time | created: t2345
 
 ## Post-Review Changes
 
