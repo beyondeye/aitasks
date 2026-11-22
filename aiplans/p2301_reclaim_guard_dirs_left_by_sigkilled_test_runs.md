@@ -476,3 +476,149 @@ never leaks into nested runs. Set it after sourcing.
   control: the absolute-path bind of a 217-character dir raises
   `AF_UNIX path too long`, the basename bind succeeds. M0/M10/M15/M29 re-run
   (still red on their own (ah) cases; M0 green). Strict mode passes.
+
+## Final Implementation Notes
+- **Actual work done:** `tests/lib/tmpdir_guard.sh` records each run (owner
+  pid + start-time identity, a `phase_start`/`phase <pgid>` pair per phase) in a
+  private control dir beside the guard dir, and `tmpdir_guard_begin` reclaims a
+  killed run's guard dir only through a six-step positive-evidence ladder:
+  (1) metadata strictly parsed, owned, owner-rw, token shape per kind;
+  (2) owner dead by `lock_holder_liveness`; (3) no unrecorded phase, every pgid
+  empty; (4) complete process view (no hiding hidepid) and no process with its
+  cwd / an fd / environ / cmdline under the dir (Linux /proc; `lsof +w +D` as
+  root elsewhere); (5) nothing mounted at or below it (whole table, kernel table
+  on Linux, every split of BSD `mount` rows); (6) no socket file inside it.
+  Anything unverifiable is kept and reported with a reason. 279 tests in
+  `tests/test_tmpdir_guard.sh` (84 before); one sentence in `CLAUDE.md`.
+- **Deviations from plan:** metadata lives in a sibling control dir
+  (`.<dirname>.ait_guard_meta/meta`, made by `mkdir -m 700`) instead of inside the
+  guard dir (t2302's rmdir cases, the phase's view of its TMPDIR, symlink
+  planting); test cases lettered (p)–(ah) because t2302 used (n)/(o); seven
+  review rounds added: intent-before-launch with confirmed invalidation or an
+  outside launch, hidepid completeness, mount checks (also in
+  `tmpdir_guard_end`, which now never recurses into a found or unverifiable
+  mount), cat-based reads, NUL-delimited discovery, observed-outcome messages,
+  and — on the user's direction — a per-candidate socket-file scan replacing the
+  host-wide `/proc/net/unix` veto. See "Post-Review Changes" 1–7.
+- **Issues encountered:** a `while … done < file || return` loop's status is
+  its last body command's (a false `[[ ]] &&` read as a failed redirection);
+  `[!-~]` ranges are locale-dependent in bash regexes (use `[[:graph:]]`);
+  peeling lines off a string is quadratic (1.4s on a 1089-row net/unix) — one
+  `mapfile` per text instead; GNU `readlink` is silent on errors without `-v`;
+  util-linux `mount` stdout is not BSD-format; `bind()` overflows `sun_path` on
+  a long absolute path.
+- **Key decisions:** unknown is never rounded up to dead (user decision
+  2026-11-15: uninspectable processes keep every candidate, so on a non-root
+  systemd host reclaim is practically root/CI-only); a phase whose record can
+  neither be extended nor provably invalidated runs outside the guard rather
+  than under a record that omits it; stale socket files are left for manual
+  cleanup (user, round 6).
+- **Upstream defects identified:**
+  - `tests/lib/tmpdir_guard.sh:tmpdir_guard_end` — the leftover listing (t2290/t2302 code) still splits `find` output on newlines, so a leftover whose name contains a newline is reported as two entries; the count errs high, so strict mode stays fail-safe.
+- **Mutant controls (post-phase `reclaim_guard_mutants`, run on the final
+  code).** Script, verbatim (run as `bash mutants.sh <repo> <scratch-out>`; it
+  copies the files into a scratch tree and never edits the worktree):
+
+```bash
+#!/usr/bin/env bash
+# t2301 post-phase: isolated mutant controls. Copies the guard, its test and
+# their dependencies into a scratch tree with the same relative layout, applies
+# each mutant to the SCRATCH tmpdir_guard.sh only, runs the scratch test, and
+# prints which assertions failed. The worktree is never edited.
+set -uo pipefail
+REPO="$1"; OUT="$2"
+rm -rf "$OUT"; mkdir -p "$OUT"
+FILES=(tests/lib/tmpdir_guard.sh tests/test_tmpdir_guard.sh tests/run_shell_test.sh
+       tests/lib/asserts.sh tests/lib/proc_fixtures.sh
+       .aitask-scripts/lib/pid_anchor.sh .aitask-scripts/lib/python_resolve.sh)
+
+# name<TAB>sed expression<TAB>expected-red case prefixes
+MUTANTS=(
+  $'M0\ts/^$/&/\t(none: unmutated baseline)'
+  $'M1\ts/^        alive) _tg_verdict=live; return 0 ;;$/        alive) ;;/\tr: control'
+  $'M2\ts/^        \\*"No such process"\\*) _tg_pg_state=empty ;;$/        *) _tg_pg_state=empty ;;/; s/^    if err="\\$(LC_ALL=C kill -0 -- "-\\$1" 2>\\&1)"; then _tg_pg_state=live; return 0; fi$/    _tg_pg_state=empty; return 0/\tt:'
+  $'M3\ts/_tg_held\\[i\\]="held:\\$pid"/:/; s/_tg_held\\[i\\]="held:socket"/:/\tu: v/'
+  $'M4\ts/elif (( _tg_uninspectable > 0 )); then/elif false; then/\tw/fd w/environ'
+  $'M5\ts/{ _tg_m_unrecorded="\\$seq"; break; }/{ :; break; }/\tx/unrecorded'
+  $'M6\ts/_tg_meta_invalidate "could not record phase \\$seq before launching it"/:/\taa/'
+  $'M7\ts/^    _tg_proc_view_complete || return 2$/    true || return 2/\ty/'
+  $'M8\ts/mkdir -m 700 -- "\\$_tg_meta_dir"/mkdir -p -m 700 -- "$_tg_meta_dir"/; s/if \\[\\[ -L "\\$_tg_meta_dir" || ! -d "\\$_tg_meta_dir" || ! -O "\\$_tg_meta_dir" \\]\\]; then/if false; then/\tab:'
+  $'M9\ts/elif (( rc == 1 )) \\&\\& \\[\\[ -z "\\$out" \\]\\]; then/elif (( rc == 1 )); then/\tz/warning'
+  $'M10\ts/^                _tg_socket_under "\\$f" || src=\\$?$/                src=1/\tah/top ah/nested'
+  $'M11\ts/^            _tg_token_ok "\\$_tg_m_kind" "\\$_tg_m_token" || return 2$/            true || return 2/\tx/badtoken x/badbsd x/livebad'
+  $'M12\ts/\\[\\[ "\\$_TG_META_STATE" == broken \\]\\] \\&\\& outside=1/:/\tac'
+  $'M13\ts/_tg_mounts_under "\\$f" || mrc=\\$?/mrc=1/\tad/below ad/at ad/spaced ad/garbled'
+  $'M14\ts/cat -- "\\$@" 2>\\/dev\\/null \\&\\& printf x/cat -- "$@" 2>\\/dev\\/null; printf x/\tv/sockdir w/environdir x/readerror y/readpartial'
+  $'M15\ts/^    (( rc == 0 )) || return 2$/    :/\tah/unreadable ah/injected'
+  $'M16\ts/lsof +w -F p/lsof -F p/\tz/'
+  $'M17\ts/^        if (( mrc == 0 )); then$/        if false; then/\tad/end'
+  $'M18\ts/^    if _tg_meta_confirmed_unusable "\\$f"; then$/    if [[ ! -e "$f" \\&\\& ! -L "$f" ]] || ! find "$f" -prune -perm -u=r 2>\\/dev\\/null | grep -q .; then/\tac[rm chmod find] ac[find]'
+  $'M19\ts/^    (( mrc == 0 )) \\&\\& return 1$/    :/; s/^    rmdir -- "\\$c" 2>\\/dev\\/null$/    rm -rf -- "$c" 2>\\/dev\\/null/\tad/ctl'
+  $'M20\ts/^            rest="\\${rest#\\* on }"$/            rest="${rest#* on }"; rest="${rest\\/\\/" on "\\/ON}"/\tae/ambiguous'
+  $'M21\ts/^            unknown=1; continue$/            return 2/\tae/badthenclear'
+  $'M22\ts/^                unknown=1; continue                                 # a row we cannot read$/                return 2/\tad/garbledthenbelow'
+  $'M23\ts/^        elif (( mrc == 2 )); then$/        elif false; then/\tad/end-unverified'
+  $'M24\ts/ -print0 2>\\/dev\\/null | LC_ALL=C sort -z)/ 2>\\/dev\\/null | LC_ALL=C sort)/; 0,/^    while IFS= read -r -d .. f; do$/s//    while IFS= read -r f; do/\taf:'
+  $'M25\ts/^            if \\[\\[ "\\$outcome" == removed \\]\\]; then$/            if true; then/\tad/end'
+  $'M26\ts/^    elif \\[\\[ "\\$_TG_OSTYPE" == linux\\* \\]\\]; then$/    elif false; then/; s/^        \\*) return 2 ;;                                  # a `mount` format we do not know$/        *) ;;/; s/ || "\\$rest" == "\\$f "\\* \\]\\]; then$/ ]]; then/\tag/'
+  $'M27\ts/ || "\\$rest" == "\\$f "\\* \\]\\]; then$/ ]]; then/\tae/typesuffix'
+  $'M29\ts/^    _tg_buf=""$/    grep -q " @" "$root\\/net\\/unix" 2>\\/dev\\/null \\&\\& _tg_uninspectable=$((_tg_uninspectable + 1)); _tg_buf=""/\tah/abstract'
+)
+
+for m in "${MUTANTS[@]}"; do
+    IFS=$'\t' read -r name expr want <<<"$m"
+    tree="$OUT/$name"
+    for f in "${FILES[@]}"; do mkdir -p "$tree/$(dirname "$f")"; cp -p "$REPO/$f" "$tree/$f"; done
+    sed -i "$expr" "$tree/tests/lib/tmpdir_guard.sh"
+    changed="$(diff "$REPO/tests/lib/tmpdir_guard.sh" "$tree/tests/lib/tmpdir_guard.sh" | grep -c '^>')"
+    bash "$tree/tests/test_tmpdir_guard.sh" >"$tree/run.out" 2>&1; rc=$?
+    reds="$(grep '^FAIL: ' "$tree/run.out" | sed 's/^FAIL: //; s/ (expected.*//' | sort -u | paste -sd ';' -)"
+    printf '%s | lines mutated: %s | exit %s | expected red: %s | red: %s\n' "$name" "$changed" "$rc" "$want" "${reds:-<none>}"
+done
+```
+
+  Result, verbatim (exit 1 = the scratch suite failed; red = the assertions
+  that failed, by case):
+
+```
+M0 | lines mutated: 0 | exit 0 | expected red: (none: unmutated baseline) | red cases: <none>
+M1 | lines mutated: 1 | exit 1 | expected red: r: control | red cases: r 
+M2 | lines mutated: 2 | exit 1 | expected red: t: | red cases: t 
+M3 | lines mutated: 1 | exit 1 | expected red: u: v/ | red cases: u v/cmdline v/cwd v/environ v/fd 
+M4 | lines mutated: 1 | exit 1 | expected red: w/fd w/environ | red cases: w/environ w/environdir w/fd 
+M5 | lines mutated: 1 | exit 1 | expected red: x/unrecorded | red cases: x/unrecorded 
+M6 | lines mutated: 1 | exit 1 | expected red: aa/ | red cases: aa/both aa/file ac[control] ac[find] ac/kill ac[rm chmod] ac[rm chmod find] ac[rmok chmodok] 
+M7 | lines mutated: 1 | exit 1 | expected red: y/ | red cases: y/none-listed y/readerror y/readpartial y/rw,hidepid=2 y/rw,hidepid=4 y/rw,hidepid=invisible y/rw,hidepid=ptraceable y/unreadable 
+M8 | lines mutated: 2 | exit 1 | expected red: ab: | red cases: ab 
+M9 | lines mutated: 1 | exit 1 | expected red: z/warning | red cases: z/warning 
+M10 | lines mutated: 1 | exit 1 | expected red: ah/top ah/nested | red cases: ah/injected ah/nested ah/top ah/unreadable 
+M11 | lines mutated: 1 | exit 1 | expected red: x/badtoken x/badbsd x/livebad | red cases: x/badbsd x/badtoken x/livebad 
+M12 | lines mutated: 1 | exit 1 | expected red: ac | red cases: ac[find] ac/kill ac[rm chmod] ac[rm chmod find] ac[rmok chmodok] 
+M13 | lines mutated: 1 | exit 1 | expected red: ad/below ad/at ad/spaced ad/garbled | red cases: ad/at ad/below ad/garbled ad/garbledthenbelow ad/spaced ae/ambiguous ae/ambthenclear ae/badrow ae/badthenclear ae/fail ae/nested ae/typesuffix ag/selfhit ag/selfmissing ag/unknownos 
+M14 | lines mutated: 1 | exit 1 | expected red: v/sockdir w/environdir x/readerror y/readpartial | red cases: ag/selfmissing w/environ w/environdir x/readerror y/readpartial 
+M15 | lines mutated: 1 | exit 1 | expected red: ah/unreadable ah/injected | red cases: ah/injected ah/unreadable 
+M16 | lines mutated: 1 | exit 1 | expected red: z/ | red cases: z/holder z/silent z/warning 
+M17 | lines mutated: 1 | exit 1 | expected red: ad/end | red cases: ad/end ag/end 
+M18 | lines mutated: 1 | exit 1 | expected red: ac[rm chmod find] ac[find] | red cases: ac[find] ac[rm chmod find] 
+M19 | lines mutated: 1 | exit 1 | expected red: ad/ctl | red cases: ad/ctl 
+M20 | lines mutated: 1 | exit 1 | expected red: ae/ambiguous | red cases: ae/ambiguous 
+M21 | lines mutated: 1 | exit 1 | expected red: ae/badthenclear | red cases: ae/badthenclear 
+M22 | lines mutated: 1 | exit 1 | expected red: ad/garbledthenbelow | red cases: ad/garbledthenbelow 
+M23 | lines mutated: 1 | exit 1 | expected red: ad/end-unverified | red cases: ad/end-unverified 
+M24 | lines mutated: 2 | exit 1 | expected red: af: | red cases: af 
+M25 | lines mutated: 1 | exit 1 | expected red: ad/end | red cases: ad/end ad/end-unverified 
+M26 | lines mutated: 3 | exit 1 | expected red: ag/ | red cases: ae/typesuffix ag/end ag/selfhit ag/selfmissing ag/unknownos 
+M27 | lines mutated: 1 | exit 1 | expected red: ae/typesuffix | red cases: ae/typesuffix 
+M29 | lines mutated: 1 | exit 1 | expected red: ah/abstract | red cases: ah/abstract 
+```
+
+  M28 is unused. M0 is the unmutated baseline. Every mutant reds only cases
+  that go through the guard it breaks; where that set is wider than the
+  "expected" column, the extra cases reach the same code by another route:
+  M4 (every uninspectable process: w/environdir); M6 (all of (ac) start with the
+  same failed intent append); M10 (step 6's failure branch is skipped with it);
+  M13 (every mounted/unverified verdict of the reaper, including the off-Linux
+  (ae) and Linux-fallback (ag) cases); M14 (ag/selfmissing is a read of a
+  missing kernel table through the same cat-based read); M17/M25 (ag/end and
+  ad/end-unverified use the same end() check and message); M26 also drops the
+  `<dir> …` rule, hence ae/typesuffix.
