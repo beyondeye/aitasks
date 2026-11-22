@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2278
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-22 11:12
-updated_at: 2026-11-22 11:49
+updated_at: 2026-11-22 17:48
 ---
 
 ## Origin
@@ -42,3 +43,8 @@ Recompute the header whenever the recently-opened list changes (call the
 header update after a task is added to / removed from `RecentlyOpenedList`),
 and regenerate the `codebrowser_task_history` screenshot
 (`website/screenshots.sh replay --scene codebrowser_task_history`).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-22T15:48:32Z status=pass attempt=1 type=human
