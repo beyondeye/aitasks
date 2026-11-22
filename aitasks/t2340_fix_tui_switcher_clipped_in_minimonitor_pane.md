@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2278
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-20 09:01
-updated_at: 2026-11-20 09:04
+updated_at: 2026-11-22 11:47
 ---
 
 ## Origin
@@ -65,3 +66,8 @@ here, so coordinate with it.
 
 Refresh the docs image:
 `/aitask-docs-screenshots tui_switcher_from_minimonitor`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-22T09:47:06Z status=pass attempt=1 type=human
