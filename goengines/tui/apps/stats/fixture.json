@@ -1,0 +1,87 @@
+{
+  "_note": "Single authoritative seeded fixture for the stats-panes demo (t13_4). Loaded by BOTH twins: Go via //go:embed (statsdata.go), Python via json.load of ../go/fixture.json (py/demo.py). Pre-derived display series only (NOT raw stats_data.py Counters) so both twins render deterministically. Edit here once; never re-declare literals in either twin.",
+  "summaries": {
+    "alpha":  {"total": 128, "last7": 12, "last30": 47, "today": 3},
+    "beta":   {"total": 86,  "last7": 8,  "last30": 31, "today": 1},
+    "gamma":  {"total": 54,  "last7": 5,  "last30": 19, "today": 2},
+    "delta":  {"total": 22,  "last7": 2,  "last30": 9,  "today": 0},
+    "*all*":  {"total": 290, "last7": 27, "last30": 106, "today": 6}
+  },
+  "breakdown": [
+    {"name": "alpha", "today": 3, "d7": 12, "d30": 47},
+    {"name": "beta",  "today": 1, "d7": 8,  "d30": 31},
+    {"name": "gamma", "today": 2, "d7": 5,  "d30": 19},
+    {"name": "delta", "today": 0, "d7": 2,  "d30": 9}
+  ],
+  "dailyLabels": [
+    "05-26", "05-27", "05-28", "05-29", "05-30", "05-31", "06-01", "06-02", "06-03", "06-04",
+    "06-05", "06-06", "06-07", "06-08", "06-09", "06-10", "06-11", "06-12", "06-13", "06-14",
+    "06-15", "06-16", "06-17", "06-18", "06-19", "06-20", "06-21", "06-22", "06-23", "06-24"
+  ],
+  "dailyValues": [2, 4, 1, 5, 3, 0, 6, 2, 4, 7, 3, 1, 5, 8, 2, 4, 6, 3, 0, 5, 7, 2, 4, 3, 6, 1, 5, 8, 4, 2],
+  "rollingValues": [2.0, 3.0, 2.33, 3.0, 3.0, 2.5, 3.0, 3.0, 3.0, 3.86, 3.57, 3.29, 4.0, 4.29, 4.29, 4.29, 4.14, 4.14, 4.0, 4.0, 3.86, 3.86, 3.86, 3.43, 3.86, 4.0, 4.0, 4.14, 4.43, 4.14],
+  "weekdayLabels": ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"],
+  "weekdayValues": [3, 5, 2, 8, 6, 1, 4],
+  "topLabels": ["backend", "frontend", "docs", "infra", "testing", "ui", "cli", "api", "perf", "tui"],
+  "topValues": [18, 13, 11, 9, 7, 6, 5, 4, 3, 2],
+  "typeLabels": ["Bug", "Feature", "Refactor"],
+  "typeValues": [4, 9, 3],
+  "heatmapLabels": ["backend", "frontend", "docs", "infra", "testing", "ui", "cli", "api", "perf", "tui"],
+  "heatmapRows": [
+    [4, 5, 6, 3],
+    [3, 4, 3, 3],
+    [2, 3, 4, 2],
+    [1, 2, 3, 3],
+    [2, 1, 2, 2],
+    [1, 2, 1, 2],
+    [0, 1, 2, 2],
+    [1, 1, 1, 1],
+    [0, 1, 1, 1],
+    [0, 0, 1, 1]
+  ],
+  "pcWeekLabels": ["W-3", "W-2", "W-1", "W0"],
+  "pcParents": [8, 12, 6, 10],
+  "pcChildren": [3, 5, 2, 7],
+  "agentLabels": ["Claude Code", "Codex", "OpenCode"],
+  "agentValues": [24, 9, 5],
+  "modelLabels": ["Opus 4.8", "Sonnet 5", "GPT-5.4", "Haiku 4.5", "Gemini 2.5"],
+  "modelValues": [15, 11, 7, 4, 2],
+  "verified": {
+    "operations": ["implement", "review"],
+    "byWindow": {
+      "implement": {
+        "all_time":   [{"model": "Opus 4.8", "provider": "all_providers", "score": 92, "runs": 48}, {"model": "Sonnet 5", "provider": "all_providers", "score": 88, "runs": 33}, {"model": "GPT-5.4", "provider": "all_providers", "score": 81, "runs": 21}],
+        "recent":     [{"model": "Opus 4.8", "provider": "all_providers", "score": 93, "runs": 20}, {"model": "Sonnet 5", "provider": "all_providers", "score": 89, "runs": 14}],
+        "month":      [{"model": "Opus 4.8", "provider": "all_providers", "score": 94, "runs": 12}, {"model": "Sonnet 5", "provider": "all_providers", "score": 90, "runs": 8}],
+        "prev_month": [{"model": "Opus 4.8", "provider": "all_providers", "score": 90, "runs": 8}, {"model": "GPT-5.4", "provider": "all_providers", "score": 82, "runs": 6}],
+        "week":       [{"model": "Opus 4.8", "provider": "all_providers", "score": 95, "runs": 4}]
+      },
+      "review": {
+        "all_time":   [{"model": "Opus 4.8", "provider": "all_providers", "score": 90, "runs": 15}, {"model": "Sonnet 5", "provider": "all_providers", "score": 85, "runs": 9}],
+        "recent":     [{"model": "Opus 4.8", "provider": "all_providers", "score": 91, "runs": 7}],
+        "month":      [{"model": "Opus 4.8", "provider": "all_providers", "score": 92, "runs": 4}],
+        "prev_month": [{"model": "Sonnet 5", "provider": "all_providers", "score": 84, "runs": 3}],
+        "week":       []
+      }
+    }
+  },
+  "usage": {
+    "operations": ["implement", "review"],
+    "byWindow": {
+      "implement": {
+        "all_time":   [{"model": "Opus 4.8", "provider": "all_providers", "runs": 48}, {"model": "Sonnet 5", "provider": "all_providers", "runs": 33}, {"model": "GPT-5.4", "provider": "all_providers", "runs": 21}],
+        "recent":     [{"model": "Opus 4.8", "provider": "all_providers", "runs": 20}, {"model": "Sonnet 5", "provider": "all_providers", "runs": 14}],
+        "month":      [{"model": "Opus 4.8", "provider": "all_providers", "runs": 12}],
+        "prev_month": [{"model": "Opus 4.8", "provider": "all_providers", "runs": 8}],
+        "week":       [{"model": "Opus 4.8", "provider": "all_providers", "runs": 4}]
+      },
+      "review": {
+        "all_time":   [{"model": "Opus 4.8", "provider": "all_providers", "runs": 15}, {"model": "Sonnet 5", "provider": "all_providers", "runs": 9}],
+        "recent":     [{"model": "Opus 4.8", "provider": "all_providers", "runs": 7}],
+        "month":      [{"model": "Opus 4.8", "provider": "all_providers", "runs": 4}],
+        "prev_month": [],
+        "week":       []
+      }
+    }
+  }
+}
