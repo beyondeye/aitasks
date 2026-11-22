@@ -5,6 +5,15 @@ set -euo pipefail
 # Invoked via: ait setup
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Every install destination below derives from HOME. Without it the paths turn
+# root-level (`/.aitask/venv`) or empty (PYPY_VENV_DIR, which makes `/bin/pip`
+# and a `rm -f /bin/python` cleanup), so refuse before deriving any of them
+# (t2347). Plain echo/exit: `die` is not defined until python_resolve.sh is
+# sourced below.
+if [[ -z "${HOME:-}" ]]; then
+    echo "Error: ait setup needs HOME (it installs into \$HOME/.aitask); HOME is unset or empty." >&2
+    exit 1
+fi
 VENV_DIR="$HOME/.aitask/venv"
 SHIM_DIR="${SHIM_DIR:-$HOME/.local/bin}"
 VERSION_FILE="$SCRIPT_DIR/VERSION"

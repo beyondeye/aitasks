@@ -187,8 +187,10 @@ assert_contains "no resolver: plan_paths honours AIT_PYTHON" "foo/bar.py" "$out"
 
 # ============================================================
 # HOME unset, through a real `set -u` entry point (aitask_crew_init.sh
-# sources launch_modes_sh.sh at startup). python_resolve.sh expands $HOME at
-# top level, so the bridge must not source it without HOME.
+# sources launch_modes_sh.sh at startup). The bridge skips python_resolve.sh
+# without HOME (everything it adds beyond AIT_PYTHON lives under HOME), and
+# python_resolve.sh itself no longer aborts there since t2347 — see
+# tests/test_python_resolve_unset_home.sh.
 # ============================================================
 
 echo "--- HOME unset: crew entry point under set -u ---"

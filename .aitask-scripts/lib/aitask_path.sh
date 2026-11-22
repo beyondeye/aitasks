@@ -13,7 +13,12 @@ if [[ -n "${_AIT_PATH_LOADED:-}" ]]; then
 fi
 _AIT_PATH_LOADED=1
 
-case ":$PATH:" in
-    *":$HOME/.aitask/bin:"*) ;;
-    *) export PATH="$HOME/.aitask/bin:$PATH" ;;
-esac
+# With HOME unset or empty there is no per-user bin dir to prepend: skip,
+# rather than abort a `set -u` caller or put a root-level `/.aitask/bin` on
+# PATH (t2347).
+if [[ -n "${HOME:-}" ]]; then
+    case ":$PATH:" in
+        *":$HOME/.aitask/bin:"*) ;;
+        *) export PATH="$HOME/.aitask/bin:$PATH" ;;
+    esac
+fi

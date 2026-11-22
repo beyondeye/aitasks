@@ -42,9 +42,10 @@ _plan_paths_python() {
     # $AIT_PYTHON, then lib/python_resolve.sh (venv → wrapper → PATH python3),
     # then bare python3 from PATH. An explicit AIT_PYTHON is honoured even when
     # the PATH python3 is the ~/.aitask/bin wrapper of another HOME.
-    # python_resolve.sh is sourced lazily and only when HOME is set: it expands
-    # $HOME at top level, which aborts a `set -u` caller with HOME unset, and
-    # every candidate it adds beyond AIT_PYTHON lives under HOME anyway. A
+    # python_resolve.sh is sourced lazily and only when HOME is set: every
+    # candidate it adds beyond AIT_PYTHON lives under HOME, and its PATH
+    # python3 fallback is the one this bridge keeps below. (python_resolve.sh
+    # itself tolerates an unset HOME under `set -u` since t2347.) A
     # bridge copied on its own into a test scaffold (no python_resolve.sh
     # beside it) keeps the plain python3 fallback exactly as before.
     local pycmd="${_AIT_RESOLVED_PYTHON:-}"

@@ -132,6 +132,9 @@ version_gt() {
 
 # --- Update check (runs at most once per day) ---
 check_for_updates() {
+    # Optional, rate-limited through a per-user cache: with HOME unset or empty
+    # there is nowhere to keep it, so skip instead of aborting under set -u (t2347).
+    [[ -n "${HOME:-}" ]] || return 0
     local cache_file="$HOME/.aitask/update_check"
     local version_file="$AIT_DIR/.aitask-scripts/VERSION"
     local repo="beyondeye/aitasks"

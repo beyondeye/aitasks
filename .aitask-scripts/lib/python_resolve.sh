@@ -16,6 +16,10 @@
 #   3. $HOME/.aitask/bin/python3           (framework wrapper, t706, was t695_3 symlink)
 #   4. command -v python3                  (system fallback / remote sandboxes)
 #
+# Entries 2-3 are skipped when HOME is unset or empty (cron, systemd, `env -i`),
+# so a `set -u` caller still resolves through 1 and 4 (t2347). They are never
+# rewritten to a root-level `/.aitask/...` path.
+#
 # The venv path comes first as defense-in-depth: a wrapper regression on
 # bin/python3 cannot mask the venv when explicit lookups go through the
 # canonical interpreter first. PATH-based subprocess resolution still hits
@@ -35,7 +39,11 @@ AIT_VENV_PYTHON_MIN="${AIT_VENV_PYTHON_MIN:-3.11}"
 # truth (per feedback_single_source_of_truth_for_versions.md): aitask_setup.sh
 # reads these via the existing `source python_resolve.sh` line.
 AIT_PYPY_PREFERRED="${AIT_PYPY_PREFERRED:-3.11}"
-PYPY_VENV_DIR="${PYPY_VENV_DIR:-$HOME/.aitask/pypy_venv}"
+# Empty -- not `/.aitask/pypy_venv` -- when HOME is unset or empty, so sourcing
+# this under `set -u` without HOME works and no root-level default exists
+# (t2347). aitask_setup.sh refuses to run without HOME before it sources this
+# file, so the installer never sees the empty value.
+PYPY_VENV_DIR="${PYPY_VENV_DIR:-${HOME:+$HOME/.aitask/pypy_venv}}"
 
 # Import names a PyPy interpreter must actually provide before the fast path
 # will use it — the framework's shared runtime set. Declared HERE, not in
@@ -59,8 +67,8 @@ resolve_python() {
     local cand resolved
     for cand in \
         "${AIT_PYTHON:-}" \
-        "$HOME/.aitask/venv/bin/python" \
-        "$HOME/.aitask/bin/python3"; do
+        "${HOME:+$HOME/.aitask/venv/bin/python}" \
+        "${HOME:+$HOME/.aitask/bin/python3}"; do
         if [[ -n "$cand" && -x "$cand" ]]; then
             _AIT_RESOLVED_PYTHON="$cand"
             echo "$cand"
@@ -148,7 +156,8 @@ resolve_pypy_python() {
     mods="${mods%, }"
     local candidates=(
         "${AIT_PYPY:-}"
-        "$PYPY_VENV_DIR/bin/python"
+        # Empty (skipped) with no PYPY_VENV_DIR -- never the root `/bin/python`.
+        "${PYPY_VENV_DIR:+$PYPY_VENV_DIR/bin/python}"
         "pypy$AIT_PYPY_PREFERRED"
         pypy3
     )
