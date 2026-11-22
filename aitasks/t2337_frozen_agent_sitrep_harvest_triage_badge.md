@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [sitrep, monitor, minimonitor, frozen_agents]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-19 15:32
-updated_at: 2026-11-19 15:32
+updated_at: 2026-11-22 11:46
 ---
 
 # Show a frozen agent's sitrep state (harvested / triaged) so "safe to drop" is visible
