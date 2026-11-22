@@ -1,0 +1,24 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: board_main_view
+output: aitasks_board_main_view.svg
+title: aitasks board
+size:
+- 126
+- 44
+dataset: base
+setup: []
+launch: ./ait board
+steps:
+- wait:
+    text: 3 children
+    timeout: 60
+- wait: ╔
+expect:
+- Now (2)
+- Next (2)
+- Backlog (2)
+- t12 add checkout page
+- 3 children
+- t11 refactor price formatter
+illustrates: 'The board''s kanban view: three columns (Now, Next, Backlog) with their task cards, the parent task t12 showing its children count, the filter row above and the key footer below.'

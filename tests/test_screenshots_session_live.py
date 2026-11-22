@@ -1237,6 +1237,39 @@ class DatasetSceneTests(LiveCase):
             self.ok("session", "stop", sid)
         self.assertEqual(list(outer.rglob("*")), [])
 
+    def test_codebrowser_annotates_from_history_and_shows_the_plan(self):
+        """t2278_6: the explain pipeline reads the dataset's (tN) commits, and
+        the detail pane the archived plan."""
+        text = self.replay("codebrowser_annotations_details")
+        for task in ("t3", "t4", "t6", "t5_2"):
+            self.assertIn(task, text)
+        self.assertIn("Plan: t4 shipping cost", text)
+        self.assert_no_machine_identity(text)
+
+    def test_codebrowser_history_lists_archived_tasks_on_their_fixed_dates(self):
+        text = self.replay("codebrowser_task_history")
+        self.assertIn("Completed Tasks (9 total)", text)
+        self.assertIn("2026-02-10", text)
+        self.assertNotIn(time.strftime("%Y-%m-%d"), text)    # no build day
+        self.assert_no_machine_identity(text)
+
+    def test_stats_charts_completions_relative_to_the_build_day(self):
+        """The one dataset with relative dates: the 30-day chart ends today."""
+        text = self.replay("stats_overview")
+        from datetime import date, timedelta
+        recent = {(date.today() - timedelta(days=n)).strftime("%m-%d") for n in range(31)}
+        self.assertTrue(any(day in text for day in recent), "no axis date of the last 30 days")
+        self.assertNotIn("No data", text)
+        self.assert_no_machine_identity(text)
+
+    def test_settings_lists_every_seed_agent_and_its_defaults(self):
+        text = self.replay("settings_models_tab")
+        self.assertIn("Claudecode Models", text)
+        self.assertIn("Codex Models", text)
+        text = self.replay("home_settings")
+        self.assertIn("shadow:  codex/", text)
+        self.assert_no_machine_identity(text)
+
     def test_the_pane_clock_is_utc(self):
         sid = self.start()
         sess = sessions.load(self.staging, sid)

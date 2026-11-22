@@ -1,0 +1,26 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: stats_overview
+output: home/statistics.svg
+title: aitasks stats
+size:
+- 160
+- 40
+dataset: stats
+setup: []
+launch: ./ait stats-tui
+steps:
+- wait:
+    text: Weekday distribution
+    timeout: 60
+- wait: Last 30 days
+- keys:
+  - Down
+- wait: Daily Completions - last 30 days
+expect:
+- Summary
+- Daily completions
+- Weekday distribution
+- Daily Completions - last 30 days
+- overview
+illustrates: 'The Stats TUI with the overview layout active: the layout''s three panes (Summary, Daily completions, Weekday distribution) listed on the left with Daily completions shown, the chart of completed tasks per day over the last 30 days, and the layout list below.'

@@ -1,0 +1,26 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: settings_profiles_tab
+output: aitasks_settings_execution_profiles_tab.svg
+title: aitasks settings
+size:
+- 120
+- 44
+dataset: settings
+setup: []
+launch: ./ait settings
+steps:
+- wait:
+    text: Default Code Agents for Skills
+    timeout: 60
+- keys:
+  - p
+- wait: Execution Profiles
+- wait: 'Editing: default (default.yaml)'
+expect:
+- Execution Profiles
+- 'Profile:'
+- fast.yaml
+- 'Editing: default (default.yaml)'
+- 'skip_task_confirmation:'
+illustrates: 'The settings TUI''s Execution Profiles tab: the profile selector (default, fast, remote, add new), the profile being edited with its scope, the parameter filter and the grouped, cycleable workflow settings with Save, Revert and Delete.'

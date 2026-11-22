@@ -24,10 +24,12 @@ steps:
     pane: agent-sitrep.1
 expect:
 - Sitrep for lumen
-- 4 items
+- All 4
+- Triage 1
+- Tasks 2
+- Watches 1
 - 'Decide: Should cached product images expire'
-- this agent
 - agent-sitrep
-illustrates: 'The sitrep window: the sitrep agent above, the sitrep TUI below it listing the todo list (a task to pick, an action, a question and a watch), and a full-height minimonitor on the right.'
+illustrates: 'The sitrep window: the sitrep agent above, the sitrep TUI below it, and a full-height minimonitor on the right. The TUI shows its item-type tab bar with a count per tab (All, Triage, Tasks, Recovery, Watches) and the All tab''s list: a task to pick, an action, a question and a watch.'
 capture:
   window: agent-sitrep

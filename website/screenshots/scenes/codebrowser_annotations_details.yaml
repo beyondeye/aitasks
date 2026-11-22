@@ -1,0 +1,28 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: codebrowser_annotations_details
+output: aitasks_codebrowser_w_annotations_w_details.svg
+title: aitasks codebrowser
+size:
+- 160
+- 44
+dataset: codebrowser
+setup: []
+launch: ./ait codebrowser --focus src/checkout/cart.py:48-56
+steps:
+- wait:
+    text: Sel 48–56
+    timeout: 60
+- wait:
+    text: t4
+    timeout: 60
+- keys:
+  - d
+- wait: Plan for t4
+expect:
+- Sel 48–56
+- Plan for t4
+- 'Plan: t4 shipping cost'
+- t6
+- t4
+illustrates: 'The codebrowser''s full layout: file tree, cart.py with a selected range and the annotation gutter, and the detail pane (d) showing the archived plan of t4, the task that annotates the line at the cursor.'

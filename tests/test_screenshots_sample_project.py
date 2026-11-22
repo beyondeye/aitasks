@@ -341,6 +341,133 @@ class BrainstormDatasetTests(unittest.TestCase):
         self.assertEqual(_git(self.root, "status", "--porcelain").strip(), "")
 
 
+class SettingsDatasetTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        tmp = tempfile.TemporaryDirectory(prefix="ait_shots_test_")
+        cls.addClassCleanup(tmp.cleanup)
+        cls.root = sp.build(Path(tmp.name) / "lumen", "settings")
+
+    def test_every_seed_agent_has_its_model_list(self):
+        meta = self.root / "aitasks" / "metadata"
+        for name in ("models_claudecode.json", *sp.SETTINGS_SEED_FILES):
+            with self.subTest(name):
+                self.assertTrue(json.loads((meta / name).read_text())["models"])
+
+    def test_the_agent_defaults_are_the_seeds(self):
+        """The Agent Defaults tab shows the seed's per-operation models, not
+        the stand-in routing of ``agents`` (settings launches no agent)."""
+        config = json.loads((self.root / "aitasks" / "metadata" / "codeagent_config.json")
+                            .read_text())
+        seed = json.loads((sp.REPO_ROOT / "seed" / "codeagent_config.json").read_text())
+        self.assertEqual(config["defaults"], seed["defaults"])
+        self.assertGreater(len(set(config["defaults"].values())), 1)
+
+    def test_the_project_stays_a_clean_repository(self):
+        self.assertEqual(_git(self.root, "status", "--porcelain").strip(), "")
+
+
+class CodebrowserDatasetTests(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        tmp = tempfile.TemporaryDirectory(prefix="ait_shots_test_")
+        cls.addClassCleanup(tmp.cleanup)
+        cls.root = sp.build(Path(tmp.name) / "lumen", "codebrowser")
+
+    def test_each_task_has_a_tagged_code_commit_and_an_archive_commit(self):
+        subjects = _git(self.root, "log", "--format=%s").splitlines()
+        for task, subject, _files in sp.CODEBROWSER_HISTORY:
+            with self.subTest(task.task_id):
+                self.assertIn(subject, subjects)
+                self.assertTrue(subject.endswith(f"(t{task.task_id})"))
+                self.assertIn(f"ait: Archive completed t{task.task_id} task and plan files",
+                              subjects)
+        self.assertIn("ait: Archive completed t5 task and plan files", subjects)
+
+    def test_one_file_carries_lines_from_four_tasks(self):
+        """What the annotation gutter shows: blame of cart.py maps to the
+        (tN) subjects of four different tasks."""
+        blame = _git(self.root, "blame", "--line-porcelain", "src/checkout/cart.py")
+        ids = set(re.findall(r"^summary .*\((t\d+(?:_\d+)?)\)$", blame, re.M))
+        self.assertEqual(ids, {"t3", "t4", "t5_2", "t6"})
+
+    def test_every_archived_task_and_plan_exists(self):
+        for task in [t for t, _s, _f in sp.CODEBROWSER_HISTORY] + [sp.CODEBROWSER_PARENT]:
+            with self.subTest(task.task_id):
+                text = task.task_path(self.root).read_text()
+                self.assertIn("status: Done", text)
+                self.assertIn(f"completed_at: {task.completed}", text)
+                self.assertIn("## Final Implementation Notes", task.plan_path(self.root).read_text())
+
+    def test_dates_are_fixed(self):
+        """Commit dates and archived file times are the fixed sample dates."""
+        dates = {d[:7] for d in _git(self.root, "log", "--format=%aI").split()}
+        self.assertEqual(dates, {"2026-01", "2026-02"})
+        mtimes = {time.strftime("%Y-%m", time.gmtime(p.stat().st_mtime))
+                  for p in (self.root / "aitasks" / "archived").rglob("*.md")}
+        self.assertEqual(mtimes, {"2026-01", "2026-02"})
+
+    def test_only_invented_names(self):
+        text = "\n".join(p.read_text() for p in (self.root / "src").rglob("*.py"))
+        self.assertNotIn("aitasks", text)
+        self.assertIn("lumen", (self.root / "README.md").read_text())
+
+    def test_the_project_stays_a_clean_repository(self):
+        self.assertEqual(_git(self.root, "status", "--porcelain").strip(), "")
+
+
+class StatsDatasetTests(unittest.TestCase):
+    """Dates relative to the build day: the one documented exception."""
+
+    @classmethod
+    def setUpClass(cls):
+        from datetime import date
+        cls.today = date(2026, 6, 10)       # a Wednesday
+        tmp = tempfile.TemporaryDirectory(prefix="ait_shots_test_")
+        cls.addClassCleanup(tmp.cleanup)
+        with mock.patch.object(sp, "_today", return_value=cls.today):
+            cls.root = sp.build(Path(tmp.name) / "lumen", "stats")
+        cls.archived = sorted((cls.root / "aitasks" / "archived").glob("t*.md"))
+
+    def _completed(self):
+        from datetime import date
+        out = []
+        for path in self.archived:
+            stamp = re.search(r"^completed_at: (\S+)", path.read_text(), re.M).group(1)
+            out.append(date.fromisoformat(stamp))
+        return out
+
+    def test_completions_fall_in_the_window_before_the_build_day(self):
+        from datetime import timedelta
+        days = self._completed()
+        self.assertGreaterEqual(len(days), 50)
+        self.assertTrue(all(self.today - timedelta(days=sp.STATS_DAYS) <= d < self.today
+                            for d in days))
+        # The last 30 days hold most of them: the daily chart is populated.
+        recent = [d for d in days if d >= self.today - timedelta(days=30)]
+        self.assertGreaterEqual(len(recent), 30)
+
+    def test_weekends_are_quiet_and_midweek_busy(self):
+        weekdays = [d.weekday() for d in self._completed()]
+        self.assertEqual([w for w in weekdays if w >= 5], [])
+        self.assertGreater(weekdays.count(2), weekdays.count(4))
+
+    def test_the_build_is_deterministic_for_one_day(self):
+        self.assertEqual([t.completed for t in sp._stats_tasks(self.today)],
+                         [t.completed for t in sp._stats_tasks(self.today)])
+
+    def test_only_completed_at_moves_with_the_build_day(self):
+        """Another build day shifts the dates and nothing else."""
+        from datetime import timedelta
+        a = sp._stats_tasks(self.today)
+        b = sp._stats_tasks(self.today + timedelta(days=7))
+        self.assertEqual([(t.task_id, t.slug, t.issue_type) for t in a],
+                         [(t.task_id, t.slug, t.issue_type) for t in b])
+
+    def test_the_project_stays_a_clean_repository(self):
+        self.assertEqual(_git(self.root, "status", "--porcelain").strip(), "")
+
+
 class StandinAgentTests(unittest.TestCase):
     """``standin_agent.py``: what it draws and what it records."""
 

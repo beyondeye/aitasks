@@ -1,0 +1,87 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: home_monitor
+output: home/monitor.svg
+title: aitasks monitor
+size:
+- 160
+- 40
+dataset: agents
+setup:
+- ./.aitask-scripts/aitask_gate.sh materialize-active 14 --profile aitasks/metadata/profiles/fast.yaml && ./.aitask-scripts/aitask_gate_record.sh 14 plan_approved pass type=human && ./.aitask-scripts/aitask_gate.sh materialize-active 15 --profile aitasks/metadata/profiles/fast.yaml && ./.aitask-scripts/aitask_gate_record.sh 15 plan_approved pass type=human
+launch: ./ait ide
+steps:
+- wait:
+    text: tmux Monitor
+    timeout: 60
+    pane: monitor.0
+- window_new:
+    name: board
+    command: ./ait board
+- wait:
+    text: fix login
+    timeout: 60
+    pane: board
+- keys:
+    keys:
+    - Down
+    - p
+    pane: board
+- wait:
+    text: Pick Task t14
+    pane: board
+- wait:
+    text: (R)un in tmux
+    pane: board
+- wait:
+    text: lumen
+    pane: board
+- keys:
+    keys:
+    - r
+    pane: board
+- wait:
+    text: IMPLEMENT
+    pane: agent-pick-14.1
+- keys:
+    keys:
+    - Right
+    - p
+    pane: board
+- wait:
+    text: Pick Task t15
+    pane: board
+- wait:
+    text: (R)un in tmux
+    pane: board
+- wait:
+    text: lumen
+    pane: board
+- keys:
+    keys:
+    - r
+    pane: board
+- wait:
+    text: 't15: cache product images'
+    pane: monitor.0
+- wait_gone:
+    text: agent unresolved
+    timeout: 40
+    pane: monitor.0
+- keys:
+    keys:
+    - Down
+    pane: monitor.0
+- wait:
+    text: Shall I commit the fix?
+    pane: monitor.0
+expect:
+- tmux Monitor
+- CODE AGENTS (2)
+- 't14: fix login redirect loop'
+- 't15: cache product images'
+- Content Preview
+- Shall I commit the fix?
+illustrates: 'The monitor dashboard (home page and monitor page): the pane list with two code agents running on their tasks (gates and phase shown) and the other panes, and the live preview of the focused agent below, at the shared home-page size.'
+capture:
+  window: monitor

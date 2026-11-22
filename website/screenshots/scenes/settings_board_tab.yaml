@@ -1,0 +1,25 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: settings_board_tab
+output: aitasks_settings_board_tab.svg
+title: aitasks settings
+size:
+- 120
+- 24
+dataset: settings
+setup: []
+launch: ./ait settings
+steps:
+- wait:
+    text: Default Code Agents for Skills
+    timeout: 60
+- keys:
+  - b
+- wait: Columns (read-only
+expect:
+- Columns (read-only
+- 'now: Now'
+- User Settings
+- 'Auto-refresh (min):'
+- Save Board Settings
+illustrates: 'The settings TUI''s Board tab: the board''s column definitions (id, title and color, read-only) and the editable user settings (auto-refresh interval, sync on refresh) with Save and Revert.'

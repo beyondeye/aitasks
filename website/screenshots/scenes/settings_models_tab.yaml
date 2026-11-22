@@ -1,0 +1,25 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: settings_models_tab
+output: aitasks_settings_llmmodels_tab.svg
+title: aitasks settings
+size:
+- 120
+- 64
+dataset: settings
+setup: []
+launch: ./ait settings
+steps:
+- wait:
+    text: Default Code Agents for Skills
+    timeout: 60
+- keys:
+  - m
+- wait: Claudecode Models
+- wait: Codex Models
+expect:
+- Claudecode Models
+- Codex Models
+- CLI ID
+- claude-opus-4-6
+illustrates: 'The settings TUI''s Models tab, read-only: one section per code agent (Claude Code, then Codex) listing each model''s name, CLI id, status and notes with its verified scores per operation.'

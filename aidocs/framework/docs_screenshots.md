@@ -86,11 +86,16 @@ Current datasets: `base` (tasks across three columns, one parent with
 children), `agents` (code-agent configuration and a local `origin`),
 `board_locks` (a local `origin` so `ait lock` works, and a sample host name),
 `trails` (one stored implementation trail), `brainstorm` (one session with a
-four-node proposal graph). Each builder's docstring says how its data is
-produced.
+four-node proposal graph), `settings` (`agents` plus every seed agent's model
+list and the seed's per-operation defaults), `codebrowser` (a small source tree
+whose git history is the work of archived tasks with plans: `(tN)` code
+commits, then archive commits), `stats` (about 90 archived tasks over six
+weeks). Each builder's docstring says how its data is produced.
 
 Every name on screen is invented: the project is `lumen`, the person
-`alex@example.com`. Dates written into sample files are fixed. Framework commands a dataset
+`alex@example.com`. Dates written into sample files are fixed, with one
+exception: the Stats TUI charts windows that end today, so `stats` dates its
+completions as offsets back from the day it is built. Framework commands a dataset
 runs get the same scratch `HOME`, configuration and cache directories as a
 session, so building one writes nothing outside its own tree.
 

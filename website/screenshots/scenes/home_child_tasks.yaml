@@ -1,0 +1,26 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: home_child_tasks
+output: home/child_tasks.svg
+title: aitasks board
+size:
+- 160
+- 40
+dataset: base
+setup: []
+launch: ./ait board
+steps:
+- wait:
+    text: 3 children
+    timeout: 60
+- wait: ╔
+- keys:
+  - x
+- wait: t12_3 order confirmation email
+expect:
+- t12 add checkout page
+- ↳
+- t12_1 cart summary widget
+- t12_2 payment form validation
+- t12_3 order confirmation email
+illustrates: 'Home page: a parent task (t12) expanded on the board with x, its three child subtasks listed below it with ↳ connectors and their dependency state (blocked by the previous sibling), at the shared home-page size.'

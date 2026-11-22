@@ -42,9 +42,9 @@ The picker shows one list at a time; **Shift+Left** / **Shift+Right** cycles thr
 
 `batch-review` reads the counters that `/aitask-review` records under `review`.
 
-{{< static-img src="imgs/aitasks_settings_select_model_step1_codeagent.svg" alt="Step 1: Select code agent" caption="Step 1: Choose which code agent to use (via Browse all models)" >}}
+{{< static-img src="imgs/aitasks_settings_select_model_step1_codeagent.svg" alt="Model picker showing the All models list, with every code agent's models" caption="The model picker on the All models list: every model of every code agent" >}}
 
-{{< static-img src="imgs/aitasks_settings_select_model_step2_llmmodel.svg" alt="Step 2: Select model and target layer" caption="Step 2: Choose the model and whether to save to project or user config" >}}
+{{< static-img src="imgs/aitasks_settings_select_model_step2_llmmodel.svg" alt="Model picker showing one code agent's model list" caption="Shift+Right switches to one code agent's list; Enter saves the selected model to the layer of the row the picker was opened on" >}}
 
 Press **d** or **Delete** on an entry to remove a user override and revert to the project default.
 

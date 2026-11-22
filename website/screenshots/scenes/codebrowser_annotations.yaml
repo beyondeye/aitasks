@@ -1,0 +1,26 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: codebrowser_annotations
+output: aitasks_codebrowser_w_annotations.svg
+title: aitasks codebrowser
+size:
+- 160
+- 44
+dataset: codebrowser
+setup: []
+launch: ./ait codebrowser --focus src/checkout/cart.py:48-56
+steps:
+- wait:
+    text: Sel 48–56
+    timeout: 60
+- wait:
+    text: t5_2
+    timeout: 60
+expect:
+- Sel 48–56
+- t3
+- t6
+- t4
+- t5_2
+- 'def shipping_cost(cart: Cart) -> Decimal:'
+illustrates: 'The codebrowser with cart.py open at a selected range (lines 48-56) and the annotation gutter on the right showing, line by line, the color-coded task that introduced or last changed it: t3, t6, t4 and t5_2.'

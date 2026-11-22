@@ -81,7 +81,9 @@ exit status 1 means a failure or a refusal, and the line says which.
   real path under the user's home, the state is wrong; fix the dataset or the
   setup, do not capture it. Dates *stored in the sample data* (a task's
   created date, a trail's generation time, a brainstorm node's date) are
-  fixed, so one that shows the day of the capture is a dataset defect.
+  fixed, so one that shows the day of the capture is a dataset defect. The
+  one exception is the `stats` dataset: the Stats TUI charts windows that end
+  today, so its completion dates count back from the day it is built.
   **Live clocks are allowed:** a value the TUI or a setup command takes from
   the clock at capture time — an agent's idle timer, a "read 08:30" status
   line, the "since" time of a lock that `./ait lock` just took — shows the
@@ -144,12 +146,12 @@ For each scene to discover:
    of which TUI illustrates that text. Write the decision down in one or two
    sentences; it becomes the recipe's `illustrates`.
 2. **Choose the starting state.** Pick a dataset (`base`, `agents`,
-   `board_locks`, `trails`, `brainstorm`; their docstrings in
-   `sample_project.py` say what each holds) and the `setup` commands that
-   prepare the rest with real framework commands. If no dataset can provide
-   the data, a new dataset is a code change with its own build test — tell
-   the user and treat the scene as blocked until that is done. Never fake a
-   screen.
+   `board_locks`, `trails`, `brainstorm`, `settings`, `codebrowser`, `stats`;
+   their docstrings in `sample_project.py` say what each holds) and the
+   `setup` commands that prepare the rest with real framework commands. If
+   no dataset can provide the data, a new dataset is a code change with its
+   own build test — tell the user and treat the scene as blocked until that
+   is done. Never fake a screen.
 3. **Explore.**
 
    ```bash

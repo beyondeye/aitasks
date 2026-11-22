@@ -1,0 +1,30 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: codebrowser_task_history
+output: codebrowser_task_history.svg
+title: aitasks codebrowser
+size:
+- 160
+- 44
+dataset: codebrowser
+setup: []
+launch: ./ait codebrowser --focus src/checkout/cart.py:41-43
+steps:
+- wait:
+    text: Sel 41–43
+    timeout: 60
+- wait:
+    text: t6
+    timeout: 60
+- keys:
+  - H
+- wait: A cart of three items at 3.333
+- wait: Completed Tasks (9 total)
+expect:
+- Completed Tasks (9 total)
+- t6  fix cart total rounding
+- Commits (1)
+- 'bug: Round cart subtotals to cents (t6)'
+- Affected Files (1)
+- A cart of three items at 3.333
+illustrates: 'The codebrowser''s completed-tasks history screen, opened for the task under the cursor (H on a t6 line of cart.py): the completed tasks newest first with type, date and labels on the left (t6 selected, also under Recently Opened), and on the right t6''s metadata, its commit, the file it changed and its task text.'

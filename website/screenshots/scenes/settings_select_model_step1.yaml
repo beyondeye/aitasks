@@ -1,0 +1,36 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: settings_select_model_step1
+output: aitasks_settings_select_model_step1_codeagent.svg
+title: aitasks settings
+size:
+- 120
+- 44
+dataset: settings
+setup: []
+launch: ./ait settings
+steps:
+- wait:
+    text: Default Code Agents for Skills
+    timeout: 60
+- keys:
+  - b
+- wait: Columns (read-only
+- keys:
+  - a
+- wait: Default Code Agents for Skills
+- keys:
+  - Enter
+- wait: 'Select model for: pick'
+- wait: Top used models
+- keys:
+  - S-Right
+- wait: Top by usage
+- keys:
+  - S-Right
+- wait: All models  (Shift
+expect:
+- 'Select model for: pick'
+- All models  (Shift
+- claudecode/opus4_6
+illustrates: 'The Agent Defaults model picker for the pick operation, opened with Enter and switched with Shift+Right to the All models list: every model of every code agent as agent/model with its description, and the filter input above.'

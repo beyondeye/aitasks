@@ -1,0 +1,29 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: board_customize_column
+output: aitasks_board_customize_column.svg
+title: aitasks board
+size:
+- 126
+- 44
+dataset: base
+setup: []
+launch: ./ait board
+steps:
+- wait:
+    text: 3 children
+    timeout: 60
+- wait: ╔
+- keys:
+  - e
+- wait: Manage columns
+- wait: █   1. ██ Now
+- keys:
+  - Enter
+- wait: 'Edit Column: Now'
+expect:
+- 'Edit Column: Now'
+- Color
+- Save
+- Cancel
+illustrates: 'The column edit dialog, opened with e (manage columns) then Enter on the Now column: the title input and the color palette with the column''s current color selected, over the dimmed manage-columns dialog and board.'

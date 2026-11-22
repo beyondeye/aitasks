@@ -1,0 +1,27 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: codebrowser_main
+output: aitasks_codebrowser.svg
+title: aitasks codebrowser
+size:
+- 160
+- 44
+dataset: codebrowser
+setup: []
+launch: ./ait codebrowser --focus src/checkout/cart.py
+steps:
+- wait:
+    text: cart.py — 65 lines
+    timeout: 60
+- wait:
+    text: t5_2
+    timeout: 60
+- keys:
+  - t
+- wait_gone: t5_2
+expect:
+- cart.py — 65 lines
+- Project Files
+- 'class CartLine:'
+- src/checkout/cart.py
+illustrates: 'The codebrowser main view: the recent files and the project''s git-tracked file tree on the left, and cart.py open in the syntax-highlighted code viewer with line numbers and the info bar on the right (annotation gutter toggled off with t).'

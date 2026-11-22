@@ -1,0 +1,28 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: board_task_detail
+output: aitasks_board_task_detail.svg
+title: aitasks board
+size:
+- 140
+- 44
+dataset: base
+setup: []
+launch: ./ait board
+steps:
+- wait:
+    text: 3 children
+    timeout: 60
+- wait: ╔
+- keys:
+  - Enter
+- wait: 'Priority:'
+- wait: (D)elete/Archive
+expect:
+- t12 add checkout page
+- 'Priority:'
+- 'Effort:'
+- 'Status:'
+- 'Type:'
+- (D)elete/Archive
+illustrates: 'The board''s task detail dialog for t12, opened with Enter: the cycleable Priority, Effort, Status and Type fields with the current value highlighted, the collapsible sections, the task text and the action buttons.'

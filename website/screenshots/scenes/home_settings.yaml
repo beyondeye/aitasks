@@ -1,0 +1,22 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: home_settings
+output: home/settings.svg
+title: aitasks settings
+size:
+- 160
+- 40
+dataset: settings
+setup: []
+launch: ./ait settings
+steps:
+- wait:
+    text: Default Code Agents for Skills
+    timeout: 60
+- wait: 'shadow:  codex/gpt6_2_sol'
+expect:
+- Default Code Agents for Skills
+- 'pick:  claudecode/opus5_5'
+- 'shadow:  codex/gpt6_2_sol'
+- (inherits project)
+illustrates: 'The settings TUI''s Agent Defaults tab (home page and settings page): each operation with the code agent and model configured for it, the project value and the user layer below it, at the shared home-page size.'

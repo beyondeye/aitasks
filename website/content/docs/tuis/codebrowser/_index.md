@@ -64,7 +64,7 @@ Each unique task ID gets a color from a fixed palette (cyan, green, yellow, mage
 
 ### Using the Detail Pane
 
-{{< static-img src="imgs/aitasks_codebrowser_w_annotaitions_w_details.svg" alt="Code browser with detail pane showing task content" caption="Full layout with the detail pane showing plan content for the annotated task at cursor" >}}
+{{< static-img src="imgs/aitasks_codebrowser_w_annotations_w_details.svg" alt="Code browser with detail pane showing task content" caption="Full layout with the detail pane showing plan content for the annotated task at cursor" >}}
 
 The detail pane provides context about the task annotating the current cursor line:
 

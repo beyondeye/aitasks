@@ -1,0 +1,33 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: board_commit
+output: aitasks_board_commit.svg
+title: aitasks board
+size:
+- 126
+- 44
+dataset: base
+setup:
+- ./ait update --batch 15 --priority high
+launch: ./ait board
+steps:
+- wait:
+    text: 3 children
+    timeout: 60
+- wait: ║ □ t12
+- keys:
+  - Right
+- wait: ║ □ t9
+- keys:
+  - Down
+- wait: ║ □ t15
+- keys:
+  - c
+- wait: Git Commit
+expect:
+- Git Commit
+- 'Files to commit:'
+- aitasks/t15_cache_product_images.md
+- 'ait: Update t15: cache product images'
+- t15 * cache product images
+illustrates: 'The board''s commit dialog for a modified task (t15, marked with * on its card after a setup command changed its priority), opened with c: the list of files to commit and the pre-filled commit message, with Commit and Cancel.'

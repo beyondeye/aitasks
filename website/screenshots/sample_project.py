@@ -615,6 +615,512 @@ def _pin_brainstorm_dates(session: Path) -> None:
                             encoding="utf-8")
 
 
+#: Model lists beyond Claude Code, so the settings TUI lists several agents.
+SETTINGS_SEED_FILES = ("models_codex.json", "models_opencode.json")
+
+
+def _build_settings(root: Path) -> None:
+    """``agents`` plus the seed model lists of the other code agents, for
+    ``ait settings``: its Models tab and the model picker list every agent
+    that has a model file.
+
+    The per-operation defaults are the seed's own (several models and agents),
+    because that is what the Agent Defaults tab is about. ``agents`` routes
+    every operation to the stand-in so that nothing it launches can reach a
+    real agent; ``ait settings`` launches no agent, and a session still puts
+    the stand-in first on the PATH."""
+    _build_agents(root)
+    meta = root / "aitasks" / "metadata"
+    for name in SETTINGS_SEED_FILES:
+        shutil.copy2(REPO_ROOT / "seed" / name, meta / name)
+    shutil.copy2(REPO_ROOT / "seed" / "codeagent_config.json", meta / "codeagent_config.json")
+    _git(root, "add", "-A", ".")
+    _git(root, "commit", "-q", "--no-verify", "-m", "Add code agent model lists")
+
+
+def _git_env(date: str) -> dict[str, str]:
+    """The pinned git environment of every sample commit: the sample person,
+    no user or system configuration, and the given fixed date."""
+    return {**os.environ,
+            "GIT_AUTHOR_NAME": PERSON_NAME, "GIT_AUTHOR_EMAIL": PERSON_EMAIL,
+            "GIT_COMMITTER_NAME": PERSON_NAME, "GIT_COMMITTER_EMAIL": PERSON_EMAIL,
+            "GIT_AUTHOR_DATE": date, "GIT_COMMITTER_DATE": date,
+            "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1"}
+
+
+def _git(root: Path, *argv: str, date: str = "2026-03-02T09:00:00") -> None:
+    try:
+        subprocess.run(["git", *argv], cwd=root, env=_git_env(date), check=True,
+                       capture_output=True)
+    except (OSError, subprocess.CalledProcessError) as exc:
+        raise DatasetError(f"git {' '.join(argv)} failed in the sample project: {exc}") from exc
+
+
+@dataclass(frozen=True)
+class ArchivedTask:
+    """A completed task as ``aitask_archive.sh`` leaves it in
+    ``aitasks/archived/`` (and its plan in ``aiplans/archived/``)."""
+    task_id: str
+    slug: str
+    issue_type: str
+    labels: str
+    completed: str            # "YYYY-MM-DD HH:MM"
+    created: str
+    priority: str = "medium"
+    effort: str = "medium"
+    implemented_with: str = "claudecode/opus4_6"
+    context: str = ""
+    plan: str = ""            # plan body; no plan file when empty
+
+    def task_path(self, root: Path) -> Path:
+        archived = root / "aitasks" / "archived"
+        if "_" in self.task_id:
+            return archived / f"t{self.task_id.split('_')[0]}" / f"t{self.task_id}_{self.slug}.md"
+        return archived / f"t{self.task_id}_{self.slug}.md"
+
+    def plan_path(self, root: Path) -> Path:
+        archived = root / "aiplans" / "archived"
+        if "_" in self.task_id:
+            return archived / f"p{self.task_id.split('_')[0]}" / f"p{self.task_id}_{self.slug}.md"
+        return archived / f"p{self.task_id}_{self.slug}.md"
+
+    def write(self, root: Path, children: str = "") -> list[Path]:
+        title = self.slug.replace("_", " ")
+        meta = [("priority", self.priority), ("effort", self.effort),
+                ("issue_type", self.issue_type), ("status", "Done"), ("labels", self.labels)]
+        if children:
+            meta.append(("children_to_implement", "[]"))
+        meta += [("implemented_with", self.implemented_with),
+                 ("created_at", self.created), ("updated_at", self.completed),
+                 ("completed_at", self.completed)]
+        lines = ["---", *[f"{key}: {value}" for key, value in meta], "---", "",
+                 "## Context", "",
+                 self.context or f"{title[0].upper()}{title[1:]} for the {PROJECT_NAME} shop.", ""]
+        task = self.task_path(root)
+        task.parent.mkdir(parents=True, exist_ok=True)
+        task.write_text("\n".join(lines), encoding="utf-8")
+        written = [task]
+        if self.plan:
+            plan = self.plan_path(root)
+            plan.parent.mkdir(parents=True, exist_ok=True)
+            plan.write_text(f"---\nTask: {task.name}\n---\n\n# Plan: t{self.task_id} {title}\n\n"
+                            f"{self.plan.strip()}\n", encoding="utf-8")
+            written.append(plan)
+        return written
+
+
+def _plan(context: str, steps: list[str], notes: str) -> str:
+    body = ["## Context", "", context, "", "## Steps", ""]
+    body += [f"{n}. {step}" for n, step in enumerate(steps, 1)]
+    body += ["", "## Final Implementation Notes", "", notes]
+    return "\n".join(body)
+
+
+CART_V1 = '''"""Shopping cart for the lumen shop."""
+from dataclasses import dataclass, field
+from decimal import Decimal
+
+
+@dataclass
+class CartLine:
+    sku: str
+    name: str
+    unit_price: Decimal
+    quantity: int = 1
+
+    @property
+    def total(self) -> Decimal:
+        return self.unit_price * self.quantity
+
+
+@dataclass
+class Cart:
+    lines: list[CartLine] = field(default_factory=list)
+
+    def add(self, line: CartLine) -> None:
+        """Add a line, merging it into an existing line with the same SKU."""
+        for existing in self.lines:
+            if existing.sku == line.sku:
+                existing.quantity += line.quantity
+                return
+        self.lines.append(line)
+
+    def remove(self, sku: str) -> None:
+        self.lines = [line for line in self.lines if line.sku != sku]
+
+    def item_count(self) -> int:
+        return sum(line.quantity for line in self.lines)
+
+    def subtotal(self) -> Decimal:
+        return sum((line.total for line in self.lines), Decimal("0"))
+'''
+
+CART_SHIPPING = '''
+
+#: Orders from this subtotal ship for free.
+FREE_SHIPPING_FROM = Decimal("50.00")
+FLAT_SHIPPING = Decimal("4.90")
+
+
+def shipping_cost(cart: Cart) -> Decimal:
+    """Flat-rate shipping, free above the threshold."""
+    if not cart.lines:
+        return Decimal("0")
+    if cart.subtotal() >= FREE_SHIPPING_FROM:
+        return Decimal("0")
+    return FLAT_SHIPPING
+'''
+
+CART_CHECKOUT = '''
+
+def checkout_total(cart: Cart, code: str | None = None) -> Decimal:
+    """Subtotal minus any discount, plus shipping."""
+    subtotal = cart.subtotal()
+    if code:
+        subtotal -= discount_for(code, subtotal)
+    return subtotal + shipping_cost(cart)
+'''
+
+DISCOUNTS_PY = '''"""Discount codes: SAVE10 (10 percent off) and OFF5 (5.00 off)."""
+import re
+from decimal import Decimal
+
+CODE_PATTERN = re.compile(r"^(?P<kind>SAVE|OFF)(?P<amount>\\d{1,2})$")
+
+
+class InvalidCode(ValueError):
+    """The code is not one the shop issues."""
+
+
+def parse_code(code: str) -> tuple[str, Decimal]:
+    """``("percent", 10)`` for SAVE10, ``("fixed", 5)`` for OFF5."""
+    match = CODE_PATTERN.match(code.strip().upper())
+    if match is None:
+        raise InvalidCode(code)
+    kind = "percent" if match["kind"] == "SAVE" else "fixed"
+    return kind, Decimal(match["amount"])
+
+
+def discount_for(code: str, subtotal: Decimal) -> Decimal:
+    """The amount a code takes off ``subtotal``, never more than the subtotal."""
+    kind, amount = parse_code(code)
+    if kind == "percent":
+        value = subtotal * amount / Decimal("100")
+    else:
+        value = amount
+    return min(value, subtotal)
+'''
+
+PAYMENT_PY = '''"""Client for the payment provider's card API."""
+from dataclasses import dataclass
+from decimal import Decimal
+
+import requests
+
+API_URL = "https://payments.example.com/v2"
+TIMEOUT_SECONDS = 10
+
+
+@dataclass
+class PaymentResult:
+    approved: bool
+    reference: str
+    message: str = ""
+
+
+class PaymentClient:
+    def __init__(self, api_key: str, session: requests.Session | None = None):
+        self.api_key = api_key
+        self.session = session or requests.Session()
+
+    def charge(self, token: str, amount: Decimal, currency: str = "EUR") -> PaymentResult:
+        """Charge a tokenised card. Amounts are sent in cents."""
+        response = self.session.post(
+            f"{API_URL}/charges",
+            json={"token": token, "amount": int(amount * 100), "currency": currency},
+            headers={"Authorization": f"Bearer {self.api_key}"},
+            timeout=TIMEOUT_SECONDS,
+        )
+        body = response.json()
+        return PaymentResult(approved=body.get("status") == "approved",
+                             reference=body.get("id", ""),
+                             message=body.get("message", ""))
+'''
+
+PRICES_PY = '''"""Price display for the catalog and the cart."""
+from decimal import Decimal, ROUND_HALF_UP
+
+CURRENCY_SYMBOLS = {"EUR": "€", "USD": "$", "GBP": "£"}
+
+
+def format_price(amount: Decimal, currency: str = "EUR") -> str:
+    """``€12.50`` -- two decimals, symbol first."""
+    symbol = CURRENCY_SYMBOLS.get(currency, currency + " ")
+    rounded = amount.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
+    return f"{symbol}{rounded:,.2f}"
+
+
+def format_range(low: Decimal, high: Decimal, currency: str = "EUR") -> str:
+    if low == high:
+        return format_price(low, currency)
+    return f"{format_price(low, currency)} – {format_price(high, currency)}"
+'''
+
+README_MD = '''# lumen
+
+The lumen online shop: catalog, cart and checkout.
+
+## Layout
+
+- `src/catalog/` -- products and price display
+- `src/checkout/` -- cart, discount codes and payments
+
+## Running the tests
+
+    python -m pytest
+'''
+
+#: The ``codebrowser`` history: (task, commit subject, files written). Each
+#: step is one ``(tN)`` code commit, then the archive commit of its task.
+#: ``cart.py`` ends with line ranges from four tasks (t3, t4, t5_2, t6).
+CODEBROWSER_HISTORY = (
+    (ArchivedTask("3", "cart_totals", "feature", "[checkout]", "2026-01-12 16:20", "2026-01-09 10:00",
+                  priority="high",
+                  context="The checkout needs a cart that keeps lines per product and adds them up.",
+                  plan=_plan("The cart is the base of the checkout page: lines per product and a subtotal.",
+                             ["Add `CartLine` with a computed line total.",
+                              "Add `Cart` with add (merging lines of one SKU), remove and subtotal.",
+                              "Unit tests for merging and totals."],
+                             "Lines of the same SKU merge on add, so the cart never shows "
+                             "a product twice.")),
+     "feature: Add cart lines and subtotal (t3)", {"src/checkout/cart.py": CART_V1,
+                                                    "src/checkout/__init__.py": ""}),
+    (ArchivedTask("4", "shipping_cost_rules", "feature", "[checkout]", "2026-01-20 11:45", "2026-01-14 09:30",
+                  context="Shoppers should see the shipping cost before they pay.",
+                  plan=_plan("Shipping is a flat rate, free from a subtotal threshold.",
+                             ["Add the threshold and flat rate as constants.",
+                              "Add `shipping_cost(cart)`: zero for an empty cart or above the threshold.",
+                              "Tests at, below and above the threshold."],
+                             "Kept as module constants; the marketing team changes them rarely.")),
+     "feature: Add flat-rate shipping with a free threshold (t4)",
+     {"src/checkout/cart.py": CART_V1 + CART_SHIPPING}),
+    (ArchivedTask("8", "payment_provider_client", "feature", "[checkout, api]",
+                  "2026-01-27 15:10", "2026-01-21 14:00", priority="high", effort="high",
+                  plan=_plan("Card payments go through the provider's REST API.",
+                             ["Add `PaymentClient.charge` posting the tokenised card and amount in cents.",
+                              "Map the provider response to `PaymentResult`.",
+                              "Tests with a fake session."],
+                             "The session is injectable, so tests never reach the network.")),
+     "feature: Add the payment provider client (t8)", {"src/checkout/payment.py": PAYMENT_PY}),
+    (ArchivedTask("5_1", "parse_discount_codes", "feature", "[checkout]", "2026-02-03 10:30",
+                  "2026-01-28 09:00",
+                  plan=_plan("Child 1 of t5: read a code into its kind and amount.",
+                             ["Add the code pattern and `parse_code`.",
+                              "Add `discount_for`, capped at the subtotal."],
+                             "Codes are case-insensitive; whitespace is ignored.")),
+     "feature: Parse discount codes (t5_1)", {"src/checkout/discounts.py": DISCOUNTS_PY}),
+    (ArchivedTask("5_2", "apply_discount_at_checkout", "feature", "[checkout, ui]",
+                  "2026-02-05 17:05", "2026-01-28 09:00",
+                  plan=_plan("Child 2 of t5: the checkout total takes an optional discount code.",
+                             ["Import `discount_for` into the cart module.",
+                              "Add `checkout_total(cart, code)`: subtotal minus discount, plus shipping.",
+                              "Show the discount line on the checkout page."],
+                             "Shipping is computed on the undiscounted subtotal, as the "
+                             "shop's terms require.")),
+     "feature: Apply discount codes to the checkout total (t5_2)",
+     {"src/checkout/cart.py": CART_V1.replace(
+         "from decimal import Decimal\n",
+         "from decimal import Decimal\n\nfrom .discounts import discount_for\n")
+      + CART_SHIPPING + CART_CHECKOUT}),
+    (ArchivedTask("6", "fix_cart_total_rounding", "bug", "[checkout]", "2026-02-10 09:50",
+                  "2026-02-09 16:40", priority="high", effort="low",
+                  context="A cart of three items at 3.333 showed a subtotal of 9.999.",
+                  plan=_plan("Subtotals must be rounded to cents before display and payment.",
+                             ["Round the subtotal half-up to two decimals.",
+                              "Regression test with fractional unit prices."],
+                             "Rounding happens once, in `subtotal`, so shipping and "
+                             "discounts see the same value the shopper sees.")),
+     "bug: Round cart subtotals to cents (t6)", None),
+    (ArchivedTask("10", "price_display_helpers", "feature", "[catalog, ui]", "2026-02-16 14:25",
+                  "2026-02-11 10:00", effort="low",
+                  plan=_plan("Catalog and cart print prices the same way.",
+                             ["Add `format_price` with currency symbols.",
+                              "Add `format_range` for products with variants."],
+                             "Unknown currencies fall back to the ISO code.")),
+     "feature: Add price display helpers (t10)", {"src/catalog/prices.py": PRICES_PY,
+                                                  "src/catalog/__init__.py": ""}),
+    (ArchivedTask("13", "write_project_readme", "documentation", "[docs]", "2026-02-23 12:00",
+                  "2026-02-20 09:00", priority="low", effort="low",
+                  plan=_plan("New contributors need the layout and the test command.",
+                             ["Write README.md with the layout and how to run tests."],
+                             "Kept short; details live next to the code.")),
+     "documentation: Add the project README (t13)", {"README.md": README_MD}),
+)
+
+#: The parent of t5_1 / t5_2, archived after its children.
+CODEBROWSER_PARENT = ArchivedTask(
+    "5", "discount_codes", "feature", "[checkout]", "2026-02-05 17:30", "2026-01-27 10:00",
+    plan=_plan("Shoppers can enter a discount code at checkout.",
+               ["t5_1: parse codes.", "t5_2: apply them to the checkout total."],
+               "Split into two children; both landed."))
+
+
+def _git_date(stamp: str, minutes: int = 0) -> str:
+    """``"2026-01-12 16:20"`` (+ minutes) as a git date in UTC."""
+    from datetime import datetime, timedelta
+    moment = datetime.strptime(stamp, "%Y-%m-%d %H:%M") + timedelta(minutes=minutes)
+    return moment.strftime("%Y-%m-%dT%H:%M:%S+00:00")
+
+
+def _set_mtime(path: Path, stamp: str) -> None:
+    from datetime import datetime, timezone
+    moment = datetime.strptime(stamp, "%Y-%m-%d %H:%M").replace(tzinfo=timezone.utc)
+    os.utime(path, (moment.timestamp(), moment.timestamp()))
+
+
+def _build_codebrowser(root: Path) -> None:
+    """``base`` plus a small source tree whose git history is the work of
+    archived tasks, for ``ait codebrowser``: the annotation gutter, the detail
+    pane (archived plan content) and the completed-tasks history screen.
+
+    The history is written the way the workflow writes it: for each task a code
+    commit whose subject ends in ``(t<id>)`` (the explain pipeline and the
+    history screen read the id from there), then ``ait: Archive completed
+    t<id> task and plan files`` adding the archived task and plan. Every commit
+    has a fixed date, and the archived files' mtimes are set to their
+    completion time, so no build-time date can reach the screen.
+    """
+    write_project_shell(root)
+    write_tasks(root, BASE_COLUMNS, BASE_TASKS)
+    write_standin(root)
+    _git(root, "init", "-q", "-b", "main", ".")
+    _git(root, "add", "-A", ".")
+    _git(root, "commit", "-q", "--no-verify", "-m", "Sample project", date="2026-01-05T09:00:00+00:00")
+    cart = root / "src" / "checkout" / "cart.py"
+    archived: list[tuple[Path, str]] = []
+    for task, subject, files in CODEBROWSER_HISTORY:
+        if files is None:     # t6 edits the subtotal in place
+            text = cart.read_text(encoding="utf-8")
+            text = text.replace("from decimal import Decimal\n",
+                                "from decimal import ROUND_HALF_UP, Decimal\n", 1)
+            text = text.replace(
+                "    def subtotal(self) -> Decimal:\n"
+                "        return sum((line.total for line in self.lines), Decimal(\"0\"))\n",
+                "    def subtotal(self) -> Decimal:\n"
+                "        \"\"\"Sum of the lines, rounded half-up to cents.\"\"\"\n"
+                "        total = sum((line.total for line in self.lines), Decimal(\"0\"))\n"
+                "        return total.quantize(CENT, rounding=ROUND_HALF_UP)\n", 1)
+            text = text.replace("\n\n@dataclass\nclass CartLine:",
+                                "\nCENT = Decimal(\"0.01\")\n\n\n@dataclass\nclass CartLine:", 1)
+            files = {"src/checkout/cart.py": text}
+        for rel, content in files.items():
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(content, encoding="utf-8")
+        _git(root, "add", "-A", ".")
+        _git(root, "commit", "-q", "--no-verify", "-m", subject, date=_git_date(task.completed))
+        for path in task.write(root):
+            archived.append((path, task.completed))
+        _git(root, "add", "-A", ".")
+        _git(root, "commit", "-q", "--no-verify", "-m",
+             f"ait: Archive completed t{task.task_id} task and plan files",
+             date=_git_date(task.completed, 5))
+        if task.task_id == "5_2":
+            for path in CODEBROWSER_PARENT.write(root, children="done"):
+                archived.append((path, CODEBROWSER_PARENT.completed))
+            _git(root, "add", "-A", ".")
+            _git(root, "commit", "-q", "--no-verify", "-m",
+                 "ait: Archive completed t5 task and plan files",
+                 date=_git_date(CODEBROWSER_PARENT.completed))
+    for path, stamp in archived:
+        _set_mtime(path, stamp)
+
+
+#: Archived-task names for the ``stats`` dataset (type, labels, slug).
+STATS_WORK = (
+    ("feature", "[catalog]", "product_quick_view"),
+    ("bug", "[checkout]", "fix_coupon_case_mismatch"),
+    ("feature", "[search]", "search_suggestions"),
+    ("refactor", "[catalog]", "split_product_service"),
+    ("bug", "[auth]", "fix_password_reset_expiry"),
+    ("feature", "[checkout, ui]", "saved_addresses"),
+    ("documentation", "[api, docs]", "document_order_webhooks"),
+    ("performance", "[catalog]", "lazy_load_category_images"),
+    ("feature", "[email]", "shipping_notification_email"),
+    ("bug", "[search]", "fix_empty_query_results"),
+    ("test", "[checkout]", "payment_retry_tests"),
+    ("feature", "[ui]", "dark_mode_toggle"),
+    ("chore", "[ci]", "pin_test_dependencies"),
+    ("feature", "[catalog]", "product_reviews_list"),
+    ("bug", "[ui]", "fix_mobile_menu_overlap"),
+    ("enhancement", "[search]", "typo_tolerant_search"),
+    ("feature", "[auth]", "sign_in_with_email_link"),
+    ("performance", "[api]", "cache_category_tree"),
+    ("bug", "[email]", "fix_order_email_encoding"),
+    ("feature", "[checkout]", "gift_wrap_option"),
+    ("refactor", "[checkout]", "extract_tax_rules"),
+    ("feature", "[catalog, ui]", "stock_badges"),
+    ("documentation", "[docs]", "contributing_guide"),
+    ("enhancement", "[ui]", "breadcrumb_navigation"),
+)
+
+#: Completions per weekday (Monday first): busy mid-week, quiet weekends.
+STATS_WEEKDAY_LOAD = (3, 4, 4, 3, 2, 0, 0)
+STATS_DAYS = 42
+STATS_MODELS = ("claudecode/opus4_6", "claudecode/sonnet4_6", "claudecode/opus4_7")
+
+
+def _today():
+    """The day the ``stats`` dataset counts back from (patched in tests)."""
+    from datetime import date
+    return date.today()
+
+
+def _stats_tasks(today) -> list[ArchivedTask]:
+    """About 90 archived tasks over the ``STATS_DAYS`` days before ``today``,
+    with a fixed pseudo-random spread around ``STATS_WEEKDAY_LOAD``."""
+    import random
+    from datetime import timedelta
+    rng = random.Random(2278)
+    tasks, number = [], 100
+    for offset in range(STATS_DAYS, 0, -1):
+        day = today - timedelta(days=offset)
+        load = STATS_WEEKDAY_LOAD[day.weekday()]
+        count = max(0, load + rng.choice((-2, -1, 0, 0, 1, 2))) if load else 0
+        for slot in range(count):
+            issue_type, labels, slug = STATS_WORK[number % len(STATS_WORK)]
+            created = day - timedelta(days=rng.randint(1, 6))
+            tasks.append(ArchivedTask(
+                str(number), slug, issue_type, labels,
+                completed=f"{day.isoformat()} {10 + 2 * slot:02d}:{rng.randint(0, 59):02d}",
+                created=f"{created.isoformat()} 09:00",
+                priority=rng.choice(("high", "medium", "medium", "low")),
+                effort=rng.choice(("low", "medium", "medium", "high")),
+                implemented_with=STATS_MODELS[number % len(STATS_MODELS)]))
+            number += 1
+    return tasks
+
+
+def _build_stats(root: Path) -> None:
+    """``base`` plus the code-agent configuration and about 90 archived tasks
+    completed over the last six weeks, for ``ait stats-tui``.
+
+    **The one dataset with dates relative to the build day.** The Stats TUI
+    charts windows that end today (``date.today()``: "last 30 days", the
+    weekday split of recent work), so tasks completed on fixed dates would
+    leave every chart empty on a later capture. The completion dates are
+    therefore offsets back from the day the dataset is built (``_today``);
+    everything else, including the spread, is fixed.
+    """
+    write_project_shell(root)
+    write_tasks(root, BASE_COLUMNS, BASE_TASKS)
+    write_agent_metadata(root)
+    for task in _stats_tasks(_today()):
+        task.write(root)
+    write_standin(root)
+    _git_commit_all(root, "Sample project")
+
+
 #: name -> builder(root). A builder creates ``root`` and everything in it.
 DATASETS: dict[str, Callable[[Path], None]] = {
     "base": _build_base,
@@ -622,6 +1128,9 @@ DATASETS: dict[str, Callable[[Path], None]] = {
     "board_locks": _build_board_locks,
     "trails": _build_trails,
     "brainstorm": _build_brainstorm,
+    "settings": _build_settings,
+    "codebrowser": _build_codebrowser,
+    "stats": _build_stats,
 }
 
 

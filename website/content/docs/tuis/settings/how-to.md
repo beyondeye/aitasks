@@ -22,15 +22,14 @@ All keyboard actions documented below remain available.
 
 1. Open the Settings TUI: `ait settings`
 2. Press **a** to go to the **Agent Defaults** tab
-3. Navigate to the operation you want to change (e.g., `task-pick`)
-4. Press **Enter** to open the agent/model picker
-5. **Step 1:** Select the code agent (claudecode, codex, opencode)
-6. **Step 2:** Select the model from the list, then choose the target layer:
-   - **Project** -- Saves to `codeagent_config.json` (shared, git-tracked)
-   - **User** -- Saves to `codeagent_config.local.json` (personal, gitignored)
-7. The change takes effect immediately
+3. Navigate to the row you want to change. Each operation (e.g., `pick`) has two rows, and the row you choose is the layer the new value is saved to:
+   - the operation's own row -- the **project** value, saved to `codeagent_config.json` (shared, git-tracked)
+   - the row below it (`└ (inherits project)` until you set one) -- your **user** override, saved to `codeagent_config.local.json` (personal, gitignored)
+4. Press **Enter** to open the model picker
+5. Press **Shift+Left** / **Shift+Right** to switch between its lists (top used models, top by usage for this operation, all models, or one code agent's models); type to filter the current list
+6. Select a model and press **Enter**. It is saved to the layer of the row you opened the picker on, and the change takes effect immediately
 
-> **Note:** Choosing **User** layer means this override only applies to your machine. Other team members will continue using the project default.
+> **Note:** A user override only applies to your machine. Other team members continue using the project default.
 
 ## Remove a User Override
 

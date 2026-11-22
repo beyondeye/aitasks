@@ -1,0 +1,28 @@
+# Recorded by `website/screenshots.sh recipe save` from a capture that worked.
+# Do not edit a failing recipe by hand: re-discover the route and save with --replace.
+id: home_codebrowser
+output: home/codebrowser.svg
+title: aitasks codebrowser
+size:
+- 160
+- 40
+dataset: codebrowser
+setup: []
+launch: ./ait codebrowser --focus src/checkout/cart.py:48-56
+steps:
+- wait:
+    text: Sel 48–56
+    timeout: 60
+- wait:
+    text: t4
+    timeout: 60
+- keys:
+  - d
+- wait: Plan for t4
+expect:
+- Sel 48–56
+- Plan for t4
+- 'Plan: t4 shipping cost'
+- t6
+- t4
+illustrates: 'Home page: the codebrowser annotating each line of cart.py with the task that introduced it (gutter t3, t6, t4, t5_2) and the detail pane showing the plan of t4, the task at the cursor, at the shared home-page size.'
