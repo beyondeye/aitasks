@@ -332,6 +332,10 @@ class RecentlyOpenedList(VerticalScroll):
     }
     """
 
+    class Changed(Message):
+        """Posted whenever the displayed rows are rebuilt, so the owner can
+        refresh anything derived from them (the section header count)."""
+
     def __init__(self, project_root: Path, task_index: list[CompletedTask], **kwargs) -> None:
         super().__init__(**kwargs)
         self._project_root = project_root
@@ -376,6 +380,12 @@ class RecentlyOpenedList(VerticalScroll):
         self._save_history()
         self._refresh_display()
 
+    @property
+    def visible_count(self) -> int:
+        """Number of history entries that resolve to a task in the index —
+        exactly the rows `_refresh_display` mounts."""
+        return sum(1 for h in self._history if h.get("task_id") in self._index_map)
+
     def _refresh_display(self) -> None:
         for item in self.query(HistoryTaskItem):
             item.remove()
@@ -384,6 +394,7 @@ class RecentlyOpenedList(VerticalScroll):
             task = self._index_map.get(tid)
             if task is not None:
                 self.mount(HistoryTaskItem(task))
+        self.post_message(self.Changed())
 
 
 class HistoryLeftPane(Container):
@@ -480,13 +491,20 @@ class HistoryLeftPane(Container):
             self.query_one("#history_header", Static).update(
                 f"Completed Tasks ({total} total)"
             )
+        self._update_recent_header()
+
+    def _update_recent_header(self) -> None:
         recent = self.query_one("#recent_list", RecentlyOpenedList)
-        valid_count = sum(
-            1 for h in recent._history if h.get("task_id") in recent._index_map
-        )
         self.query_one("#recent_header", Static).update(
-            f"Recently Opened ({valid_count})"
+            f"Recently Opened ({recent.visible_count})"
         )
+
+    def on_recently_opened_list_changed(self, event: RecentlyOpenedList.Changed) -> None:
+        # The list changed outside set_data/update_index/label filtering —
+        # notably add_to_history when a task is opened — so the header must
+        # follow it here rather than only in _update_headers.
+        event.stop()
+        self._update_recent_header()
 
     def get_recently_opened_list(self) -> RecentlyOpenedList:
         return self.query_one("#recent_list", RecentlyOpenedList)
