@@ -334,3 +334,105 @@ per task-workflow Step 9.
   a YAML mapping (e.g. `---\nNote: x\n---`) is still read as frontmatter.
   Brainstorm specs come from task files, so this is accepted · severity: low ·
   → mitigation: none needed
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-22 09:20)
+- **Requested by user:** (1) `_split_spec_frontmatter` caught only
+  `yaml.YAMLError`, but `yaml.safe_load` raises `ValueError` for an impossible
+  date (`review_on: 2026-02-29`); `init_session` wrote `br_session.yaml` before
+  failing on `n000_init`, and display raised on an older session with that
+  spec. (2) The bridges sourced `python_resolve.sh` before checking
+  `AIT_PYTHON`; its top-level `$HOME` expansion aborts a `set -u` caller with
+  HOME unset — `aitask_crew_init.sh --help` with `PATH=/usr/bin:/bin
+  AIT_PYTHON=/usr/bin/python3` and no HOME went from exit 0 (baseline) to 1.
+  Both reproduced and confirmed.
+- **Changes made:**
+  - `_split_spec_frontmatter` treats any exception from `yaml.safe_load` as
+    "not usable frontmatter" (the documented fallback; never raises).
+  - `init_session` derives the root node's brief/body/reference files BEFORE
+    writing any session file.
+  - Bridges: order is now cached resolution → executable `$AIT_PYTHON` →
+    `python_resolve.sh` (only when HOME is set and the file is present) →
+    bare `python3`. AIT_PYTHON no longer depends on the resolver file.
+  - Tests: impossible-date cases (`spec_brief_lines`, `init_session`, display);
+    a write-order test (patched `root_brief` raising → no session files); shell
+    test now 24 checks incl. three HOME-unset cases through the real
+    `aitask_crew_init.sh --help` entry point and "AIT_PYTHON honoured without
+    the resolver". Mutation checks: the previous bridge version fails 7 of the
+    new checks; the narrowed `except yaml.YAMLError` fails the 3 date tests.
+- **Files affected:** `.aitask-scripts/brainstorm/brainstorm_session.py`,
+  `.aitask-scripts/lib/{launch_modes_sh,followup_kinds_sh,plan_paths_sh}.sh`,
+  `tests/test_brainstorm_cli_python.py`,
+  `tests/test_shell_bridge_python_resolve.sh`
+
+### Change Request 2 (2026-11-22 09:35)
+- **Requested by user:** the 24 shell checks all still passed with the
+  `python_resolve.sh` call disabled in every bridge — the resolver branch was
+  uncovered. Confirmed.
+- **Changes made:** added a "resolver branch" section: no `AIT_PYTHON`, the
+  failing `python3` stub first on PATH, and a working
+  `$HOME/.aitask/venv/bin/python` — reachable only through
+  `python_resolve.sh`. 28 checks now; a mutant with `resolve_python` disabled
+  in all three bridges fails exactly the 4 new checks.
+- **Files affected:** `tests/test_shell_bridge_python_resolve.sh`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `brainstorm_session.py`: `_split_spec_frontmatter` (strict: column-0
+    closing `---`, non-empty YAML mapping, any parse/construct failure → no
+    frontmatter), `spec_brief_lines`, `root_brief`, frozen `_legacy_root_brief`,
+    and `display_node_description` (byte-equal legacy `n000_init` brief →
+    corrected brief at display time; imported proposals, edited descriptions,
+    non-root nodes and any session-file trouble → stored value). `init_session`
+    derives the root content before writing any file.
+  - Display sites routed through the helper: Browse node list, Actions-wizard
+    node rows, DAG graph labels, node-detail panel.
+  - Literal rendering of task/agent text: `NodeRow.render` and the node-detail
+    Description use `Content.from_markup(... $var ...)`; `OperationRow` gained
+    opt-in `literal_description`; the session-status label is a literal
+    `Content`; the `b` Task Brief view uses `Static(..., markup=False)`.
+  - Bridges (`launch_modes_sh.sh`, `followup_kinds_sh.sh`, `plan_paths_sh.sh`):
+    cached resolution → executable `$AIT_PYTHON` → lazily sourced
+    `python_resolve.sh` (only with HOME set) → `python3`.
+  - Tests: `tests/test_shell_bridge_python_resolve.sh` (new, 28 checks),
+    `tests/test_brainstorm_cli_python.py` (+brief/display/date/write-order),
+    `tests/test_brainstorm_browse_view.py` (+Browse pilots incl. bracketed text
+    and `b`, +OperationRow literal tests).
+  - Docs screenshot `brainstorm_browse_tab` replayed (recipe unchanged, no
+    repair) and applied from reviewed batch `20261122T085803Z-959ef1`; root and
+    Brief now show the task body. `check_links.py --build` and
+    `check_screenshots.py` pass.
+  - **Where the screenshot landed:** the applied
+    `website/static/imgs/aitasks_brainstorm_browse_tab.svg` was committed by a
+    concurrent session in `f7367ae8a` (t2278_6), which committed its whole
+    `website/` change set before this task's code commit `6e6724c20`. The
+    committed bytes are identical to reviewed batch
+    `20261122T085803Z-959ef1` (verified with `cmp`), so the fixed image is on
+    main; it is simply not in the `(t2339)` commit. History on shared main
+    was not rewritten.
+- **Deviations from plan:**
+  - The whole session-status label renders literally (not only the Brief line):
+    no line in it is markup, and `[READ ONLY]` was being swallowed by the markup
+    parser as well.
+  - Bridges honour `AIT_PYTHON` themselves, before and without the resolver
+    (Change Request 1); the plan's "fallback unchanged when python_resolve.sh is
+    absent" now holds only when `AIT_PYTHON` is unset.
+- **Issues encountered:**
+  - `rich`/`textual` `escape()` double a backslash before `[`; `Content.from_markup`
+    variable substitution renders every probe verbatim, so it was used instead.
+  - A `str`-render helper in the pilots compared markup source, not rendered
+    text, and let the pre-fix NodeRow pass its first assertion; it now parses
+    `str` renders with `textual.markup.to_content` like Textual does.
+  - Review rounds: impossible YAML date (`ValueError`), HOME-unset `set -u`
+    abort, uncovered resolver branch — see Post-Review Changes.
+- **Pre-fix control (bridges, scratch HOME, failing `python3` stub first on
+  PATH, `AIT_PYTHON` set):** `launch_modes_sh.sh` → "stub python3: broken
+  wrapper / error: failed to load launch_modes vocabulary"; `followup_kinds_sh`
+  → `is_valid_followup_kind risk_mitigation` rc=1; `plan_paths_sh` →
+  `_plan_paths_python` = `python3`. Post-fix all three succeed.
+- **Key decisions:** display-time correction (no writes) so read-only sessions
+  are fixed too; byte equality to the frozen legacy derivation as the identity
+  rule; `OperationRow` literal mode opt-in because other callers pass markup.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/python_resolve.sh:38 — top-level `$HOME` expansion (PYPY_VENV_DIR default) aborts any `set -u` script that sources it at startup when HOME is unset (bridges now guard it; direct sourcers still crash)`
