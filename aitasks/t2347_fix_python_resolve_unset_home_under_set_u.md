@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2278
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-22 11:49
-updated_at: 2026-11-22 11:54
+updated_at: 2026-11-22 18:27
 ---
 
 ## Origin
@@ -50,3 +51,8 @@ Use `${HOME:-}` for the top-level default and skip the HOME-based candidates in
 `resolve_python()` when HOME is empty, so `$AIT_PYTHON` and `command -v
 python3` still resolve. Cover it with an `env -i` (no HOME) case that sources
 `python_resolve.sh` under `set -u` and calls `resolve_python`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-22T16:27:08Z status=pass attempt=1 type=human
