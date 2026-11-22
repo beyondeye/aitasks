@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2278
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-20 01:36
-updated_at: 2026-11-20 09:03
+updated_at: 2026-11-22 10:47
 ---
 
 ## Origin
@@ -57,3 +58,8 @@ The two are independent; split if that suits the work better.
 The TUI switcher dialog being clipped in the 40-column minimonitor pane
 (`.aitask-scripts/lib/tui_switcher.py:556`) is its own task, t2340: the clip
 cuts actual hint-row text, so the user decided it must be fixed.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-22T08:47:33Z status=pass attempt=1 type=human
