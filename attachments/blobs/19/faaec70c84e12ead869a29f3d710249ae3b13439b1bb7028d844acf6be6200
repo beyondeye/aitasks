@@ -1,0 +1,182 @@
+{
+  "schema_version": "1.1.0",
+  "trail_id": "trail-tmp-cleanup",
+  "title": "/tmp cleanup — after killed-run reclaim",
+  "owner": "aitasks#2345",
+  "scope": {
+    "kind": "topic",
+    "topics": [
+      "aitasks#2290"
+    ]
+  },
+  "generation": {
+    "generated_at": "2026-11-22T14:56:58Z",
+    "generator": {
+      "agent_string": "claudecode/opus5_5",
+      "skill": "aitask-trail"
+    },
+    "input_digest": "b3fdd3cd6cac211e",
+    "inputs": [
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2303"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2332"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2344"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2345"
+      },
+      {
+        "kind": "task_file",
+        "ref": "aitasks#2346"
+      }
+    ]
+  },
+  "freshness": {
+    "state": "current",
+    "checked_at": "2026-11-22T14:56:58Z"
+  },
+  "narrative": {
+    "problem_statement": "The /tmp-cleanup topic (root aitasks#2290) gave test runs a private per-run TMPDIR, and aitasks#2301 added reclaiming guard dirs left by SIGKILLed runs on positive evidence. Its open work is three small, independent defects and two follow-ups that widen when that reclaim can actually fire.",
+    "recommendation_summary": "Land aitasks#2344 first, with aitasks#2303 and aitasks#2332 alongside it at any time; then aitasks#2346; then the research task aitasks#2345.",
+    "overview": "No member depends on another, so this order is advisory and comes from shared files. aitasks#2344, aitasks#2346 and aitasks#2345 all edit tests/lib/tmpdir_guard.sh and tests/test_tmpdir_guard.sh: aitasks#2344 is a small, low-effort fix to tmpdir_guard_end's leftover listing, so landing it first lets the other two build on it instead of conflicting with it. aitasks#2303 (an error-file leak in lib/task_utils.sh) and aitasks#2332 (two defects in lib/archive_utils.sh's EXIT-trap chain) share no file with the guard work and can be picked whenever convenient. aitasks#2346 (reclaim dirs whose socket files have no live listener) stays inside the reaper's socket step and comes before aitasks#2345, which researches stronger holder evidence for non-root hosts (for example per-run systemd user scopes) and may change how phases are launched — the widest change in the topic, with the least certain outcome. Not a member: aitasks#2294 has no anchor, so it is its own topic; it is an older duplicate of aitasks#2301 and holds an advisory note saying so — close or narrow it separately.",
+    "method_note": "Lite depth. Membership and snapshots come from the gatherer; rationale comes from reading the five member task descriptions only. No member has a plan file, so file-overlap claims come from task bodies and may be incomplete. Not verified: in-flight work or locks, whether each defect still reproduces at HEAD, test status, and any relation outside the topic."
+  },
+  "waves": [
+    {
+      "wave_id": "w1",
+      "ordinal": 1,
+      "title": "Now: small independent fixes",
+      "purpose": "Clear the low-effort defects, starting with the one that shares files with the later waves.",
+      "why_now": "All three are low effort with no dependencies; aitasks#2344 also settles tests/lib/tmpdir_guard.sh before W2 and W3 edit it.",
+      "entries": [
+        {
+          "entry_id": "e1",
+          "task": "aitasks#2344",
+          "topic": "aitasks#2290",
+          "position": 1,
+          "classification": "preferred_predecessor",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "Makes tmpdir_guard_end's leftover listing NUL-delimited, matching the discovery code aitasks#2301 already converted. It edits the same two files as aitasks#2346 and aitasks#2345, so landing it first avoids rebasing a small fix under larger ones.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e2",
+          "task": "aitasks#2303",
+          "topic": "aitasks#2290",
+          "position": 2,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "task_git_commit_scoped creates its ait_commit_scoped_err.* file before the wedge check that can die, leaking one file per wedge-die. It touches lib/task_utils.sh only, so it can run in parallel with anything here.",
+          "confidence": "high"
+        },
+        {
+          "entry_id": "e3",
+          "task": "aitasks#2332",
+          "topic": "aitasks#2290",
+          "position": 3,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "medium",
+            "effort": "low",
+            "depends": [],
+            "gates_pending": [],
+            "followup_kind": "upstream_defect"
+          },
+          "rationale": "_ait_archive_exit_chain loses the caller trap's \"$@\" and recognises its own wrapper by substring; aitasks#2322's registry_lock chain is the reference fix. Independent of the guard files. Two defects in one task, hence medium confidence.",
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "wave_id": "w2",
+      "ordinal": 2,
+      "title": "Next: reclaim dirs with stale socket files",
+      "purpose": "Let the reaper reclaim a dir whose socket files provably have no listener, instead of leaving it for manual cleanup.",
+      "entries": [
+        {
+          "entry_id": "e4",
+          "task": "aitasks#2346",
+          "topic": "aitasks#2290",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "carry_over"
+          },
+          "rationale": "Deferred from aitasks#2301 by the user. The change stays within the reaper's socket step (step 6) and its tests, so it is contained; it follows aitasks#2344 for the shared files and precedes aitasks#2345 because it does not change how phases launch.",
+          "confidence": "medium"
+        }
+      ]
+    },
+    {
+      "wave_id": "w3",
+      "ordinal": 3,
+      "title": "Then: reclaim on non-root hosts",
+      "purpose": "Find evidence strong enough for a non-root host to prove a guard dir unused, so reclaim works beyond root and CI runs.",
+      "entries": [
+        {
+          "entry_id": "e5",
+          "task": "aitasks#2345",
+          "topic": "aitasks#2290",
+          "position": 1,
+          "classification": "core",
+          "snapshot": {
+            "status": "Ready",
+            "priority": "low",
+            "effort": "medium",
+            "depends": [],
+            "gates_pending": [
+              "risk_evaluated"
+            ],
+            "followup_kind": "risk_mitigation"
+          },
+          "rationale": "Risk mitigation for aitasks#2301: on a non-root systemd host most processes are uninspectable, so every candidate is kept. Candidates such as per-run cgroup / systemd user scopes would change how tmpdir_guard_run launches phases — the widest surface in the topic — and the research outcome is uncertain, so it goes last.",
+          "confidence": "low"
+        }
+      ]
+    }
+  ],
+  "evidence": [
+    {
+      "evidence_id": "ev1",
+      "source_type": "command_output",
+      "ref": "./.aitask-scripts/aitask_trail_gather.sh snapshot --scope topic --owner 2345 2290",
+      "observed_at": "2026-11-22T14:56:58Z",
+      "summary": "Gatherer snapshot: 5 members (aitasks#2303, aitasks#2332, aitasks#2344, aitasks#2345, aitasks#2346), 5 task_file inputs, no plan files, owner aitasks#2345, digest b3fdd3cd6cac211e."
+    }
+  ],
+  "rendering_hints": {
+    "depth": "lite"
+  }
+}

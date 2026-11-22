@@ -9,7 +9,11 @@ gates: [risk_evaluated]
 anchor: 2290
 followup_kind: risk_mitigation
 created_at: 2026-11-22 11:43
-updated_at: 2026-11-22 11:43
+updated_at: 2026-11-22 16:57
+artifacts:
+  - handle: art:trail-tmp-cleanup
+    kind: implementation_trail
+    name: /tmp cleanup — after killed-run reclaim
 ---
 
 ## Origin

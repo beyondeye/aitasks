@@ -1,0 +1,10 @@
+{
+  "backend": "local",
+  "created_at": 1795359424,
+  "current": "sha256:19faaec70c84e12ead869a29f3d710249ae3b13439b1bb7028d844acf6be6200",
+  "handle": "art:trail-tmp-cleanup",
+  "updated_at": 1795359424,
+  "versions": [
+    "sha256:19faaec70c84e12ead869a29f3d710249ae3b13439b1bb7028d844acf6be6200"
+  ]
+}
