@@ -11,8 +11,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-19 15:32
-updated_at: 2026-11-22 11:47
+updated_at: 2026-11-22 18:28
 ---
 
 # Show a frozen agent's sitrep state (harvested / triaged) so "safe to drop" is visible
@@ -103,3 +104,8 @@ triaged" step):
   triage question. That is the "nothing to triage" row, not an error.
 - Map records only through the passage KEY `record=` header or recorded
   origin fields, never through title or text matching.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-22T16:28:23Z status=pass attempt=1 type=human
