@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -56,3 +58,5 @@ python3` still resolve. Cover it with an `env -i` (no HOME) case that sources
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-22T16:27:08Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-22T16:44:34Z status=pass attempt=1 type=human
