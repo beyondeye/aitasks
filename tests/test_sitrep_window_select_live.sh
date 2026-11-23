@@ -31,6 +31,11 @@
 #      the jump re-checks name AND pid; a mutant without the pid check moves it.
 #      Pty reuse is the kernel's choice: when the name is not reused the run
 #      says so, and the reuse logic is pinned by the unit tests instead.
+#   7  the launch read sent THROUGH a control client (the route a control-routed
+#      `monitor.tmux_run` takes, t2051): with `-t <caller pane>` it names the
+#      terminal client viewing that pane's session (7a); with nobody viewing it,
+#      tmux falls back to the control client itself, which
+#      `_sitrep_launch_client` refuses, so nothing is moved (7b)
 #
 # The driver runs with TMUX / TMUX_PANE of a pane in session A, the way the
 # switcher's worker runs inside its host TUI pane, so `switch-client`'s
@@ -142,8 +147,8 @@ if os.environ.get("AIT_LIVE_MUTANT_ALWAYS_FOCUS") == "1":
     # The pre-gate behaviour: focus as if the client were always elsewhere.
     _real_client = mc._sitrep_launch_client
 
-    def _always_elsewhere(monitor):
-        found = _real_client(monitor)
+    def _always_elsewhere(monitor, caller_pane):
+        found = _real_client(monitor, caller_pane)
         return found._replace(session="__elsewhere__") if found else None
     mc._sitrep_launch_client = _always_elsewhere
 if os.environ.get("AIT_LIVE_MUTANT_NO_PID_CHECK") == "1":
@@ -218,8 +223,10 @@ class Gateway:
         return self.client.run(args, timeout=timeout)
 
 
+# The caller pane, named the way `sitrep_open` names it (TMUX_PANE).
 res = mc.spawn_sitrep(Gateway(), target_root=Path(sys.argv[1]), session=sys.argv[2],
-                      select_window=True)
+                      select_window=True,
+                      caller_pane=os.environ.get("TMUX_PANE") or None)
 print(f"{res.status}|{res.pane or ''}|{res.window}|{res.detail}|{res.tui or ''}")
 PYEOF
 
@@ -352,6 +359,43 @@ T switch-client -c "$TTY" -t '=sel_a'
 out="$(spawn "$ROOT_MUTANT" AIT_LIVE_MUTANT_NO_FIRST_FOCUS=1)"
 assert_eq "X: mutant cold spawn status" "spawned" "$(field "$out" 0)"
 assert_eq "X: without the focus the client stays in A (control)" "sel_a" "$(client_session)"
+
+# --- 7: the launch read through a control client --------------------------------
+# (Before 5/6, while the initiating terminal client still views A; nobody views
+# B at this point.) Control-mode command syntax: single-quoted arguments. The
+# first %begin/%end block answers the attach itself and is empty, so take the
+# first non-empty line of any block.
+T switch-client -c "$TTY" -t '=sel_a'
+ctl_fmt="$(printf '#{client_name}\t#{client_pid}\t#{client_control_mode}\t#{client_session}')"
+via_control() {   # via_control <pane> -> the launch read sent through a control client
+    printf "display-message -p -t '%s' '%s'\n" "$1" "$ctl_fmt" \
+        | timeout 10 tmux -L "$SOCK" -C attach -t =sel_c 2>/dev/null \
+        | awk '/^%begin/ {g=1; next} /^%end/ {g=0; next} g && NF {print; exit}'
+}
+launch_client_of() {   # launch_client_of <canned answer> -> parsed | None
+    CTL_OUT="$1" PYTHONPATH="$PYPATH" "$PYTHON_BIN" - <<'PYEOF'
+import os
+from monitor import monitor_core as mc
+
+class Canned:
+    def tmux_run(self, args, timeout=5.0):
+        return 0, os.environ["CTL_OUT"] + "\n"
+
+found = mc._sitrep_launch_client(Canned(), "%0")
+print(f"parsed:{found.name}" if found else "None")
+PYEOF
+}
+viewed="$(via_control "$CALLER_PANE")"
+assert_eq "7a: via a control client, -t <pane in A> names A's terminal client" \
+    "$TTY|0|sel_a" "$(printf '%s' "$viewed" | awk -F'\t' '{print $1 "|" $3 "|" $4; exit}')"
+assert_eq "7a: ... and it is accepted" "parsed:$TTY" "$(launch_client_of "$viewed")"
+unviewed="$(via_control "$B_PANE")"
+assert_eq "7b: with nobody viewing B, the read falls back to the control client" "1" \
+    "$(printf '%s' "$unviewed" | awk -F'\t' '{print $3; exit}')"
+assert_eq "7b: ... and it is refused (moves nothing)" "None" "$(launch_client_of "$unviewed")"
+as_terminal="$(printf '%s' "$unviewed" | awk -F'\t' -v OFS='\t' '{$3 = "0"; print; exit}')"
+assert_contains "7b: control — the same answer as a terminal client parses" "parsed:" \
+    "$(launch_client_of "$as_terminal")"
 
 # --- 5: the initiator detaches; a second terminal must not be moved -----------
 # (Last: it detaches the initiating clients.)

@@ -56,6 +56,8 @@ CLIENT_REQUEST_FILE = "monitor/monitor_core.py"
 TARGET_FREE = {
     "list-sessions": (None, "server-wide: lists every session"),
     "list-panes": ("-a", "server-wide with -a: lists every pane of every session"),
+    "list-clients": (None, "server-wide: lists every client (the sitrep jump "
+                           "re-checks its initiator by name and pid, t2338)"),
     "delete-buffer": ("-b", "names a paste buffer, which belongs to the server"),
 }
 

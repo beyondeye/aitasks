@@ -149,7 +149,7 @@ class FakeMon:
                  window_list_rc=0, places=None, active=None, join_rc=0,
                  select_rc=0, pane_windows=None, client_session=None,
                  client_name="/dev/pts/9", client_pid="5150", clients=None,
-                 clients_rc=0):
+                 clients_rc=0, client_control="0"):
         self.panes = list(panes)
         self.list_rc = list_rc
         self.socket = socket
@@ -169,6 +169,7 @@ class FakeMon:
         self.client_session = client_session
         self.client_name = client_name
         self.client_pid = client_pid
+        self.client_control = client_control
         # `list-clients` rows (name, pid); default: the launch client itself.
         self.clients = clients
         self.clients_rc = clients_rc
@@ -192,7 +193,8 @@ class FakeMon:
         if verb == "display-message":
             if args[-1] == mc._SITREP_CLIENT_FORMAT:
                 cs = self.client_session
-                return ((0, f"{self.client_name}\t{self.client_pid}\t{cs}\n")
+                return ((0, f"{self.client_name}\t{self.client_pid}"
+                            f"\t{self.client_control}\t{cs}\n")
                         if cs else (1, ""))
             target = args[args.index("-t") + 1]
             if args[-1] == "#{socket_path}":
@@ -418,6 +420,7 @@ class _SpawnFixture(TmuxSocketContainmentMixin, unittest.TestCase):
 
     def spawn(self, mon, **kw):
         kw.setdefault("select_window", True)
+        kw.setdefault("caller_pane", "%1")
         return mc.spawn_sitrep(mon, target_root=self.root, session="s", **kw)
 
     def both_alive(self):
@@ -515,8 +518,9 @@ class SpawnTests(_SpawnFixture):
         self.focus.assert_called_once_with("%42", client="/dev/pts/77")
 
     def test_an_unparseable_client_read_moves_nothing(self):
-        for answer in ("", "\t1\tother", "/dev/pts/9\t1\t", "/dev/pts/9\tx\tother",
-                       "/dev/pts/9\tother", "nosep"):
+        for answer in ("", "\t1\t0\tother", "/dev/pts/9\t1\t0\t",
+                       "/dev/pts/9\tx\t0\tother", "/dev/pts/9\t1\tother",
+                       "/dev/pts/9\t1\t\tother", "nosep"):
             with self.subTest(answer=answer):
                 self.focus.reset_mock()
                 mon = FakeMon(socket=self.sock)
@@ -530,6 +534,35 @@ class SpawnTests(_SpawnFixture):
                 mon.tmux_run = run
                 self.spawn(mon)
                 self.focus.assert_not_called()
+
+    def test_the_client_read_targets_the_caller_pane(self):
+        # Never "the current client": over a control-routed monitor that is the
+        # monitor's own helper-session client (t2051).
+        mon = FakeMon(socket=self.sock, client_session="other")
+        self.spawn(mon, caller_pane="%7")
+        reads = [c for c in mon.calls if c[-1] == mc._SITREP_CLIENT_FORMAT]
+        self.assertEqual(reads, [["display-message", "-p", "-t", "%7",
+                                  mc._SITREP_CLIENT_FORMAT]])
+
+    def test_a_control_client_is_never_moved(self):
+        # Through a control-routed gateway tmux answers for the control client
+        # itself, whatever -t names; it must not be switched (t2051).
+        mon = FakeMon(socket=self.sock, client_session="other",
+                      client_name="client-77", client_control="1")
+        res = self.spawn(mon)
+        self.assertEqual((res.status, res.detail), ("spawned", ""))
+        self.focus.assert_not_called()
+
+    def test_no_caller_pane_moves_nothing_and_reads_nothing(self):
+        for pane in (None, "", "7", "%7x", "=s:1"):
+            with self.subTest(pane=pane):
+                self.focus.reset_mock()
+                mon = FakeMon(socket=self.sock, client_session="other")
+                res = self.spawn(mon, caller_pane=pane)
+                self.assertEqual(res.status, "spawned")
+                self.focus.assert_not_called()
+                self.assertFalse([c for c in mon.calls
+                                  if c[-1] == mc._SITREP_CLIENT_FORMAT])
 
     def test_a_reused_pty_name_is_not_the_initiator(self):
         # The initiator closed during startup; a NEW terminal (another pid)
@@ -1136,6 +1169,16 @@ class OpenCliTests(TmuxSocketContainmentMixin, unittest.TestCase):
             ("Sitrep window opened (tui_moved, companion_not_spawned)", "warning"))
         self.assertEqual(msg(1, "SITREP_REFUSED:tui:stamp:removed\n"),
                          ("Sitrep not opened: tui:stamp:removed", "error"))
+
+    def test_the_caller_pane_reaches_the_spawn(self):
+        # TMUX_PANE (%1, setUp) is named to the spawn; it never reads it itself.
+        spawn = patch.object(self.mod.monitor_core, "spawn_sitrep",
+                             return_value=mc.SitrepSpawn("focused", "%5", "", "")).start()
+        import contextlib
+        import io
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.mod.main([])
+        self.assertEqual(spawn.call_args.kwargs["caller_pane"], "%1")
 
     def test_no_select_reaches_the_spawn(self):
         spawn = patch.object(self.mod.monitor_core, "spawn_sitrep",

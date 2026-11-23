@@ -98,7 +98,10 @@ def main(argv=None) -> int:
         return 1
     res = monitor_core.spawn_sitrep(
         gateway, target_root=os.path.abspath(args.root), session=session,
-        select_window=not args.no_select, agent_string=args.agent_string)
+        select_window=not args.no_select, agent_string=args.agent_string,
+        # The pane this request came from: its client is the one a cold
+        # spawn in another session moves (t2338). Unset outside a pane.
+        caller_pane=pane or None)
     head = _OPENED.get(res.status)
     if head:
         print(f"{head}:{res.pane}|{res.window}")

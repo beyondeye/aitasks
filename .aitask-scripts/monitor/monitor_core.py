@@ -5808,10 +5808,11 @@ def _sitrep_active_pane(monitor, window_id: str) -> str | None:
 
 
 #: One read of the caller's client: its name (what ``switch-client -c`` takes),
-#: its process id and its session. The name alone is not an identity: a
-#: terminal closed during startup frees its pty, and a new client attached
-#: meanwhile can get the same ``/dev/pts/N`` name (t2338).
-_SITREP_CLIENT_FORMAT = "#{client_name}\t#{client_pid}\t#{client_session}"
+#: its process id, whether it is a control client, and its session. The name
+#: alone is not an identity: a terminal closed during startup frees its pty, and
+#: a new client attached meanwhile can get the same ``/dev/pts/N`` name (t2338).
+_SITREP_CLIENT_FORMAT = ("#{client_name}\t#{client_pid}\t#{client_control_mode}"
+                         "\t#{client_session}")
 #: The attached clients, for re-checking that identity before the jump.
 _SITREP_CLIENTS_FORMAT = "#{client_name}\t#{client_pid}"
 
@@ -5824,21 +5825,28 @@ class _SitrepClient(NamedTuple):
     session: str
 
 
-def _sitrep_launch_client(monitor) -> _SitrepClient | None:
-    """The caller's client (name, pid, session), or None.
+def _sitrep_launch_client(monitor, caller_pane: str | None) -> _SitrepClient | None:
+    """The client viewing ``caller_pane`` (name, pid, session), or None.
 
-    Read with tmux's implicit client (no ``-c``): from a pane, that pane's
-    attached client. None when there is no client, the read fails, or the
-    answer is malformed — the caller then moves nothing.
+    Targeted at the caller's pane (``-t``). Over the CLI gateway
+    (``sitrep_open``) tmux then answers for the client viewing that pane's
+    session. A command sent through a control client is answered for THAT
+    client whatever ``-t`` says — the monitor's own control client in its
+    helper session (t2051) — so a control client is refused here and nothing is
+    moved. None also without a well-formed pane id, when no client views it, the
+    read fails, or the answer is malformed.
     """
-    rc, out = monitor.tmux_run(["display-message", "-p", _SITREP_CLIENT_FORMAT])
+    if not caller_pane or not _SITREP_PANE_ID_RE.fullmatch(caller_pane):
+        return None
+    rc, out = monitor.tmux_run(
+        ["display-message", "-p", "-t", caller_pane, _SITREP_CLIENT_FORMAT])
     if rc != 0:
         return None
     fields = out.strip("\n").split("\t")
-    if len(fields) != 3 or "\n" in out.strip("\n"):
+    if len(fields) != 4 or "\n" in out.strip("\n"):
         return None
-    name, pid, session = fields
-    if not name or not session or not pid.isdigit():
+    name, pid, control, session = fields
+    if not name or not session or not pid.isdigit() or control != "0":
         return None
     return _SitrepClient(name, pid, session)
 
@@ -5953,7 +5961,8 @@ def _sitrep_launch_agent_window(monitor, root: str, session: str,
 
 def spawn_sitrep(monitor, *, target_root, session: str, select_window: bool,
                  agent_string: str | None = None,
-                 lock_timeout: float | None = None) -> SitrepSpawn:
+                 lock_timeout: float | None = None,
+                 caller_pane: str | None = None) -> SitrepSpawn:
     """Focus the repository's sitrep window, or create / repair it.
 
     ``target_root`` may be any path in the repository: it is mapped to the main
@@ -5980,8 +5989,10 @@ def spawn_sitrep(monitor, *, target_root, session: str, select_window: bool,
     without ``select_window`` the window's active pane is restored if the
     companion spawn moved it.
 
-    **Never reads ``TMUX_PANE``** — the caller names the session. Duck-typed on
-    ``monitor.tmux_run``.
+    **Never reads ``TMUX_PANE``** — the caller names the session, and
+    ``caller_pane`` (the pane the request came from) when a cold spawn from
+    another session should move that pane's client into the new window; without
+    it no client is moved. Duck-typed on ``monitor.tmux_run``.
     """
     from sitrep_harvest import HarvestFailure, canonical_root, spawn_test_pause
     try:
@@ -6044,7 +6055,7 @@ def spawn_sitrep(monitor, *, target_root, session: str, select_window: bool,
             # same-session user who moved to another session during startup
             # would be pulled back; left implicit, a detached initiator would
             # be replaced by whatever other client tmux finds (t2338).
-            launch_client = (_sitrep_launch_client(monitor)
+            launch_client = (_sitrep_launch_client(monitor, caller_pane)
                              if select_window else None)
             agent, window, why = _sitrep_launch_agent_window(
                 monitor, root, session, select_window, agent_string)
