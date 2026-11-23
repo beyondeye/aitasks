@@ -26,7 +26,7 @@ User-facing pages: `website/content/docs/workflows/sitrep.md`,
 | window + facts | `ait sitrep` → `.aitask-scripts/aitask_sitrep.sh` | `open`: `monitor/sitrep_open.py` → `monitor/monitor_core.py` `spawn_sitrep`; `root` / `triage`: `lib/sitrep_cli.py` (stdlib; lib/ never imports the monitor package) | opens the sitrep agent in its own window; read-only facts for the skill |
 | TUI | `ait sitrep tui` → `.aitask-scripts/aitask_sitrep_tui.sh` | `sitrep_tui/` (`sitrep_tui_app.py`, `_model`, `_widgets`, `_actions`, `_requests`, `_trails`); delivery in `monitor/agent_request_delivery.py` | the list's read views, the deterministic actions (harvest + refresh, dismiss, restore, pick, board / trails jumps, push command), the guarded requests into the agent |
 | agent | `/aitask-sitrep` | `.claude/skills/aitask-sitrep/SKILL.md.j2` | triage, situation text, trail reports, pick advice, answers from the sources, Q&A log; handles the requests the TUI types |
-| monitor surface | `h` / `S` in `ait monitor` and `ait minimonitor`, `S` in the TUI switcher | `monitor/sitrep_close.py` (`SitrepCloseMixin`) | harvest-and-close, open the sitrep window, the `sitrep N now` count; the maintenance `harvest all` pass |
+| monitor surface | `h` / `S` in `ait monitor` and `ait minimonitor`, `S` and the Sitrep row in the TUI switcher | `monitor/sitrep_close.py` (`SitrepCloseMixin`) | harvest-and-close, open the sitrep window, the `sitrep N now` count; the maintenance `harvest all` pass |
 
 Each helper's header is its wire contract (verbs, result lines, exit codes); the
 store's consumer contract is the fixture `tests/fixtures/sitrep/`. The monitor's
