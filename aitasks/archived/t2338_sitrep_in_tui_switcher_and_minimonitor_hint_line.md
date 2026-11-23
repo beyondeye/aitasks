@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [sitrep, tui_switcher, minimonitor, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-19 15:33
-updated_at: 2026-11-22 17:51
+updated_at: 2026-11-23 09:48
+completed_at: 2026-11-23 09:48
 ---
 
 # Sitrep: a TUI-switcher row (open/switch like other TUIs) + minimonitor hint on the switcher line
@@ -165,3 +166,14 @@ in the minimonitor's shortcut list, `S:sitrep` should sit **on the same line as
 > **✅ gate:plan_approved** run=2026-11-22T15:51:19Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-23T00:26:49Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-23T07:48:44Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:82ef1bf314f6469f
+
+> **✅ gate:risk_evaluated** run=2026-11-23T07:48:44Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2338/risk_evaluated_2026-11-23T07:48:44Z-risk_evaluated-a1.log`
