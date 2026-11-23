@@ -441,6 +441,19 @@ class ActionGuardTests(unittest.TestCase):
 
 
 class HarvestFlowTests(unittest.TestCase):
+    def setUp(self):
+        # The frozen flow describes the record's sitrep state (t2337); never
+        # let it read the real session store.
+        self.described = []
+
+        def describe(record_id, sessions_path=None):
+            self.described.append(record_id)
+            return "harvested — safe to drop; nothing to triage"
+        from unittest import mock
+        patcher = mock.patch.object(sc.frozen_sitrep, "describe_record", describe)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
     def run_flow(self, host, state="live"):
         asyncio.run(host._harvest_close(host.snap, state, host.root))
         self.assertFalse(host._harvest_close_inflight)
@@ -455,6 +468,52 @@ class HarvestFlowTests(unittest.TestCase):
         dialog, _cb = self.run_flow(h, "frozen")
         self.assertEqual(h.harvests, [(["record", "abcd1234", "--force"], None)])
         self.assertTrue(dialog._report.ok)
+
+    def test_frozen_passes_the_records_sitrep_line_to_the_dialog(self):
+        snap = snapshot(frozen=True, record="abcd1234")
+        h = _Host(snap, state="frozen",
+                  identities=[ident_line(frozen="abcd1234")],
+                  harvest=(0, "HARVEST_NONE:abcd1234|nothing_found\n"))
+        dialog, _cb = self.run_flow(h, "frozen")
+        self.assertEqual(["abcd1234"], self.described)
+        self.assertEqual("harvested — safe to drop; nothing to triage",
+                         dialog._sitrep_line)
+
+    def test_a_failed_frozen_harvest_gets_no_sitrep_line(self):
+        snap = snapshot(frozen=True, record="abcd1234")
+        h = _Host(snap, state="frozen",
+                  identities=[ident_line(frozen="abcd1234")],
+                  harvest=(1, "HARVEST_FAILED:abcd1234|harvest_lock_busy\n"))
+        dialog, _cb = self.run_flow(h, "frozen")
+        self.assertFalse(dialog._report.ok)
+        self.assertEqual([], self.described, "no decoration on a failed report")
+        self.assertEqual("", dialog._sitrep_line)
+
+    def test_a_slow_sitrep_read_never_holds_back_the_dialog(self):
+        import threading
+        from unittest import mock
+        gate = threading.Event()
+        self.addCleanup(gate.set)
+
+        def slow(record_id, sessions_path=None):
+            gate.wait(timeout=10)
+            return "late"
+        snap = snapshot(frozen=True, record="abcd1234")
+        h = _Host(snap, state="frozen",
+                  identities=[ident_line(frozen="abcd1234")],
+                  harvest=(0, "HARVEST_NONE:abcd1234|nothing_found\n"))
+        with mock.patch.object(sc.frozen_sitrep, "describe_record", slow), \
+                mock.patch.object(sc, "SITREP_LINE_TIMEOUT", 0.2):
+            dialog, _cb = self.run_flow(h, "frozen")
+        gate.set()
+        self.assertTrue(dialog._report.ok)
+        self.assertEqual("", dialog._sitrep_line)
+
+    def test_a_live_agent_gets_no_sitrep_line(self):
+        h = _Host(snapshot(window="agent-pick-42"), capture=(0, "the wrap-up\n"))
+        dialog, _cb = self.run_flow(h)
+        self.assertEqual([], self.described)
+        self.assertEqual("", dialog._sitrep_line)
 
     def test_live_captures_then_feeds_capture_with_the_text(self):
         h = _Host(snapshot(window="agent-pick-42"),
@@ -976,15 +1035,17 @@ class _DialogApp(App):
 
 
 class HarvestResultDialogTests(unittest.TestCase):
-    def _run(self, dialog, press=None, click=None):
+    def _run(self, dialog, press=None, click=None, size=(60, 30)):
         app = _DialogApp(dialog)
         seen = {}
 
         async def go():
-            async with app.run_test(size=(60, 30)) as pilot:
+            async with app.run_test(size=size) as pilot:
                 await pilot.pause()
                 seen["buttons"] = [b.id for b in dialog.query("Button")]
                 seen["labels"] = [str(b.label) for b in dialog.query("Button")]
+                seen["sitrep"] = [str(w.render())
+                                  for w in dialog.query("#harvest-sitrep")]
                 if press:
                     await pilot.press(press)
                 if click:
@@ -1022,6 +1083,51 @@ class HarvestResultDialogTests(unittest.TestCase):
         self.assertIn("review c3 (exists): bad_followup", d.body_text())
         seen, _results = self._run(d)
         self.assertEqual(seen["labels"], ["Drop", "Keep"])
+
+    def test_the_sitrep_line_is_shown_and_never_changes_the_buttons(self):
+        line = "harvested — safe to drop; follow-ups still to triage (c3)"
+        ok = sc.parse_harvest_output(0, "HARVEST_NONE:ab|nothing_found")
+        d = sc.HarvestResultDialog("agent-x", "frozen", ok, sitrep_line=line)
+        seen, _ = self._run(d)
+        self.assertEqual(seen["labels"], ["Drop", "Keep"])
+        self.assertEqual([f"Sitrep: {line}"], seen["sitrep"])
+        # A failed report still offers no confirm, whatever the line says.
+        bad = sc.HarvestResultDialog("agent-x", "frozen",
+                                     sc.HarvestReport.failed("capture_failed"),
+                                     sitrep_line="harvested — safe to drop")
+        seen, _ = self._run(bad)
+        self.assertEqual(seen["buttons"], ["btn-cancel"])
+
+    def test_a_long_sitrep_line_never_pushes_the_buttons_away(self):
+        """40x24 with eight linked items plus the line, and with forty items:
+        both buttons stay clickable. The line scrolls inside the body, and the
+        body is bounded by the viewport (`45vh`), not a fixed 20 rows."""
+        import frozen_sitrep
+        line = frozen_sitrep.describe(frozen_sitrep.FrozenSitrepState(
+            frozen_sitrep.CLOSED,
+            triage=tuple((f"c{n}", "dismissed") for n in range(10, 18))))
+        self.assertIn("+5 more", line)
+        ok = sc.parse_harvest_output(0, "\n".join(
+            [f"HARVEST_ITEM:a|c{n}|exists|question|-" for n in range(10, 18)]
+            + ["HARVESTED:a|added=0|existing=8"]))
+        many = sc.parse_harvest_output(0, "\n".join(
+            [f"HARVEST_ITEM:a|c{n}|exists|question|-" for n in range(10, 50)]
+            + ["HARVESTED:a|added=0|existing=40"]))
+        for report, sline in ((ok, line), (many, ""), (many, line)):
+            for click, want in (("btn-confirm", [True]), ("btn-cancel", [False])):
+                with self.subTest(items=len(report.items), line=bool(sline),
+                                  click=click):
+                    d = sc.HarvestResultDialog("agent-x", "frozen", report,
+                                               sitrep_line=sline)
+                    seen, results = self._run(d, click=click, size=(40, 24))
+                    self.assertEqual(seen["labels"], ["Drop", "Keep"])
+                    self.assertEqual(results, want)
+
+    def test_no_sitrep_line_renders_no_widget(self):
+        ok = sc.parse_harvest_output(0, "HARVEST_NONE:ab|nothing_found")
+        d = sc.HarvestResultDialog("agent-x", "frozen", ok)
+        seen, _ = self._run(d)
+        self.assertEqual([], seen["sitrep"])
 
     def test_markup_in_harvested_text_renders_literally(self):
         report = sc.parse_harvest_output(

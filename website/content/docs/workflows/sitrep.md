@@ -38,6 +38,8 @@ The sitrep agent is advisory. It never picks a task, pushes, commits or edits co
 
    Where closing is offered, the dialog offers **Close agent** for a live agent, **Drop** for a frozen one (which also deletes its kept capture), and **Keep**. **Close agent** closes only the agent's own pane and its [shadow]({{< relref "/docs/workflows/shadow-agent" >}}) and [scratchpad]({{< relref "/docs/tuis/scratchpad" >}}) panes; other panes in the window stay, and a minimonitor companion closes itself once it is alone in the window. If the agent was frozen, restored or restarted while the dialog was open, nothing is closed and you are asked to press `h` again. On a live sitrep window, `h` harvests nothing and only offers to close it.
 
+   For a frozen agent, the dialog also has a **Sitrep** line saying whether it is safe to drop and where its follow-ups stand. Its row in the monitors shows the same thing in short: after `frozen` comes `unharvested`, or `drop ok`, sometimes followed by `triage`, `triaged`, `closed`, `review` or `?`. The words are explained in [Freeze and restore agents]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}). Nothing has to be marked by hand: the state comes from what the harvest saved and from the list itself.
+
 While `ait monitor` or a minimonitor is open, it also harvests, about every 10 minutes, every frozen agent's capture that no list holds, so those agents can be dropped. The full monitor's title bar shows `sitrep N now` while the list has open Pick now items.
 
 ## Crashed agents

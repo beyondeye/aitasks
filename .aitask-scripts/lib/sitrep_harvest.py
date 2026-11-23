@@ -54,6 +54,15 @@ without it (from before the check) is never trusted, so that text is
 re-harvested. JOINED banners (no text fence, fields inline) are parsed since
 PARSER_REV 2 -- the corpus's first resolved gap.
 
+THE RECEIPT'S LINK LINES (t2337). After its three certification lines
+(`sha256= / store= / cert=`) a receipt records `links=RECEIPT_LINKS`, one
+`triage=c<N>` per wrap-up triage question the harvest added or matched, and
+`review=c<N>` for its review case, so the monitor's frozen-agent badge
+(lib/frozen_sitrep.py) maps a record to its items with no store scan. Only the
+base certifies; a certified receipt without links still short-circuits `record`
+lock-free (Drop's pre-kill harvest), and only `record --backfill-links` (the
+maintenance `all` pass) re-harvests it to record its links.
+
 THE SITREP AGENT'S OWN RECORD (t2175_4) is never harvested: a record whose
 window matches SITREP_WINDOW_RE gets its receipt and `HARVEST_NONE:<id>|
 sitrep_agent`. Its screen only echoes the store, so harvesting it would feed
@@ -100,6 +109,16 @@ RECEIPT_SUFFIX = ".harvested"
 #: purge keep the text until then. Must equal
 #: agent_sessions.HARVEST_RECEIPT_CERT (tested).
 HARVEST_CERT = 2
+#: The receipt's link-record version (t2337). A receipt written since carries
+#: `links=<RECEIPT_LINKS>`, then one `triage=c<N>` per wrap-up triage question
+#: this capture's harvest added or matched, and `review=c<N>` for its review
+#: case -- the ids the harvest itself resolved, so a frozen record maps to its
+#: sitrep items on every match path (a piped wrap-up's item is matched by run
+#: or complete key and keeps no `record=` passage key). The link lines follow
+#: the three base lines and never take part in certification: `receipt_valid`
+#: and agent_sessions.capture_harvested read only the base. Must equal
+#: agent_sessions.HARVEST_RECEIPT_LINKS (tested).
+RECEIPT_LINKS = 1
 
 MAX_PASSAGE_LINES = 200
 MARKER_LOOKBACK = 80
@@ -858,6 +877,9 @@ class Harvest:
         #: [(cid num, kind, ref)] of every item this harvest added or found,
         #: in order -- the partial items a review case links (t2175_6).
         self.item_ids = []
+        #: The wrap-up triage questions this harvest added or matched, in
+        #: order, once each -- recorded in the receipt (t2337).
+        self.triage_ids = []
         self.new_ids = set()
         self.reasons = []
 
@@ -875,6 +897,10 @@ class Harvest:
             self.item_ids.append((num, kind, ref or ""))
         self.emit(f"HARVEST_ITEM:{self.src.label}|c{num}|"
                   f"{'added' if new else 'exists'}|{kind}|{ref or '-'}")
+
+    def triage(self, num: int) -> None:
+        if num and num not in self.triage_ids:
+            self.triage_ids.append(num)
 
     def origin(self, task: str, commit: str = "") -> list:
         s = self.src
@@ -941,6 +967,7 @@ class Harvest:
         if matched:
             triage = min(matched)
             self.item(triage, False, "question", "")
+            self.triage(triage)
         else:
             ptr_passage = store.retain(passage)
             ptr_canon = store.retain(canon)
@@ -968,6 +995,7 @@ class Harvest:
             triage, new = store.add("question", title, group="now",
                                     checked_now=False, context=ctx)
             self.item(triage, new, "question", "")
+            self.triage(triage)
 
         banner_lines = self._banner_ptr_range(passage, b, start)
         # The passage pointer for the task items: the banner lines inside the
@@ -1167,26 +1195,55 @@ def read_capture(rec: dict):
         raise HarvestFailure(f"capture_unreadable:{e.strerror or e}") from None
 
 
-def receipt_text(data: bytes, store_dir: str) -> str:
-    return (f"sha256={hashlib.sha256(data).hexdigest()}\nstore={store_dir}\n"
-            f"cert={HARVEST_CERT}\n")
+def _receipt_base(data: bytes, store_dir: str) -> list:
+    """The three certification lines, the receipt's first three lines."""
+    return [f"sha256={hashlib.sha256(data).hexdigest()}", f"store={store_dir}",
+            f"cert={HARVEST_CERT}"]
+
+
+def receipt_text(data: bytes, store_dir: str, triage=(), review=()) -> str:
+    """The receipt: the certification base, then the link lines (t2337)."""
+    lines = _receipt_base(data, store_dir) + [f"links={RECEIPT_LINKS}"]
+    lines += [f"triage=c{int(n)}" for n in triage]
+    lines += [f"review=c{int(n)}" for n in review]
+    return "\n".join(lines) + "\n"
+
+
+def _receipt_lines(path: str):
+    try:
+        with open(path + RECEIPT_SUFFIX, "r", encoding="utf-8") as fh:
+            return fh.read().split("\n")
+    except (OSError, UnicodeDecodeError):
+        return None
+
+
+def receipt_state(path: str, data: bytes, store_dir: str) -> tuple:
+    """``(valid, linked)`` from ONE read of the receipt and one capture hash.
+
+    ``valid`` is certification only: the first three lines are this capture's
+    base, whatever follows (the t2337 link lines). So a certified receipt from
+    before t2337 still short-circuits a plain `record <id>` in the lock-free
+    plan phase -- the drop's pre-kill harvest must never need the harvest
+    mutex for a capture that is already certified. ``linked``: valid AND
+    carrying this version's link record (what `--backfill-links` wants).
+    """
+    lines = _receipt_lines(path)
+    valid = lines is not None and lines[:3] == _receipt_base(data, store_dir)
+    return valid, valid and f"links={RECEIPT_LINKS}" in lines[3:]
 
 
 def receipt_valid(path: str, data: bytes, store_dir: str) -> bool:
-    try:
-        with open(path + RECEIPT_SUFFIX, "r", encoding="utf-8") as fh:
-            return fh.read() == receipt_text(data, store_dir)
-    except OSError:
-        return False
+    return receipt_state(path, data, store_dir)[0]
 
 
-def write_receipt(path: str, data: bytes, store_dir: str) -> None:
+def write_receipt(path: str, data: bytes, store_dir: str, triage=(),
+                  review=()) -> None:
     target = path + RECEIPT_SUFFIX
     tmp = f"{target}.{os.getpid()}.tmp"
     try:
         fd = os.open(tmp, os.O_WRONLY | os.O_CREAT | os.O_TRUNC | os.O_NOFOLLOW, 0o600)
         with os.fdopen(fd, "w", encoding="utf-8") as fh:
-            fh.write(receipt_text(data, store_dir))
+            fh.write(receipt_text(data, store_dir, triage, review))
             fh.flush()
             os.fsync(fh.fileno())
         os.replace(tmp, target)
@@ -1285,7 +1342,17 @@ def cmd_plan(args) -> int:
                 return _final(f"HARVEST_NONE:{args.id}|nothing_found")
             root, _ = canonical_root(rec.get("root") or "")
             store_dir = os.path.join(root, STORE_NAME)
-            if not args.force and receipt_valid(path, data, store_dir):
+            # --backfill-links (the maintenance `all` pass only, t2337): a
+            # certified receipt from before the link lines is re-harvested --
+            # a store no-op, every key already matches -- so its rewritten
+            # receipt records the links. Without the flag (Drop's pre-kill
+            # harvest) a certified receipt always short-circuits here, lock-free.
+            short_circuit = False
+            if not args.force:
+                valid, linked = receipt_state(path, data, store_dir)
+                backfill = getattr(args, "backfill_links", False) and not linked
+                short_circuit = valid and not backfill
+            if short_circuit:
                 # A cached result still names the preserved-output review of
                 # this input (t2175_6), so `h` and the drop show it instead of
                 # "nothing to harvest". Read-only; nothing is re-extracted.
@@ -1358,6 +1425,7 @@ def cmd_apply(args) -> int:
         store.load()
         h = Harvest(src, store)
         review = ""
+        review_ids = []
         try:
             h.run()
             if h.reasons:
@@ -1370,6 +1438,7 @@ def cmd_apply(args) -> int:
                     store, src, h, capture_path=capture_path, captured_at=captured_at)
                 h.item(num, new, "question", "")
                 review = f"|review=c{num}"
+                review_ids = [num]
                 h.emit(f"HARVEST_REVIEW:{label}|c{num}|{'added' if new else 'exists'}"
                        f"|case={case}|" + ",".join(dict.fromkeys(r.code for r in h.reasons)))
         finally:
@@ -1377,7 +1446,7 @@ def cmd_apply(args) -> int:
                 print(line)
         fault_point("receipt")
         if args.source == "record":
-            write_receipt(path, data, store.dir)
+            write_receipt(path, data, store.dir, h.triage_ids, review_ids)
         return _final(f"HARVESTED:{label}|added={h.added}|existing={h.existing}{review}")
     except HarvestFailure as e:
         return _final(f"HARVEST_FAILED:{label}|{e}", 1)
@@ -1392,6 +1461,7 @@ def build_parser() -> argparse.ArgumentParser:
         r = s.add_parser("record")
         r.add_argument("id")
         r.add_argument("--force", action="store_true")
+        r.add_argument("--backfill-links", action="store_true")
         b = s.add_parser("banner")
         b.add_argument("--run", required=True)
         b.add_argument("--task", default="")

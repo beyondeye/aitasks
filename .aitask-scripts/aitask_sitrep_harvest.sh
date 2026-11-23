@@ -9,10 +9,21 @@
 # the run-identity rules).
 #
 # Verbs:
-#   record <id> [--force]     harvest a session record's capture.txt, then write
-#                             its harvest RECEIPT (`<capture.txt>.harvested`)
+#   record <id> [--force|--backfill-links]
+#                             harvest a session record's capture.txt, then write
+#                             its harvest RECEIPT (`<capture.txt>.harvested`):
+#                             `sha256= / store= / cert=` (the certification,
+#                             always the first three lines), then `links=1`,
+#                             one `triage=c<N>` per wrap-up triage question the
+#                             harvest added or matched and `review=c<N>` for
+#                             its review case (t2337). A certified receipt
+#                             short-circuits (`already_harvested`) without the
+#                             mutex whatever follows its base; --backfill-links
+#                             re-harvests one that predates the link lines, so
+#                             its receipt records them (a store no-op)
 #   all [--root <path>]       every record holding capture text (any state),
-#                             each into its own repository's store
+#                             each into its own repository's store; passes
+#                             --backfill-links to every record (maintenance)
 #   banner --task <id> [--skill <name>]
 #                             the workflow-end path: the closing message plus
 #                             the banner on stdin. Prints `HARVEST_RUN:<16 hex>`
@@ -294,16 +305,16 @@ run_source() {
 cmd_record() {
     local id="${1:-}"; shift || true
     [[ "$id" =~ ^[0-9a-f]{8}$ ]] || err_usage "record id must be 8 lowercase hex: '$id'"
-    local force=()
+    local flags=()
     while [[ $# -gt 0 ]]; do
         case "$1" in
-            --force) force=(--force) ;;
+            --force|--backfill-links) flags+=("$1") ;;
             *) err_usage "unknown argument: $1" ;;
         esac
         shift
     done
     need_python "$id"
-    run_source "$id" 0 record "$id" "${force[@]}"
+    run_source "$id" 0 record "$id" "${flags[@]}"
 }
 
 cmd_all() {
@@ -329,7 +340,11 @@ cmd_all() {
     fi
     while IFS= read -r line; do
         case "$line" in
-            RECORD:*) run_source "${line#RECORD:}" 0 record "${line#RECORD:}" || failed=1 ;;
+            # --backfill-links (t2337): the one route that re-harvests a
+            # certified receipt predating the link lines. Drop's own pre-kill
+            # `record <id>` never passes it, so it never needs the mutex.
+            RECORD:*) run_source "${line#RECORD:}" 0 record "${line#RECORD:}" \
+                          --backfill-links || failed=1 ;;
             "") ;;
             *) printf '%s\n' "$line" ;;
         esac

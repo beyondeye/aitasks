@@ -427,6 +427,24 @@ prints the same `HARVEST_REVIEW:…|exists|` line (a lock-free read), because th
 automatic post-freeze or maintenance harvest usually runs first. `h` shows
 "kept for sitrep review", which is still ok (`HarvestReport.reviews`).
 
+**Receipt link lines.** After its three certification lines (`sha256=`,
+`store=`, `cert=2`, always first) a record receipt carries `links=1`
+(`RECEIPT_LINKS` = `agent_sessions.HARVEST_RECEIPT_LINKS`), then one
+`triage=c<N>` per wrap-up triage question the harvest added **or matched**
+(`Harvest.triage_ids`), then `review=c<N>` for its review case. These are the
+ids the harvest itself resolved, so the record → item link holds on every match
+path: a piped wrap-up's item is created with no `record=` passage key and later
+matched by run or complete key, and a store scan for `record=` would miss it.
+The `sitrep_agent` and `nothing_found` receipts carry `links=1` and no ids.
+Only the base certifies. `receipt_valid` compares the first three lines and
+ignores the rest, and `agent_sessions.receipt_certifies` is the one membership
+rule behind `capture_harvested` and the badge. So a certified receipt from
+before the link lines still short-circuits a plain `record <id>` without the
+harvest mutex. That path is Drop's pre-kill harvest, which must never depend on
+the lock. Only `record --backfill-links`, passed by `all` (the maintenance
+pass), re-harvests such a receipt. That re-harvest is a store no-op, and the
+rewritten receipt records the links (`receipt_state` reports both facts from one read).
+
 **Lifecycle.** The sitrep agent finds the reviews in `triage --open`
 (`REVIEW_CASE:<hex>|<codes>`, `CASE:` / `ANALYSIS:` labels), reads them with
 `case show` / `case read`, writes the missed items through the writer, then runs
@@ -659,6 +677,58 @@ off the pump with `asyncio.to_thread`, recounted only when the sha256 of
 `todo.md` changed). No store, an unreadable one, or zero → no term. The
 minimonitor has none (its session bar is hidden by default).
 
+**Frozen-agent badge (t2337).** A frozen row in both TUIs reads `frozen` plus
+an advisory badge. It is derived by `lib/frozen_sitrep.py` from the receipt and
+the store, so nothing is marked by hand:
+
+| badge | state | derived from |
+|---|---|---|
+| `unharvested` | `unharvested` | the receipt does not certify the current capture |
+| `drop ok` | `nothing` | certified (or no text to lose), no linked item |
+| `drop ok, triage` | `triage_open` | a linked triage question is open (or `unknown`) |
+| `drop ok, triaged` | `triaged` | every linked triage question is `done` |
+| `drop ok, closed` | `closed` | all closed, but a triage question was dismissed or only a review was linked |
+| `drop ok, review` | `review_pending` | the linked review case is open |
+| `drop ok, ?` | `unlinked` | certified by a receipt from before the link lines |
+| `sitrep ?` | `unknown` | anything unreadable, malformed, in flight or changing |
+
+- **Safety** comes only from `receipt_certifies`, the drop gate's own rule.
+  Triage state never implies it, and `unknown` never reads as safe. Drop
+  re-checks everything itself.
+- **One snapshot, one publish gate.** The capture and the receipt are each read
+  once (fstat on the fd), with todo.md only when an item is linked. A verdict is
+  published, and cached, only after a post-read check that every consumed input
+  is still at its version. The inputs are:
+  - the record's `(state, op_nonce, capture_txt, pane_id, standin_pid,
+    frozen_at)`;
+  - the `(ino, size, mtime_ns, ctime_ns)` of the capture, the receipt and
+    todo.md (ctime so a permission change alone invalidates a cached verdict).
+
+  This gate covers the fresh read, the cache hit and the empty capture alike.
+  The record must be settled (`frozen`, no lease), because the freeze engine
+  rewrites `capture.txt` in place. A mismatch retries once, then gives
+  `unknown(changed_during_read)`, uncached.
+- **Off the refresh.** `AgentMarksMixin._kick_frozen_sitrep` is synchronous: the
+  refresh only kicks ONE coalesced background pass (`frozen-sitrep` worker
+  group) and never awaits it. A kick while a pass runs stores the newest ids for
+  one queued pass. Renderers read `_frozen_sitrep_results` only, and the next
+  ordinary tick shows what a pass published.
+- **Instance binding.** A verdict carries `(record id, pane id, stand-in pid)`,
+  and a row uses it only when its snapshot's `pane_id` / `pane_pid` match. A
+  restore + re-freeze keeps the record id, so a verdict from an earlier freeze
+  is withheld until a pass settles against the new stand-in.
+- **`h`.** After a SUCCESSFUL harvest of a frozen agent, the dialog adds a
+  `Sitrep: …` line (`frozen_sitrep.describe_record`, a fresh one-shot
+  derivation bounded by `SITREP_LINE_TIMEOUT`).
+  - A failed report gets no line, and a slow read opens the dialog without it.
+  - The line names at most three ids (`+N more`) and sits inside the scrolling
+    body, which is bounded by the viewport (`max-height: 45vh`), so both
+    buttons stay on a 40x24 screen.
+  - The line is advisory: the buttons depend on `report.ok` alone.
+- **`unknown` is never cached:** its cause (a store not yet readable, an item
+  not yet written) can clear with no change to the versions a cache hit
+  rechecks.
+
 **`S`.** The selected agent's root and session, else the app's own; the switcher
 uses its selected session. Result lines map to a toast; nothing is claimed for
 `SITREP_FOCUS_FAILED` or a refusal.
@@ -757,7 +827,8 @@ against the rendered skill.
 | Test | Covers |
 |---|---|
 | `tests/test_sitrep_todo.sh`, `tests/test_sitrep_todo_format.py` | writer, format, recovery |
-| `tests/test_sitrep_harvest.sh`, `tests/test_sitrep_harvest.py` | harvest, receipts, the drop/purge gates, the self-harvest skip |
+| `tests/test_sitrep_harvest.sh`, `tests/test_sitrep_harvest.py` | harvest, receipts (incl. the link lines and the legacy lock-free short-circuit / backfill), the drop/purge gates, the self-harvest skip |
+| `tests/test_frozen_sitrep.py`, `tests/test_monitor_frozen_sitrep_badge.py`, `tests/test_agent_freeze.py` (`DropLegacyReceiptRealHarvestTests`) | the frozen-agent badge: receipt shapes vs `capture_harvested`, every state, the publish gate's races, the coalesced off-refresh pass, instance binding; the real Drop of a certified legacy receipt under a held harvest mutex |
 | `tests/test_sitrep_corpus.sh`, `tests/test_sitrep_corpus.py`, `tests/test_sitrep_corpus_fixtures.py` | the confidence check (every reason, per-occurrence pairing, negatives), legacy receipts, case files and provenance, faults, the replay / export loop, committed fixtures |
 | `tests/test_sitrep_crash.py`, `tests/test_sitrep_crash.sh` | the crash detector: the decision table per row (incl. the "unknown is not crashed" and other-host negative controls), the episode key, evidence extraction (phase, plan freshness, shared-tree attribution, overlaps), idempotence, the read-vs-dismiss race, end to end with real lock refs and real dead and live PIDs |
 | `tests/test_sitrep_refresh.sh`, `tests/test_sitrep_refresh.py`, `tests/test_monitor_sitrep_refresh.py` | refresh and its monitor tick; Tests 15 (recovery items) and 16 (fairness under a stalled check, with a delete-the-ledger negative control) of the `.sh`; `CrashDetectJobTests` (the detector step of the tick) |

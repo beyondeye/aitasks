@@ -26,6 +26,9 @@ import agent_marks  # noqa: E402
 # record, and the shared drop outcome interpreter. READ side
 # only — every write goes through `_SESSIONS_SH` / `_FROZEN_SH`.
 import agent_sessions  # noqa: E402
+# A frozen agent's sitrep state (t2337): the advisory "drop ok" badge, derived
+# off the event loop by one coalesced background pass (see AgentMarksMixin).
+import frozen_sitrep  # noqa: E402
 # The ONE authority for follow-up glyphs and colours (t1468_1), shared with the
 # board's card marker — imported, never mirrored (t1468_5).
 from followup_kinds import marker_for  # noqa: E402
@@ -441,6 +444,43 @@ def format_frozen_prefix(kind: str) -> str:
     return f"{format_mark_glyph(kind)}[bold cyan]{FROZEN_GLYPH}[/]"
 
 
+#: The frozen-agent sitrep badge (t2337), one table for both TUIs:
+#: ``state -> ((text, style), ...)``. ASCII only, so no font-coverage question
+#: arises (cf. FROZEN_GLYPH). "drop ok" is green only for the states
+#: `frozen_sitrep.SAFE_STATES` names; `unknown` never reads as safe.
+FROZEN_SITREP_BADGES = {
+    frozen_sitrep.UNHARVESTED: (("unharvested", "yellow"),),
+    frozen_sitrep.NOTHING: (("drop ok", "green"),),
+    frozen_sitrep.TRIAGE_OPEN: (("drop ok", "green"), (", triage", "yellow")),
+    frozen_sitrep.TRIAGED: (("drop ok", "green"), (", triaged", "dim")),
+    frozen_sitrep.CLOSED: (("drop ok", "green"), (", closed", "dim")),
+    frozen_sitrep.REVIEW_PENDING: (("drop ok", "green"), (", review", "yellow")),
+    frozen_sitrep.UNLINKED: (("drop ok", "green"), (", ?", "dim")),
+    frozen_sitrep.UNKNOWN: (("sitrep ?", "dim"),),
+}
+
+
+def format_frozen_sitrep_badge(state: "str | None") -> str:
+    """The badge after a frozen row's ``frozen`` word, with a leading space.
+
+    ``None`` (no validated verdict for THIS frozen instance yet) renders
+    nothing at all -- never a stale or guessed "drop ok". An unknown state
+    key raises, the :func:`format_mark_glyph` guard: every production value
+    comes from ``frozen_sitrep``'s closed vocabulary.
+    """
+    if state is None:
+        return ""
+    segs = FROZEN_SITREP_BADGES[state]
+    return " " + "".join(f"[{style}]{text}[/]" for text, style in segs)
+
+
+def frozen_sitrep_badge_width(state: "str | None") -> int:
+    """Plain cell width of :func:`format_frozen_sitrep_badge` (name budgets)."""
+    if state is None:
+        return 0
+    return 1 + sum(cell_len(text) for text, _style in FROZEN_SITREP_BADGES[state])
+
+
 # Repo/session divider (t1449): in multi-session mode each tmux session is one
 # repo/project, so this rule is the repo boundary in the agent list.
 #
@@ -691,6 +731,13 @@ class AgentMarksMixin:
     _scan_inflight: bool = False
     _scan_again: bool = False
     _scan_rerun: bool = False
+    #: The frozen-agent sitrep badge (t2337): the latest VALIDATED verdicts by
+    #: record id, produced by ONE coalesced background pass that the refresh
+    #: never awaits. Rebound, never mutated, so the class floor is safe to share.
+    _frozen_sitrep_results: dict = {}
+    _frozen_sitrep_tracker: "frozen_sitrep.FrozenSitrepTracker | None" = None
+    _frozen_sitrep_inflight: bool = False
+    _frozen_sitrep_pending: "tuple | None" = None
 
     #: Whether INACTIVE agents — parked (t1685) or frozen (t1705_7) — are hidden
     #: from the pane list. Per-app-instance and in-memory by design: it is a view
@@ -856,6 +903,76 @@ class AgentMarksMixin:
 
     def _is_parked(self, snap: PaneSnapshot) -> bool:
         return self._mark_kind(snap) == agent_marks.KIND_PARKED
+
+    # --- the frozen-agent sitrep badge (t2337) --------------------------------
+    #
+    # The refresh only KICKS a pass (synchronously, no await) and only READS
+    # `_frozen_sitrep_results`, so a slow todo.md read or a first capture hash
+    # never delays a repaint. One pass runs at a time; a kick while one is in
+    # flight just records the newest ids, and that one queued pass runs when
+    # the current one ends. The pass repaints nothing itself: the next ordinary
+    # refresh tick renders what it published.
+
+    def _kick_frozen_sitrep(self) -> None:
+        """Start (or queue) the badge pass for this tick's frozen records."""
+        ids = tuple(dict.fromkeys(
+            s.frozen_record_id for s in self._snapshots.values()
+            if s.frozen and s.frozen_record_id))
+        if self._frozen_sitrep_inflight:
+            self._frozen_sitrep_pending = ids
+            return
+        if not ids:
+            self._frozen_sitrep_results = {}
+            return
+        self._frozen_sitrep_inflight = True
+        self._dispatch_frozen_sitrep(ids)
+
+    def _dispatch_frozen_sitrep(self, ids: tuple) -> None:
+        """The one sync seam that starts the pass worker (tests stub THIS)."""
+        self.run_worker(self._frozen_sitrep_pass(ids), name="frozen_sitrep",
+                        group="frozen-sitrep", exclusive=False,
+                        exit_on_error=False)
+
+    async def _frozen_sitrep_pass(self, ids: tuple) -> None:
+        try:
+            if self._frozen_sitrep_tracker is None:
+                self._frozen_sitrep_tracker = frozen_sitrep.FrozenSitrepTracker()
+            got = await asyncio.to_thread(self._frozen_sitrep_tracker.states, ids)
+            self._frozen_sitrep_results = {rid: got[rid] for rid in ids if rid in got}
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - no badge, never a stale safe one
+            self._frozen_sitrep_results = {}
+        finally:
+            self._frozen_sitrep_inflight = False
+            pending, self._frozen_sitrep_pending = self._frozen_sitrep_pending, None
+            if pending is not None:
+                if pending:
+                    self._frozen_sitrep_inflight = True
+                    self._dispatch_frozen_sitrep(pending)
+                else:
+                    self._frozen_sitrep_results = {}
+
+    def _frozen_sitrep_state(self, snap) -> "str | None":
+        """The badge state for ``snap``, bound to its frozen INSTANCE.
+
+        A verdict is used only when it was settled against this very stand-in:
+        ``(record id, pane id, stand-in pid)``. The snapshot's ``pane_pid`` IS
+        the stand-in's process (``freeze_commit`` records it as
+        ``standin_pid``), and a restore + re-freeze -- which keeps the record
+        id -- replaces it. So a verdict from an earlier freeze of the same
+        record is withheld (``None``, no badge) until a pass settles against
+        the new instance. Pure memory: no I/O on the render path.
+        """
+        if snap is None or not snap.frozen or not snap.frozen_record_id:
+            return None
+        st = self._frozen_sitrep_results.get(snap.frozen_record_id)
+        if st is None:
+            return None
+        if st.instance != (snap.frozen_record_id, snap.pane.pane_id,
+                           snap.pane.pane_pid):
+            return None
+        return st.state
 
     def _is_frozen(self, snap: PaneSnapshot) -> bool:
         """Whether this snapshot is a frozen agent's stand-in (t1705_7).

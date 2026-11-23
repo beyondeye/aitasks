@@ -38,6 +38,7 @@ _LIB_DIR = _SCRIPT_DIR / "lib"
 if str(_LIB_DIR) not in sys.path:
     sys.path.insert(0, str(_LIB_DIR))
 
+import frozen_sitrep  # noqa: E402
 import sitrep_harvest  # noqa: E402
 import sitrep_todo  # noqa: E402
 # The `ait sitrep open` wording is shared with the TUI switcher, which lives in
@@ -81,6 +82,10 @@ HARVEST_CRASHED_TIMEOUT = 120.0
 HARVEST_CAPTURE_LINES = 50000
 #: The capture itself is one tmux call returning up to that many lines.
 HARVEST_CAPTURE_TIMEOUT = 30.0
+#: The `h` dialog's optional Sitrep line (t2337) waits at most this long for
+#: its one-shot derivation; past it the dialog opens without the line. The
+#: read is decoration, so it must never hold back the dialog or the result.
+SITREP_LINE_TIMEOUT = 3.0
 #: `ait sitrep open` launches an agent and waits for its stamp.
 SITREP_OPEN_TIMEOUT = 45.0
 
@@ -372,8 +377,9 @@ class HarvestResultDialog(GuardedModalScreen):
     HarvestResultDialog.-failed #harvest-dialog { border: thick $error; }
     #harvest-header { text-style: bold; color: $accent; margin: 0 0 1 0; }
     HarvestResultDialog.-failed #harvest-header { color: $error; }
-    #harvest-body { height: auto; max-height: 20; margin: 0 0 1 0; }
+    #harvest-body { height: auto; max-height: 45vh; margin: 0 0 1 0; }
     #harvest-verdict { text-style: bold; margin: 0 0 1 0; }
+    #harvest-sitrep { margin: 1 0 0 0; }
     #harvest-buttons {
         width: 100%; height: auto; layout: horizontal; align: center middle;
     }
@@ -381,13 +387,17 @@ class HarvestResultDialog(GuardedModalScreen):
     """
 
     def __init__(self, window: str, state: str, report: HarvestReport,
-                 titles: "dict | None" = None, *, still_active: bool = False):
+                 titles: "dict | None" = None, *, still_active: bool = False,
+                 sitrep_line: str = ""):
         super().__init__()
         self._window = window
         self._state = state
         self._report = report
         self._titles = dict(titles or {})
         self._still_active = still_active
+        #: The frozen agent's sitrep state after the harvest (t2337), advisory
+        #: wording only: the buttons below depend on ``report.ok`` alone.
+        self._sitrep_line = sitrep_line
         if not report.ok:
             self.add_class("-failed")
 
@@ -418,6 +428,11 @@ class HarvestResultDialog(GuardedModalScreen):
                          id="harvest-header")
             with VerticalScroll(id="harvest-body"):
                 yield Static(Content(self.body_text()), id="harvest-items")
+                # Inside the bounded, scrolling body (t2337): a long list of
+                # linked items must never push the buttons off a small screen.
+                if self._sitrep_line:
+                    yield Static(Content(f"Sitrep: {self._sitrep_line}"),
+                                 id="harvest-sitrep")
             yield Static(Content(self._report.verdict()), id="harvest-verdict")
             with Container(id="harvest-buttons"):
                 if self._report.ok:
@@ -573,6 +588,19 @@ class SitrepCloseMixin:
             if report.items:
                 titles = await asyncio.to_thread(
                     item_titles, root, [it.cid for it in report.items])
+            sitrep_line = ""
+            if state == "frozen" and report.ok and snap.frozen_record_id:
+                # The record's sitrep state after a SUCCESSFUL harvest
+                # (t2337): a fresh one-shot derivation, best effort and
+                # bounded -- a slow read opens the dialog without the line
+                # (the abandoned thread only reads), a failed report gets none.
+                try:
+                    sitrep_line = await asyncio.wait_for(
+                        asyncio.to_thread(frozen_sitrep.describe_record,
+                                          snap.frozen_record_id),
+                        timeout=SITREP_LINE_TIMEOUT)
+                except asyncio.TimeoutError:
+                    sitrep_line = ""
             self.notify(report.verdict(), markup=False,
                         severity="information" if report.ok else "error")
             still_active = (state == "live"
@@ -580,7 +608,8 @@ class SitrepCloseMixin:
                             and not snap.is_idle)
             self.push_screen(
                 HarvestResultDialog(snap.pane.window_name, state, report,
-                                    titles, still_active=still_active),
+                                    titles, still_active=still_active,
+                                    sitrep_line=sitrep_line),
                 lambda yes: self._on_harvest_close_confirmed(
                     yes, report, identity, state),
             )

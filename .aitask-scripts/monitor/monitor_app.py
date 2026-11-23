@@ -52,6 +52,7 @@ from monitor.monitor_shared import (  # noqa: E402
     AgentMarksMixin, ConcernBlockInspectModal, ConcernPickerModal,
     ShadowRejectionsMixin, STATE_STYLE_DONE,
     format_compare_mode_glyph, format_mark_glyph, format_frozen_prefix,
+    format_frozen_sitrep_badge,
     format_pane_status, format_awaiting_terms, is_maybe_awaiting,
     format_session_divider, format_shadow_glyph, format_state_dot,
     is_task_completed, uncertified_round_block_msg, unparsed_concerns_msg,
@@ -1139,6 +1140,10 @@ class MonitorApp(
             if snaps is None:
                 return
             self._snapshots = self._project_snapshots(snaps)
+            # The frozen-agent sitrep badge (t2337): a synchronous kick of ONE
+            # coalesced background pass, never awaited here -- the cards render
+            # whatever validated verdicts it last published.
+            self._kick_frozen_sitrep()
             # Parked-pane set for THIS tick (t1685), same contract as the
             # completed set below: one pass, read by the list filter, the session
             # bar, auto-switch and the concern offer, so all of them agree within
@@ -1933,10 +1938,13 @@ class MonitorApp(
             # summary and phase stay off: the phase reads the capture, and the
             # counts of an agent that is not advancing its task add nothing
             # `i` does not show.
+            # The sitrep badge (t2337) is the advisory "can I drop it?"
+            # answer, bound to this frozen instance; none until validated.
             text = (
                 f" {format_frozen_prefix(self._mark_kind(snap))} "
                 f"{snap.pane.window_index}:{markup_literal(snap.pane.window_name)} "
                 f"({snap.pane.pane_index})  [dim]frozen[/]"
+                f"{format_frozen_sitrep_badge(self._frozen_sitrep_state(snap))}"
             )
             task_id = self._task_cache.get_task_id_for_pane(snap.pane)
             if task_id:

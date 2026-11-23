@@ -72,6 +72,22 @@ the [monitor reference]({{< relref "/docs/tuis/monitor/reference" >}}).
    capture and closes the viewer's pane. It confirms first, because it is the one
    action that leaves you with neither the agent nor its output.
 
+   To tell whether an agent is ready to drop, look at its row in `ait monitor`
+   or `ait minimonitor`. After the word `frozen`, the row shows what
+   [sitrep]({{< relref "/docs/workflows/sitrep" >}}) has kept of the agent's
+   output:
+   - `unharvested`: its output is not in the sitrep list yet. A drop first
+     saves the output into the list, and keeps the agent if that fails.
+   - `drop ok`: the output is in the list, so dropping loses nothing. A word
+     after it says where the agent's follow-ups stand: `triage` (still to
+     triage), `triaged`, `closed` (dismissed or otherwise closed), `review`
+     (output the harvest could not read is waiting for a review), or `?` (not
+     known yet; the monitors fill it in within about 10 minutes).
+   - `sitrep ?`: the state could not be read. This never means it is safe.
+
+   The row shows nothing extra until the state has been read. The badge is
+   only a hint: a drop always checks again for itself.
+
 The restored or re-picked agent runs in the viewer's pane.
 
 ## Before shutting down

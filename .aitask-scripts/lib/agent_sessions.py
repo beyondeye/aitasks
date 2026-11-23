@@ -274,6 +274,24 @@ HARVEST_RECEIPT_SUFFIX = ".harvested"
 #: harvest's confidence check, with uncertain output preserved for review; an
 #: older receipt (no `cert=` line) authorises no deletion until re-harvested.
 HARVEST_RECEIPT_CERT = 2
+#: The receipt's link-record version (t2337; lib/sitrep_harvest.py
+#: RECEIPT_LINKS must match, tested): `links=` / `triage=c<N>` / `review=c<N>`
+#: lines AFTER the certification. They never certify anything -- see
+#: :func:`receipt_certifies` -- and are read only by lib/frozen_sitrep.py.
+HARVEST_RECEIPT_LINKS = 1
+
+
+def receipt_certifies(receipt_lines: "list[str]", data: bytes) -> bool:
+    """Does a receipt (as lines) certify exactly ``data``? (t2337)
+
+    The ONE certification rule: the receipt names ``data``'s sha256 and
+    carries ``cert=HARVEST_RECEIPT_CERT``. Any further line (the t2337 link
+    lines) is ignored. :func:`capture_harvested` -- the drop/purge gate -- and
+    the monitor's frozen-agent badge (lib/frozen_sitrep.py) both call this, on
+    bytes they read once, so the two can never disagree about a receipt.
+    """
+    want = f"sha256={hashlib.sha256(data).hexdigest()}"
+    return want in receipt_lines and f"cert={HARVEST_RECEIPT_CERT}" in receipt_lines
 
 
 def capture_harvested(rec: "SessionRecord") -> bool:
@@ -301,13 +319,12 @@ def capture_harvested(rec: "SessionRecord") -> bool:
         return False
     if not data:
         return True
-    want = f"sha256={hashlib.sha256(data).hexdigest()}"
     try:
         with open(txt + HARVEST_RECEIPT_SUFFIX, "r", encoding="utf-8") as fh:
             receipt = fh.read().splitlines()
     except (OSError, UnicodeDecodeError):
         return False
-    return want in receipt and f"cert={HARVEST_RECEIPT_CERT}" in receipt
+    return receipt_certifies(receipt, data)
 
 
 def remove_captures(record_id: str) -> None:

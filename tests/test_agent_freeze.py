@@ -62,6 +62,9 @@ AGENT_PID = 4242
 # The real paired observer, captured before any test stubs it: the shell-pane
 # freeze tests (t2077) run it against a fake `/proc`.
 _REAL_CODEX_OBSERVE = agent_sessions.codex_observe_pid
+#: The real pre-kill harvest, captured before `_install_harvest_stub` replaces
+#: it: `DropLegacyReceiptRealHarvestTests` runs the real helper (t2337).
+_REAL_HARVEST_RECORD = agent_freeze._harvest_record
 STANDIN_PID = 8888
 
 
@@ -4102,6 +4105,95 @@ class DropHelperSweepTests(_FreezeTestCase):
         self.assertEqual(self._helper_kills(), [])
         for pane in ("%3", "%4"):
             self.assertIn(pane, self.tmux.panes)
+
+
+class DropLegacyReceiptRealHarvestTests(_FreezeTestCase):
+    """Drop of a certified LEGACY receipt never needs the harvest lock (t2337).
+
+    The receipt gained link lines (`links=` / `triage=` / `review=`) in t2337,
+    and a receipt from before that carries only `sha256= / store= / cert=2`.
+    Drop's pre-kill harvest is a plain `record <id>`, so a certified legacy
+    receipt must still short-circuit in the lock-free plan phase. If it fell
+    through to the locked apply, a busy or unwritable store would turn a
+    droppable record into `DROP_REFUSED`.
+
+    This runs the REAL `drop_record` and the REAL `aitask_sitrep_harvest.sh`
+    (only tmux and the session store's process boundary are faked; the
+    record is dumped to a scratch store file the helper reads), with the
+    store's harvest mutex held by another process for the whole drop.
+    """
+
+    def setUp(self) -> None:
+        super().setUp()
+        self._patch(agent_freeze, "_harvest_record", _REAL_HARVEST_RECORD)
+        self.sessions_file = self.tmp / "agent_sessions.json"
+        for var, value in (
+                (agent_sessions.SESSIONS_ENV, str(self.sessions_file)),
+                ("AITASK_SITREP_HARVEST_LOCK_TIMEOUT", "1"),
+                ("AITASKS_PROJECTS_INDEX", str(self.tmp / "projects.yaml"))):
+            previous = os.environ.get(var)
+            os.environ[var] = value
+            self.addCleanup(
+                (lambda v, p: os.environ.__setitem__(v, p) if p is not None
+                 else os.environ.pop(v, None)), var, previous)
+        (self.tmp / "projects.yaml").write_text("projects:\n")
+        self.store_dir = Path(os.path.realpath(self.root)) / ".aitask-sitrep"
+        # A capture WITH a wrap-up banner: a bannerless one takes the lock-free
+        # `nothing_found` path whatever the receipt says, which would make both
+        # tests pass vacuously.
+        self.tmux.capture_text = (
+            REPO_ROOT / "tests" / "fixtures" / "sitrep_harvest"
+            / "pick_complete_nofollowups.txt").read_text(encoding="utf-8")
+
+    def _hold_harvest_lock(self) -> None:
+        """Hold `<store>/.harvest.lockd` in another process until cleanup."""
+        self.store_dir.mkdir(parents=True, exist_ok=True)
+        lib = REPO_ROOT / ".aitask-scripts" / "lib"
+        proc = subprocess.Popen(
+            ["bash", "-c",
+             'source "$1"; source "$2"; registry_lock_acquire "$3" 5 || exit 9; '
+             'echo HELD; read -r _',
+             "_", str(lib / "terminal_compat.sh"), str(lib / "registry_lock.sh"),
+             str(self.store_dir / ".harvest.lockd")],
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+
+        def _release():
+            with contextlib.suppress(Exception):
+                proc.stdin.write("go\n")
+                proc.stdin.close()
+            proc.wait(timeout=10)
+        self.addCleanup(_release)
+        self.assertEqual("HELD", proc.stdout.readline().strip())
+
+    def _capture_bytes(self) -> bytes:
+        return Path(self.store.sf.by_id(self.rid).capture_txt).read_bytes()
+
+    def test_certified_legacy_receipt_drops_under_a_held_harvest_lock(self):
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        legacy = _harvest_receipt_text(self._capture_bytes(), str(self.store_dir))
+        self.assertNotIn("links=", legacy)
+        Path(self.store.sf.by_id(self.rid).capture_txt
+             + agent_sessions.HARVEST_RECEIPT_SUFFIX).write_text(legacy)
+        agent_sessions.dump(self.store.sf, self.sessions_file)
+        self._hold_harvest_lock()
+        self.assertEqual(f"DROPPED:{self.rid}", agent_freeze.drop_record(self.rid))
+        self.assertIsNone(self.store.sf.by_id(self.rid))
+
+    def test_control_uncertified_receipt_is_refused_under_the_same_lock(self):
+        result = agent_freeze.freeze_pane(AGENT_PANE)
+        self.assertTrue(result.ok, result.line)
+        data = self._capture_bytes()
+        uncertified = (f"sha256={hashlib.sha256(data).hexdigest()}\n"
+                       f"store={self.store_dir}\n")
+        Path(self.store.sf.by_id(self.rid).capture_txt
+             + agent_sessions.HARVEST_RECEIPT_SUFFIX).write_text(uncertified)
+        agent_sessions.dump(self.store.sf, self.sessions_file)
+        self._hold_harvest_lock()
+        line = agent_freeze.drop_record(self.rid)
+        self.assertTrue(line.startswith(f"DROP_REFUSED:{self.rid}|harvest:"), line)
+        self.assertIn("harvest_lock_busy", line)
+        self.assertIsNotNone(self.store.sf.by_id(self.rid))
 
 
 if __name__ == "__main__":

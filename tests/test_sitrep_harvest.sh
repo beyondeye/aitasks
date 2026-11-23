@@ -26,6 +26,11 @@
 #  18  argument validation
 #  19  the sitrep agent's own window is never harvested (t2175_4); near-miss
 #      window names are harvested normally
+#  20  receipt link lines (t2337): triage ids on a captured and on a
+#      piped-then-captured run, review ids, and none for nothing_found
+#  21  a certified legacy receipt (no link lines): a plain `record` short-
+#      circuits even with the harvest mutex held; `all` backfills its links
+#      with the store byte-identical
 #
 # Bodies run in the main shell (no subshell asserts), so the plain counters
 # are enough.
@@ -586,6 +591,84 @@ for win in agent-sitrepx agent-pick-sitrep agent-sitrep-0; do
     assert_contains "19 control $win is harvested" "HARVESTED:$ID19C|" "$OUT"
     assert_not_contains "19 control $win not skipped" "sitrep_agent" "$OUT"
 done
+
+# --- 20. receipt link lines (t2337) --------------------------------------------
+echo "--- 20. receipt link lines"
+receipt_of() { cat "$(cap_of "$1").harvested"; }
+R20="$(new_repo r20)"
+ID20="$(make_record "$R20" agent-pick-42 42 pick "$FIX/pick_complete_nofollowups.txt")"
+harvest record "$ID20"
+C20="$(first_id "$R20" question)"
+assert_contains "20 receipt carries links=1" "links=1" "$(receipt_of "$ID20")"
+assert_contains "20 receipt names the triage item" "triage=$C20" "$(receipt_of "$ID20")"
+assert_eq "20 the base stays the first three lines" \
+    "sha256=$(sha256sum "$(cap_of "$ID20")" | cut -d' ' -f1)" "$(receipt_of "$ID20" | head -1)"
+assert_eq "20 cert is line 3" "cert=2" "$(receipt_of "$ID20" | sed -n 3p)"
+# Piped first, then captured: the item was created by the pipe (no record=
+# passage key) and the capture only matches it -- the receipt still links it.
+R20P="$(new_repo r20p)"
+(cd "$R20P" && "$HV" banner --task 42 --skill pick < "$FIX/pick_complete_piped.txt") >/dev/null
+C20P="$(first_id "$R20P" question)"
+ID20P="$(make_record "$R20P" agent-pick-42 42 pick "$FIX/pick_complete_nofollowups.txt")"
+harvest record "$ID20P"
+assert_contains "20 piped: the capture matches the piped item" "|$C20P|exists|question|-" "$OUT"
+assert_contains "20 piped: the receipt links the piped item" "triage=$C20P" "$(receipt_of "$ID20P")"
+# A review case is linked as review=.
+R20R="$(new_repo r20r)"
+ID20R="$(make_record "$R20R" agent-pick-61 61 pick "$FIX/truncated_banner.txt")"
+harvest record "$ID20R"
+REV20="$(printf '%s\n' "$OUT" | sed -n 's/^HARVEST_REVIEW:[^|]*|\(c[0-9]*\)|.*/\1/p' | head -1)"
+assert_contains "20 review: a review case was recorded" "HARVEST_REVIEW:" "$OUT"
+assert_contains "20 review: the receipt links it" "review=$REV20" "$(receipt_of "$ID20R")"
+# Nothing found: linked, with no ids.
+R20N="$(new_repo r20n)"
+ID20N="$(make_record "$R20N" agent-raw-1 "" raw "$FIX/raw_no_banner.txt")"
+harvest record "$ID20N"
+assert_contains "20 nothing_found" "HARVEST_NONE:$ID20N|nothing_found" "$OUT"
+assert_contains "20 nothing_found: links=1" "links=1" "$(receipt_of "$ID20N")"
+assert_not_contains "20 nothing_found: no ids" "triage=" "$(receipt_of "$ID20N")"
+
+# --- 21. legacy receipt: lock-free short-circuit, maintenance backfill ---------
+echo "--- 21. legacy receipt"
+R21="$(new_repo r21)"
+ID21="$(make_record "$R21" agent-pick-42 42 pick "$FIX/pick_complete_nofollowups.txt")"
+harvest record "$ID21"
+C21="$(first_id "$R21" question)"
+LEGACY21="$(receipt_of "$ID21" | head -3)"
+printf '%s\n' "$LEGACY21" > "$(cap_of "$ID21").harvested"
+SUM21="$(sha256sum "$(store_of "$R21")/todo.md")"
+# Hold the store's harvest mutex in another process for the direct `record`.
+LOCKFIFO="$TMP/lock21.fifo"
+mkfifo "$LOCKFIFO"
+exec 8<>"$LOCKFIFO"
+bash -c 'source "$1"; source "$2"; registry_lock_acquire "$3" 5 || exit 9; : > "$4"; read -r _ <&8' \
+    _ "$PROJECT_DIR/.aitask-scripts/lib/terminal_compat.sh" \
+    "$PROJECT_DIR/.aitask-scripts/lib/registry_lock.sh" \
+    "$(store_of "$R21")/.harvest.lockd" "$TMP/lock21.held" &
+BG_PIDS+=("$!")
+for _ in $(seq 1 100); do [[ -e "$TMP/lock21.held" ]] && break; sleep 0.05; done
+assert_file_exists "21 the harvest mutex is held" "$TMP/lock21.held"
+RC=0
+OUT="$(AITASK_SITREP_HARVEST_LOCK_TIMEOUT=1 "$HV" record "$ID21" 2>/dev/null)" || RC=$?
+assert_eq "21 plain record: exit 0 under the held mutex" "0" "$RC"
+assert_contains "21 plain record short-circuits" "HARVEST_NONE:$ID21|already_harvested" "$OUT"
+assert_eq "21 the legacy receipt is unchanged" "$LEGACY21" "$(receipt_of "$ID21")"
+RC=0
+OUT="$(AITASK_SITREP_HARVEST_LOCK_TIMEOUT=1 "$HV" record "$ID21" --backfill-links 2>/dev/null)" || RC=$?
+assert_contains "21 control: backfill needs the mutex" "HARVEST_FAILED:$ID21|harvest_lock_busy" "$OUT"
+printf 'go\n' >&8
+wait "${BG_PIDS[-1]}" 2>/dev/null
+exec 8>&-
+harvest all --root "$R21"
+assert_eq "21 all: exit 0" "0" "$RC"
+assert_contains "21 all: the backfill re-harvests" "|$C21|exists|question|-" "$OUT"
+assert_contains "21 all: the receipt gains links=1" "links=1" "$(receipt_of "$ID21")"
+assert_contains "21 all: and the triage id" "triage=$C21" "$(receipt_of "$ID21")"
+assert_eq "21 all: todo.md byte-identical" "$SUM21" "$(sha256sum "$(store_of "$R21")/todo.md")"
+harvest all --root "$R21"
+assert_contains "21 all again: a linked receipt short-circuits" "HARVEST_NONE:$ID21|already_harvested" "$OUT"
+RC=0; OUT="$("$SESS" drop "$ID21" 2>&1)" || RC=$?
+assert_eq "21 the linked receipt passes the store drop gate" "0" "$RC"
 
 echo ""
 echo "==============================="

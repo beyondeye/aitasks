@@ -84,6 +84,7 @@ from monitor.monitor_shared import (  # noqa: E402
     TaskPickConfirmDialog, ShadowRejectionsMixin, STATE_STYLE_DONE,
     FROZEN_GLYPH,
     format_compare_mode_glyph, format_mark_glyph, format_frozen_prefix,
+    format_frozen_sitrep_badge, frozen_sitrep_badge_width,
     format_pane_status, PANE_STATUS_MAX_CELLS, format_awaiting_terms,
     awaiting_evidence,
     format_section_header, format_session_divider, format_shadow_glyph,
@@ -1255,6 +1256,9 @@ class MiniMonitorApp(
     # would not even fail loudly: `_own_frozen_at`'s broad `except` would turn
     # it into "record unreadable".
     _own_sessions_view: "agent_sessions.SessionsView | None" = None
+    #: The own panel's painted sitrep badge state (t2337); class floor for the
+    #: same `__new__`-built-test reason.
+    _own_sitrep_state: "str | None" = None
 
     # Status/phase filter (t2217) — `shift+left` / `shift+right` cycle it.
     # In-memory per instance, like `_hide_inactive`: a forgotten filter must not
@@ -1645,6 +1649,8 @@ class MiniMonitorApp(
         # `None` = not frozen, `""` = frozen with no readable record — the two
         # render differently, so both are real states here, not "no value".
         self._own_frozen_state: str | None = None
+        # The followed frozen agent's sitrep badge state as painted (t2337).
+        self._own_sitrep_state: str | None = None
         # Auto-offer de-dup (t1037_4): last forwarded concern payload per shadow
         # pane id, so a re-detected *unchanged* block does not re-fire the hint.
         self._last_concern_block_payload: dict[str, str] = {}
@@ -2206,6 +2212,9 @@ class MiniMonitorApp(
             if snaps is None:
                 return
             self._snapshots = self._project_snapshots(snaps)
+            # The frozen-agent sitrep badge (t2337): a synchronous kick of ONE
+            # coalesced background pass, never awaited here.
+            self._kick_frozen_sitrep()
             # Completed-pane set for THIS tick (t1322) — after the session
             # mapping refresh (which may clear the task cache), before the bar
             # and the pane list read it.
@@ -3015,8 +3024,13 @@ class MiniMonitorApp(
             # renders, composed by `format_frozen_prefix`, so `space` keeping its
             # meaning on this row stays visible.
             prefix = f"{format_frozen_prefix(self._mark_kind(snap))} "
-            name = self._row_name(snap, prefix, cell_len("frozen"))
-            text = f"{prefix}{name}  [dim]frozen[/]"
+            # The sitrep badge (t2337), bound to this frozen instance; its
+            # width comes out of the name budget like the `frozen` word's.
+            sitrep_state = self._frozen_sitrep_state(snap)
+            name = self._row_name(snap, prefix, cell_len("frozen")
+                                  + frozen_sitrep_badge_width(sitrep_state))
+            text = (f"{prefix}{name}  [dim]frozen[/]"
+                    f"{format_frozen_sitrep_badge(sitrep_state)}")
             # The task title IS allowed here (t2042): it is not capture-derived
             # — the id comes from the window name and the title from the task
             # file, the same lookup `i` uses. The gate/phase row is not: the
@@ -3270,7 +3284,8 @@ class MiniMonitorApp(
         return Content.from_markup("\n".join(rows), **variables)
 
     def _own_card_text(self, mark_kind: str | None, phase: str = "",
-                       frozen_at: str | None = None) -> Content:
+                       frozen_at: str | None = None,
+                       sitrep_state: str | None = None) -> Content:
         """Docked-panel card text: the frozen identity line, the mark glyph, and
         the advisory workflow phase.
 
@@ -3340,9 +3355,13 @@ class MiniMonitorApp(
             prefix = (f"[bold cyan]{FROZEN_GLYPH}[/]" if mark_kind is None
                       else format_frozen_prefix(mark_kind))
             stamp = f" {frozen_at}" if frozen_at else ""
+            # The sitrep badge (t2337): framework markup from a closed table,
+            # bound to this frozen instance; "" until a verdict is validated.
             return (Content.from_markup(f"{prefix} ") + identity
                     + Content.from_markup("\n  [dim]frozen$stamp[/]",
-                                          stamp=stamp))
+                                          stamp=stamp)
+                    + Content.from_markup(
+                        format_frozen_sitrep_badge(sitrep_state)))
         line = (identity if mark_kind is None
                 else Content.from_markup(f"{format_mark_glyph(mark_kind)} ")
                 + identity)
@@ -3381,6 +3400,8 @@ class MiniMonitorApp(
         snap = self._find_own_agent_snapshot(confirmed_only=False)
         mark_kind = self._mark_kind(snap) if snap is not None else None
         frozen_at = self._own_frozen_at(snap)
+        sitrep_state = (self._frozen_sitrep_state(snap)
+                        if frozen_at is not None else None)
         # A frozen agent has no phase: the process is gone, so any value here
         # would be whatever it was at freeze time, presented as current.
         phase = "" if frozen_at is not None else self._own_phase_text(snap)
@@ -3391,13 +3412,15 @@ class MiniMonitorApp(
         # user sees costs no repaint.
         if (mark_kind == self._own_mark_state
                 and phase == self._own_phase_state
-                and frozen_at == self._own_frozen_state):
+                and frozen_at == self._own_frozen_state
+                and sitrep_state == self._own_sitrep_state):
             return
         self._own_mark_state = mark_kind
         self._own_phase_state = phase
         self._own_frozen_state = frozen_at
+        self._own_sitrep_state = sitrep_state
         self._own_card.update(
-            self._own_card_text(mark_kind, phase, frozen_at))
+            self._own_card_text(mark_kind, phase, frozen_at, sitrep_state))
 
     def _own_frozen_at(self, snap) -> "str | None":
         """The followed agent's `frozen_at` stamp, or None when it is not frozen.
@@ -3499,12 +3522,15 @@ class MiniMonitorApp(
         self._own_identity_text = self._own_agent_identity_text(own_snap)
         self._own_mark_state = self._mark_kind(own_snap) if is_agent else None
         self._own_frozen_state = self._own_frozen_at(own_snap)
+        self._own_sitrep_state = (
+            self._frozen_sitrep_state(own_snap)
+            if self._own_frozen_state is not None else None)
         self._own_phase_state = (
             "" if self._own_frozen_state is not None
             else self._own_phase_text(own_snap))
         card = Static(
             self._own_card_text(self._own_mark_state, self._own_phase_state,
-                                self._own_frozen_state),
+                                self._own_frozen_state, self._own_sitrep_state),
             classes="mini-own-card"
         )
         panel = self.query_one("#mini-own-agent", VerticalScroll)
