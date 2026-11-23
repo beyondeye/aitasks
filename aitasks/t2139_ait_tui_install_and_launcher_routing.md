@@ -98,3 +98,41 @@ given app.
 > | - ait-tui version prints VERSION:/COMMIT:/SOURCE:aitasks_go@<sha>; has-app <name> exits 0/1 with no stdout. Only app shipped: stats (seeded data).
 > | - The stats routing default should stay off: it has no real data source yet (ship_path.md open item).
 > | - Known gap: aitasks_go t103 (force UTF-8 tmux clients, so session discovery works under a non-UTF-8 locale) is NOT in this export. It changes goengines/tmux shared with the testmap closure, and it arrives with the next full export.
+
+> **✉ note:t2348** id=2026-11-23T10:27:06Z.6dcd8ac63ecd0e01047fd0a6 from=t2348 from_verified=yes at=2026-11-23T10:27:06Z base=aa782387bde43a4019203e07f7a93a1fc6df3091 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2348 (commit aa782387b, landed on main). This task
+> | plans to generalise testmap_resolve_engine into lib/engine_resolve.sh, extend
+> | install_engine_binary(), and keep the existing ait-testmap resolver behaviour
+> | byte-identical. That behaviour now includes the points below. Re-verify them
+> | against the tree; this is a claim, not an instruction.
+> | 
+> | 1. Root loading order in testmap_resolve_engine (aitask_testmap.sh):
+> |    - lib/aitasks_home.sh is no longer sourced at file top. It is sourced
+> |      inside the resolver, after the VERSION check and BEFORE Tier 1, with
+> |      its stderr dropped.
+> |    - An override engine therefore still inherits AITASKS_HOME and
+> |      AITASKS_HOME_LOCK whenever a root can be established.
+> |    - A load failure is acted on only AFTER Tier 1, so AIT_TESTMAP_BIN works
+> |      with no HOME.
+> | 2. Failure mapping, read from the lib's AITASKS_HOME_REFUSAL:
+> |    - home-unset -> ENGINE_HOME_UNSET:AITASKS_HOME|set AITASKS_HOME, or a
+> |      non-empty HOME (rc 3), or USAGE/64 when AIT_ENGINE is invalid. This
+> |      keeps the old order, in which the mode check answered before any slot.
+> |    - empty (the lib never ran) -> ENGINE_LIB_FAILED:<lib>|run 'ait setup'
+> |      to repair the install (rc 3).
+> |    - any other reason -> ENGINE_ROOT_INVALID:AITASKS_HOME|<reason> (rc 3).
+> |    - In every case no slot is probed. _tm_check_slot runs `$bin version`,
+> |      so a root-level /.aitasks fallback would execute host files.
+> | 3. lib/aitasks_home.sh now:
+> |    - validates the candidate root and lock before publishing either one;
+> |    - refuses a readonly empty AITASKS_HOME, or a readonly AITASKS_HOME_LOCK
+> |      holding another value;
+> |    - exports values that are already correct without reassigning them;
+> |    - sets _AITASKS_HOME_LOADED last.
+> |    lib/engine_install.sh propagates a refusal with
+> |    `|| { unset _ENGINE_INSTALL_LOADED; return 1; }`, because install.sh
+> |    calls install_engine_binary with errexit off (`|| true`).
+> | 4. Pinned by tests/test_aitasks_home_unset_home.sh. Under a blank HOME, that
+> |    file only runs stubbed-probe or HOME-absent CLI forms; its header says
+> |    why, and a generalised resolver's tests should follow the same rule.
