@@ -315,3 +315,83 @@ None identified. Every sourcer is inventoried. Every path that needs no default
 root (override, help, explicit root) has a regression case that runs with a blank
 HOME. Each propagation route (errexit, `--source-only`, errexit-off `|| true`)
 has its own case.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-23 01:30)
+- **Requested by user (review):**
+  - A readonly-empty `AITASKS_HOME` under the shim's conditional source set the loaded flag and probed `/engine/v<V>/ait-testmap`.
+  - `home --bogus` with a blank HOME answered `HOME_SKIPPED` instead of USAGE/64.
+  - An override engine lost the inherited `AITASKS_HOME` / `AITASKS_HOME_LOCK`.
+  - A missing lib was misreported as `ENGINE_HOME_UNSET`.
+- **Changes made:**
+  - The lib refuses an unassignable root up front (readonly empty `AITASKS_HOME`, or a readonly foreign `AITASKS_HOME_LOCK`), keeps a post-assignment backstop, records `AITASKS_HOME_REFUSAL` (`home-unset` | `root-unsettable`), and sets the loaded flag as the very last line.
+  - The shim loads the root BEFORE Tier 1 (so exports reach an override engine) but reports a failure only after it, mapping the reason:
+    - `home-unset` → `ENGINE_HOME_UNSET` (or USAGE/64 for an invalid mode);
+    - empty reason (the lib never ran) → `ENGINE_LIB_FAILED:<lib>|run 'ait setup' to repair the install`;
+    - any other reason → `ENGINE_ROOT_INVALID:AITASKS_HOME|<reason>`.
+  - `cmd_home` validates its arguments before the HOME guard.
+  - New cases N2, S5, S6, S7 and E2 `home --bogus`.
+- **Files affected:** `lib/aitasks_home.sh`, `aitask_testmap.sh`, `aitask_engine.sh`, `tests/test_aitasks_home_unset_home.sh`
+
+### Change Request 2 (2026-11-23 02:00)
+- **Requested by user (review):**
+  - The lib assigned the derived root before the lock check. A refusal by a function-local readonly lock therefore left a stale root that a retry reused.
+  - A readonly lock already holding the right value was reassigned, which aborted an unguarded source under errexit.
+  - A stale startup comment in the shim described the old load order.
+- **Changes made:**
+  - The lib validates the candidate root and lock before publishing either, and every refusal unsets its temporaries.
+  - Values that are already correct are exported without reassignment.
+  - The shim comment now describes the load order as implemented.
+  - New N2 cases: retry after a refusal derives the new root; a matching readonly lock (explicit and derived root) loads with no readonly error.
+- **Files affected:** `lib/aitasks_home.sh`, `aitask_testmap.sh`, `tests/test_aitasks_home_unset_home.sh`
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **`lib/aitasks_home.sh`** refuses (`Error:` line, return 1, `AITASKS_HOME_REFUSAL`) when no usable root can be established. Two cases: (a) `AITASKS_HOME` and HOME both unset or empty; (b) the root or lock cannot be assigned. A refusal publishes nothing, and the loaded flag is set only after full initialisation.
+  - **`aitask_testmap.sh`** loads the root before the override tier but requires it only for the dev and release slots. New tokens: `ENGINE_HOME_UNSET`, `ENGINE_ROOT_INVALID`, `ENGINE_LIB_FAILED`. An invalid `AIT_ENGINE` keeps USAGE/64, and the override works with no HOME.
+  - **`aitask_engine.sh`**:
+    - help is answered before any library is sourced;
+    - the lib refusal ends the run (`|| exit 1`);
+    - `REGISTRY_FILE` and `LEGACY_ROOT` use `${HOME:+…}`, so an empty value is refused by the consumer (`PRUNE_REFUSED:no-home` in `cmd_prune`, `HOME_SKIPPED:home-unset` in `cmd_home` after its argument check), and `/.aitask` can never be treated as the legacy root.
+  - **`lib/engine_install.sh`** propagates the refusal with `|| { unset _ENGINE_INSTALL_LOADED; return 1; }`, so it survives install.sh's errexit-off `|| true`.
+  - Contract tables in the shim and engine headers are updated.
+- **Deviations from plan:**
+  - The three plan-review rounds and two implementation-review rounds widened the scope from the first plan:
+    - lazy root plus override-first ordering;
+    - help answered before any library is sourced;
+    - per-consumer engine guards instead of a startup-wide HOME refusal;
+    - preserved USAGE/64 order;
+    - readonly-root handling, lib-failure diagnostics, and validate-then-publish.
+  - The test grew from the planned N1–N3/S1–S4/E1–E4 cases to 118 assertions.
+- **Issues encountered:**
+  - **Readonly assignment (`AITASKS_HOME=…` on a readonly var).** Inside a conditional `source` under errexit, bash continues past it silently; outside one, the shell aborts. Hence the up-front checks plus the backstop.
+  - **Pre-fix control safety.** The old code derives absolute `/.aitasks` and `/.aitask` paths from `HOME=""`, so the test confines every blank-HOME run to safe forms (documented in the test header):
+    - stubbed `_tm_check_slot`;
+    - CLI cases with HOME absent;
+    - read-only engine verbs only, and never `home --migrate`.
+- **Key decisions:**
+  - The shim drops the lib's stderr and keeps its one-diagnostic-line contract. The lib reports why it refused through `AITASKS_HOME_REFUSAL`, so the shim never re-implements the rule.
+  - The engine verbs that need no HOME keep working with an explicit `AITASKS_HOME`.
+- **Verification:**
+  - `tests/test_aitasks_home_unset_home.sh` passes 118/118. Against the pre-fix tree (the four changed scripts at HEAD, the rest copied), it scores 43 passed and 75 failed.
+  - Assertions that also pass pre-fix fall into two groups:
+    - behaviour the fix preserves (S2/S4-bogus/E1/E3-registry-override with `HOME=`, S3 explicit root, C1 HOME set);
+    - checks that are vacuous after an old-code crash (`no HAS_FN`, `no slot probed` with HOME absent). Their companion RC, SURVIVED and token assertions fail pre-fix.
+  - Targeted mutants, each caught by exactly its intended cases:
+
+    | mutant | fails | caught by |
+    |---|---|---|
+    | override root load removed | 21 | S1, S3–S7 |
+    | readonly precheck removed | 1 | N2 message (the backstop still refuses) |
+    | precheck and backstop both removed | 6 | N2, S5 — reproduces the reviewer's `/engine/v0.42.0` probe |
+    | lib failure mapped to HOME | 1 | S7 |
+    | HOME guard before argument parsing | 4 | E2 `--bogus` |
+    | root published before the lock check | 2 | N2 retry |
+    | unconditional lock reassignment | 4 | N2 matching lock |
+
+  - Regression:
+    - passing: `test_aitasks_home`, `test_python_resolve_unset_home`, `test_install_upgrade_dirty_baseline`, `test_upgrade_prunes_retired_scripts`;
+    - failing: `test_testmap_shim` E1 and `test_install_engine_binary` S2/E4. Only the Go source builds fail, and the cause is host configuration, not this change. `go env` persists `GOEXPERIMENT=nodwarf5`, while the mise go1.27.4 compiler was not built with it ("compile: version go1.27.4 does not match go tool version go1.27.4-X:nodwarf5"). `build.sh` and `cmd_build` are untouched.
+  - shellcheck `-S warning` is clean (SC1091 info notes only, as on the base files).
+- **Upstream defects identified:** None
