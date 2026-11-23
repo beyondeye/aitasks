@@ -36,7 +36,7 @@ The panes are independent. When the agent exits, the TUI and the minimonitor sta
 
 ## Launching
 
-- `ait sitrep` from inside tmux opens the window, or switches to it when it is already open. **`S`** in [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}), a minimonitor or the TUI switcher does the same.
+- `ait sitrep` from inside tmux opens the window, or switches to it when it is already open. **`S`** in [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}), a minimonitor or the TUI switcher does the same, and so does the switcher's **Sitrep** row.
 - `ait sitrep tui` runs the TUI on its own, for example in a spare pane. The list, the details and the actions work there too. The request keys and **`A`** need the sitrep agent's tmux server, so they stay hidden outside tmux; run `ait sitrep` from inside tmux to reach the agent.
 
 The TUI reads the list of the repository it is started in. Started from a linked task worktree, it reads the main worktree's list, which is the one list the repository has.

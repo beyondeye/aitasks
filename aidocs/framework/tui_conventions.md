@@ -642,6 +642,16 @@ keystroke, while every other switcher-visible TUI can. Treat the four as one
 atomic change. (`applink` is the worked example: registry row + shortcut `a` +
 `Binding("a", "shortcut_applink")` + `action_shortcut_applink`.)
 
+**A switcher row that is not a launchable TUI is never a registry entry.**
+`TUI_NAMES` feeds `monitor_core.spawn_tui` and the applink router, which run
+`ait <name>` in a window named `<name>`, and `_switch_to` decides "running" by
+that exact window name. A target with its own launcher and window naming — the
+Sitrep row, which opens `ait sitrep open` (one `agent-sitrep[-n]` window per
+repository, found by pane stamps) — is added in `_populate_list_for` instead and
+routed by row in `_activate_item`, with its shortcut in `_TUI_SHORTCUTS` so the
+row shows its key. An uppercase key renders as `(Shift+K)` in the row
+(`_row_key_label`), so it is not read as its lowercase sibling.
+
 ## The board package (`board/`): two Apps, one flat-import contract
 
 `.aitask-scripts/board/` holds two Textual Apps that share their trail code:

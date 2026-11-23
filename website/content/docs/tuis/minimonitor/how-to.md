@@ -395,7 +395,7 @@ can see.
 
 ### How to Jump to Another TUI
 
-Press **j** to open the TUI switcher overlay. It lists the TUIs integrated with the tmux workflow — board, trails, monitor, codebrowser, settings, stats, syncer and more — plus your configured git TUI and any running code agent and brainstorm windows. Minimonitor itself is not listed. [Navigating between TUIs]({{< relref "/docs/tuis" >}}#navigating-between-tuis) has the full list and the multi-session controls.
+Press **j** to open the TUI switcher overlay. It lists the TUIs integrated with the tmux workflow — board, trails, monitor, codebrowser, settings, stats, syncer and more — plus your configured git TUI, a Sitrep row and any running code agent and brainstorm windows. Minimonitor itself is not listed. [Navigating between TUIs]({{< relref "/docs/tuis" >}}#navigating-between-tuis) has the full list and the multi-session controls.
 
 Select a target and the switcher focuses the existing tmux window running that TUI or creates a new window and launches it.
 

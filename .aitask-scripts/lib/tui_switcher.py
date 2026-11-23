@@ -271,7 +271,18 @@ _TUI_SHORTCUTS = {
     "git": "g",
     "applink": "a",
     "chatlink": "l",
+    # Not a registry TUI: the special-cased Sitrep row (t2338). Same action id
+    # as the `S` quick-jump, so the row hint follows a rebind.
+    "sitrep": "S",
 }
+
+#: The switcher's Sitrep row (t2338). Deliberately NOT a `TUI_REGISTRY` entry:
+#: `TUI_NAMES` feeds `monitor_core.spawn_tui` and the applink router, which
+#: would launch `ait sitrep` in a stray `sitrep` window. The row is added by
+#: `_populate_list_for` and activated through `action_shortcut_sitrep` (the
+#: stamp-matching focus-or-spawn `ait sitrep open`), never `_switch_to`.
+_SITREP_ROW = "sitrep"
+_SITREP_LABEL = "Sitrep"
 
 
 def _resolve_tui_shortcut(tui_name: str) -> str | None:
@@ -285,6 +296,29 @@ def _resolve_tui_shortcut(tui_name: str) -> str | None:
     if default is None:
         return None
     return resolve_key(_TUI_SWITCHER_SCOPE, f"shortcut_{tui_name}", default) or default
+
+
+def _row_key_label(key: str) -> str:
+    """A list row's key hint text: ``display_form``, Shift spelled out.
+
+    ``display_form`` capitalises, so ``s`` (Settings) and ``S`` (Sitrep) would
+    both read ``(S)``. A single uppercase letter is therefore shown as
+    ``Shift+S`` — the rule ``_hint_segment(spell_shift=True)`` applies to ``M``.
+    """
+    if len(key) == 1 and key.isalpha() and key.isupper():
+        return display_form(f"shift+{key.lower()}")
+    return display_form(key)
+
+
+def _has_sitrep_window(names) -> bool:
+    """Whether any of ``names`` is a sitrep agent window (t2338).
+
+    The predicate is `sitrep_harvest.is_sitrep_window`, imported lazily:
+    `sitrep_harvest` pulls in `sitrep_todo`, which the switcher otherwise never
+    needs.
+    """
+    from sitrep_harvest import is_sitrep_window
+    return any(is_sitrep_window(n) for n in names)
 
 
 # Ordered (action_id, label, default_key) for the overlay's bottom hint row.
@@ -442,7 +476,7 @@ class _TuiListItem(ListItem):
         # Show shortcut hint if this TUI has one (resolved so a rebind shows).
         shortcut = _resolve_tui_shortcut(self.tui_name)
         hint = (
-            f" [{TUI_KEY_HINT_STYLE}]({_markup_literal(display_form(shortcut))})[/]"
+            f" [{TUI_KEY_HINT_STYLE}]({_markup_literal(_row_key_label(shortcut))})[/]"
             if shortcut and not self.is_current
             else ""
         )
@@ -1168,6 +1202,23 @@ class TuiSwitcherOverlay(ModalScreen):
             list_view.append(item)
             item_idx += 1
 
+        # --- Sitrep row (t2338) ---
+        # Never current and never disabled: `current_tui_name == "sitrep_tui"`
+        # is also the standalone `ait sitrep tui` in a spare pane, so it does
+        # not prove the user is in the repository's sitrep window, and selecting
+        # from inside that window only focuses it. The dot means "a sitrep
+        # window exists in this session", like every row's; the destination is
+        # resolved on selection by the stamp-matching open. Its `agent-sitrep*`
+        # windows also stay listed under Code Agents as direct rows: nothing
+        # here can prove the open reaches a given window (a lone frozen one is
+        # skipped and a new window opened).
+        item = _TuiListItem(_SITREP_ROW, _SITREP_LABEL,
+                            _has_sitrep_window(self._running_names), False)
+        if first_selectable_idx is None:
+            first_selectable_idx = item_idx
+        list_view.append(item)
+        item_idx += 1
+
         # --- Dynamic brainstorm session entries ---
         # Scan the SELECTED session's project (session_project_root, set
         # above) so on-disk brainstorm sessions follow Left/Right cycling
@@ -1309,18 +1360,24 @@ class TuiSwitcherOverlay(ModalScreen):
         list_view = self.query_one("#switcher_list", _WrappingListView)
         if list_view.highlighted_child is None:
             return
-        item = list_view.highlighted_child
+        self._activate_item(list_view.highlighted_child)
+
+    def on_list_view_selected(self, event: ListView.Selected) -> None:
+        self._activate_item(event.item)
+
+    def _activate_item(self, item) -> None:
+        """Act on a chosen row (Enter or click).
+
+        The Sitrep row opens the selected session's repository sitrep window
+        through the `S` path (t2338). It is routed on the row type, not on the
+        name inside `_switch_to`, so a plain window that happens to be named
+        `sitrep` still switches like any other window row.
+        """
         if isinstance(item, _TuiListItem):
             if item.is_current:
                 return
-            self._switch_to(item.tui_name, item.running)
-        elif isinstance(item, _WindowListItem):
-            self._switch_to(item.window_name, True, item.window_id)
-
-    def on_list_view_selected(self, event: ListView.Selected) -> None:
-        item = event.item
-        if isinstance(item, _TuiListItem):
-            if item.is_current:
+            if item.tui_name == _SITREP_ROW:
+                self.action_shortcut_sitrep()
                 return
             self._switch_to(item.tui_name, item.running)
         elif isinstance(item, _WindowListItem):
