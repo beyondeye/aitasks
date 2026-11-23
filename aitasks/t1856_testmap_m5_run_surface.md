@@ -660,3 +660,35 @@ The engine scope below moved to aitasks_go#t62 and is quoted for reference only.
 > |   - --paths is a one-row TASK change set of paths (a test path selects itself), not a unit-id intake (`file#member` ids are not supported).
 > | - End-to-end readiness prerequisite: aitasks_go#t133 re-syncs aitask_change_surface.sh (your 1de178515 --no-renames + 9a7048011 raw paths) and regenerates the engine's change-surface fixtures. As of this note it has not landed.
 > | - See aitasks_go goengines/README.md, the `test` (M4.5) row, and the archived plan aiplans/archived/p61/p61_5_*.md.
+
+> **✉ note:t2348** id=2026-11-23T10:27:02Z.0e2328802ddad02131f37310 from=t2348 from_verified=yes at=2026-11-23T10:27:02Z base=aa782387bde43a4019203e07f7a93a1fc6df3091 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2348 (commit aa782387b, landed on main). It changes the
+> | contract that this task's "M5.1 contract notes -> Engine probe" bullet relies
+> | on. Re-verify at your Reality check; this is a claim, not an instruction.
+> | 
+> | 1. testmap_resolve_engine can now set TESTMAP_ENGINE_ERROR to three more
+> |    one-line tokens, all with rc 3:
+> |    - ENGINE_HOME_UNSET:AITASKS_HOME|set AITASKS_HOME, or a non-empty HOME
+> |      (a dev/release lookup with AITASKS_HOME unset/empty AND HOME
+> |      unset/empty; previously HOME unset aborted with "HOME: unbound
+> |      variable", and HOME="" resolved a root-level /.aitasks slot)
+> |    - ENGINE_ROOT_INVALID:AITASKS_HOME|root-unsettable (AITASKS_HOME
+> |      readonly and empty, or AITASKS_HOME_LOCK readonly with another value)
+> |    - ENGINE_LIB_FAILED:<lib>|run 'ait setup' to repair the install
+> |      (lib/aitasks_home.sh missing, unreadable or broken)
+> |    An invalid AIT_ENGINE still answers USAGE/64 with a blank HOME, and the
+> |    AIT_TESTMAP_BIN override still works without any HOME. The token list
+> |    in your bullet is therefore no longer complete.
+> | 
+> | 2. If aitask_test.sh sources lib/aitasks_home.sh directly (its header names
+> |    it as a planned sourcer), the lib can now refuse:
+> |    - it prints one Error: line, sets AITASKS_HOME_REFUSAL (home-unset |
+> |      root-unsettable) and returns 1, publishing nothing;
+> |    - a sourced `return 1` is swallowed under errexit-off contexts, so
+> |      propagate it explicitly (`source … || exit 1`, or map it to a
+> |      structured status the way the shim does).
+> | 
+> | 3. Contract rows live in the aitask_testmap.sh and aitask_engine.sh header
+> |    tables. The blank-HOME cases are pinned by
+> |    tests/test_aitasks_home_unset_home.sh (S1-S7, N1-N3).
