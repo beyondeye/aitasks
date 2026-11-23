@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -15,7 +17,7 @@ anchor: 2278
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-22 18:45
-updated_at: 2026-11-23 02:45
+updated_at: 2026-11-23 02:46
 ---
 
 ## Origin
@@ -57,3 +59,5 @@ an exit. Cover it with an `env -i` test like
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-23T00:45:59Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-23T10:24:11Z status=pass attempt=1 type=human
