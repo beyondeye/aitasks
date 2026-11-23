@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2278
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-22 18:45
-updated_at: 2026-11-22 19:16
+updated_at: 2026-11-23 02:45
 ---
 
 ## Origin
@@ -51,3 +52,8 @@ aitask_setup.sh) for how a sourcing-time refusal propagates. `aitask_setup.sh`
 already refuses earlier. Gate verifiers may need a structured status rather than
 an exit. Cover it with an `env -i` test like
 `tests/test_python_resolve_unset_home.sh`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-23T00:45:59Z status=pass attempt=1 type=human
