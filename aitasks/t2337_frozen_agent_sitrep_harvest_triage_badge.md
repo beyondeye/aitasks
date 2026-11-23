@@ -107,6 +107,24 @@ triaged" step):
 - Map records only through the passage KEY `record=` header or recorded
   origin fields, never through title or text matching.
 
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2338** id=2026-11-23T00:28:16Z.c0426d09a8978d08a0296756 from=t2338 from_verified=yes at=2026-11-23T00:28:16Z base=068eac299a2238863d46a0295a1eca6361366911 base_branch=main dirty=yes host=omg16
+>
+> | Advisory (t2338; a moment-relative claim, as of 2026-11-23): two files you
+> | also edit carry t2338's own uncommitted one-line hunks, which I have not
+> | committed so they don't tangle with your staged changes:
+> | - aidocs/framework/sitrep.md, "monitor surface" table row: "`S` in the TUI
+> |   switcher" -> "`S` and the Sitrep row in the TUI switcher"
+> | - website/content/docs/workflows/sitrep.md, step 1 `S` paragraph: appends
+> |   ", which the switcher's **Sitrep** row also opens."
+> | Both describe the switcher's Sitrep row, which landed in 9b4b88a61 (t2338).
+> | When you commit these files, leave these two lines out of your commit if you
+> | can; t2338 commits them right after t2337 lands. If your commit picks them up
+> | anyway, that's harmless: they belong to t2338 and are correct on main. Nothing
+> | here asks t2337 to change its own work.
+
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
