@@ -2068,7 +2068,7 @@ def resolve_selected_key(
     return None
 
 
-def switch_to_pane_anywhere(pane_id: str) -> bool:
+def switch_to_pane_anywhere(pane_id: str, *, client: str | None = None) -> bool:
     """Teleport the attached tmux client to an arbitrary pane on this server.
 
     Pane IDs are server-globally unique, so no session hint is required. The
@@ -2077,6 +2077,12 @@ def switch_to_pane_anywhere(pane_id: str) -> bool:
     ``select-pane`` in order. The first non-zero exit returns ``False``.
     Returns ``True`` on success; ``False`` if tmux is unavailable, the pane is
     dead, or no client is attached.
+
+    ``client`` (a ``#{client_name}``) names the client to move. Without it tmux
+    picks the client itself — the caller pane's client, or, when that one has
+    gone, whichever client it finds — so a caller that knows which client asked
+    passes it, and a client that has detached is then never replaced by another
+    one: ``switch-client -c`` fails and nothing moves (t2338).
     """
     def _display(fmt: str) -> str | None:
         rc, out = _TMUX.run(["display-message", "-p", "-t", pane_id, fmt])
@@ -2092,8 +2098,11 @@ def switch_to_pane_anywhere(pane_id: str) -> bool:
     if not win:
         return False
 
+    switch = ["switch-client", "-t", tmux_session_target(sess)]
+    if client:
+        switch[1:1] = ["-c", client]
     for args in (
-        ["switch-client", "-t", tmux_session_target(sess)],
+        switch,
         ["select-window", "-t", tmux_window_target(sess, win)],
         ["select-pane", "-t", pane_id],
     ):

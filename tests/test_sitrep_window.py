@@ -147,7 +147,9 @@ class FakeMon:
     def __init__(self, panes=(), *, list_rc=0, socket="", set_rc=0,
                  windows=("zsh",), window_rc=0, window_panes=None,
                  window_list_rc=0, places=None, active=None, join_rc=0,
-                 select_rc=0, pane_windows=None):
+                 select_rc=0, pane_windows=None, client_session=None,
+                 client_name="/dev/pts/9", client_pid="5150", clients=None,
+                 clients_rc=0):
         self.panes = list(panes)
         self.list_rc = list_rc
         self.socket = socket
@@ -162,6 +164,14 @@ class FakeMon:
         self.join_rc = join_rc
         self.select_rc = select_rc
         self.pane_windows = pane_windows or {}
+        # The implicit client's name and session (`_SITREP_CLIENT_FORMAT`,
+        # t2338); client_session None = no client attached.
+        self.client_session = client_session
+        self.client_name = client_name
+        self.client_pid = client_pid
+        # `list-clients` rows (name, pid); default: the launch client itself.
+        self.clients = clients
+        self.clients_rc = clients_rc
         self.calls: list[list[str]] = []
         self.stamps: dict[tuple[str, str], str] = {}
         self.killed: list[str] = []
@@ -180,6 +190,10 @@ class FakeMon:
             rows = self.panes if self.window_panes is None else self.window_panes
             return 0, render(fmt, rows)
         if verb == "display-message":
+            if args[-1] == mc._SITREP_CLIENT_FORMAT:
+                cs = self.client_session
+                return ((0, f"{self.client_name}\t{self.client_pid}\t{cs}\n")
+                        if cs else (1, ""))
             target = args[args.index("-t") + 1]
             if args[-1] == "#{socket_path}":
                 return 0, self.socket + "\n"
@@ -195,6 +209,12 @@ class FakeMon:
                 return (0, answer + "\n") if answer else (1, "")
             # _probe_pane: the pane is live unless it was killed.
             return 0, ("" if target in self.killed else target) + "\n"
+        if verb == "list-clients":
+            if self.clients_rc != 0:
+                return self.clients_rc, ""
+            rows = (self.clients if self.clients is not None
+                    else [(self.client_name, self.client_pid)])
+            return 0, "".join(f"{n}\t{p}\n" for n, p in rows)
         if verb == "list-windows":
             return self.window_rc, "\n".join(self.windows) + "\n"
         if verb == "set-option":
@@ -439,6 +459,138 @@ class SpawnTests(_SpawnFixture):
         self.assertEqual(res.tui, "%50")
         self.assertTrue(kw["full_height"])
 
+    def test_a_cold_spawn_moves_a_client_attached_elsewhere(self):
+        # t2338: `new-window` selects the window only inside the target
+        # session, so a client attached to another session is switched.
+        res = self.spawn(FakeMon(socket=self.sock, client_session="other"))
+        self.assertEqual((res.status, res.detail), ("spawned", ""))
+        self.focus.assert_called_once_with("%42", client="/dev/pts/9")
+
+    def test_a_cold_spawn_leaves_a_same_session_client_alone(self):
+        # `new-window` already gave that client the window; the user may have
+        # moved on while the companion spawned, so nothing pulls them back.
+        res = self.spawn(FakeMon(socket=self.sock, client_session="s"))
+        self.assertEqual((res.status, res.detail), ("spawned", ""))
+        self.focus.assert_not_called()
+
+    def test_a_session_switch_during_startup_gains_no_late_jump(self):
+        # Launched from the target session; the user switches to another
+        # session while the companion spawns. The decision is the launch-time
+        # session, so they are not pulled back.
+        mon = FakeMon(socket=self.sock, client_session="s")
+
+        def companion(*a, **k):
+            mon.client_session = "elsewhere"
+            return "%43"
+        self.companion.side_effect = companion
+        res = self.spawn(mon)
+        self.assertEqual((res.status, res.detail), ("spawned", ""))
+        self.focus.assert_not_called()
+
+    def test_a_cross_session_launch_jumps_whatever_happens_during_startup(self):
+        mon = FakeMon(socket=self.sock, client_session="other")
+
+        def companion(*a, **k):
+            mon.client_session = "s"
+            return "%43"
+        self.companion.side_effect = companion
+        self.spawn(mon)
+        self.focus.assert_called_once_with("%42", client="/dev/pts/9")
+
+    def test_the_client_session_is_read_before_the_window_exists(self):
+        mon = FakeMon(socket=self.sock, client_session="other")
+        reads_at_launch = []
+        self.launch.side_effect = lambda *a, **k: reads_at_launch.append(
+            sum(1 for c in mon.calls if c[-1] == mc._SITREP_CLIENT_FORMAT)
+        ) or ("%42", 4242, None)
+        self.spawn(mon)
+        self.assertEqual(reads_at_launch, [1])
+
+    def test_the_jump_names_the_initiating_client(self):
+        # The client read at launch is the one moved, explicitly: a detached
+        # initiator must never be replaced by another terminal.
+        mon = FakeMon(socket=self.sock, client_session="other",
+                      client_name="/dev/pts/77")
+        self.spawn(mon)
+        self.focus.assert_called_once_with("%42", client="/dev/pts/77")
+
+    def test_an_unparseable_client_read_moves_nothing(self):
+        for answer in ("", "\t1\tother", "/dev/pts/9\t1\t", "/dev/pts/9\tx\tother",
+                       "/dev/pts/9\tother", "nosep"):
+            with self.subTest(answer=answer):
+                self.focus.reset_mock()
+                mon = FakeMon(socket=self.sock)
+                real = mon.tmux_run
+
+                def run(args, timeout=5.0, real=real, answer=answer):
+                    if args[-1] == mc._SITREP_CLIENT_FORMAT:
+                        mon.calls.append(list(args))
+                        return 0, answer + "\n"
+                    return real(args, timeout)
+                mon.tmux_run = run
+                self.spawn(mon)
+                self.focus.assert_not_called()
+
+    def test_a_reused_pty_name_is_not_the_initiator(self):
+        # The initiator closed during startup; a NEW terminal (another pid)
+        # now holds the same /dev/pts name. It must not be moved.
+        mon = FakeMon(socket=self.sock, client_session="other",
+                      clients=[("/dev/pts/9", "9999")])
+        res = self.spawn(mon)
+        self.assertEqual((res.status, res.detail), ("spawned", ""))
+        self.focus.assert_not_called()
+
+    def test_a_gone_initiator_moves_nothing(self):
+        mon = FakeMon(socket=self.sock, client_session="other", clients=[])
+        self.spawn(mon)
+        self.focus.assert_not_called()
+
+    def test_an_unreadable_client_listing_moves_nothing(self):
+        mon = FakeMon(socket=self.sock, client_session="other", clients_rc=1)
+        self.spawn(mon)
+        self.focus.assert_not_called()
+
+    def test_the_identity_is_rechecked_after_the_companion_spawn(self):
+        mon = FakeMon(socket=self.sock, client_session="other")
+        order = []
+        self.companion.side_effect = lambda *a, **k: order.append("companion") or "%43"
+        real = mon.tmux_run
+
+        def run(args, timeout=5.0):
+            if args[0] == "list-clients":
+                order.append("recheck")
+            return real(args, timeout)
+        mon.tmux_run = run
+        self.spawn(mon)
+        self.assertEqual(order, ["companion", "recheck"])
+        self.focus.assert_called_once_with("%42", client="/dev/pts/9")
+
+    def test_a_cold_spawn_with_no_client_moves_nothing(self):
+        res = self.spawn(FakeMon(socket=self.sock))
+        self.assertEqual((res.status, res.detail), ("spawned", ""))
+        self.focus.assert_not_called()
+
+    def test_a_cold_spawn_without_select_does_not_move_focus(self):
+        mon = FakeMon(socket=self.sock, client_session="other")
+        res = self.spawn(mon, select_window=False)
+        self.assertEqual((res.status, res.detail), ("spawned", ""))
+        self.focus.assert_not_called()
+        self.assertFalse([c for c in mon.calls_of("display-message")
+                          if c[-1] == mc._SITREP_CLIENT_FORMAT])
+
+    def test_a_cold_spawn_whose_focus_fails_warns(self):
+        self.focus.return_value = False
+        res = self.spawn(FakeMon(socket=self.sock, client_session="other"))
+        self.assertEqual((res.status, res.pane, res.detail),
+                         ("spawned", "%42", "focus_failed"))
+
+    def test_the_focus_follows_the_companion_spawn(self):
+        order = []
+        self.companion.side_effect = lambda *a, **k: order.append("companion") or "%43"
+        self.focus.side_effect = lambda pane, client=None: order.append(f"focus:{pane}") or True
+        self.spawn(FakeMon(socket=self.sock, client_session="other"))
+        self.assertEqual(order, ["companion", "focus:%42"])
+
     def test_lookup_failure_refuses_without_launching(self):
         res = self.spawn(FakeMon(socket=self.sock, list_rc=1))
         self.assertEqual((res.status, res.detail), ("refused", "lookup_failed"))
@@ -665,6 +817,16 @@ class RoleSpawnTests(_SpawnFixture):
                 self.assertNotIn(("%6", mc.SITREP_TUI_ROOT_OPTION), mon.stamps)
                 self.assertEqual(self.companion.call_args.args, ("s", "agent-sitrep-2"))
                 self.assertTrue(self.companion.call_args.kwargs["full_height"])
+
+    def test_a_relocating_spawn_focuses_the_new_agent(self):
+        # The relocation is a `spawned` outcome too: the client follows (t2338).
+        mon = self.mon(self.tui_only(),
+                       window_panes=[pane(id="%5", stamp=str(self.root), frozen="rec1"),
+                                     pane(id="%6", tui=str(self.root))],
+                       windows=("zsh", "agent-sitrep"), client_session="other")
+        res = self.spawn(mon)
+        self.assertEqual((res.status, res.pane), ("spawned", "%42"))
+        self.focus.assert_called_once_with("%42", client="/dev/pts/9")
 
     def test_a_failed_move_keeps_the_one_tui_and_warns(self):
         mon = self.mon(self.tui_only(), join_rc=1,

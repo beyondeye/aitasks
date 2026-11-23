@@ -180,6 +180,15 @@ class TableParityTests(unittest.TestCase):
             self.assertIn(action, first, "short mode would clip it away")
             self.assertIn(action, collapsed)
 
+    def test_sitrep_shares_the_window_jump_line(self):
+        # t2338: switcher, full monitor and sitrep — every key that takes you
+        # to another window — read on one line.
+        lines = [self._band_actions(((sep, segs),)) for sep, segs in mk.FULL_HINT_LINES]
+        holding = [line for line in lines if "open_sitrep" in line]
+        self.assertEqual(len(holding), 1)
+        for action in ("tui_switcher", "switch_to_monitor"):
+            self.assertIn(action, holding[0])
+
     def test_default_band_lines_fit_the_companion_width(self):
         # `#mini-key-hints` carries `padding: 0 1`, leaving 38 of 40 columns.
         for line in mm.KEY_HINTS_TEXT.split("\n"):

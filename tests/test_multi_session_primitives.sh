@@ -48,7 +48,8 @@ print('FIELDS:' + ','.join(sorted(f)))
 print('FROZEN:' + str(u.AitasksSession.__dataclass_params__.frozen))
 print('DISCOVER_CALLABLE:' + str(callable(u.discover_aitasks_sessions)))
 print('SWITCH_CALLABLE:' + str(callable(u.switch_to_pane_anywhere)))
-# Signature sanity: switch_to_pane_anywhere takes a single positional arg.
+# Signature sanity: one positional pane id, plus the optional keyword-only
+# client to move (t2338).
 print('SWITCH_PARAMS:' + ','.join(inspect.signature(u.switch_to_pane_anywhere).parameters))
 ")
 mapfile -t lines <<<"$out"
@@ -56,7 +57,7 @@ assert_eq "AitasksSession fields" "FIELDS:default_session_problem,is_live,is_sta
 assert_eq "AitasksSession is frozen" "FROZEN:True" "${lines[1]:-}"
 assert_eq "discover_aitasks_sessions callable" "DISCOVER_CALLABLE:True" "${lines[2]:-}"
 assert_eq "switch_to_pane_anywhere callable" "SWITCH_CALLABLE:True" "${lines[3]:-}"
-assert_eq "switch_to_pane_anywhere signature" "SWITCH_PARAMS:pane_id" "${lines[4]:-}"
+assert_eq "switch_to_pane_anywhere signature" "SWITCH_PARAMS:pane_id,client" "${lines[4]:-}"
 
 # --- Tier 1b: switch_to_pane_anywhere call ordering (mock-based, no tmux) ---
 
@@ -104,6 +105,34 @@ assert_contains "call 1 is display-message window"   "display-message -p -t %42 
 assert_contains "call 2 is switch-client"            "switch-client -t =mysess" "${lines[4]:-}"
 assert_contains "call 3 is select-window"            "select-window -t =mysess:2" "${lines[5]:-}"
 assert_contains "call 4 is select-pane"              "select-pane -t %42" "${lines[6]:-}"
+
+# With a client, switch-client names it (-c) and the rest is unchanged (t2338).
+out=$(PYTHONPATH="$LIB_DIR" "$PY" <<'PY'
+import subprocess
+from unittest.mock import patch, MagicMock
+import agent_launch_utils as u
+
+calls = []
+
+def fake_run(cmd, *args, **kwargs):
+    calls.append(cmd)
+    result = MagicMock()
+    result.returncode = 0
+    fmt = cmd[-1] if cmd[1:3] == ["-u", "display-message"] else ""
+    result.stdout = {"#{session_name}": "mysess\n", "#{window_index}": "2\n"}.get(fmt, "")
+    return result
+
+with patch.object(subprocess, "run", side_effect=fake_run):
+    ok = u.switch_to_pane_anywhere("%42", client="/dev/pts/7")
+print("OK:" + str(ok))
+print("CMD2:" + " ".join(calls[2][1:]))
+print("CMD3:" + " ".join(calls[3][1:]))
+PY
+)
+mapfile -t lines <<<"$out"
+assert_eq "switch_to_pane_anywhere(client=) returns True" "OK:True" "${lines[0]:-}"
+assert_contains "call 2 names the client" "switch-client -c /dev/pts/7 -t =mysess" "${lines[1]:-}"
+assert_contains "call 3 is still select-window" "select-window -t =mysess:2" "${lines[2]:-}"
 
 # switch_to_pane_anywhere returns False cleanly when tmux is unavailable.
 out=$(PYTHONPATH="$LIB_DIR" "$PY" <<'PY'

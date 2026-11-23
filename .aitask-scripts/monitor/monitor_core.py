@@ -5807,6 +5807,56 @@ def _sitrep_active_pane(monitor, window_id: str) -> str | None:
     return pane if _SITREP_PANE_ID_RE.fullmatch(pane) else None
 
 
+#: One read of the caller's client: its name (what ``switch-client -c`` takes),
+#: its process id and its session. The name alone is not an identity: a
+#: terminal closed during startup frees its pty, and a new client attached
+#: meanwhile can get the same ``/dev/pts/N`` name (t2338).
+_SITREP_CLIENT_FORMAT = "#{client_name}\t#{client_pid}\t#{client_session}"
+#: The attached clients, for re-checking that identity before the jump.
+_SITREP_CLIENTS_FORMAT = "#{client_name}\t#{client_pid}"
+
+
+class _SitrepClient(NamedTuple):
+    """The client that asked for the sitrep window, read at launch."""
+
+    name: str
+    pid: str
+    session: str
+
+
+def _sitrep_launch_client(monitor) -> _SitrepClient | None:
+    """The caller's client (name, pid, session), or None.
+
+    Read with tmux's implicit client (no ``-c``): from a pane, that pane's
+    attached client. None when there is no client, the read fails, or the
+    answer is malformed — the caller then moves nothing.
+    """
+    rc, out = monitor.tmux_run(["display-message", "-p", _SITREP_CLIENT_FORMAT])
+    if rc != 0:
+        return None
+    fields = out.strip("\n").split("\t")
+    if len(fields) != 3 or "\n" in out.strip("\n"):
+        return None
+    name, pid, session = fields
+    if not name or not session or not pid.isdigit():
+        return None
+    return _SitrepClient(name, pid, session)
+
+
+def _sitrep_client_still_attached(monitor, client: _SitrepClient) -> bool:
+    """Whether the SAME client (name AND pid) is still attached.
+
+    False on any doubt — an unreadable listing, or the name now held by a
+    different process — so a replacement terminal on a reused pty is never
+    moved. A remaining window between this read and the switch is the width
+    of one tmux round trip.
+    """
+    rc, out = monitor.tmux_run(["list-clients", "-F", _SITREP_CLIENTS_FORMAT])
+    if rc != 0:
+        return False
+    return f"{client.name}\t{client.pid}" in out.splitlines()
+
+
 def _sitrep_pane_window(monitor, pane: str) -> str | None:
     """The id of the window ``pane`` is in NOW, or None when unreadable/gone."""
     rc, out = monitor.tmux_run(
@@ -5988,6 +6038,14 @@ def spawn_sitrep(monitor, *, target_root, session: str, select_window: bool,
                 return SitrepSpawn("refused", None, "", why)
             status = "respawned_agent"
         else:
+            # WHICH client asked, and where it is NOW, before the window
+            # exists: only a launch from another session needs the explicit
+            # jump below, and only that client may be moved. Read later, a
+            # same-session user who moved to another session during startup
+            # would be pulled back; left implicit, a detached initiator would
+            # be replaced by whatever other client tmux finds (t2338).
+            launch_client = (_sitrep_launch_client(monitor)
+                             if select_window else None)
             agent, window, why = _sitrep_launch_agent_window(
                 monitor, root, session, select_window, agent_string)
             if not agent:
@@ -6017,6 +6075,23 @@ def spawn_sitrep(monitor, *, target_root, session: str, select_window: bool,
             explicit=True, force_companion=True, full_height=True)
         if not companion:
             warns.append("companion_not_spawned")
+        # `new-window` selects the window only inside the TARGET session, so a
+        # client attached to another session (the switcher's cross-session
+        # row, a monitor `S` on another session's agent) would stay where it
+        # is: move it there (t2338). The decision uses the client read at
+        # LAUNCH time (`launch_client`, above): a client that was already in
+        # the target session got the window from `new-window` itself and is
+        # left alone, wherever the user went during startup — another window
+        # or another session. The jump names that client (`-c`), so if it has
+        # detached meanwhile nothing moves — never another terminal, not even
+        # one that got its pty name. No client, or an unreadable one: nothing
+        # to move.
+        # Re-checked by name AND pid first: if the initiator has gone, its pty
+        # name may already belong to another terminal.
+        if (launch_client is not None and launch_client.session != session
+                and _sitrep_client_still_attached(monitor, launch_client)):
+            if not switch_to_pane_anywhere(agent, client=launch_client.name):
+                warns.append("focus_failed")
         return SitrepSpawn("spawned", agent, f"{session}:{window}",
                            ",".join(warns), tui)
     # A repair: the companion restores the full-height column if it is gone,

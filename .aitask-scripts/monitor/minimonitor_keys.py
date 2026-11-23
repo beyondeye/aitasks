@@ -81,6 +81,7 @@ HintLine = tuple[str, tuple[HintSeg, ...]]
 #     t2212        28   22   19   10
 #     with ?:rebind 31  22   19   10   (over budget — `?` stays `?:keys`)
 #     t2217        29   23   21   10
+#     t2338        29   24   21   10
 #
 # History the labels encode:
 # * `x`/`H` (t2212) sit on line 1 so they stay visible when short mode clips
@@ -103,6 +104,10 @@ HintLine = tuple[str, tuple[HintSeg, ...]]
 #   cost at width 15 with "mark ★ (followed)" for "(followed agent)". That
 #   leaves width 15 at exactly the 29-row budget — the next addition must buy
 #   its rows back first.
+# * t2338 moved `S:sitrep` from the `l`/`k`/`M` line to the `j`/`m` line, so
+#   every "go to another window" key reads on one line (33 cells at 40
+#   columns). A move, not an addition: width 15 stays at 29 and width 40 at 10;
+#   width 18 gains the one row the budget does not cover.
 FULL_HINT_LINES: tuple[HintLine, ...] = (
     (" ", (
         HintSeg(("toggle_key_hints",), "hide"),
@@ -126,6 +131,7 @@ FULL_HINT_LINES: tuple[HintLine, ...] = (
     ("  ", (
         HintSeg(("tui_switcher",), "switcher"),
         HintSeg(("switch_to_monitor",), "monitor"),
+        HintSeg(("open_sitrep",), "sitrep"),
     )),
     ("  ", (
         HintSeg(("kill_own_agent",), "kill"),
@@ -147,7 +153,6 @@ FULL_HINT_LINES: tuple[HintLine, ...] = (
         HintSeg(("toggle_review_loop",), "loop"),
         HintSeg(("open_shortcuts_editor",), "keys"),
         HintSeg(("toggle_multi_session",), "multi"),
-        HintSeg(("open_sitrep",), "sitrep"),
     )),
     ("  ", (
         HintSeg(("toggle_mark",), "mark ★ (followed)"),
@@ -361,11 +366,16 @@ KEY_HELP: tuple[HelpEntry, ...] = (
     # Source: how-to.md — "How to Jump to Another TUI"
     HelpEntry(("tui_switcher",), "TUI switcher",
               "Opens the TUI switcher overlay to jump to board, monitor, "
-              "codebrowser, settings or brainstorm, focusing the window that "
-              "runs it or launching it."),
+              "codebrowser, settings, brainstorm or sitrep, focusing the window "
+              "that runs it or launching it."),
     # Source: how-to.md — "Key Bindings Quick Reference" (`m` row)
     HelpEntry(("switch_to_monitor",), "Full monitor",
               "Switches to the full monitor with this agent focused."),
+    # Source: _index.md — "Relationship to monitor" (Sitrep row);
+    # sitrep_close.action_open_sitrep
+    HelpEntry(("open_sitrep",), "Sitrep window",
+              "Opens, or switches to, the sitrep window of the followed agent's "
+              "repository."),
     # Source: how-to.md — "Key Bindings Quick Reference" (`k` row) and "How to
     # Freeze the Agent You Are Done With"
     HelpEntry(("kill_own_agent",), "Kill the followed agent",
@@ -433,11 +443,6 @@ KEY_HELP: tuple[HelpEntry, ...] = (
     HelpEntry(("toggle_multi_session",), "Multi-session view",
               "Toggles between agents from every aitasks tmux session and only "
               "this session's. In-memory only."),
-    # Source: _index.md — "Relationship to monitor" (Sitrep row);
-    # sitrep_close.action_open_sitrep
-    HelpEntry(("open_sitrep",), "Sitrep window",
-              "Opens, or switches to, the sitrep window of the followed agent's "
-              "repository."),
     # Source: how-to.md — "How to Mark an Agent as Prioritized"
     HelpEntry(("toggle_mark",), "Mark the followed agent",
               "Cycles the followed agent's mark: ★ prioritized, P parked, "
