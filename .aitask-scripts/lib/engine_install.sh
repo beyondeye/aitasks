@@ -56,8 +56,11 @@ fi
 _ENGINE_INSTALL_LOADED=1
 
 _ENGINE_INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# Propagated by hand: install.sh reaches this with errexit OFF (`… || true`),
+# where a refused source (no AITASKS_HOME and no HOME) would otherwise be
+# ignored and the installer would run on an unbound root (t2348).
 # shellcheck source=lib/aitasks_home.sh
-source "$_ENGINE_INSTALL_DIR/aitasks_home.sh"
+source "$_ENGINE_INSTALL_DIR/aitasks_home.sh" || { unset _ENGINE_INSTALL_LOADED; return 1; }
 # shellcheck source=lib/stale_lock.sh
 source "$_ENGINE_INSTALL_DIR/stale_lock.sh"
 

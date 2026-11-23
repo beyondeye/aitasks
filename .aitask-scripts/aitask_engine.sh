@@ -34,10 +34,13 @@ set -euo pipefail
 # | PRUNE_KEPT:<dir>|dev-marked / PRUNE_KEPT:<dir>|busy | a .dev slot without --force / a held slot lock | E1, E5 |
 # | PRUNE_WOULD:<dir> / PRUNED:<dir> | --dry-run / removed | E1, E2b |
 # | PRUNE_FAILED:<dir>|<reason> | the slot survived a removal attempt; exit 1 at the end | E5 |
+# | PRUNE_REFUSED:no-home|set AITASKS_PROJECTS_INDEX or HOME | AITASKS_PROJECTS_INDEX unset and HOME unset or empty (no registry path to derive); exit 1, nothing read or removed | t2348 E3 |
 # | PRUNE_REFUSED:no-registry|<file> | exit 1, nothing removed | E2 |
 # | PRUNE_REFUSED:registry-unreadable|<file> | exit 1, nothing removed | E2 |
 # | PRUNE_REFUSED:version-unreadable|<file> / version-invalid|<file> | a kept project's .aitask-scripts/VERSION; exit 1, nothing removed | E2 |
 # | UNKNOWN_VERB:<verb> then USAGE:<msg> / USAGE:<msg> | stderr, exit 64 | E3 |
+# | -h / --help | the header above, exit 0; answered before any library is sourced, so it needs neither HOME nor AITASKS_HOME | t2348 E1 |
+# | Error: AITASKS_HOME is unset and HOME is unset or empty… | stderr, exit 1, before any verb (lib/aitasks_home.sh refusal); an explicit AITASKS_HOME needs no HOME | t2348 E4 |
 #
 # `home` shapes (stdout), each pinned by the named tests/test_aitasks_home.sh case
 #
@@ -51,21 +54,33 @@ set -euo pipefail
 # | HOME_SKIPPED:<reason> then HOME_ROLLED_BACK:<n> | a step failed or a signal arrived mid-move; every moved entry restored, exit 1 (128+signo when interrupted) — destination-exists:<n>, move-failed:<n>, legacy-root-not-empty:<csv>, symlink-failed, interrupted:<SIG> | H14-H16, H19, H20 |
 # | HOME_FAILED:rollback|<csv> then HOME_STRANDED:<name>|<now>|<legacy> and HOME_RESTORE:<name or .>|<command> lines, run in order (per entry: competitor aside, then restore — or the single restore when nothing occupies the legacy path; when the legacy root itself is obstructed: obstruction aside, mkdir, then each entry; when it is absent: mkdir, then each entry), then HOME_RECORD:<path> | rollback blocked; competing entries and obstructions untouched, exit 2 | H22, H23, H27, H29, H30 |
 # | HOME_RECORD:<path> | the same HOME_SKIPPED…HOME_RESTORE lines, saved durably at $AITASKS_HOME/.home_restore (one current block, atomically replacing any earlier one) so a dead stdout cannot lose them; printed only when the whole record was published, and by the report while it is a regular file; never written through a link or into a directory, even one that appears mid-write; a completed migration removes it | H22, H31-H34 |
-# | USAGE:<msg> | home with an argument other than --migrate, exit 64 | H17 |
+# | USAGE:<msg> | home with an argument other than --migrate, exit 64; checked before the HOME_SKIPPED:home-unset guard, so it holds with a blank HOME too | H17; t2348 E2 |
+# | HOME_SKIPPED:home-unset | home / home --migrate with HOME unset or empty: the legacy root ($HOME/.aitask) cannot be derived, never read as a root-level /.aitask; nothing read or moved, exit 1 | t2348 E2 |
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 GOENGINES="$SCRIPT_DIR/../goengines"
 
+# Help needs no per-user root, so it is answered before anything derived from
+# HOME / AITASKS_HOME (t2348).
+case "${1:-}" in
+    -h|--help)
+        sed -n '4,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+        exit 0 ;;
+esac
+
 # shellcheck source=lib/terminal_compat.sh
 source "$SCRIPT_DIR/lib/terminal_compat.sh"
+# A refusal (neither AITASKS_HOME nor HOME) printed its own Error line.
 # shellcheck source=lib/aitasks_home.sh
-source "$SCRIPT_DIR/lib/aitasks_home.sh"
+source "$SCRIPT_DIR/lib/aitasks_home.sh" || exit 1
 # shellcheck source=lib/engine_install.sh
 source "$SCRIPT_DIR/lib/engine_install.sh"
 # shellcheck source=lib/atomic_write.sh
 source "$SCRIPT_DIR/lib/atomic_write.sh"
 
-REGISTRY_FILE="${AITASKS_PROJECTS_INDEX:-$HOME/.config/aitasks/projects.yaml}"
+# Empty when neither AITASKS_PROJECTS_INDEX nor HOME is set; its only consumer,
+# cmd_prune, refuses then (PRUNE_REFUSED:no-home) — never a root-level path.
+REGISTRY_FILE="${AITASKS_PROJECTS_INDEX:-${HOME:+$HOME/.config/aitasks/projects.yaml}}"
 
 usage_line() {
     echo "USAGE:ait engine build | test [go test args] | cross [build.sh args] | prune [--dry-run] [--force] | home [--migrate]" >&2
@@ -194,6 +209,10 @@ cmd_prune() {
         esac
     done
 
+    if [[ -z "$REGISTRY_FILE" ]]; then
+        echo "PRUNE_REFUSED:no-home|set AITASKS_PROJECTS_INDEX or HOME"
+        exit 1
+    fi
     if [[ ! -f "$REGISTRY_FILE" ]]; then
         echo "PRUNE_REFUSED:no-registry|$REGISTRY_FILE"
         info "Register each project that uses the engine with 'ait projects add', then re-run." >&2
@@ -278,7 +297,9 @@ cmd_prune() {
 # update_check) that `home --migrate` empties into $AITASKS_HOME, leaving
 # `<legacy> -> $AITASKS_HOME` behind so every consumer that spells the old path
 # keeps resolving. Spelled exactly once; everything below goes through it.
-LEGACY_ROOT="$HOME/.aitask"  # legacy-root-ok: the one spelling of the root `home --migrate` empties
+# Empty without HOME; cmd_home refuses then (HOME_SKIPPED:home-unset), so a
+# blank HOME can never make /.aitask the root every home_* function reads/moves.
+LEGACY_ROOT="${HOME:+$HOME/.aitask}"  # legacy-root-ok: the one spelling of the root `home --migrate` empties
 HOME_KNOWN_ENTRIES=(venv pypy_venv python bin uv dev_tier update_check engine)
 
 HOME_STATE=""          # none | migrated | refuse | ready  (set by home_preflight)
@@ -856,15 +877,26 @@ home_migrate() {
 }
 
 cmd_home() {
+    # Arguments first: an invalid call is a usage error (stderr, 64) whatever
+    # the environment, and it touches nothing.
+    case "$#:${1:-}" in
+        0:|1:--migrate) ;;
+        *) usage_line; exit 64 ;;
+    esac
+    # Then, before any read: every home_* function consumes LEGACY_ROOT (t2348).
+    if [[ -z "$LEGACY_ROOT" ]]; then
+        echo "HOME_SKIPPED:home-unset"
+        exit 1
+    fi
     # One spelling of the root for the whole verb: trailing slashes would make
     # basename-derived names (the stray-link cleanup) empty.
     while [[ "$AITASKS_HOME" == */ && "$AITASKS_HOME" != / ]]; do AITASKS_HOME="${AITASKS_HOME%/}"; done
     HOME_RECORD="$AITASKS_HOME/.home_restore"
-    case "$#:${1:-}" in
-        0:)          home_report ;;
-        1:--migrate) home_migrate ;;
-        *)           usage_line; exit 64 ;;
-    esac
+    if [[ $# -eq 0 ]]; then
+        home_report
+    else
+        home_migrate
+    fi
 }
 
 verb="${1:-}"
@@ -875,9 +907,6 @@ case "$verb" in
     cross) cmd_cross "$@" ;;
     prune) cmd_prune "$@" ;;
     home)  cmd_home "$@" ;;
-    -h|--help)
-        sed -n '4,20p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
-        ;;
     "")
         usage_line
         exit 64 ;;

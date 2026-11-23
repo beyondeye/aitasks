@@ -30,7 +30,7 @@ set -euo pipefail
 #
 # | shape | contract | pinned by |
 # |---|---|---|
-# | tier order | override > dev > release; a set tier that fails is final | O1, O2, D2 |
+# | tier order | override > dev > release; a set tier that fails is final; the override needs no per-user root: the root is loaded first, so an override engine inherits AITASKS_HOME / AITASKS_HOME_LOCK whenever one can be established, but its failure only matters after tier 1, so the override works without HOME | O1, O2, D2; t2348 S2, S6 |
 # | stdout | only ever the engine's own output | R1, O1, W1 |
 # | exec | args verbatim, engine exit status returned, stdin passed through | R1, R2 |
 # | ENGINE_OVERRIDE:<path> | stderr, whenever tier 1 is taken | O1 |
@@ -43,7 +43,10 @@ set -euo pipefail
 # | ENGINE_MISSING:<path>|fix or unset AIT_TESTMAP_BIN | stderr, exit 3; override | O2 |
 # | ENGINE_PATH_UNSAFE:<var> | stderr, exit 3; a path field holds a pipe, CR or LF (named by variable, value withheld): AITASKS_HOME, AIT_TESTMAP_BIN, or SCRIPT_DIR (the framework dir, only when VERSION is also invalid) | U1, U2 |
 # | VERSION_INVALID:<file> | stderr, exit 3; VERSION missing, unreadable, empty or outside [A-Za-z0-9._+-] (no raw shell error leaks) | V1, V2, U2 |
-# | USAGE:AIT_ENGINE must be 'dev' or unset | stderr, exit 64 | D4 |
+# | USAGE:AIT_ENGINE must be 'dev' or unset | stderr, exit 64; also with neither AITASKS_HOME nor HOME (the mode check still answers before the root is needed) | D4; t2348 S4 |
+# | ENGINE_HOME_UNSET:AITASKS_HOME|set AITASKS_HOME, or a non-empty HOME | stderr, exit 3; a dev/release lookup with AITASKS_HOME unset/empty and HOME unset/empty — no slot is probed, never a root-level /.aitasks default; the override tier needs neither, and an invalid AIT_ENGINE still answers USAGE/64 | t2348 S1, S2, S4 (tests/test_aitasks_home_unset_home.sh) |
+# | ENGINE_ROOT_INVALID:AITASKS_HOME|<reason> | stderr, exit 3; dev/release lookup when lib/aitasks_home.sh refused a root it could not assign (reason root-unsettable: a readonly empty AITASKS_HOME, or a readonly AITASKS_HOME_LOCK with another value); no slot is probed | t2348 S5 |
+# | ENGINE_LIB_FAILED:<lib>|run 'ait setup' to repair the install | stderr, exit 3; dev/release lookup when lib/aitasks_home.sh is missing, unreadable or broken (no refusal reason reported); ENGINE_PATH_UNSAFE:SCRIPT_DIR when that path cannot travel as a field | t2348 S7 |
 # | dev version rule | <VERSION>-dev+ then ^[0-9a-f]{7,64}$ | D1, D2 |
 # | resolver API | `source aitask_testmap.sh --source-only`; `rc=0; testmap_resolve_engine || rc=$?` → rc 0 + TESTMAP_ENGINE_BIN, or rc 3/64 + TESTMAP_ENGINE_ERROR (one full line above); never execs | A1 |
 # | no network | `ait testmap` runs no update check (no stdout notice, no background curl) | W1, W2, W4 |
@@ -54,9 +57,13 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-# Per-user framework root ($AITASKS_HOME) and the engine slot layout (t1852_1).
-# shellcheck source=lib/aitasks_home.sh
-source "$SCRIPT_DIR/lib/aitasks_home.sh"
+# The per-user framework root ($AITASKS_HOME, lib/aitasks_home.sh, t1852_1) is
+# loaded inside testmap_resolve_engine, BEFORE the override tier, so an override
+# engine inherits AITASKS_HOME / AITASKS_HOME_LOCK whenever a root can be
+# established. A load failure is reported only AFTER the override tier, so the
+# override keeps working without HOME (t2348).
+
+_TM_MODE_USAGE="USAGE:AIT_ENGINE must be 'dev' or unset"
 
 # _tm_safe <value> — true when <value> can travel as one line-protocol field.
 _tm_safe() {
@@ -112,6 +119,7 @@ testmap_resolve_engine() {
     TESTMAP_ENGINE_BIN=""
     TESTMAP_ENGINE_ERROR=""
     local version_file="$SCRIPT_DIR/VERSION" v="" slot
+    local home_lib="$SCRIPT_DIR/lib/aitasks_home.sh" home_rc=0
 
     # A missing or unreadable file reads as empty: the shell's own error would
     # be a raw, unstructured stderr line (and would echo an unsafe path).
@@ -130,6 +138,16 @@ testmap_resolve_engine() {
         fi
         return 3
     fi
+
+    # The per-user root: loaded BEFORE the override, so an override engine
+    # still inherits AITASKS_HOME / AITASKS_HOME_LOCK whenever a root can be
+    # established, but REQUIRED only after it. The override works without
+    # HOME (t2348). The lib's own Error line is dropped, so
+    # TESTMAP_ENGINE_ERROR stays the one diagnostic line. The refusal reason
+    # is reset first, because a lib that never ran leaves it unset.
+    AITASKS_HOME_REFUSAL=""
+    # shellcheck source=lib/aitasks_home.sh
+    source "$home_lib" 2>/dev/null || home_rc=$?
 
     # Tier 1 — the override.
     if [[ -n "${AIT_TESTMAP_BIN:-}" ]]; then
@@ -150,6 +168,36 @@ testmap_resolve_engine() {
         return 3
     fi
 
+    # The default root is needed only from here on (dev + release slots).
+    if [[ "$home_rc" -ne 0 ]]; then
+        case "${AITASKS_HOME_REFUSAL:-}" in
+            home-unset)
+                # Keep the old check order: a blank root passed _tm_safe, so
+                # the next answer was the mode check, and an invalid
+                # AIT_ENGINE still gets USAGE/64.
+                case "${AIT_ENGINE:-}" in
+                    ""|dev)
+                        TESTMAP_ENGINE_ERROR="ENGINE_HOME_UNSET:AITASKS_HOME|set AITASKS_HOME, or a non-empty HOME"
+                        return 3 ;;
+                    *)
+                        TESTMAP_ENGINE_ERROR="$_TM_MODE_USAGE"
+                        return 64 ;;
+                esac ;;
+            "")
+                # The lib never reported a reason: missing, unreadable or
+                # broken. That is an incomplete install, not a HOME problem.
+                if _tm_safe "$home_lib"; then
+                    TESTMAP_ENGINE_ERROR="ENGINE_LIB_FAILED:$home_lib|run 'ait setup' to repair the install"
+                else
+                    TESTMAP_ENGINE_ERROR="ENGINE_PATH_UNSAFE:SCRIPT_DIR"
+                fi
+                return 3 ;;
+            *)
+                TESTMAP_ENGINE_ERROR="ENGINE_ROOT_INVALID:AITASKS_HOME|$AITASKS_HOME_REFUSAL"
+                return 3 ;;
+        esac
+    fi
+
     if ! _tm_safe "$AITASKS_HOME"; then
         TESTMAP_ENGINE_ERROR="ENGINE_PATH_UNSAFE:AITASKS_HOME"
         return 3
@@ -168,7 +216,7 @@ testmap_resolve_engine() {
             return 3
             ;;
         *)
-            TESTMAP_ENGINE_ERROR="USAGE:AIT_ENGINE must be 'dev' or unset"
+            TESTMAP_ENGINE_ERROR="$_TM_MODE_USAGE"
             return 64
             ;;
     esac
