@@ -1,5 +1,34 @@
 # Changelog
 
+## v0.42.1
+
+### Features
+
+- **Generated documentation screenshots** (t2278_5): A new `aitask-docs-screenshots` skill generates the website's TUI screenshots: it drives each real TUI on a sample project, previews a batch of captures for review and applies only the approved batch. A batch that changed after review is refused, and a failed apply rolls back. The skill is available for Claude Code only. Board-lock, trails and brainstorm sample datasets were added, and 13 docs images now come from recorded capture steps.
+- **GPT-6.2 Sol and Astra models** (t2333): Registered the Codex `gpt6_2_sol` and `gpt6_2_astra` models and made `gpt6_2_sol` the default for shadow and discuss. The OpenCode model list was refreshed, and usage counters were kept.
+- **Sitrep item-type tabs** (t2334): The sitrep TUI's main list now has All, Triage, Tasks, Recovery and Watches tabs, each with an item count. Empty tabs show an explanation.
+- **Sitrep state badge for frozen agents** (t2337): Monitor and minimonitor show whether a frozen agent's output has reached sitrep. `unharvested` means it has not. `drop ok` means it is safe to drop, followed by whether triage or review is still open. A state that cannot be confirmed is shown as unknown.
+
+### Bug Fixes
+
+- **Safer OpenCode model refreshes** (t1885): An OpenCode model refresh that would merge two models under one name now stops and explains how to recover without losing usage history. The unavailable-model hint now names a command that exists.
+- **Correct terminal colours in Codex and OpenCode panes** (t2051): Codex and OpenCode panes now read the real terminal's colours, fixing black text and backgrounds. Agents that are already running keep their startup colours until you restart them.
+- **More forgiving Codex question answers** (t2330): Choice answers typed at the prompt now accept small typos, different letter case and extra spacing. Replies that are ambiguous or hedged are refused, along with suggestions that will work.
+- **Readable brainstorm briefs** (t2339): Brainstorm session briefs and root-node descriptions no longer show task frontmatter, including in sessions created before this fix. Task text with brackets displays as written. Shell helpers honour `AIT_PYTHON` when there is no framework virtual environment.
+- **TUI switcher in narrow panes** (t2340): The TUI switcher now fits panes narrower than the dialog, such as minimonitor's, and keeps the highlighted row in view.
+- **Accurate Recently Opened count** (t2343): The codebrowser history's "Recently Opened" header now updates as soon as you open a task.
+- **Handle a missing HOME** (t2347, t2348): Startup, Python lookup and the engine commands no longer crash or fall back to system paths when HOME is unset or empty. Setup and the commands that need a home directory refuse with a clear message, and commands that do not need one still work.
+
+### Improvements
+
+- **Regenerated documentation screenshots** (t2278_6): All website TUI screenshots other than the logos are now regenerated from recorded capture steps on sample data. The settings model-picker images and the "Change the Default Model for an Operation" guide now show how the picker works today.
+- **Reclaim leftovers from killed test runs** (t2301): A test run's temporary directory left behind after the run was killed is removed on the next run. This happens only when nothing can still be using the directory. Otherwise the directory is kept and the reason is reported.
+- **Sitrep in the TUI switcher** (t2338): The TUI switcher has a Sitrep row (`Shift+S`), and minimonitor shows `S:sitrep` on its switcher hint line. Opening sitrep from another tmux session moves you to the new sitrep window.
+
+### Maintenance
+
+- **Refresh the Go engine export** (t25): Updated the Go engine sources copied in from the separate engine repository, including new, not yet enabled, Go terminal-UI sources.
+
 ## v0.42.0
 
 ### Features
