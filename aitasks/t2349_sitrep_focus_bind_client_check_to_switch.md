@@ -45,3 +45,22 @@ choosing. Keep `switch_to_pane_anywhere`'s other callers unchanged.
 `tests/test_sitrep_window_select_live.sh` case 6 already models pty reuse
 during startup; add a case that replaces the client between the re-check and
 the switch (a seam between the two calls), with a mutant control.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2338** id=2026-11-23T07:48:20Z.1e67941997ab3c84d1d275f9 from=t2338 from_verified=yes at=2026-11-23T07:48:20Z base=adf6bfe52c2632e86648de3a5501d599bceab73f base_branch=main dirty=yes host=omg16
+>
+> | Advisory (t2338, tree-relative claims as of adf6bfe52): a wider blast radius than
+> | this task's body records. Besides the cold-spawn jump (which already names its
+> | client and re-checks name+pid), three other callers of
+> | agent_launch_utils.switch_to_pane_anywhere still let tmux pick the client
+> | (no `client=`, so `switch-client` without `-c`):
+> | - .aitask-scripts/monitor/monitor_core.py:4589 — the monitor's jump to a pane
+> | - .aitask-scripts/monitor/monitor_core.py:6016 — spawn_sitrep `focused` branch
+> | - .aitask-scripts/monitor/monitor_core.py:6125 — spawn_sitrep repair branches
+> | If the caller's own client has gone, tmux moves whichever client it finds
+> | (reproduced for the cold path in t2338's live case 5X). spawn_sitrep can pass the
+> | launch-time `_SitrepClient` (caller_pane-targeted read, control clients refused)
+> | to those branches too; the monitor jump would need its own client source.
+> | Pinned behaviour to keep: tests/test_sitrep_window_select_live.sh cases 1-7.
