@@ -401,3 +401,139 @@ only.
 
 ### Planned mitigations
 - timing: pre-phase | name: pin_receipt_gate_compat | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: receipt format change on the drop/purge safety path | desc: characterization tests pinning capture_harvested across receipt shapes and the real Drop command with a certified legacy receipt under a held writer lock, before the format changes
+
+## Final Implementation Notes
+
+- **Actual work done:** all plan steps 1–7 implemented as designed (step 8,
+  the sitrep-TUI follow-up task, is created at Step 8 review):
+  - `lib/sitrep_harvest.py` + `aitask_sitrep_harvest.sh`: the receipt carries
+    `links=1` / `triage=c<N>` / `review=c<N>` after the unchanged certification
+    base. `receipt_valid` is certification-only (first three lines).
+    `receipt_linked` and `record --backfill-links` exist, and only `all` passes
+    the flag.
+  - `lib/agent_sessions.py`: `receipt_certifies` (the one certification rule,
+    shared by `capture_harvested` and the badge) and `HARVEST_RECEIPT_LINKS`.
+  - New `lib/frozen_sitrep.py`: the states, `read_evidence` (one fstat'd read
+    per file), `derive`, and `FrozenSitrepTracker` with the single publish gate
+    (record / capture / receipt / todo.md versions rechecked after all reads,
+    settled-record precondition, one retry, uncached `unknown`). Also
+    `describe` and `describe_record`.
+  - `monitor/monitor_shared.py`: `FROZEN_SITREP_BADGES`,
+    `format_frozen_sitrep_badge`, `frozen_sitrep_badge_width`, and the mixin's
+    coalesced, never-awaited pass (`_kick_frozen_sitrep` /
+    `_dispatch_frozen_sitrep` / `_frozen_sitrep_pass`) with instance-bound
+    `_frozen_sitrep_state`.
+  - `monitor_app.py` / `minimonitor_app.py`: the kick after the snapshots land;
+    the badge on frozen rows and on the minimonitor own panel (repaint compare
+    included); the name budget pays for the badge.
+  - `monitor/sitrep_close.py`: a `Sitrep: …` line in `HarvestResultDialog` for
+    frozen agents. It is advisory, and the buttons are unchanged.
+  - Docs: `aidocs/framework/sitrep.md` (receipt link lines, badge section,
+    tests table), `website/.../workflows/sitrep.md` step 7, and
+    `website/.../workflows/freeze-and-restore-agents.md` step 6.
+- **Deviations from plan:** the pre-phase "real Drop under a held harvest lock"
+  test went into `tests/test_agent_freeze.py` (`DropLegacyReceiptRealHarvestTests`)
+  instead of a `tests/test_sitrep_harvest.sh` section. The real `drop_record`
+  needs tmux for its survivor scan and kill, and that suite already provides a
+  fake tmux. The real `aitask_sitrep_harvest.sh` still runs as a subprocess
+  against a scratch session-store file, and the lock is held by a separate bash
+  process through `registry_lock_acquire`. The shell suite still asserts the
+  direct `record` short-circuit under a held lock (section 21).
+- **Issues encountered:**
+  - The first Drop control passed vacuously: a bannerless capture takes the
+    lock-free `nothing_found` path. Both tests now use a fixture with a
+    wrap-up banner.
+  - `test_one_record_failure_leaves_the_others` first had a dead stub. It now
+    injects a real `read_evidence` failure.
+- **Verification evidence (negative controls):**
+  - Removing the publish gate fails all four race tests.
+  - Making `settled()` always true fails both settled-record tests.
+  - A minimonitor subclass that reads the badge inline in the refresh fails
+    `RefreshNeverWaitsTests` ("MUTANT CAUGHT").
+  - Every pre-phase pin passed against the pre-change code first.
+- **Not run:** `tests/test_frozen_agents_acceptance.sh`. It is a live-tmux
+  test that refuses to run inside a tmux session.
+- **Key decisions:**
+  - The record → item link is recorded by the harvest in the receipt, not
+    derived by a store scan (user-confirmed at planning).
+  - `receipt_valid` stays certification-only, so Drop never needs the harvest
+    mutex; the backfill is maintenance-only.
+  - The badge is advisory and computed off the refresh, with instance binding;
+    `unknown` is never cached or shown as safe.
+  - The `h` dialog body is bounded with `45vh` instead of a fixed 20 rows.
+    This also fixes the pre-existing overflow at 12 or more items on a 40x24
+    screen, found while verifying the new line.
+- **Upstream defects identified:** None
+- **Full-suite note:** the one failure in the full Python run,
+  `tests/test_control_routed_explicit_targets.py`, flags
+  `monitor/monitor_core.py` `_sitrep_launch_client`. That is another
+  session's uncommitted change, not touched by this task.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-22 19:40)
+- **Requested by user:** three review findings:
+  1. a failed todo.md read cached an `unknown` verdict forever;
+  2. the unbounded Sitrep line pushed the `h` dialog's buttons off a 40x24
+     screen;
+  3. `describe_record` was awaited with no deadline, even after a failed
+     harvest.
+- **Changes made:**
+  - `FrozenSitrepTracker` never caches an `unknown` verdict. Tests check that
+    a store that becomes readable, and an item that appears later, both recover
+    in the same tracker; the old-caching mutant fails the store test.
+  - The Sitrep line moved inside the scrolling body, and `describe` names at
+    most three ids (`+N more`).
+  - The body's `max-height: 20` became `45vh`. That also fixes a pre-existing
+    overflow: 12 or more item rows alone already pushed the buttons off at
+    40x24.
+  - The Sitrep line is skipped on a failed report and bounded by
+    `SITREP_LINE_TIMEOUT` (3 s) on success. Tests cover a failed report and a
+    slow read.
+- **Files affected:** `.aitask-scripts/lib/frozen_sitrep.py`,
+  `.aitask-scripts/monitor/sitrep_close.py`, `aidocs/framework/sitrep.md`,
+  `tests/test_frozen_sitrep.py`, `tests/test_monitor_sitrep_harvest_close.py`.
+
+### Change Request 2 (2026-11-22 19:55)
+- **Requested by user:** three low-severity findings:
+  1. an undecodable receipt read as `unharvested` instead of `unknown`;
+  2. a missing capture recorded no receipt version, so a leftover receipt
+     failed the post-check on every attempt;
+  3. the backfill check read the receipt and hashed the capture twice.
+- **Changes made:**
+  - `Evidence.receipt_unreadable` → `unknown(receipt_unreadable)`, still unsafe.
+  - The no-capture path records the receipt's version, so the publish gate
+    compares like with like.
+  - `sitrep_harvest.receipt_state` returns `(valid, linked)` from one read and
+    one hash; `receipt_valid` and `receipt_linked` delegate to it, and
+    `cmd_plan` calls it once.
+  - Tests cover the undecodable receipt and the stable missing-capture case.
+- **Files affected:** `.aitask-scripts/lib/frozen_sitrep.py`,
+  `.aitask-scripts/lib/sitrep_harvest.py`, `tests/test_frozen_sitrep.py`.
+
+### Change Request 3 (2026-11-23 08:00)
+- **Requested by user:**
+  1. an OS-level receipt read failure (e.g. mode 000) produced an `unknown`
+     with no instance, so the row lost its badge instead of showing `sitrep ?`;
+  2. `--force` still ran the receipt check, and `receipt_linked` was left
+     with no callers.
+- **Changes made:**
+  - `FrozenSitrepTracker.states` binds an exception verdict to the record's
+    instance when the record resolves; it stays unsafe and uncached. A
+    mode-000 receipt test checks the bound `unknown` and its recovery on the
+    same tracker, and both TUIs render `sitrep ?`.
+  - `cmd_plan` computes `receipt_state` only on the non-forced path.
+    `receipt_linked` is removed; `receipt_valid` stays.
+- **Files affected:** `.aitask-scripts/lib/frozen_sitrep.py`,
+  `.aitask-scripts/lib/sitrep_harvest.py`, `aidocs/framework/sitrep.md`,
+  `tests/test_frozen_sitrep.py`, `tests/test_monitor_frozen_sitrep_badge.py`.
+
+### Change Request 4 (2026-11-23 08:15)
+- **Requested by user:** a warmed `drop ok` survived a chmod 000 of the
+  receipt, because inode, size and mtime are unchanged by chmod.
+- **Changes made:** the file version now includes `st_ctime_ns`, so a
+  permission change alone invalidates the cache. A regression test warms the
+  tracker, revokes the read permission (`unknown`, unsafe), then restores it
+  (`nothing`). The ctime-less mutant fails it.
+- **Files affected:** `.aitask-scripts/lib/frozen_sitrep.py`,
+  `aidocs/framework/sitrep.md`, `tests/test_frozen_sitrep.py`.
