@@ -3,11 +3,12 @@ priority: high
 effort: high
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [sitrep]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 created_at: 2026-11-19 05:12
-updated_at: 2026-11-19 05:12
+updated_at: 2026-11-24 12:23
 ---
 
 ## Context
