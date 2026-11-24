@@ -109,3 +109,8 @@ comment.
   `t1912_7_stats_branch_retrospective` renders as `7 stats branch retrospective`
   (`monitor_core.py` ~line 7139, `stem.split("_", 1)`).
 - A frozen agent whose task is an archived child (`pick-2261_2`) shows no title row.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-24T19:40:54Z status=pass attempt=1 type=human
