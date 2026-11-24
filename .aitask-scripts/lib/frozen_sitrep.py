@@ -49,6 +49,15 @@ frozen INSTANCE it was settled against -- (record id, pane id, stand-in pid) --
 so a consumer showing it on a pane snapshot can withhold a verdict that
 belongs to an earlier freeze of the same record.
 
+REVERSE INDEX (t2350). The sitrep TUI asks the opposite question -- "is this
+item's source agent still frozen?" -- through :class:`FrozenSourceIndex`. It
+derives nothing of its own: it runs the tracker above over every frozen record
+and inverts the verdicts that carry links (:data:`LINKED_STATES`), keeping a
+record only when its receipt's ``store=`` is the asking store and its verdict
+is bound to the record's current instance. Every other verdict (unknown,
+unharvested, unlinked, nothing) is skipped, so a missing hint is the
+fail-closed direction; the index never raises.
+
 Stdlib only; no monitor or Textual import (lib/ never reaches into a TUI).
 """
 
@@ -78,6 +87,9 @@ UNKNOWN = "unknown"
 STATES = (UNHARVESTED, NOTHING, TRIAGE_OPEN, TRIAGED, CLOSED, REVIEW_PENDING,
           UNLINKED, UNKNOWN)
 SAFE_STATES = frozenset(STATES) - {UNHARVESTED, UNKNOWN}
+#: The states whose verdict carries linked item ids from a certified receipt
+#: (all of them safe): what the reverse index (t2350) inverts.
+LINKED_STATES = frozenset({TRIAGE_OPEN, TRIAGED, CLOSED, REVIEW_PENDING})
 
 #: The store directory's basename (lib/sitrep_harvest.py STORE_NAME).
 STORE_NAME = ".aitask-sitrep"
@@ -95,6 +107,8 @@ class FrozenSitrepState:
     reason: str = ""
     #: ``(record id, pane id, stand-in pid)`` the verdict was settled against.
     instance: "tuple | None" = None
+    #: The receipt's ``store=`` directory, on a linked verdict only (t2350).
+    store: str = ""
 
     @property
     def safe(self) -> bool:
@@ -288,7 +302,8 @@ def derive(rec, ev: Evidence, todo_reader) -> tuple:
         state = TRIAGED
     else:
         state = CLOSED
-    return FrozenSitrepState(state, triage=t, review=r, instance=inst), consumed
+    return (FrozenSitrepState(state, triage=t, review=r, instance=inst, store=store),
+            consumed)
 
 
 # --- the tracker ---------------------------------------------------------------
@@ -311,6 +326,16 @@ class FrozenSitrepTracker:
         self.derives = 0
         self.parses = 0
         self._rid = ""
+
+    def frozen_records(self) -> list:
+        """Every record the registry lists as frozen (the reverse index's input)."""
+        return self._view.frozen()
+
+    def current_records(self) -> dict:
+        """``{record id: record}`` as the registry lists it NOW -- ONE fresh,
+        stamp-gated read; empty when the registry has become unreadable."""
+        self._view.refresh()
+        return {r.id: r for r in self._view.records()}
 
     def states(self, record_ids) -> dict:
         out = {}
@@ -481,3 +506,100 @@ def describe_record(record_id: str, sessions_path=None) -> str:
         return describe(st)
     except Exception:  # noqa: BLE001 - dialog decoration only
         return ""
+
+
+# --- the reverse index (t2350) ----------------------------------------------------
+
+@dataclass(frozen=True)
+class FrozenSource:
+    """One frozen record linked to one sitrep item (the reverse direction)."""
+    record_id: str
+    window: str
+    task_id: str
+    frozen_at: str
+    #: ``"triage"`` (a wrap-up triage question) or ``"review"`` (a review case).
+    link: str
+    #: The record's verdict (one of :data:`LINKED_STATES`).
+    state: FrozenSitrepState
+
+
+class FrozenSourceIndex:
+    """item number -> the frozen records it came from. See the module doc.
+
+    One instance owns one :class:`FrozenSitrepTracker`, so its version-keyed
+    cache carries across scans: a warm scan hashes no capture.
+    """
+
+    def __init__(self, sessions_path=None, *, tracker=None) -> None:
+        self._tracker = tracker or FrozenSitrepTracker(sessions_path)
+
+    def scan(self, store_dir: str) -> dict:
+        """``{item num: (FrozenSource, ...)}`` for the store ``store_dir``.
+
+        Never raises: any failure is ``{}`` -- nothing shown, never a guess.
+        """
+        try:
+            return self._scan(store_dir)
+        except Exception:  # noqa: BLE001 - decoration only; absent is fail-closed
+            return {}
+
+    def _scan(self, store_dir: str) -> dict:
+        want = os.path.realpath(store_dir)
+        recs = self._tracker.frozen_records()
+        verdicts = self._tracker.states([r.id for r in recs])
+        kept = []
+        for rec in recs:
+            v = verdicts.get(rec.id)
+            if v is None or v.state not in LINKED_STATES or not v.store:
+                continue
+            if os.path.realpath(v.store) != want:
+                continue
+            # The verdict must be the one settled against THIS freeze of the
+            # record; a restore + re-freeze between the list read and the
+            # derivation keeps the id but is another instance.
+            if v.instance != instance_of(rec):
+                continue
+            kept.append((rec, v))
+        # The verdicts are derived one record after another, each through its
+        # own publish gate -- so an earlier record's verdict can be stale by
+        # the time the last one is derived (a lease taken on it, or the
+        # registry turned unreadable, meanwhile). Re-read the registry once
+        # more and keep only records still settled at the very version they
+        # were listed with: the map is published from one final snapshot.
+        out: dict = {}
+        current = self._tracker.current_records() if kept else {}
+        for rec, v in kept:
+            now = current.get(rec.id)
+            if now is None or not settled(now) or record_version(now) != record_version(rec):
+                continue
+            for link, pairs in (("triage", v.triage), ("review", v.review)):
+                for cid, _state in pairs:
+                    m = _CID_RE.match(cid)
+                    if not m:
+                        continue
+                    src = FrozenSource(rec.id, rec.window, rec.task_id,
+                                       rec.frozen_at, link, v)
+                    out.setdefault(int(m.group(1)), []).append(src)
+        return {num: tuple(sorted(srcs, key=lambda s: (s.frozen_at, s.record_id)))
+                for num, srcs in out.items()}
+
+
+def describe_source(src: FrozenSource) -> str:
+    """The sitrep TUI's details line for one source. Display only: it names the
+    two ways to drop the agent and does neither.
+
+    The fallback is `ait frozenagent` LIST mode (open with Enter, drop with
+    `k`), which works with no monitor card and does not stamp the pane it runs
+    in -- never `ait frozenagent --record <id>`, which stamps its own pane as
+    the record's stand-in. The keys named are those TUIs' defaults.
+    """
+    who = src.window or src.record_id
+    bits = [f"t{src.task_id}"] if src.task_id else []
+    if src.frozen_at:
+        bits.append(f"frozen {src.frozen_at}")
+    head = f"{who} ({', '.join(bits)})" if bits else who
+    kept = " (raw output kept)" if src.state.state == REVIEW_PENDING else ""
+    return (f"{head} is still frozen — harvested, safe to drop{kept}. Drop it "
+            "with  h  (Harvest) on its card in ait monitor / minimonitor; if the "
+            "card is missing (e.g. after a tmux restart), run  ait frozenagent , "
+            "open it (Enter) and press  k  (Drop).")

@@ -368,6 +368,210 @@ class SettledRecordTests(_TrackerCase):
         self.assertFalse(st.safe)
 
 
+class ReverseIndexTests(_TrackerCase):
+    """t2350: item -> the frozen records linked to it, for the sitrep TUI."""
+
+    def index(self) -> fs.FrozenSourceIndex:
+        return fs.FrozenSourceIndex(self.sessions)
+
+    def scan(self, index=None) -> dict:
+        return (index or self.index()).scan(str(self.store))
+
+    def _unsettle(self, **fields) -> None:
+        rec = self.sf.by_id(self.rid)
+        for k, v in fields.items():
+            setattr(rec, k, v)
+        agent_sessions.dump(self.sf, self.sessions)
+
+    def _add_frozen(self, window: str, data: bytes) -> tuple:
+        """A second settled frozen record: ``(record id, capture path)``."""
+        sf, line = agent_sessions.upsert(
+            self.sf, root=str(self.root), window=window, pane="%9",
+            pane_pid=4343, pane_alive=lambda pid: True)
+        rid = line.split(":")[1].split("|")[0]
+        cdir = agent_sessions.ensure_capture_dir(rid)
+        cap = cdir / "capture.txt"
+        cap.write_bytes(data)
+        (cdir / "capture.ansi").write_bytes(data)
+        sf, line = agent_sessions.freeze_begin(
+            sf, rid, capture_ansi=str(cdir / "capture.ansi"),
+            capture_txt=str(cap), lines=1, owner_pid=os.getpid())
+        sf, _ = agent_sessions.freeze_commit(sf, rid, nonce=line.rsplit("|", 1)[1],
+                                             pane="%9", pane_pid=101)
+        self.sf = sf
+        agent_sessions.dump(sf, self.sessions)
+        return rid, cap
+
+    def test_a_triage_link_maps_its_item(self):
+        self.receipt(triage=[3])
+        self.todo(_item(3, "open"))
+        out = self.scan()
+        self.assertEqual([3], list(out))
+        (src,) = out[3]
+        self.assertEqual((self.rid, "agent-pick-7", "triage"),
+                         (src.record_id, src.window, src.link))
+        self.assertEqual(fs.TRIAGE_OPEN, src.state.state)
+        self.assertEqual(str(self.store), src.state.store)
+
+    def test_a_closed_triage_question_still_maps(self):
+        # "Triaged, agent still frozen" is where the hint matters most.
+        self.receipt(triage=[3])
+        self.todo(_item(3, "done"))
+        self.assertEqual(fs.TRIAGED, self.scan()[3][0].state.state)
+
+    def test_a_review_link_maps_as_review(self):
+        self.receipt(review=[4])
+        self.todo(_item(4, "open"))
+        (src,) = self.scan()[4]
+        self.assertEqual("review", src.link)
+        self.assertIn("(raw output kept)", fs.describe_source(src))
+
+    def test_another_stores_receipt_maps_nothing(self):
+        other = self.tmp / "other" / ".aitask-sitrep"
+        other.mkdir(parents=True)
+        (other / "todo.md").write_text(sitrep_todo.render_todo(
+            sitrep_todo.TodoStore(items={3: _item(3, "open")})))
+        self.receipt(triage=[3], store=str(other))
+        self.assertEqual({}, self.scan())
+        self.assertEqual([3], list(fs.FrozenSourceIndex(self.sessions).scan(str(other))))
+
+    def test_a_symlinked_store_path_matches_its_real_path(self):
+        self.receipt(triage=[3])
+        self.todo(_item(3, "open"))
+        link = self.tmp / "alias"
+        os.symlink(self.root, link)
+        self.assertEqual([3], list(fs.FrozenSourceIndex(self.sessions)
+                                   .scan(str(link / ".aitask-sitrep"))))
+
+    def test_fail_closed_verdicts_map_nothing(self):
+        cases = {
+            "stale receipt": lambda: self.receipt(data=b"older\n", triage=[3]),
+            "unlinked receipt": lambda: self.receipt(links=False),
+            "malformed link line": lambda: self.receipt(triage=[3], extra="triage=x\n"),
+            "linked without ids": lambda: self.receipt(),
+        }
+        self.todo(_item(3, "open"))
+        for name, setup in cases.items():
+            with self.subTest(name):
+                setup()
+                self.assertEqual({}, self.scan())
+
+    def test_an_unsettled_record_maps_nothing(self):
+        self.receipt(triage=[3])
+        self.todo(_item(3, "open"))
+        self._unsettle(op_nonce="abcd1234", op_owner_pid=os.getpid(),
+                       op_started_at="2026-11-22T10:00:00Z")
+        self.assertEqual({}, self.scan())
+
+    def test_two_records_linking_one_item_are_sorted(self):
+        self.receipt(triage=[3])
+        rid2, cap2 = self._add_frozen("agent-pick-8", b"other output\n")
+        Path(str(cap2) + agent_sessions.HARVEST_RECEIPT_SUFFIX).write_text(
+            sitrep_harvest.receipt_text(b"other output\n", str(self.store), [3], []))
+        self.todo(_item(3, "open"))
+        srcs = self.scan()[3]
+        self.assertEqual({self.rid, rid2}, {s.record_id for s in srcs})
+        self.assertEqual(sorted(srcs, key=lambda s: (s.frozen_at, s.record_id)),
+                         list(srcs))
+
+    def _two_linked(self) -> str:
+        """This record and a second one, both linked to c3; returns the second id."""
+        self.receipt(triage=[3])
+        rid2, cap2 = self._add_frozen("agent-pick-8", b"other output\n")
+        Path(str(cap2) + agent_sessions.HARVEST_RECEIPT_SUFFIX).write_text(
+            sitrep_harvest.receipt_text(b"other output\n", str(self.store), [3], []))
+        self.todo(_item(3, "open"))
+        return rid2
+
+    def _index_changing_first_while_deriving(self, rid2: str, change) -> fs.FrozenSourceIndex:
+        fired = {"n": 0}
+
+        def seam(point, record_id):
+            if point == "candidate" and record_id == rid2 and not fired["n"]:
+                fired["n"] += 1
+                change()
+        tracker = fs.FrozenSitrepTracker(self.sessions, seam=seam)
+        self.addCleanup(lambda: self.assertEqual(1, fired["n"], "seam never fired"))
+        return fs.FrozenSourceIndex(tracker=tracker)
+
+    def test_a_lease_on_the_first_record_while_deriving_the_second_drops_it(self):
+        rid2 = self._two_linked()
+        self.assertEqual([self.rid], [r.record_id for r in self.scan()[3]
+                                      if r.record_id == self.rid])
+
+        def lease_first():
+            self._unsettle(op_nonce="abcd1234", op_owner_pid=os.getpid(),
+                           op_started_at="2026-11-22T10:00:00Z")
+        index = self._index_changing_first_while_deriving(rid2, lease_first)
+        self.assertEqual([rid2], [s.record_id for s in index.scan(str(self.store))[3]])
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0,
+                     "root reads a mode-000 file")
+    def test_the_registry_lost_while_deriving_the_second_maps_nothing(self):
+        rid2 = self._two_linked()
+        mode = os.stat(self.sessions).st_mode
+        self.addCleanup(os.chmod, self.sessions, mode)
+        index = self._index_changing_first_while_deriving(
+            rid2, lambda: os.chmod(self.sessions, 0))
+        self.assertEqual({}, index.scan(str(self.store)))
+
+    def test_a_raising_tracker_is_empty(self):
+        class Boom:
+            def frozen_records(self):
+                raise OSError("registry gone")
+        self.assertEqual({}, fs.FrozenSourceIndex(tracker=Boom()).scan(str(self.store)))
+
+    def test_the_wording_names_both_drop_routes_and_never_record_mode(self):
+        self.receipt(triage=[3])
+        self.todo(_item(3, "open"))
+        text = fs.describe_source(self.scan()[3][0])
+        self.assertTrue(text.startswith("agent-pick-7 ("), text)
+        for part in (" h ", "ait monitor", "ait frozenagent", " k "):
+            self.assertIn(part, text)
+        self.assertNotIn("--record", text)
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0,
+                     "root reads a mode-000 file")
+    def test_a_warm_index_clears_the_hint_when_the_registry_turns_unreadable(self):
+        self.receipt(triage=[3])
+        self.todo(_item(3, "open"))
+        index = self.index()
+        self.assertEqual([3], list(self.scan(index)))
+        self.assertEqual([3], list(self.scan(index)))       # warm: cached verdict
+        mode = os.stat(self.sessions).st_mode
+        os.chmod(self.sessions, 0)
+        self.addCleanup(os.chmod, self.sessions, mode)
+        self.assertEqual({}, self.scan(index))
+        os.chmod(self.sessions, mode)
+        self.assertEqual([3], list(self.scan(index)))       # readable again: back
+
+
+class SessionsViewCtimeTests(unittest.TestCase):
+    """t2350: a chmod (ctime only) invalidates a warm SessionsView."""
+
+    @unittest.skipIf(hasattr(os, "geteuid") and os.geteuid() == 0,
+                     "root reads a mode-000 file")
+    def test_a_permission_change_alone_forces_a_reread(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "agent_sessions.json"
+            sf, _ = agent_sessions.upsert(agent_sessions.SessionsFile(), root=tmp,
+                                          window="agent-pick-1", pane="%1",
+                                          pane_pid=1, pane_alive=lambda pid: True)
+            agent_sessions.dump(sf, path)
+            view = agent_sessions.SessionsView(path)
+            self.assertEqual(1, len(view.records()))
+            self.assertFalse(view.refresh())                 # warm, unchanged
+            mode = os.stat(path).st_mode
+            os.chmod(path, 0)
+            try:
+                self.assertTrue(view.refresh())
+                self.assertEqual([], view.records())
+            finally:
+                os.chmod(path, mode)
+            self.assertTrue(view.refresh())
+            self.assertEqual(1, len(view.records()))
+
+
 class PublishGateTests(_TrackerCase):
 
     def test_one_settled_replacement_yields_the_fresh_verdict(self):
@@ -492,6 +696,11 @@ class AgreementTests(_TrackerCase):
                 rec = agent_sessions.load(self.sessions).by_id(self.rid)
                 self.assertEqual(agent_sessions.capture_harvested(rec),
                                  self.state().safe)
+
+    def test_reverse_index_constants(self):
+        self.assertTrue(fs.LINKED_STATES <= fs.SAFE_STATES)
+        self.assertNotIn(fs.NOTHING, fs.LINKED_STATES)
+        self.assertNotIn(fs.UNLINKED, fs.LINKED_STATES)
 
     def test_link_version_constants_match(self):
         self.assertEqual(sitrep_harvest.RECEIPT_LINKS,

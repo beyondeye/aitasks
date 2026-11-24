@@ -219,6 +219,19 @@ The title is `c<N> · <title>`. The body, in order:
 - **Item**: **What to do**, **How**, and **About** when the item has a reference
   (`push of branch <b> (commit <sha>)`, `task <N> in project <p>`, or the
   reference itself).
+- **Frozen**, on a wrap-up triage question or a review case whose source agent
+  is still frozen and was harvested into this store: one line per such agent,
+  naming its window, task and freeze time. To drop it, press `h` (Harvest) on
+  its card in `ait monitor` or `ait minimonitor`. If the card is missing (for
+  example after a tmux restart), run `ait frozenagent`, open the agent with
+  Enter and press `k` (Drop). The line is display only: the sitrep TUI never
+  drops anything itself.
+  - It is checked when the details open, again about every 5 seconds while they
+    stay open, and again each time you return to them.
+  - It shows nothing when the agent's record cannot be read or is changing.
+  - It also shows nothing for an agent harvested before frozen agents recorded
+    their triage links, until the next harvest + refresh (`r`, or the one at
+    startup) records them.
 - For a task item: **Priority** (`<priority> · effort <effort>`), **Task status**
   (`(archived)` when the task is archived) and **Created** (the stored
   `created_at`), or `task file not found`; and **Trails**: the trails with

@@ -74,6 +74,12 @@ WRITER_TIMEOUT = 60.0
 #: Seconds between agent-role probes (one `list-panes -a`, off the event loop).
 AGENT_POLL_INTERVAL = 3.0
 
+#: Seconds between frozen-source rescans (t2350) -- only while a question
+#: item's details are the active screen. A warm scan is cheap (an mtime-gated
+#: registry read, version-cached verdicts); this bounds how long a "still
+#: frozen" line can outlive a drop.
+FROZEN_RESCAN_INTERVAL = 5.0
+
 #: Item actions: shown on the main list and on an item's details.
 ITEM_ACTIONS = frozenset({"pick_task", "open_in_board", "open_in_trails", "show_push",
                           "dismiss_item"}) | reqs.ITEM_REQUESTS
@@ -585,16 +591,26 @@ class AskAgentDialog(GuardedModalScreen):
 
 class SitrepActionsMixin:
     """The action flows of ``SitrepTuiApp``. Host contract: ``root``,
-    ``store``, ``todo_error``, ``qa_error``, ``_checks``, ``_poll_store()``,
+    ``store``, ``store_dir``, ``todo_error``, ``qa_error``, ``_checks``, ``_poll_store()``,
     ``_selected_cid()``, ``_is_main_screen(screen)``, ``open_item(num)``,
     ``_render_header()``, ``_render_banner()``."""
 
     def _init_actions(self, runner=None, roles_probe=None, own_session=None,
                       startup_harvest: bool = False, trails_scan=None,
-                      deliver=None) -> None:
+                      deliver=None, frozen_scan=None) -> None:
         #: sync (root) -> trails_model.Membership; None: no trail lookup (the
         #: test default -- a real scan spawns an export subprocess).
         self._trails_scan = trails_scan
+        #: sync (store_dir) -> {item num: (FrozenSource, ...)} (t2350); None:
+        #: no frozen-source hint (the test default).
+        self._frozen_scan = frozen_scan
+        #: The last scan's result and the sequence of the scan that made it.
+        self._frozen_map: "dict | None" = None
+        self._frozen_map_seq = 0
+        #: Sequence of the last scan STARTED (a screen's freshness threshold).
+        self._frozen_seq = 0
+        self._frozen_busy = False
+        self._frozen_dirty = False
         #: The last scan's result; None until the first one lands.
         self._trails: "trails_model.Membership | None" = None
         self._trails_busy = False
@@ -635,6 +651,9 @@ class SitrepActionsMixin:
             # The first scan is kicked by the host's first `_apply`; this keeps
             # the membership current while the store itself is quiet.
             self.set_interval(trails_model.TRAILS_RESCAN_INTERVAL, self._kick_trails_scan)
+        if self._frozen_scan is not None:
+            # A no-op unless a question item's details are the active screen.
+            self.set_interval(FROZEN_RESCAN_INTERVAL, self._frozen_tick)
 
     # -- keys ------------------------------------------------------------------
 
@@ -1185,6 +1204,82 @@ class SitrepActionsMixin:
                 set_trails(self.trails_for(top.task_id))
         if self._trails_dirty:
             self._kick_trails_scan()
+
+    # -- frozen sources (t2350) ----------------------------------------------------
+    #
+    # A question item's details say when its source agent is still frozen
+    # (`frozen_sitrep.FrozenSourceIndex`). Display only. The scan runs only
+    # while it can be shown: the details request one on EVERY activation
+    # (`ItemDetailScreen.on_screen_resume` -- Textual posts ScreenResume on the
+    # initial push too, so that is the sole request path), and the interval
+    # tick rescans only while such a screen is active. A screen shows a result
+    # only from a scan that STARTED at or after its latest activation, so
+    # neither a pre-open map nor one from before it was covered can reappear.
+
+    def frozen_sources_for(self, num: int, min_seq: "int | None") -> tuple:
+        """The frozen sources of item ``num`` from a scan started at or after
+        ``min_seq``; ``()`` when off, not requested, not scanned yet, too old,
+        or not linked."""
+        if (self._frozen_scan is None or min_seq is None or self._frozen_map is None
+                or self._frozen_map_seq < min_seq):
+            return ()
+        return tuple(self._frozen_map.get(num, ()))
+
+    def request_frozen_sources(self) -> "int | None":
+        """Kick a scan for a screen that just became active and return the
+        threshold its results must reach: the sequence of the NEXT scan to
+        start (this kick's, or a busy scan's dirty rerun). None when off."""
+        if self._frozen_scan is None:
+            return None
+        min_seq = self._frozen_seq + 1
+        self._kick_frozen_scan()
+        return min_seq
+
+    def _kick_frozen_scan(self) -> None:
+        """Start a scan, or mark one due when one is in flight (one scan at a
+        time; a trigger during a scan reruns it once)."""
+        if self._frozen_scan is None:
+            return
+        if self._frozen_busy:
+            self._frozen_dirty = True
+            return
+        self._frozen_busy = True
+        self._frozen_dirty = False
+        self._frozen_seq += 1
+        self._frozen_worker(self._frozen_seq)
+
+    def _frozen_tick(self) -> None:
+        """The rescan interval: a scan only while it can be shown."""
+        top = self._top_screen()
+        if (top is not None and is_active_screen(top)
+                and getattr(top, "wants_frozen_sources", False)):
+            self._kick_frozen_scan()
+
+    @work(thread=True, group="sitrep-frozen", exit_on_error=False)
+    def _frozen_worker(self, seq: int) -> None:
+        try:
+            result = self._frozen_scan(self.store_dir)
+        except Exception:  # noqa: BLE001 - the index never raises; belt and braces
+            result = {}
+        self.call_from_thread(self._on_frozen_scanned, seq, result)
+
+    def _on_frozen_scanned(self, seq: int, result) -> None:
+        self._frozen_busy = False
+        self._frozen_map = result if isinstance(result, dict) else {}
+        self._frozen_map_seq = seq
+        try:
+            top = self._top_screen()
+            # Only the ACTIVE screen, and only one that asked: a later details
+            # screen of the same class (a task item) carries no threshold.
+            if (top is not None and is_active_screen(top)
+                    and getattr(top, "wants_frozen_sources", False)):
+                top.set_frozen_sources(
+                    self.frozen_sources_for(top.item_num, top.frozen_min_seq))
+        except Exception as e:  # noqa: BLE001 - the line is decoration
+            self.log.error(f"sitrep tui: frozen-source update failed: {e}")
+        finally:
+            if self._frozen_dirty:
+                self._kick_frozen_scan()
 
     def action_open_in_trails(self) -> None:
         item = self._resolve_action_item("open_in_trails")

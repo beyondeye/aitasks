@@ -11,7 +11,9 @@ type a request into the sitrep agent, ``sitrep_tui_requests.AGENT_REQUESTS``,
 delivered by ``monitor/agent_request_delivery.py``). A task item's
 details also list the trails its task is in (``sitrep_tui_trails``, t2211_10):
 a ``Trails`` line, and one links row per trail that Enter opens in
-``ait trails`` with the task's card focused. A one-row tab strip above the list
+``ait trails`` with the task's card focused. A question item's details say
+when its source agent is still frozen -- a ``Frozen`` line naming how to drop
+it, display only (``frozen_sitrep.FrozenSourceIndex``, t2350). A one-row tab strip above the list
 (t2334, ``sitrep_tui_widgets.ItemTabStrip``) shows one item type at a time --
 All / Triage / Tasks / Recovery / Watches (``sitrep_tui_model.LIST_TABS``) --
 switched with left / right or a click; the grouping, ``d`` and the label filter
@@ -64,6 +66,7 @@ from textual.screen import Screen  # noqa: E402
 from textual.widgets import Markdown, OptionList, Static, TextArea  # noqa: E402
 from textual.widgets.option_list import Option  # noqa: E402
 
+import frozen_sitrep  # noqa: E402
 import sitrep_cli  # noqa: E402
 import sitrep_harvest as sh  # noqa: E402
 import sitrep_todo as st  # noqa: E402
@@ -202,8 +205,22 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
                  root: str, store_dir: str, refresh_check: "str | None" = None,
                  keys: "dict | None" = None,
                  task_meta: "model.TaskMeta | None | bool" = None,
-                 trails: "trails_model.TaskTrails | None" = None) -> None:
+                 trails: "trails_model.TaskTrails | None" = None,
+                 frozen_wanted: bool = False) -> None:
         super().__init__()
+        #: t2350: does this item show its still-frozen source agents? (a
+        #: question item with a scanner). The sources come from scans started
+        #: at or after the latest activation (`frozen_min_seq`, set by
+        #: `on_screen_resume` -- None until the first one, so nothing shows).
+        self._frozen_wanted = frozen_wanted
+        self._frozen: tuple = ()
+        self.frozen_min_seq: "int | None" = None
+        #: The review-case line as last read. Every ordinary rebuild (open, the
+        #: age tick, a trails update) re-reads it, so a case file that becomes
+        #: readable later shows up without reopening; only a frozen-source
+        #: redraw (t2350) reuses it, so a scan landing does not add case-record
+        #: reads on the UI thread.
+        self._review_line: "str | None" = None
         #: The referenced task's metadata, read when the details opened.
         self._task_meta = task_meta
         #: The task's trail membership (t2211_10). Unlike the item snapshot it
@@ -235,6 +252,10 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
         """The local task this item names (the trail rows' task), or None."""
         return model.task_ref_id(self._item)
 
+    @property
+    def wants_frozen_sources(self) -> bool:
+        return self._frozen_wanted
+
     # composition -----------------------------------------------------------
 
     def compose(self) -> ComposeResult:
@@ -248,8 +269,10 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
     def on_mount(self) -> None:
         self.query_one("#sd-links", OptionList).focus()
 
-    def body_content(self, now: _dt.datetime) -> Content:
-        """The item in labelled sections: styled labels, plain values."""
+    def body_content(self, now: _dt.datetime, reuse_review: bool = False) -> Content:
+        """The item in labelled sections: styled labels, plain values.
+        ``reuse_review``: keep the last-read review-case line (the frozen-source
+        redraw only); every other caller reads it fresh."""
         it, step = self._item, self._step
         lines = [_section("Item"),
                  _field("What to do", step.what),
@@ -257,6 +280,8 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
         about = model.about_text(it.ref)
         if about:
             lines.append(_field("About", about))
+        for src in self._frozen:
+            lines.append(_field("Frozen", frozen_sitrep.describe_source(src)))
         meta = self._task_meta
         if meta is False:
             lines.append(_field("Task", "task file not found"))
@@ -287,7 +312,9 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
                     lines.append(_field(model.ORIGIN_LABELS.get(key, key), value, "  "))
             if ctx.theme:
                 lines.append(_field("Theme", ctx.theme))
-            review = model.review_line(self._store_dir, ctx)
+            if not reuse_review or self._review_line is None:
+                self._review_line = model.review_line(self._store_dir, ctx)
+            review = self._review_line
             if review:
                 lines.append(Content(review))
         return Content("\n").join(lines)
@@ -399,10 +426,32 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
         oid = opt.id if opt is not None else ""
         return oid[len("trail:"):] if oid and oid.startswith("trail:") else None
 
+    # frozen sources (t2350) -----------------------------------------------
+
+    def set_frozen_sources(self, sources: tuple) -> None:
+        """A scan result for this item: re-render the body on a change."""
+        sources = tuple(sources)
+        if sources == self._frozen:
+            return
+        self._frozen = sources
+        try:
+            self.query_one("#sd-body", Static).update(
+                self.body_content(model.resolve_now(), reuse_review=True))
+        except Exception:  # noqa: BLE001 - not composed yet / closing
+            pass
+
     def on_screen_resume(self) -> None:
         # Covered by another screen when a scan landed: catch up now.
         if self._trails is not None:
             self.set_trails(self.app.trails_for(self.task_id))
+        # The ONE request path for the frozen-source line, on the first
+        # activation (Textual posts ScreenResume on the initial push) and on
+        # every return: withhold what was shown -- the agent may have been
+        # dropped while this screen was covered and not polling -- and accept
+        # only a scan started from now on.
+        if self._frozen_wanted:
+            self.set_frozen_sources(())
+            self.frozen_min_seq = self.app.request_frozen_sources()
 
     # behaviour -------------------------------------------------------------
 
@@ -689,11 +738,12 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
                  reload_interval: float = RELOAD_INTERVAL, *, runner=None,
                  roles_probe=None, own_session=None,
                  startup_harvest: bool = False, trails_scan=None,
-                 deliver=None) -> None:
+                 deliver=None, frozen_scan=None) -> None:
         super().__init__()
         self._init_actions(runner=runner, roles_probe=roles_probe,
                            own_session=own_session, startup_harvest=startup_harvest,
-                           trails_scan=trails_scan, deliver=deliver)
+                           trails_scan=trails_scan, deliver=deliver,
+                           frozen_scan=frozen_scan)
         self.current_tui_name = "sitrep_tui"
         self.root = root
         self.store_dir = store_dir
@@ -988,7 +1038,8 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
         if self.store is None or num not in self.store.items:
             self.notify(f"c{num} is not in the store", severity="warning", markup=False)
             return
-        task_id = model.task_ref_id(self.store.items[num])
+        item = self.store.items[num]
+        task_id = model.task_ref_id(item)
         self.push_screen(ItemDetailScreen(self.store, self.qa, num, self.root,
                                           self.store_dir, self._checks.get(num),
                                           self.action_keys(),
@@ -996,7 +1047,11 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
                                           # changed since the list was built.
                                           model.task_meta(self.root, task_id),
                                           trails=(self.trails_for(task_id)
-                                                  if task_id else None)))
+                                                  if task_id else None),
+                                          # t2350: the screen requests its own
+                                          # scan on activation; nothing here.
+                                          frozen_wanted=(self._frozen_scan is not None
+                                                         and item.kind == "question")))
         if task_id:
             # The details show the last scan; a fresh one updates them.
             self._kick_trails_scan()
@@ -1182,7 +1237,8 @@ def main(argv: "list | None" = None) -> int:
                                               os.environ.get("TMUX", ""))
     SitrepTuiApp(root, os.path.join(root, sh.STORE_NAME), roles_probe=probe,
                  own_session=own_session, startup_harvest=True,
-                 trails_scan=trails_model.scan_membership, deliver=deliver).run()
+                 trails_scan=trails_model.scan_membership, deliver=deliver,
+                 frozen_scan=frozen_sitrep.FrozenSourceIndex().scan).run()
     return 0
 
 

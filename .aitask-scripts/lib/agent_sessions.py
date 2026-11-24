@@ -1679,7 +1679,8 @@ def purge(
 class SessionsView:
     """An mtime-gated reader for the refresh tick.
 
-    Re-reads only when the store's ``(st_mtime_ns, st_size, st_ino)`` changes.
+    Re-reads only when the store's ``(st_mtime_ns, st_size, st_ino,
+    st_ctime_ns)`` changes.
 
     ``st_ino`` is load-bearing, exactly as in ``agent_marks.MarksView``: this
     store is only ever replaced via ``os.replace`` from a fresh temp file, and
@@ -1687,11 +1688,18 @@ class SessionsView:
     timestamp granularity both other fields can be unchanged across a real
     content change. Every ``os.replace`` yields a new inode, which makes the
     stamp replacement-sensitive by construction.
+
+    ``st_ctime_ns`` is there for a permission change (t2350): a ``chmod`` moves
+    ctime ONLY, so without it a warm view would keep serving a registry that
+    can no longer be read, and a fail-closed consumer (lib/frozen_sitrep.py's
+    verdicts) would keep publishing positive evidence from it. With it, the
+    next refresh re-reads -- and :func:`load_safe` turns the unreadable store
+    into an empty one, which is what a cold read already shows.
     """
 
     def __init__(self, path: str | os.PathLike | None = None) -> None:
         self._path = sessions_path(path)
-        self._stamp: tuple[int, int, int] | None = None
+        self._stamp: tuple[int, int, int, int] | None = None
         self._sf: SessionsFile = _empty()
         self._loaded = False
 
@@ -1699,12 +1707,12 @@ class SessionsView:
     def path(self) -> Path:
         return self._path
 
-    def _stat_stamp(self) -> tuple[int, int, int] | None:
+    def _stat_stamp(self) -> tuple[int, int, int, int] | None:
         try:
             st = os.stat(self._path)
         except OSError:
             return None
-        return (st.st_mtime_ns, st.st_size, st.st_ino)
+        return (st.st_mtime_ns, st.st_size, st.st_ino, st.st_ctime_ns)
 
     def refresh(self) -> bool:
         """Re-read if the file changed. Returns True when a read happened."""
