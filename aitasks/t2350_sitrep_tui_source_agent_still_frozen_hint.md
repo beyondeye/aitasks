@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2337
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-23 02:28
-updated_at: 2026-11-24 18:01
+updated_at: 2026-11-24 19:14
 ---
 
 # Sitrep TUI: say when a triage item's source agent is still frozen
@@ -50,3 +51,8 @@ never drop, kill or type into a pane from the sitrep TUI.
 - `.aitask-scripts/sitrep_tui/` (details / How text for an item)
 - `.aitask-scripts/lib/frozen_sitrep.py` (a reverse-map helper, if shared)
 - docs: `website/content/docs/tuis/sitrep/`, `aidocs/framework/sitrep.md`
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-24T17:14:31Z status=pass attempt=1 type=human
