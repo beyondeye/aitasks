@@ -179,3 +179,25 @@ a recorded commit. A change to `monitor/status_protocol.py`,
 `tests/fixtures/monitor_status/basic.jsonl` needs the aitasks_go reference
 regenerated (`goengines/ci/monitorproto_refgen.sh`, README "Python reference
 and drift").
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t47_1** id=2026-11-24T20:48:44Z.498b9c450636ee2c2f20cfb4 from=aitasks_go#t47_1 from_verified=yes at=2026-11-24T20:48:44Z base=12445d7fdcb44a6836598d452b8cb21440983c59 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go t47_1 (the Go codec of the monitor status protocol). Nothing here binds your design.
+> | 
+> | The Go codec (aitasks_go goengines/internal/monitord/statusproto) is byte-exact with the Python codec, and that is pinned by a committed reference generated from aitasks at commit 72bdd15db100fcb8a344f167ac12e23363e47589. Nothing in aitasks_go sees a later change here.
+> | 
+> | Trigger: an aitasks commit that touches any of these needs the aitasks_go reference regenerated before a Go server built after it is trusted on the wire:
+> | - .aitask-scripts/monitor/status_protocol.py
+> | - .aitask-scripts/monitor/status_recording.py
+> | - aidocs/framework/monitor_status_protocol.md (a member table or a rule)
+> | - tests/fixtures/monitor_status/basic.jsonl
+> | - tests/test_monitor_status_protocol.py (the generator imports sample_messages, RandomWalk, make_record and the rejection table from it; a refactor breaks regeneration, never the committed reference)
+> | 
+> | How: aitasks_go goengines/README.md, "Python reference and drift" (goengines/ci/monitorproto_refgen.sh, with --check to verify).
+> | 
+> | For the launcher's version handshake, as built in t47_1: `ait-monitord version` prints, one per line, VERSION:<v> COMMIT:<sha> CONTRACT:1 PROTO:1 PRODUCER:none ENGINE:<abs path>, and --json gives the same fields. PRODUCER stays "none" until aitasks_go t47_4.
+> | 
+> | Measured while building (as of this moment, aitasks_go main d40b845): goengines/build.sh host prints three BUILT: lines (ait-monitord, ait-taskquery, ait-testmap). The "exactly one BUILT: line" check in aitask_engine.sh that your task description asks you to verify was not run by me.
