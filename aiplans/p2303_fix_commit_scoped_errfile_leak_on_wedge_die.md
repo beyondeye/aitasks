@@ -118,3 +118,43 @@ None identified. No source change is made.
 ### Goal-achievement risk: low
 None identified. The defect's absence has positive evidence: a regression test
 that fails on the pre-fix library and passes on the current one.
+
+## Final Implementation Notes
+- **Actual work done:** No code change. t2303 was resolved by t2295
+  (`d657cd05c`, "bug: Fix remaining temporary resource leaks (t2295)"). That
+  commit moved the `add` assert ahead of the `mktemp` in
+  `task_git_commit_scoped`, and made `_ait_commit_scoped_capture` unlink the
+  capture file before any later guard can `die`. It also added
+  `tests/test_commit_capture_cleanup.sh`. At implementation time, HEAD
+  `72bdd15db` (2026-11-24 19:25) still had `.aitask-scripts/lib/task_utils.sh`
+  byte-identical to `d657cd05c` (`git diff --quiet d657cd05c HEAD -- …` passed,
+  and no commit after the fix touched the file).
+- **Verification re-run at implementation time:**
+  - `bash tests/run_shell_test.sh tests/test_commit_capture_cleanup.sh`:
+    `Results: 140/140 passed, 0 failed`, rc=0, and no `TMPDIR LEFTOVERS` line.
+  - Pre-fix control: the Evidence 2 block was extracted from this plan file,
+    confirmed byte-identical (`diff`) to the script that ran, and run under
+    `bash -euo pipefail`. Full output:
+    ```
+    FAIL: stage_wedge: capture removed before outer cleanup (expected '0', got '1')
+    FAIL: no_stage_wedge: capture removed before outer cleanup (expected '0', got '1')
+    FAIL: race: capture removed before outer cleanup (expected '0', got '1')
+    FAIL: no_stage_busy_wedge: capture removed before outer cleanup (expected '0', got '1')
+    Results: 136/140 passed, 4 failed
+    pre-fix test exit status: 1 (expected 1)
+    ```
+    The outer rc was 0. `${TMPDIR:-/tmp}/t2303_prefix_lib.*` leftovers: 0
+    before, 0 after.
+- **Deviations from plan:** None.
+- **Issues encountered:** Two rounds of plan review. (1) The pre-fix control
+  was first written as prose with a session-local `<scratch>` placeholder. It is
+  now an exact `git archive` + override invocation using a quoted `mktemp -d`
+  variable. (2) That block's trailing `rm` was skipped under
+  errexit/pipefail, because the control is expected to exit 1. It now runs in a
+  subshell with an `EXIT` trap, and the status is captured with
+  `|| test_rc=$?`.
+- **Key decisions:** The task is closed as already resolved instead of being
+  reworked. The control swaps only `task_utils.sh`: the test exports
+  `SCRIPT_DIR`, so the sibling libraries come from the current tree, and t2295
+  changed only `task_utils.sh` within `lib/`.
+- **Upstream defects identified:** None
