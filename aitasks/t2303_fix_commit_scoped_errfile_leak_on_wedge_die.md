@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -14,7 +16,7 @@ anchor: 2290
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 17:26
-updated_at: 2026-11-24 19:24
+updated_at: 2026-11-24 19:25
 ---
 
 ## Origin
@@ -55,3 +57,5 @@ unchanged; tests pin those messages.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-24T17:24:50Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-24T19:39:26Z status=pass attempt=1 type=human
