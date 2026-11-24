@@ -3,12 +3,13 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [aitask_monitormini, frozen_agents, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2337
 created_at: 2026-11-24 18:52
-updated_at: 2026-11-24 18:52
+updated_at: 2026-11-24 18:57
 ---
 
 ## Symptom
