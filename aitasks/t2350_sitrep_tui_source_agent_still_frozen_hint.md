@@ -58,3 +58,5 @@ never drop, kill or type into a pane from the sitrep TUI.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-24T17:14:31Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-24T20:00:52Z status=pass attempt=1 type=human
