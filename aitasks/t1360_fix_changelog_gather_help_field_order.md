@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Folded
 labels: [aitask_changelog]
+folded_into: 2353
 followup_kind: upstream_defect
 created_at: 2026-07-31 11:12
-updated_at: 2026-08-13 23:06
+updated_at: 2026-11-24 12:42
 boardidx: 114688
 ---
 
