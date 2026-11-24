@@ -299,3 +299,107 @@ None identified. The plan covers the task's requirements and the four review
 findings: display only, a receipt-link reverse lookup through the t2337
 tracker, fail-closed and off the event loop, nothing shown for pre-link
 records, and a drop route that works without a monitor card.
+
+## Final Implementation Notes
+
+- **Actual work done:** all of Design 1–4 as planned.
+  - `lib/agent_sessions.py`: `SessionsView` stamp gains `st_ctime_ns`.
+  - `lib/frozen_sitrep.py`:
+    - `FrozenSitrepState.store` (set by `derive` on the linked branch);
+    - `LINKED_STATES`;
+    - `FrozenSitrepTracker.frozen_records()`;
+    - `FrozenSource`;
+    - `FrozenSourceIndex.scan` (store-realpath and instance filters, never
+      raises);
+    - `describe_source`.
+  - `sitrep_tui_actions.py`:
+    - the `frozen_scan` seam;
+    - `frozen_sources_for` / `request_frozen_sources` / `_kick_frozen_scan` /
+      `_frozen_tick`;
+    - the `sitrep-frozen` thread worker;
+    - `_on_frozen_scanned` (busy cleared first, opt-in-gated delivery in
+      `try`, dirty rerun in `finally`);
+    - `FROZEN_RESCAN_INTERVAL = 5.0`.
+  - `sitrep_tui_app.py`:
+    - `frozen_wanted` for question items;
+    - `ItemDetailScreen` `Frozen` field, `set_frozen_sources`, and
+      `on_screen_resume` as the sole request path (withhold, then re-arm the
+      threshold);
+    - `main()` builds one `FrozenSourceIndex`.
+- **Deviations from plan:** the reference doc names the user-facing route to
+  record a pre-link agent's links, harvest + refresh (`r` or the startup run,
+  which runs `aitask_sitrep_harvest.sh all` → `--backfill-links`). There is no
+  `ait sitrep harvest` verb, so the plan's `harvest all --backfill-links`
+  wording would have named a command users cannot type.
+- **Issues encountered:** none.
+- **Upstream defects identified:**
+  - `.aitask-scripts/sitrep_tui/sitrep_tui_model.py:800` (`ORIGIN_LABELS`) with `.aitask-scripts/sitrep_tui/sitrep_tui_app.py` `_field`: the writer accepts the origin key `incarnation` (`lib/sitrep_todo.py:148` `ORIGIN_KEYS`), which has no label entry. Its details row renders as `"  incarnation"`, 13 characters, wider than the 12-column pad, so the value runs into the label (`  incarnation<value>`).
+- **Key decisions:** the fallback drop route is `ait frozenagent` LIST mode,
+  never `--record` (that mode stamps its own pane as the stand-in).
+- **Verification:**
+  - New `tests/test_sitrep_tui_frozen_source.py` (16): three mutants, each
+    caught.
+    - The original plan's callback (no opt-in gate, no None guard, no
+      try/finally) fails the late-callback test.
+    - Resume without withhold/re-arm fails both resume tests.
+    - A double request from `open_item` fails five tests.
+  - `tests/test_frozen_sitrep.py`: +14 tests (reverse index,
+    `SessionsViewCtimeTests`). Dropping ctime from the stamp fails both chmod
+    tests.
+  - Regression: 935 passed and 4 skipped across agent_sessions / frozenagent /
+    frozen_* / sitrep_tui* / monitor badge + harvest-close; +204 for the
+    monitor frozen capture/filter and agent_frozen_ops tests;
+    `test_agent_sessions_stamp.sh` 26/26.
+  - `website/check_links.py --build` passed.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-24 19:05)
+- **Requested by user:** three review findings, each verified.
+  1. A record listed before the sequential states pass could be published
+     stale: a lease or a lost registry seen while a later record was derived
+     did not drop it.
+  2. The first-open test did not disable the production 5 s rescan timer.
+  3. A hint update rebuilt the body, which re-read case records
+     (`review_line`) on the UI thread.
+- **Changes made:**
+  1. `FrozenSourceIndex._scan` publishes from one final registry snapshot
+     (`FrozenSitrepTracker.current_records()`). It keeps a kept record only if
+     it is still settled at the exact `record_version` it was listed with.
+     New tests change the first record while the second is derived, through
+     the tracker's `candidate` seam: one takes a lease (first record dropped,
+     second kept), one makes the registry unreadable (`{}`). Both fail without
+     the recheck.
+  2. `_FrozenCase.setUp` patches `actions.FROZEN_RESCAN_INTERVAL` to 3600 s.
+     The explicit `_frozen_tick` tests stay.
+  3. `ItemDetailScreen` resolves the review-case line once per screen
+     (`_review_line`). It depends on the snapshot's context alone, and this
+     also takes those reads off the existing age-tick rebuild. New test:
+     exactly 1 `review_case` call across open, an age tick and a hint
+     update. Without the memo it is 4.
+- **Files affected:** `.aitask-scripts/lib/frozen_sitrep.py`,
+  `.aitask-scripts/sitrep_tui/sitrep_tui_app.py`, `tests/test_frozen_sitrep.py`,
+  `tests/test_sitrep_tui_frozen_source.py`.
+- **Concurrent-session note:** `aidocs/framework/sitrep.md` also carries another
+  session's uncommitted t2354 hunk (the badge "in place of" the word, around
+  line 680). Only my "Reverse index (t2350)" hunk belongs to this task, so that
+  file is committed after t2354's hunk has landed. It is never hunk-filtered
+  into this commit.
+
+### Change Request 2 (2026-11-24 19:20)
+- **Requested by user:** the CR1 per-screen review-line cache kept an empty
+  line, read while the analysis file was unavailable, for the screen's whole
+  lifetime. The ordinary age redraw used to re-read it, so the guidance never
+  recovered without reopening the item, even with no frozen scanner. Verified.
+- **Changes made:** `body_content(now, reuse_review=False)`. Every ordinary
+  rebuild (open, age tick, trails update) re-reads the review-case line as
+  before t2350. Only `set_frozen_sources` passes `reuse_review=True`, so a scan
+  landing adds no case-record reads.
+  - New test: the line recovers on the age tick without reopening, with and
+    without a scanner. It fails against the CR1 cache.
+  - Updated test: a hint redraw adds 0 `review_case` calls. It fails when the
+    reuse is ignored.
+  - Tests now read what the widget shows (`Static.content`), never a fresh
+    rebuild.
+- **Files affected:** `.aitask-scripts/sitrep_tui/sitrep_tui_app.py`,
+  `tests/test_sitrep_tui_frozen_source.py`.
