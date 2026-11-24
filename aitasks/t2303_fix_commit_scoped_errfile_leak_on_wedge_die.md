@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2290
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-15 17:26
-updated_at: 2026-11-24 18:02
+updated_at: 2026-11-24 19:24
 ---
 
 ## Origin
@@ -49,3 +50,8 @@ Allocate the error file only after each `assert_data_worktree_clean` call
 and allocate again after it), or create it lazily at its first use. Keep the
 asserts in the current shell and keep their labels (`add` / `commit`)
 unchanged; tests pin those messages.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-24T17:24:50Z status=pass attempt=1 type=human
