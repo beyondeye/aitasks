@@ -3,12 +3,13 @@ priority: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [sitrep, frozen_agents]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2337
 created_at: 2026-11-23 02:28
-updated_at: 2026-11-23 02:28
+updated_at: 2026-11-24 18:01
 ---
 
 # Sitrep TUI: say when a triage item's source agent is still frozen
