@@ -355,6 +355,29 @@
             "runs": 1
           }
         }
+      },
+      "verifiedstats": {
+        "wrap": {
+          "all_time": {
+            "runs": 1,
+            "score_sum": 100
+          },
+          "prev_month": {
+            "period": "",
+            "runs": 0,
+            "score_sum": 0
+          },
+          "month": {
+            "period": "2026-11",
+            "runs": 1,
+            "score_sum": 100
+          },
+          "week": {
+            "period": "2026-W48",
+            "runs": 1,
+            "score_sum": 100
+          }
+        }
       }
     }
   }
