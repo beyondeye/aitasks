@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
+implemented_with: claudecode/fable5_2
 created_at: 2026-11-19 05:12
-updated_at: 2026-11-25 12:11
+updated_at: 2026-11-25 15:44
 ---
 
 ## Context
@@ -58,3 +59,8 @@ The store contract this child builds on is the "Directions" section of `aidocs/f
 > | - A write that changes membership already resets a block's freshness to unknown.
 
 > **👁 note:read** id=2026-11-25T10:11:34Z.52d1a85c9f93122a1a238936 by=t2335_2 at=2026-11-25T10:11:34Z mode=explicit ids=2026-11-25T09:40:34Z.af35f885567405acecd7b1ae
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-25T13:44:18Z status=pass attempt=1 type=human
