@@ -251,3 +251,299 @@ Another session has uncommitted edits in `.claude/skills/task-workflow-remote-/`
 ### Planned mitigations
 - timing: post-phase | name: live_item_output_parity | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: the rework of the run path regressing the item refresh | desc: compare the item refresh's output and written store before and after the change, on the live store (dry run) and on a scratch store
 - timing: post-phase | name: verdict_guard_mutants | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: a wrong current verdict slipping through an untested guard | desc: remove each verdict and write guard in a scratch copy and confirm a test naming it fails
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-25 16:10)
+- **Requested by user:** five review concerns, each confirmed against the code. (1) `recheck` returned `RECHECK:same` on an equal digest without loading the retained baseline; with a corrupted baseline the assignments went through and `direction-set` then refused `hash_mismatch`. (2) A proposal naming a `next` item that does not exist passed both verbs, while `direction-set` refuses it. (3) With no item target, a failed or skipped direction pass ended `REFRESH_NONE:no_targets` and the TUI verdict read "Nothing to refresh", hiding the warning. (4) A fetch killed at the deadline left `trail_discovery`'s `ait_trail_*` temp file behind. (5) The direction worker rebuilt the membership map for every direction.
+- **Changes made:**
+  - `sitrep_direction.differences` loads the retained baseline first; a baseline that is not `ok` is `baseline_unreadable` whatever the digests say. The worker always calls it, and the parent prints `RECHECK_SAME` only for an equal digest with no reason.
+  - The proposal worker refuses a `next: c<N>` that names no item (`BADREQ`, exit 2), before any snapshot is built or retained.
+  - `RefreshReport.verdict()` appends the direction part on the `REFRESH_NONE` line too (`_directions_text`).
+  - Both workers write their temp files under a directory the parent owns and removes: the direction worker sets `tempfile.tempdir` and `TMPDIR` to its `--out`; the item worker runs with `TMPDIR` set to a run directory created by `cmd_run`.
+  - `_dworker_refresh` passes the member ids it already has to `snapshot_for`.
+  - Tests: `Verdicts.test_an_equal_digest_does_not_authorize_a_save_over_an_unusable_baseline`; Test 22 (a damaged baseline with equal digests, a `next` item that does not exist, with its control); Tests 20 and 22 run their stalled fetch under a private `TMPDIR` and assert it is empty; `test_no_item_target_still_shows_what_happened_to_the_directions`.
+  - Three more mutants, all killed: the baseline check moved behind the digest comparison, the `next` existence check removed, the worker's temp directory lines removed (leaves `ait_trail_<x>.json`).
+  - The header of `aitask_sitrep_refresh.sh` and "Saving a proposal" in `aidocs/framework/sitrep.md` state the rules.
+- **Files affected:** `.aitask-scripts/lib/sitrep_direction.py`, `.aitask-scripts/lib/sitrep_refresh.py`, `.aitask-scripts/sitrep_tui/sitrep_tui_model.py`, `.aitask-scripts/aitask_sitrep_refresh.sh`, `aidocs/framework/sitrep.md`, `tests/test_sitrep_direction.py`, `tests/test_sitrep_refresh.sh`, `tests/test_sitrep_tui_actions.py`
+
+### Change Request 2 (2026-11-25 16:40)
+- **Requested by user:** the parent-owned temp directory is removed in the parent's `finally`, which does not run when an external caller kills the parent itself; the run directory and the nested artifact file then stay. Confirmed.
+- **Changes made:** run directories are named `ait_sitrep_tmp_<parent pid>_<random>` (`make_run_dir`), and every run and proposal verb first calls `reclaim_run_dirs`, which removes a directory only when its name matches, it is a real directory owned by this user, and its owner pid names no process, or it is older than `TMP_MAX_AGE` (the largest budget plus an hour). A live owner's directory, a symlink and any other name are never touched. Tests: `RunDirectories` (three unit cases), and Test 20 (c): the parent is killed with SIGKILL during a stalled fetch, the directory stays (control), and the next run leaves `TMPDIR` empty.
+- **Files affected:** `.aitask-scripts/lib/sitrep_refresh.py`, `.aitask-scripts/aitask_sitrep_refresh.sh`, `tests/test_sitrep_refresh.py`, `tests/test_sitrep_refresh.sh`
+
+### Change Request 3 (2026-11-25 17:05)
+- **Requested by user:** two concerns on the reclaim of Change Request 2, both confirmed. (1) The age clause removed a directory whose recorded pid was still alive; a timestamp cannot prove an owner stopped, and the unit test expected that deletion. (2) The sweep ran before the `--dry-run` check and in `recheck`, so two read-only commands deleted a pre-existing directory.
+- **Changes made:** `reclaim_run_dirs` removes a directory only when its owner pid provably names no process (`TMP_MAX_AGE` and the age clause are gone; a pid that cannot be signalled is not "gone"). It is called only by a refresh run without `--dry-run` and by `snapshot`. Tests: the unit case now keeps a ten-year-old directory with a live owner, with its file; Test 20 (c) shows `--dry-run` and a passing `recheck` leaving the abandoned directory in place, a writing run removing it while keeping an aged directory whose owner is alive, and `snapshot` removing that one once its owner is gone.
+- **Files affected:** `.aitask-scripts/lib/sitrep_refresh.py`, `.aitask-scripts/aitask_sitrep_refresh.sh`, `tests/test_sitrep_refresh.py`, `tests/test_sitrep_refresh.sh`
+
+### Change Request 4 (2026-11-25 17:35)
+- **Requested by user:** two concerns on the reclaim, both confirmed. (1) `kill(pid, 0)` answering "no such process" is no proof of death: with two pid namespaces sharing one temp directory, one deleted the other's live run directory. (2) A name carrying a ten-digit pid above the platform's range raised an uncaught `OverflowError` and ended a normal refresh before any result line.
+- **Changes made:** ownership is proven by a lock. `make_run_dir` creates `ait_sitrep_tmp_<random>` (no pid in the name), creates the lock file under another name, takes an exclusive `flock` on it and only then renames it to `.owner.lock`, so a visible lock file is always already held; the parent keeps the fd until `remove_run_dir`. `reclaim_run_dirs` removes a directory only when it can take that lock itself, and removes the tree while holding it. A held lock, a missing lock file, a lock that is not a regular file, a symlink and any error keep the directory; each entry is handled in its own `try`, so one bad entry cannot stop the sweep or the run. No pid and no age is consulted. Tests: `RunDirectories` (a directory held by another process is kept, also when ten years old, and is reclaimed once that process is killed; no lock file, a lock that is a directory or a symlink, and `ait_sitrep_tmp_9999999999_fixture` are kept); Test 20 (c) with a lock-holding process and the out-of-range name, asserting that the run still exits 0 and prints its result. Mutant: the sweep without the `flock` call removes the live holder's directory and `RunDirectories` fails.
+- **Files affected:** `.aitask-scripts/lib/sitrep_refresh.py`, `.aitask-scripts/aitask_sitrep_refresh.sh`, `tests/test_sitrep_refresh.py`, `tests/test_sitrep_refresh.sh`
+
+## Final Implementation Notes
+
+- **Actual work done:** All six plan steps and both post-phase checks, plus four review rounds (see "Post-Review Changes").
+  - New `lib/sitrep_direction.py`: the snapshot values, `Reader` (one fetch per trail: hash and drift verdict from the same bytes), `build_snapshot` / `snapshot_for`, `classify`, `evidence` + `verdict` (three evidence parts collected separately, then combined), `differences` for the recheck, `parse_proposal`.
+  - `lib/sitrep_refresh.py`: `_drift_output` with its two readers (`run_drift` unchanged in output, `drift_facts`), `load_trail`, the direction worker (`dworker`, modes refresh / snapshot / recheck), `DirectionStream`, `proposal_complete`, `direction_phase` (phase 2 of every run), `cmd_proposal`, the ledger's `directions` map, run directories with an owner lock.
+  - `lib/sitrep_todo.py`: `direction_stamp` also hashes the item a `next: c<N>` points at.
+  - `aitask_sitrep_refresh.sh`: the `snapshot` / `recheck` words and the wire contract in the header.
+  - TUI: `RefreshReport` reads the direction lines; `partial` and `verdict()` include them, also on the `REFRESH_NONE` line.
+  - Docs: "The freshness verdict" and the proposal verbs in `aidocs/framework/sitrep.md`; the re-check line in the website's sitrep reference.
+  - Tests: new `tests/test_sitrep_direction.py` (35 tests); `tests/test_sitrep_refresh.py` 102 to 117 tests; `tests/test_sitrep_refresh.sh` 197 to 389 assertions (Tests 17 to 22); `tests/test_sitrep_todo.sh` 675 to 684; `tests/test_sitrep_todo_format.py` 83 to 84; `tests/test_sitrep_tui_actions.py` 78 to 81.
+- **Deviations from plan:**
+  - Phase 2 was wired into `cmd_run` before the `DirectionStream` unit tests were written, not after as "Order of work" said. It was checked at once with a `--dry-run` on the live store, and the unit tests followed in the next step. The live store has no direction record, so nothing could be written.
+  - `evidence` takes the snapshot (which carries `all_members` and `trail_codes`) instead of separate arguments.
+  - `drift_facts` returns an empty code when the helper's first `DRIFT:` code is not in the store's code grammar; the `trail_stale` key is then the handle.
+  - The proposal worker reports a per-direction exception as `DERROR:` (no result, so the run is incomplete) and a bad request as `BADREQ:` (exit 2).
+  - The direction batch log seam writes to `<AITASK_SITREP_REFRESH_BATCH_LOG>.directions`.
+  - Test 19 (d) saves the baseline while version A is current and then makes A stale, which is the case the review concern describes; the plan sentence said "saved over version A, which is stale".
+  - The oversized store of Test 19 (e) is rendered by the store's own model and installed whole (1100 items through the writer one by one would take minutes). It is verified with `verify todo` before use.
+  - Run directories and their reclaim (Change Requests 1 to 4) were not in the plan.
+- **Issues encountered:**
+  - `tests/test_sitrep_tui_actions.py` had one error (`RestoreTests.test_pre_fix_control_the_unconditional_verb_rolls_it_back`, `NoMatches '#rd-close'`) in the baseline run taken BEFORE any edit, while five suites ran one after another under load from the background jobs. It passes when run alone, before and after the change (81 tests OK). Not caused by this task.
+  - Under the test suite's scratch `HOME`, plain `python3` resolves to a wrapper that needs the real venv; the in-test Python calls use `$AIT_PYTHON`.
+  - The first version of the mutant harness read the last output line for `OK`; `tests/test_sitrep_refresh.py` prints a line after it. The checker now looks for an `OK` line anywhere. The first `stamp_from_the_snapshot` mutant was itself broken (a doubled backslash put a literal `\n` in the batch) and failed the control case; it was corrected and re-run.
+- **Key decisions:**
+  - A trail's version is the first 12 hex of its content hash; the value is `<hash>:current|stale`.
+  - `unreadable` is a snapshot value, never a gap; `unknown` is decided from the inputs as they are now, whatever the digests say.
+  - `checked_at` of a direction means "verdict last changed"; an equal verdict sends no batch line.
+  - The recheck authorizes a save only when the digest is equal AND the retained baseline loads as `ok`.
+  - Ownership of a run directory is proven by a held `flock`, never by a pid or an age; only writing commands sweep.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - t2335_4: draft with `aitask_sitrep_refresh.sh snapshot` (stdin `<slug>|<members>|<trails>|<next>`, `=` as stored, `-` none), read the retained `baselines/<digest>.txt`, and run `recheck` (the same lines plus `|<digest>`) before the first write; write only after exit 0. `SNAPSHOT_UNREADABLE:` lines name inputs whose value is `unreadable`: the summary can be saved, and the direction reads `unknown` until they can be read. A proposed `next: c<N>` must exist. The skill's permission touchpoints for `aitask_sitrep_refresh.sh` are owed when it first calls the script.
+  - t2335_5: `RefreshReport.directions` holds `<slug>|<old>-><new>|<result>|<drift>`, `.direction_counts` the `REFRESH_DIRECTIONS` pairs, `.unassigned` the count. An `unknown` verdict can carry several reasons. A direction with no block is reported `no_record` by the refresh and has nothing stored; derive its row from `st.known_directions`.
+  - The stamp (`st.direction_stamp`) now also covers the `next` item.
+  - Test helpers worth reusing (`tests/test_sitrep_refresh.sh`, above Test 17): `dart.sh` (fake artifact CLI with a repoint and a stall switch), `dgather.sh` (a drift stub that resolves `art:` handles as the real wrapper does), `save_summary`, `assign`, `qitem`.
+
+### Post-phase evidence: live_item_output_parity
+
+```
+before the first edit:  ./.aitask-scripts/aitask_sitrep_refresh.sh --dry-run > live_dry_before.txt   (54 lines)
+                        git archive HEAD .aitask-scripts | tar -x -C <scratch>/old                    (HEAD 95d0169d8)
+after step 2:           the same dry run; legacy lines (all but REFRESH_UNASSIGNED / REFRESH_DIRECTION*) diffed
+  < REFRESH_ITEM:c194|task|open->done|dry_run|archived (completed 2026-11-25)
+  < REFRESHED:checked=53|changed=1|stale=0|kept=0|unknown=3
+  > REFRESHED:checked=52|changed=0|stale=0|kept=0|unknown=3
+  explained: the monitor's own refresh closed c194 at 2026-11-25T13:45:25Z, so it is no longer a target
+  (list --machine: ITEM:c194|...|task|done|...|archived (completed 2026-11-25)). Every other line is identical.
+
+scratch store A (13 targets, no direction; old writer; both .aitask-scripts copies carry the SAME drift stub):
+  targets: tasks Ready / Implementing / Done / archived / missing / unresolved cross-repo, one push,
+           trails with drift CURRENT, STALE with three DRIFT lines, a non-zero exit, empty output, ERROR: with exit 0, an unreadable trail
+  old stdout: ... drift CURRENT ... drift STALE (3) ... drift unavailable ... drift unavailable ... drift error ...
+              REFRESHED:checked=13|changed=13|stale=0|kept=0|unknown=9
+  check 1  grep -v '^REFRESH_UNASSIGNED:' out_new | cmp - out_old   -> LEGACY_STDOUT: byte-identical
+           cmp root_old/.aitask-sitrep/todo.md root_new/...          -> TODO_MD: byte-identical
+  check 2  diff out_old out_new                                      -> 13a14 > REFRESH_UNASSIGNED:13
+           directions (new store): UNASSIGNED:13; the line sits directly before the final line
+
+scratch store B (two recovery items made by the old detector; t51's lock removed and its task set Ready in both copies):
+  old stdout: REFRESH_ITEM:c1|recovery|open->open|unchanged|crashed ...
+              REFRESH_ITEM:c2|recovery|open->done|applied|recovered · recovered: Ready
+              REFRESHED:checked=2|changed=1|stale=0|kept=0|unknown=0
+  new adds:   REFRESH_UNASSIGNED:0
+              REFRESH_DIRECTION:crashed-agents|unknown->stale|no_record|never_summarized:1
+              REFRESH_DIRECTIONS:checked=1|changed=0|unknown=0|refused=0
+  legacy stdout byte-identical; todo.md byte-identical
+```
+
+### Post-phase evidence: verdict_guard_mutants
+
+Each mutant is one edit in a scratch copy of `.aitask-scripts/` with the tests copied beside it; the working tree is never touched. Control (no edit): the unit files pass and `ONLY="17 19 20 21 22"` gives 127 passed, 0 failed.
+
+| Mutant (the guard removed) | A failing assertion that names it |
+|---|---|
+| an unreadable input is `unknown` | Test 19: "equal digests over an unreadable trail are unknown, never current" (got `unknown->current`) |
+| the baseline status is `unknown` | Test 19: "a damaged baseline is unknown with baseline_unreadable" (got `current`) |
+| the size limit is `unknown` | `Verdicts.test_oversized_snapshot_is_unknown`; Test 19: "with baseline_too_large, beside the other reasons" |
+| `unknown` keeps every reason | Test 19: "no digest and an unreadable trail: unknown with both reasons" |
+| the drift helper reads the fetched bytes | Test 19: "a handle repointed between reads" (got `current`), "exactly one fetch" (got 2) |
+| the `next` item in the stamp | Test 21: "the closure of a next item that is not a member -> the line is refused as stale" (got `applied`) |
+| the unchanged-verdict skip | Test 17: "a second run reports it unchanged" (got `applied`), "keeps the rev" |
+| the batch stamp is the snapshot's (mutant: re-read at write time) | Test 21: "a member's set-state -> the line is refused as stale" (got `applied`); the control case still passes |
+| the interrupted direction is written `unknown` | Test 20: "the interrupted direction is written unknown" |
+| the completeness rule | Test 22: "a recheck cut short", "never 'same'" (got `RECHECK:same`, exit 0) |
+| the recheck loads the baseline before comparing digests (CR 1) | Test 22: "a damaged baseline fails the recheck although the digests are equal" (got exit 0) |
+| a proposed `next` item must exist (CR 1) | Test 22: "snapshot with a next item that does not exist -> exit 2" (got 0) |
+| the worker's temp files under the parent's directory (CR 1) | Test 20: "the killed fetch leaves no temp file behind" (got `ait_trail_rtzh3j5e.json`) |
+| the sweep takes the owner lock (CR 4) | `RunDirectories.test_only_a_directory_whose_lock_can_be_taken_goes` |
+
+The harness, verbatim as finally run (`bash mutants.sh <repo root> <scratch dir>`; the last three mutants were run after Change Request 1; the lock mutant of Change Request 4 removed the one `fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)` line of `reclaim_run_dirs` in a copy and ran `tests/test_sitrep_refresh.py RunDirectories`):
+
+```bash
+#!/usr/bin/env bash
+# verdict_guard_mutants (t2335_2): remove one guard at a time in a SCRATCH COPY
+# of the tree and run the tests that name it. Never touches the working tree.
+# Usage: mutants.sh <repo root> <scratch dir>
+set -uo pipefail
+REPO="$1"
+WORK="$2"
+rm -rf "$WORK"
+mkdir -p "$WORK/base/aidocs" "$WORK/base/tests"
+cp -a "$REPO/.aitask-scripts" "$WORK/base/.aitask-scripts"
+cp -a "$REPO/aidocs/implementation_trail_examples" "$WORK/base/aidocs/"
+cp -a "$REPO/tests/lib" "$REPO/tests/fixtures" "$WORK/base/tests/"
+cp "$REPO/tests/test_sitrep_refresh.sh" "$REPO/tests/test_sitrep_refresh.py" \
+   "$REPO/tests/test_sitrep_direction.py" "$REPO/tests/test_sitrep_todo_format.py" \
+   "$WORK/base/tests/"
+find "$WORK/base" -name __pycache__ -type d -prune -exec rm -rf {} +
+
+# run_tests <tree> <label> <only> <py spec...>: prints the failing lines.
+run_tests() {
+    local tree="$1" label="$2" only="$3" spec fails=0 out
+    shift 3
+    for spec in "$@"; do
+        out="$(cd "$tree" && python3 tests/${spec%% *} ${spec#* } 2>&1)"
+        if ! printf '%s\n' "$out" | grep -q '^OK'; then
+            fails=$((fails + 1))
+            printf '%s\n' "$out" | grep -E '^(FAIL|ERROR): ' | sed "s/^/    [$label] py  /" | head -4
+        fi
+    done
+    if [[ -n "$only" ]]; then
+        out="$(cd "$tree" && ONLY="$only" bash tests/test_sitrep_refresh.sh 2>&1)"
+        if ! printf '%s\n' "$out" | grep -q '^ALL TESTS PASSED'; then
+            fails=$((fails + 1))
+            printf '%s\n' "$out" | grep '^FAIL' | cut -c1-230 | sed "s/^/    [$label] sh  /" | head -4
+        fi
+        printf '%s\n' "$out" | grep '^Results:' | sed "s/^/    [$label] sh  /"
+    fi
+    return "$fails"
+}
+
+echo "=== CONTROL (no mutation): every named test passes ==="
+run_tests "$WORK/base" control "17 19 20 21 22" \
+    "test_sitrep_direction.py -q" "test_sitrep_refresh.py -q" "test_sitrep_todo_format.py -q"
+echo "    control failing groups: $?"
+
+# mutant <name> <only> <py specs (;-separated)> <python patch expr>
+mutant() {
+    local name="$1" only="$2" specs="$3" patch="$4" tree="$WORK/$1" rc
+    rm -rf "$tree"
+    cp -a "$WORK/base" "$tree"
+    if ! python3 - "$tree" <<PYEOF
+import sys
+tree = sys.argv[1]
+def sub(rel, old, new):
+    p = tree + "/.aitask-scripts/" + rel
+    s = open(p, encoding="utf-8").read()
+    assert s.count(old) == 1, (rel, s.count(old), old[:60])
+    open(p, "w", encoding="utf-8").write(s.replace(old, new))
+$patch
+PYEOF
+    then echo "=== MUTANT $name: PATCH DID NOT APPLY ==="; return; fi
+    echo "=== MUTANT $name ==="
+    local IFS=';'
+    # shellcheck disable=SC2086
+    set -- $specs
+    unset IFS
+    run_tests "$tree" "$name" "$only" "$@"
+    rc=$?
+    if [[ $rc -gt 0 ]]; then echo "    -> KILLED ($rc failing group(s))"; else echo "    -> SURVIVED"; fi
+    rm -rf "$tree"
+}
+
+mutant unreadable_is_unknown "19" "test_sitrep_direction.py -q Verdicts" '
+sub("lib/sitrep_direction.py",
+    """    for kind, key in snap.unreadable:
+        ev.unread.append(("trail_unreadable" if kind == "trail" else "task_unreadable", key))
+""", "")'
+
+mutant baseline_status_is_unknown "19" "test_sitrep_direction.py -q Verdicts" '
+sub("lib/sitrep_direction.py",
+    """            baseline = None
+            ev.unread.append(("baseline_unreadable", ""))
+""", """            baseline = None
+""")'
+
+mutant size_limit_is_unknown "19" "test_sitrep_direction.py -q Verdicts" '
+sub("lib/sitrep_direction.py",
+    """    if snap.too_large:
+        ev.unread.append(("baseline_too_large", ""))
+""", "")'
+
+mutant unknown_keeps_all_reasons "19" "test_sitrep_direction.py -q Verdicts" '
+sub("lib/sitrep_direction.py",
+    """        pairs = ([("never_summarized", "")] if ev.never else []) + ev.unread + ev.classified
+""", """        pairs = ev.unread
+""")'
+
+mutant drift_reads_fetched_bytes "19" "test_sitrep_direction.py -q TrailValues" '
+sub("lib/sitrep_direction.py",
+    """        state, code = self._drift_facts(self.checker.root, path)
+""", """        state, code = self._drift_facts(self.checker.root, handle)
+""")'
+
+mutant next_item_in_stamp "21" "test_sitrep_todo_format.py -q DirectionMembership" '
+sub("lib/sitrep_todo.py",
+    """    if m:
+        item = store.items.get(int(m.group(1)))
+        lines.append(f"next:c{m.group(1)}@{item.rev if item is not None else \x27-\x27}")
+""", "")'
+
+mutant unchanged_verdict_skip "17" "" '
+sub("lib/sitrep_refresh.py",
+    """            elif (ln.state, ln.drift) == (ln.old_fresh, ln.old_drift):
+""", """            elif False:
+""")'
+
+mutant stamp_from_the_snapshot "21" "" '
+sub("lib/sitrep_refresh.py",
+    """            _pause("refresh:before_direction_write", var)
+""", """            _pause("refresh:before_direction_write", var)
+            _now = st.load_todo_for_read(os.path.join(root, STORE_NAME))
+            batch = "".join(
+                f"{ln.slug}|{_now.directions[ln.slug].rev}|"
+                f"{st.direction_stamp(_now, ln.slug)}|{ln.state}|{ts}|{ln.drift}" + chr(10)
+                for ln in written)
+""")'
+
+mutant interrupted_is_unknown "20" "test_sitrep_refresh.py -q DirectionStreamTests" '
+sub("lib/sitrep_refresh.py",
+    """            ln.interrupted = True
+            out.append(ln)
+        return out
+
+
+def proposal_complete""", """            ln.interrupted = True
+        return out
+
+
+def proposal_complete""")'
+
+mutant completeness_rule "22" "test_sitrep_refresh.py -q ProposalCompleteness" '
+sub("lib/sitrep_refresh.py",
+    """    complete = (rc == 0 and not interrupted and stream.open is None
+                and not stream.failed and not stream.none
+                and sorted(got) == sorted(requested))
+""", """    complete = True
+""")'
+mutant recheck_validates_the_baseline "22" "test_sitrep_direction.py -q Verdicts" '
+sub("lib/sitrep_direction.py",
+    """    status, baseline = load(store_dir, digest, slug)
+    if status != "ok":
+        return reasons([("baseline_unreadable", "")])
+    if snap.digest == digest:
+        return []
+""", """    if snap.digest == digest:
+        return []
+    status, baseline = load(store_dir, digest, slug)
+    if status != "ok":
+        return reasons([("baseline_unreadable", "")])
+""")'
+
+mutant proposed_next_item_exists "22" "" '
+sub("lib/sitrep_refresh.py",
+    """            if m and int(m.group(1)) not in store.items:
+                raise st.RequestError(f"direction {p.slug}: next {p.next} names no item")
+""", "")'
+
+mutant worker_temp_files_owned_by_parent "20" "" '
+sub("lib/sitrep_refresh.py",
+    """    tempfile.tempdir = args.out
+    os.environ["TMPDIR"] = args.out
+""", "")'
+echo "=== done ==="
+```
