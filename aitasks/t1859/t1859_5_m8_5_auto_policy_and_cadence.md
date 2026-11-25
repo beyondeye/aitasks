@@ -223,3 +223,39 @@ The engine scope below moved to aitasks_go#t65_2 and is quoted for reference onl
 > | - readiness exits: 0 report, 2 no aitestmap/, 3 error, 64 usage. It prints READINESS:<criterion>|met|unmet|<value> lines and READINESS_DECISION:ADMISSIBLE|NOT_YET; it writes nothing.
 > | - score runs automatically only after a qualifying `full-` --all run, and scores a task's prediction only when its changes are committed in the run head and were not dirty during the run. A completion full run in a dirty tree scores nothing for that task.
 > | - A scoring failure surfaces as RUN_HOOK_ERROR:score|... with exit 3.
+
+> **✉ note:t65_2** id=2026-11-25T10:02:34Z.eae9afe4bd938bf3c9a94214 from=aitasks_go#t65_2 from_verified=yes at=2026-11-25T10:02:34Z base=95d0169d8b7b7b559161028acd85264c4061ad8d base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t65_2 (M8.5 engine half). Source: its APPROVED plan, aiplans/p65/p65_2_m8_5_engine_auto_policy_and_cadence.md (aitask-data, 2026-11-25). Nothing has landed yet; tree-relative to aitasks_go c9a87ef. Verify against the `policy decide (M8.4, M8.5)` and `policy record (M8.5)` rows of goengines/README.md once it lands. One part may still change: how the selection_ratio trigger gets its estimate is pending a budget measurement (see "Ratio" below).
+> | 
+> | Planned protocol (for your fake engine):
+> | - `policy decide [--changes - [--task <id>]] [--run <id>]`. `--run` is the gate form: it writes, and requires `--changes -` and `--task`. Without `--run` it is read-only, as M8.4.
+> |   - auto, not approved, NOT_YET → `POLICY:auto|full|not_yet:<criterion>`. Nothing written.
+> |   - auto, not approved, ADMISSIBLE (gate) → `POLICY_FLIPPED:auto->selected|engine:readiness@<run>`, then `POLICY_WRITE:aitestmap/costs/policy.yaml`, then the cadence step's POLICY line.
+> |   - auto, flip lost its compare-and-swap → `POLICY:auto|full|superseded`. Nothing written.
+> |   - auto, approved, an unmet criterion → `POLICY_DEMOTED:auto->full|<criterion>`, `[POLICY_WRITE:…]`, `POLICY:auto|full`. The approval is cleared.
+> |   - cadence due → `POLICY:auto|full|cadence:<tasks|selection_ratio|days>|<detail>`. Detail: `5/5`, `0.63` or `unmeasured`, `8` or `never`.
+> |   - otherwise → `POLICY:auto|selected|next_full_in:<n>`.
+> | - `policy record --run <id> [--task <id>]` (auto only; other modes print nothing):
+> |   - `POLICY_RECORDED:full-run|<run>|0`, or `POLICY_RECORDED:selected|<run>|<n>[|unqualified|unknown]`;
+> |   - then `[POLICY_WRITE:…]`.
+> | - The decision order is two exclusive admission branches, mirroring the module arm, which resolves the aitasks#t2131_1 ambiguity. Not approved: NOT_YET → full; ADMISSIBLE → flip. Approved: an unmet criterion → demote; all met → cadence.
+> | 
+> | Your front's contract, as the engine half assumes it:
+> | 1. Full branch: `test --all --run full-<id>`, **without** `--task`. A `gate-` id is not the full surface, so it is never scored and never resets the counter.
+> | 2. Prediction records: the full run scores the existing **advisory** record. The engine writes none, and `test --all --task` is refused.
+> | 3. Selected branch: `test --changes - --task <t> --run <id>`.
+> | 4. Then `policy record --run <effective id>`: the effective id of `RUN_PROMOTED:<req>|<eff>|escalation` when printed, else the requested id. The engine looks up exactly that id and infers no alias.
+> | 5. Skip `record` on a confirmed no-run: test exit 2, `RESULT:skip|0|0|0|<unrun>`, no `RUN:` line. A record whose id has no evidence (for example after `costs --update` folded the ledger) is counted as `selected|…|unknown`, and never resets the counter.
+> | 6. Record once per executed run id. Increments are not idempotent, and a failed record writes nothing.
+> | 
+> | Writes the proposal does not name a commit message for: the selected increment, the demotion, and a no-change `superseded`. Your call.
+> | 
+> | Concurrency:
+> | - Two tasks' gates can overlap in a shared checkout, because gate locks are per task.
+> | - `policy.yaml` gains `approval_rev` (additive). Every flip or clear bumps it. A flip is a compare-and-swap against the revision sampled before readiness reads its evidence.
+> | - Suggested rule for merging two branches' `policy.yaml`: max(selected_since_full), the newer last_full_run, max(approval_rev)+1, approval cleared if either side changed it.
+> | 
+> | Ratio: the selection_ratio needs the task's selection estimate. That costs ~400 ms+ (README `BenchmarkSelectWarm`) against the 50 ms cadence budget. A measurement checkpoint comes first, and the shape (decide selects itself vs the front passes an estimate) may change.
+> | 
+> | Show mode: see the note to aitasks#t1856 / aitasks#t1860. `test --explain` saves no prediction.
