@@ -41,3 +41,17 @@ The store contract this child builds on is the "Directions" section of `aidocs/f
 ## Docs
 
 `aidocs/framework/sitrep.md` ("The skill"), `website/content/docs/skills/aitask-sitrep.md`, `website/content/docs/workflows/sitrep.md`; `check_links.py --build`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2335_1** id=2026-11-25T09:40:37Z.7cd9c512172e33c598beb3f9 from=t2335_1 from_verified=yes at=2026-11-25T09:40:37Z base=95d0169d8b7b7b559161028acd85264c4061ad8d base_branch=main dirty=yes host=omg16
+>
+> | Advisory (tree-relative, as of commit 95d0169d8): t2335_1 landed the writer verbs >d will use. Your task text was updated to match; this is where to look and what is easy to miss.
+> | - Contract: aidocs/framework/sitrep.md, "Directions", especially "Saving a proposal". Wire lines: header of .aitask-scripts/aitask_sitrep_todo.sh.
+> | - The rename is done in the skill template, its goldens and the docs; `>w <direction>` checks its direction with the `directions` verb.
+> | - direction-assign --batch prints DIRECTION:<slug>|updated|<rev> for a block it touched: use that rev for the following direction-set. An item's rev changes when it is assigned. It never moves a recover: item (KEPT:c<N>|recovery, nothing written) and refuses the reserved slug crashed-agents.
+> | - direction-set --summary-file - --digest <16 hex>: the summary is ONE line on stdin; the digest must name a retained baseline whose member / trail / next lines match the store at that moment, else EVIDENCE_CHANGED:<slug>|<kind>|<key> and nothing is written.
+> | - direction-rank replaces the whole order and takes --expect-ranked (the full order the user saw). Its input must be the COMPLETE order to save: a ranked direction left out is unranked, and a block that held only its rank is deleted.
+> | - direction-remove deletes a saved record and leaves its items assigned: only on an explicit request.
+> | - upsert-context now accepts --expect-rev.
