@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2337
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-24 22:14
-updated_at: 2026-11-25 10:23
+updated_at: 2026-11-25 12:21
 ---
 
 ## Origin
@@ -32,3 +33,8 @@ t2350 added a `Frozen` details field and found that `_field` pads the label with
 ## Suggested fix
 
 Add `"incarnation": "Incarnation"` (or a shorter label) to `ORIGIN_LABELS`. Make `_field` always leave at least one space between label and value, for example `label.ljust(_LABEL_W - 1) + " "`, which renders every existing label of 11 cells or fewer byte-identically. Then add a render test that pins the separator for the longest label.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-25T10:21:48Z status=pass attempt=1 type=human
