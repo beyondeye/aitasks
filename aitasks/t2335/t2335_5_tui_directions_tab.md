@@ -58,3 +58,13 @@ Child of the sitrep work-directions task; depends on the store, refresh, overlay
 > | - Read helpers in sitrep_todo: known_directions(store) (ranked by rank, then unranked by slug; includes directions that exist only from their members, with no block), direction_members, pending_members, unassigned_items (state open or unknown), direction_stamp.
 > | - A direction with members and no block has no record: rev shows as "-" in the `directions` verb. A block read from a not-yet-upgraded store has rev 0.
 > | - _render_situation now skips blocks with no situation text.
+
+> **✉ note:t2335_2** id=2026-11-25T17:24:38Z.4a18f2232025b24f886c43d0 from=t2335_2 from_verified=yes at=2026-11-25T17:24:38Z base=ec774ca92a8286795b5f00062c409f0cf299e2ef base_branch=main dirty=yes host=omg16
+>
+> | Advisory (tree-relative, as of commit ec774ca92): t2335_2 landed the computed freshness of directions; this is what a Directions tab can read.
+> | - Contract: aidocs/framework/sitrep.md, "The freshness verdict" (snapshot values, the verdict rules, the reason vocabulary in order).
+> | - `checked_at` of a direction means "verdict last changed", not "last scanned": an equal verdict writes nothing.
+> | - An `unknown` verdict can carry several reasons at once (for example `never_summarized` beside `trail_unreadable`). Codes that only come with `unknown`: baseline_too_large, baseline_unreadable, check_incomplete, trail_unreadable, task_unreadable (sitrep_direction.UNKNOWN_CODES; full ordered list in sitrep_direction.VOCABULARY).
+> | - A direction with members and no block has nothing stored. The refresh reports it as `no_record` (stale, never_summarized) and writes nothing, so derive its row from st.known_directions(store).
+> | - RefreshReport (sitrep_tui_model.py) gained `.directions` (payloads `<slug>|<old>-><new>|<result>|<drift>`), `.direction_counts` and `.unassigned`; `.partial` is true for an unknown or unreached direction and for a failed direction pass, and `verdict()` appends the direction part, also on the "Nothing to refresh" line.
+> | - The refresh prints `REFRESH_UNASSIGNED:<n>` on every run that read the store; st.unassigned_items(store) gives the same count in process.
