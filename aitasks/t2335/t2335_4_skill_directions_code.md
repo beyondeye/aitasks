@@ -42,6 +42,10 @@ The store contract this child builds on is the "Directions" section of `aidocs/f
 
 `aidocs/framework/sitrep.md` ("The skill"), `website/content/docs/skills/aitask-sitrep.md`, `website/content/docs/workflows/sitrep.md`; `check_links.py --build`.
 
+- Add a **Work directions and implementation trails** section to the website’s sitrep workflow. Include a short side-by-side comparison of what each groups, how each is ordered, and when to use each. A direction groups sitrep items around a current line of work, with a user-confirmed rank and a suggested next step. A trail records a recommended landing order for tasks in waves, with dependencies and evidence.
+- Explain how sitrep uses task IDs to link directions to existing trails. A direction can use several trails, and a trail can serve several directions. Show how opening a linked trail highlights the direction’s tasks and marks their unfinished predecessors while leaving the saved trail intact. Use a worked example where a task outside the direction needs to land first because it is in an earlier wave. Explain when sitrep offers to create a trail for an uncovered direction.
+- Cross-link the comparison and `website/content/docs/concepts/implementation-trails.md`.
+
 ## Inbox
 <!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
 
