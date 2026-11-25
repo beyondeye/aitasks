@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [codexcli, codeagent, codex_questions]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2281
 created_at: 2026-11-17 18:37
-updated_at: 2026-11-17 18:37
+updated_at: 2026-11-25 15:25
 ---
 
 ## Goal
