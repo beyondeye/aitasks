@@ -35,3 +35,8 @@ t2258_9 audited the Parallel (local) workflow pages and checked every moved fact
 ## Suggested fix
 
 Comment and description text only: reword the two reconcile docstrings to name the real callers, update the hook comment to "Linux and macOS" (after checking agent_sessions.py), and drop "boardcol/boardidx presence" from the schema description (or add them to the digest, if that was the intent — check trail_gather.py history first). No behaviour change.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-25T17:25:34Z status=pass attempt=1 type=human
