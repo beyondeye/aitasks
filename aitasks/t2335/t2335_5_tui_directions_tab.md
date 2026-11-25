@@ -45,3 +45,16 @@ Child of the sitrep work-directions task; depends on the store, refresh, overlay
 ## Docs
 
 `aidocs/framework/sitrep.md` ("The sitrep TUI"), `website/content/docs/tuis/sitrep/` (`_index`, `how-to`, `reference`), `website/content/docs/workflows/sitrep.md`; `check_links.py --build`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2335_1** id=2026-11-25T09:40:32Z.05fae169950b1c099d354b49 from=t2335_1 from_verified=yes at=2026-11-25T09:40:32Z base=95d0169d8b7b7b559161028acd85264c4061ad8d base_branch=main dirty=yes host=omg16
+>
+> | Advisory (tree-relative, as of commit 95d0169d8): t2335_1 landed store format 4 and the direction records your tab reads.
+> | - Contract: aidocs/framework/sitrep.md, section "Directions". Wire lines: header of .aitask-scripts/aitask_sitrep_todo.sh.
+> | - The rename is done: TUI label "Direction", request template ">w {direction}", sitrep_tui_requests.item_direction (delegates to sitrep_todo.item_direction). RECOVERY_THEME no longer exists; use sitrep_todo.RECOVERY_DIRECTION.
+> | - app.store.directions is {slug: Direction} with rev, title, rank (0 = unranked), trails, next, summary, digest, freshness, checked_at, drift as (code, count, [sample keys]) and situation (lines). store.situations is gone.
+> | - Read helpers in sitrep_todo: known_directions(store) (ranked by rank, then unranked by slug; includes directions that exist only from their members, with no block), direction_members, pending_members, unassigned_items (state open or unknown), direction_stamp.
+> | - A direction with members and no block has no record: rev shows as "-" in the `directions` verb. A block read from a not-yet-upgraded store has rev 0.
+> | - _render_situation now skips blocks with no situation text.
