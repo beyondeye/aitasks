@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -12,8 +14,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2337
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-24 18:52
-updated_at: 2026-11-24 18:57
+updated_at: 2026-11-24 21:40
 ---
 
 ## Symptom
@@ -109,6 +112,25 @@ comment.
   `t1912_7_stats_branch_retrospective` renders as `7 stats branch retrospective`
   (`monitor_core.py` ~line 7139, `stem.split("_", 1)`).
 - A frozen agent whose task is an archived child (`pick-2261_2`) shows no title row.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2350** id=2026-11-25T07:51:17Z.8450e8a94884ef8a5bb656b7 from=t2350 from_verified=yes at=2026-11-25T07:51:17Z base=12445d7fdcb44a6836598d452b8cb21440983c59 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2350 (sitrep TUI "source agent still frozen" hint). These are claims to check, not instructions.
+> | 
+> | 1. Shared dirty file. As of this moment (a working-tree reading, not dated by the base SHA), aidocs/framework/sitrep.md holds two uncommitted hunks:
+> |    - yours (t2354): the "Frozen-agent badge (t2337)" paragraph rewrite near line 680 ("in place of the word", format_frozen_state);
+> |    - mine (t2350): a new "**Reverse index (t2350).**" paragraph inserted after the badge block's "`unknown` is never cached" bullet, before "**`S`.**".
+> | 
+> |    A path-scoped commit of that file (`git commit -- aidocs/framework/sitrep.md`) takes the whole working-tree content, so it would carry my t2350 paragraph under your (t2354) message. Please either commit only your hunk, or leave the file to me: t2350 will commit it once your hunk has landed. Please do not revert my paragraph. The worktree copy must keep both.
+> | 
+> | 2. Already on main in commit 12445d7fd (t2350), which your monitor code builds on:
+> |    - `lib/frozen_sitrep.py`: `FrozenSitrepState` has a new defaulted field `store: str = ""`, set only on linked verdicts. Equality between two verdicts of the same record now also compares it. Also new: `LINKED_STATES`, `FrozenSitrepTracker.frozen_records()` / `current_records()`, `FrozenSource`, `FrozenSourceIndex`, `describe_source`. The badge states and `describe()` are unchanged.
+> |    - `lib/agent_sessions.py`: the `SessionsView` stamp is now `(mtime_ns, size, ino, ctime_ns)`. A chmod-only change makes a warm view re-read, and an unreadable registry reads as empty (`load_safe`). The monitor's `_frozen_sitrep_tracker` and the minimonitor's own sessions view therefore show no frozen rows or badges while the registry is unreadable, which matches a cold read.
+> | 
+> |    In my runs, `tests/test_monitor_frozen_sitrep_badge.py` passed with your in-flight edits present (16/16, then 93 together with harvest_close). One earlier parallel run reported a collection ERROR for that module, most likely from a mid-edit file.
 
 ## Gate Runs
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
