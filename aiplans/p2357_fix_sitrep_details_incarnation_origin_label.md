@@ -150,3 +150,40 @@ If R fails, nothing is edited and the task stops as a deferred approved plan.)
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** As planned. `ORIGIN_LABELS["incarnation"] = "Episode"`
+  (`sitrep_tui_model.py`, with the comment merged into the existing one), and
+  `_field` now pads to `_LABEL_W - 1` plus one space (`sitrep_tui_app.py`).
+  New `tests/test_sitrep_tui_field_label.py` has 6 tests: key/label parity,
+  column fit, the separator for 12/13/20-cell labels, byte-identity for labels
+  of 11 cells or fewer, and no padding without a value. The e2e test
+  `TabTests.test_a_recovery_items_origin_shows_its_episode` is in
+  `tests/test_sitrep_tui_app.py`. The docs Origin list now includes Episode.
+- **Readiness R:** passed at the Checkpoint and again after the Step 7
+  ownership guard. t2335_1 was archived (its work landed in `95d0169d8`), and
+  every path was clean vs HEAD and in the index. The last-accepted-state chain
+  (sha256 + `HEAD:<P>` + index, checked before each write) never tripped. Its
+  failing arms were self-tested first (`CHAIN_FOREIGN_WRITE`,
+  `CHAIN_HEAD_MOVED`).
+- **Red proof (pre-fix code, my two source hunks temporarily reverted):**
+  - `tests.test_sitrep_tui_field_label`: `FAILED (failures=2, errors=1)`.
+    `test_every_accepted_origin_key_has_a_label` FAIL (the set is missing
+    `incarnation`); `test_incarnation_reads_as_episode` ERROR (KeyError);
+    `test_a_label_filling_the_column_keeps_a_space` FAIL:
+    `'  incarnation0123456789ab' != '  incarnation 0123456789ab'`.
+  - `TabTests.test_a_recovery_items_origin_shows_its_episode`: FAIL. The
+    rendered body held `Origin\n  Task      t30\n  incarnation0123456789ab`,
+    which is the defect itself.
+- **Verification (fixed code):** `python3 -m unittest
+  tests.test_sitrep_tui_field_label tests.test_sitrep_tui_app` passes (96
+  tests). `tests/test_sitrep_tui_frozen_source.py` passes under pytest (19).
+  Under plain unittest it only fails to import its sibling helper module, which
+  is a loader-path issue, not this change. `website/check_links.py --build`:
+  `SWEEP: PASSED`.
+- **Deviations from plan:** none.
+- **Issues encountered:** none beyond the frozen_source runner note above.
+- **Key decisions:** the label is "Episode" (9 cells), not "Incarnation" (13
+  cells), so the value column stays aligned. The aidocs call the concept the
+  "episode key".
+- **Upstream defects identified:** None
