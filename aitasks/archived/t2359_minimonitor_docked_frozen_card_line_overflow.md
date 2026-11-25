@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [aitask_monitormini, frozen_agents, tui]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2337
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-25 09:55
-updated_at: 2026-11-25 14:01
+updated_at: 2026-11-25 15:44
+completed_at: 2026-11-25 15:44
 ---
 
 ## Origin
@@ -54,3 +55,14 @@ Budget the line like the list rows do: shorten the stamp (e.g. `HH:MM` or `MM-DD
 > **✅ gate:plan_approved** run=2026-11-25T12:01:45Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-25T13:30:39Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-25T13:44:29Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:e2bb44a38ff4418d
+
+> **✅ gate:risk_evaluated** run=2026-11-25T13:44:29Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2359/risk_evaluated_2026-11-25T13:44:29Z-risk_evaluated-a1.log`
