@@ -195,3 +195,86 @@ of the task workflow.
 - A user who learned "frozen + badge" may at first read a badged row as not
   frozen. The cyan `F` and the docs updated in this change cover that
   · severity: low · → mitigation: none needed
+
+## Final Implementation Notes
+
+- **Actual work done:** Steps 1-5 as planned. `monitor_shared.py` gained
+  `format_frozen_state` / `frozen_state_width` (the one width calculation) on
+  top of a private `_frozen_sitrep_badge_markup`; `frozen_sitrep_badge_width`
+  was removed. Both TUIs' frozen list rows render `format_frozen_state`.
+  `format_frozen_sitrep_badge` remains only for the docked card's suffix.
+- **Deviations from plan:** none in code. Docs: `freeze-and-restore-agents.md`,
+  `workflows/sitrep.md`, `tuis/monitor/how-to.md` (two passages),
+  `tuis/minimonitor/how-to.md` (two passages, plus a badged example row) and
+  `aidocs/framework/sitrep.md` (badge paragraph; also names the docked card's
+  different shape).
+- **Issues encountered:** `aidocs/framework/sitrep.md` carried in-flight
+  t2350's uncommitted hunk (~line 729), so only this task's hunk (~line 680)
+  is staged for this commit.
+- **Key decisions:** the badge replaces the word in both TUIs (user's choice),
+  through one shared helper; `frozen_sitrep_badge_width` was retired so there is
+  one width calculation. The code commit is `33ffb187c`, built from a private
+  index and landed with a CAS `update-ref` (see Change Requests 1-2).
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/minimonitor_app.py:3359-3367` — the docked own-agent
+    card's second line `  frozen <YYYY-MM-DDTHH:MM:SSZ> <badge>` is 2+6+1+20+17 =
+    46 cells against 36 at the default width for `drop ok, triaged`, so it wraps,
+    and `_OWN_PANEL_MAX_ROWS` reserves one row for it (pre-existing from t2337).
+- **Pre-fix control:** the new `FrozenBadgeNameFloorTests` was written first
+  and run against the unchanged code: 24 failures (all badged states fail the
+  no-`frozen` check; `triage_open`/`triaged`/`closed`/`review_pending` cut
+  `pick-2261_2` and `pick-1351_12`). The prefix test passed there as well, as
+  expected: it guards the `F` against a future regression.
+- **Verification:** the 14 test files that render frozen rows all pass,
+  including `test_minimonitor_row_budget.py` (19) and
+  `test_monitor_frozen_sitrep_badge.py` (16). `check_links.py --build` passes.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-24 20:10)
+- **Requested by user:** `aidocs/framework/sitrep.md` holds this task's badge
+  paragraph and in-flight t2350's uncommitted reverse-index hunk. Staging only
+  this task's hunk is not enough, because Step 8's `git commit -- <paths>`
+  commits a tracked path's working-tree content. Isolate the reviewed patch, and
+  check that the commit leaves out the t2350 hunk.
+- **Changes made:** no source change. The commit is built from a private index
+  (`GIT_INDEX_FILE` in the session scratchpad), seeded with `git read-tree
+  <base>`. The 9 files with only t2354 edits are added from the working tree.
+  The shared file is added as `<base>`'s blob with only this task's paragraph
+  replaced (`git hash-object -w` + `update-index --cacheinfo`). The commit is
+  made with `git commit-tree` and lands through a compare-and-swap
+  `git update-ref refs/heads/main <new> <base>`, so it cannot overwrite a commit
+  another session pushed meanwhile. The repo has no git hooks, so commit-tree
+  skips nothing. The real index entries for exactly these paths are then
+  refreshed (superseded by Change Request 2: a guarded `read-tree`, not a
+  path-scoped reset). Checked before the
+  commit: the tree diff against base is exactly the 10 t2354 files; the t2350
+  marker `Reverse index (t2350)` occurs 0 times in the tree's copy, and
+  `format_frozen_state` occurs once; the 6 key frozen-row test files pass when
+  run against the extracted tree alone (`git archive` + `python3 -I`).
+- **Files affected:** none beyond the reviewed set (commit mechanics only).
+
+### Change Request 2 (2026-11-24 20:35)
+- **Requested by user:** (1) After `update-ref`, the real-index refresh must
+  keep any staging that arrived after the empty-index check. A path-scoped
+  `reset` silently replaces a newer staged entry, so use a guarded update and
+  handle a refusal without overwriting staged work. (2)
+  `website/content/docs/workflows/sitrep.md:41` reads as an unconditional
+  replacement and leaves out `sitrep ?`. Say what readers see while the
+  verdict is pending or could not be read.
+- **Changes made:** (1) The refresh is `git read-tree -i -m <base> <new>`.
+  Checked in a scratch repo: an unrelated staged path is kept and my paths
+  move to `<new>`; a staged entry for one of my paths makes git refuse
+  (exit 128) and keeps the staged entry. A refusal is reported to the user and
+  never forced. (2) The summary now says the row reads `frozen` until the
+  state is read, then shows the state in place of the word, and `sitrep ?`
+  when the state could not be read (never safe). The link check passes.
+- **Also:** in-flight t2350 committed `12445d7` meanwhile, so the guard
+  `HEAD == base` failed before anything was written. t2350 committed without
+  its `aidocs/framework/sitrep.md` hunk, which is still uncommitted. The tree is
+  rebuilt on `12445d7` by `build_tree.sh` (scratchpad), which re-derives the
+  shared file from the new base's blob. Checked: 10 changed paths, t2350 hunk
+  0, t2354 hunk 1, every file equals the working tree. 8 test files pass
+  against the extracted tree alone, including t2350's
+  `test_frozen_sitrep.py` and `test_sitrep_tui_frozen_source.py`.
+- **Files affected:** `website/content/docs/workflows/sitrep.md`.
