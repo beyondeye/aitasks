@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: medium
 depends: [t2335_1]
 issue_type: feature
@@ -64,3 +66,5 @@ The store contract this child builds on is the "Directions" section of `aidocs/f
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-25T13:44:18Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-25T17:22:04Z status=pass attempt=1 type=human
