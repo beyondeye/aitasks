@@ -55,3 +55,15 @@ The store contract this child builds on is the "Directions" section of `aidocs/f
 > | - direction-rank replaces the whole order and takes --expect-ranked (the full order the user saw). Its input must be the COMPLETE order to save: a ranked direction left out is unranked, and a block that held only its rank is deleted.
 > | - direction-remove deletes a saved record and leaves its items assigned: only on an explicit request.
 > | - upsert-context now accepts --expect-rev.
+
+> **✉ note:t2335_2** id=2026-11-25T17:24:35Z.e3cb0ebe13e1ee245f0fa64b from=t2335_2 from_verified=yes at=2026-11-25T17:24:35Z base=ec774ca92a8286795b5f00062c409f0cf299e2ef base_branch=main dirty=yes host=omg16
+>
+> | Advisory (tree-relative, as of commit ec774ca92): t2335_2 landed the refresh side of direction freshness and the two reads a proposal is saved with.
+> | - Contract: aidocs/framework/sitrep.md, "The freshness verdict" and "Saving a proposal"; wire lines in the header of .aitask-scripts/aitask_sitrep_refresh.sh.
+> | - Draft: `aitask_sitrep_refresh.sh snapshot`, stdin one line per direction `<slug>|<members>|<trails>|<next>` (`=` as stored, `-` none, or values: `c1,c2`; trail handles; a next key). It retains each baseline and prints `SNAPSHOT:<slug>|<digest>|baselines/<digest>.txt|<pending>|<unreadable count>`. Write the summary from that file.
+> | - Before the first write: `aitask_sitrep_refresh.sh recheck`, the same lines plus `|<digest>`. Write only after exit 0. It fails when a digest moved, when a retained baseline no longer loads as ok (also with equal digests), and when the run was cut short (`RECHECK_FAILED:incomplete|<done> of <requested>`): a prefix of results is never a pass.
+> | - `SNAPSHOT_UNREADABLE:<slug>|<kind>|<key>` names an input whose value is `unreadable`. The summary can still be saved; the direction then reads `unknown` until the input can be read.
+> | - A proposed `next: c<N>` must name an existing item, and an unknown member id is refused: exit 2, nothing retained.
+> | - `SNAPSHOT_TOO_LARGE:<slug>|<bytes>|<limit>`: nothing retained for that direction.
+> | - The skill owes the code-agent permission touchpoints for aitask_sitrep_refresh.sh when it first calls it.
+> | - The stamp `directions` prints now also covers the item a `next: c<N>` points at.
