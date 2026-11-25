@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2295
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-17 22:59
-updated_at: 2026-11-24 21:53
+updated_at: 2026-11-25 10:22
 ---
 
 ## Origin
@@ -41,3 +42,8 @@ Local diagnostic logs from that run, if still available: `/tmp/t2295-evidence/py
 - Reproduce and explain both failures, distinguishing incorrect expectations from an actual styling regression.
 - Correct the responsible code or fixtures without weakening the intended resolved-color and row-state assertions.
 - Run the relevant concern-picker tests and report the result.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-25T08:22:28Z status=pass attempt=1 type=human
