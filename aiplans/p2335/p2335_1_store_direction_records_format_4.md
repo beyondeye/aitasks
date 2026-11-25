@@ -364,3 +364,99 @@ The binding text is in the two sibling task files (step 9) and the doc section; 
 ### Planned mitigations
 - timing: post-phase | name: real_store_upgrade_dry_run | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: a render/parse mismatch making real stores unreadable | desc: upgrade a scratch copy of the live store with the new writer and compare parsed items, contexts and situation text across the migration
 - timing: post-phase | name: stale_process_fail_closed_check | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: older readers and writers reaching an upgraded store | desc: run the base commit's reader and writer verbs (incl. both restore forms) against upgraded stores; each must exit 4 and change no byte
+
+## Final Implementation Notes
+
+- **Actual work done:** All nine plan steps and both post-phase checks.
+  - `lib/sitrep_todo.py`: format 4 (the `Direction` record, the `direction` context key, the heading rev), the read helpers (`item_direction`, `direction_members`, `pending_members`, `known_directions`, `unassigned_items`, `direction_stamp`), the baseline grammar (`parse_baseline`, `load_baseline`, `baseline_status`, `baseline_differences`), `aggregate_drift`, `NewerFormatError`, the migrated backup in `_commit_todo`, and the ops `directions`, `direction-assign-batch`, `direction-set`, `direction-rank`, `direction-freshness-batch`, `direction-remove`, `retain-baseline`, `newer-format`; `--expect-rev` on `upsert-context`.
+  - `aitask_sitrep_todo.sh`: the header contract, `mutate()` installs the migrated backup and keeps the pre-upgrade bytes under `recovered/`, `restore` refuses a newer-format file, the new verbs.
+  - TUI: `sitrep_tui_requests.item_direction` delegates to the store, the details label is `Direction`, the situation pane shows the text of blocks that have text.
+  - Skill template and its three goldens, `aidocs/framework/sitrep.md` (new "Directions" section), three website pages: "theme" and "work area" became "direction".
+  - Fixtures: `store/` is format 4 (built by `tests/fixtures/sitrep/build_store.sh`, deterministic), `store_v3/` is the previous `store/`.
+  - Tests: `tests/test_sitrep_todo.sh` 367 to 660 assertions, `tests/test_sitrep_todo_format.py` 50 to 83 tests, one new TUI test.
+  - Sibling task texts t2335_2 and t2335_4 corrected (step 9).
+- **Deviations from plan:**
+  - `baseline_status` has a seventh status, `unreadable`, for a file that exists and cannot be read.
+  - `retain-baseline` over a file at the same name whose bytes do not hash to that name replaces it with the right bytes. The plan did not say what a re-retain does to a damaged baseline; without this a damaged file could never be repaired.
+  - The context size limit is measured in the format-1 spelling of the entry (`theme:`), so an entry that fitted before the upgrade still fits after the key gets four characters longer. Not in the plan; without it a store with one entry at the limit could never be upgraded.
+  - Membership resets are done in one place, `_commit_todo`, by comparing the membership as loaded with the membership being written, not per verb. `recovery-apply` creating a recovery item therefore also resets a `crashed-agents` block.
+  - `add` and `upsert-context` reset freshness silently; only `direction-assign` prints the `DIRECTION:<slug>|updated|<rev>` lines, because the other two have existing consumers of their output.
+  - The fixture build commands are a script in the repository (`tests/fixtures/sitrep/build_store.sh`), not only notes here.
+  - The website reference page also got one bullet on the format change (older checkouts, restart), beyond the planned wording swap.
+  - The `<open>` field of the `DIRECTION:` line is named `<pending>` in the wrapper header: it counts members in state `open` or `unknown`.
+- **Issues encountered:**
+  - **The live store was upgraded during implementation.** This task ran on the current branch in the user's checkout. About two minutes after the new core was installed, the monitor's maintenance pass ran it and upgraded `.aitask-sitrep/todo.md` to format 4 (pre-upgrade bytes kept as `recovered/todo.md.format3.20261125T080854Z.3053395`). The store verified afterwards, with all 194 items present. A store change by uncommitted code was not foreseen in the plan. For a later format bump, implement in a worktree or point `AITASK_SITREP_DIR` handling away from the live store first.
+  - Two existing tests used behaviour that changed on purpose: a `- theme:` context line (now `- direction:`), and `format=9` as a stand-in for a damaged `qa.md` (now read as a newer format and refused by `restore`; the test corrupts with `format=x` and a new assertion covers the refusal).
+  - Test 3 pinned item revs 4; a `situation` write now takes a rev for its block, so they are 5.
+  - `$( )` strips the final newline of a snapshot; the test helper `retain_snapshot` puts it back.
+- **Key decisions:**
+  - The rev of a block read from formats 1-3 is 0; `--expect-rev absent` matches such a block, and `directions` prints `-` for it.
+  - On the upgrading write, an unchanged block gets the same rev in the live file and in the migrated backup; a changed block gets two different ones.
+  - `direction-rank` checks unknown slugs (exit 2) before the `--expect-ranked` comparison.
+  - `direction-freshness` checks the baseline for `current` and `stale` only on records that have a digest; `stale` on a record with none (never summarised) applies.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - The contract is `aidocs/framework/sitrep.md`, "Directions". The wire lines are in the header of `aitask_sitrep_todo.sh`.
+  - t2335_2: take the stamp (`st.direction_stamp`) from a snapshot loaded AFTER the pass's item batch is written, because item refresh bumps member revs and so moves the stamp. On a store not yet upgraded every block has rev 0 and a batch line cannot match; the first changing write upgrades it. Build reasons with `st.aggregate_drift`. The snapshot must end with a newline and list pending members only.
+  - t2335_4: `direction-assign --batch` prints `DIRECTION:<slug>|updated|<rev>` for a block it touched; use that rev for the following `direction-set`. An item's rev changes when it is assigned.
+  - t2335_5: `app.store.directions[slug]` is a `Direction` (`rank`, `title`, `freshness`, `drift` as `(code, count, [keys])`, `situation`). `st.known_directions(store)` gives rank order. `RECOVERY_THEME` is gone; use `st.RECOVERY_DIRECTION`.
+  - Extending the fixture: edit and re-run `tests/fixtures/sitrep/build_store.sh <writer> tests/fixtures/sitrep/store_v3 tests/fixtures/sitrep/store`, then regenerate the four `expected_*.txt` files with `list --machine`, `context c1`, `check-sources` and `directions`.
+
+### Post-phase evidence: real_store_upgrade_dry_run
+
+Run on 2026-11-25 against a scratch copy. The live store had already been upgraded (see above), so the copy was built from its preserved format-3 file plus the live `qa.md`, counters, `store.init` and `sources/`.
+
+```
+source: .aitask-sitrep/recovered/todo.md.format3.20261125T080854Z.3053395 (<!-- aitask-sitrep todo format=3 -->)
+$ aitask_sitrep_todo.sh read | cmp - original.md      -> READ_BEFORE: byte-identical to the format-3 file
+$ aitask_sitrep_todo.sh list | wc -l                  -> 194
+$ printf 'Dry run of the format upgrade.\n' | aitask_sitrep_todo.sh situation dryrun
+SITUATION:dryrun|set
+$ sitrep_todo.py verify todo store/todo.md            -> VERIFIED:todo
+$ sitrep_todo.py verify todo store/todo.md.bak        -> VERIFIED:todo
+line 2 of both                                        -> <!-- aitask-sitrep todo format=4 -->
+$ list before vs after                                -> LIST: identical before and after
+$ ls store/recovered                                  -> todo.md.format3.20261125T082145Z.3621976 (byte-identical to original.md)
+$ assert_same_content(original, live, added_directions=("dryrun",)); assert_same_content(original, backup)
+MIGRATION_CHECK: ok -- 194 items, 194 contexts, 0 direction keys, 0 situation blocks in the original; live has ['dryrun'], backup has []
+$ diff <(sed 2d original.md) <(sed 2d store/todo.md)  -> only the new "#### dryrun | rev=1330274" block (heading, nine header lines, the text, a blank line)
+```
+
+The real store has no situation blocks and no direction keys, so it does not exercise their migration. Those cases are covered by `Migration.test_every_older_fixture_keeps_its_content` over `store_v1`, `store_v2` and `store_v3`, which asserts that each fixture has both.
+
+### Post-phase evidence: stale_process_fail_closed_check
+
+The base commit's writer and `lib/` were extracted with `git archive 72bdd15db .aitask-scripts/aitask_sitrep_todo.sh .aitask-scripts/lib`. Stores `one` and `two` are `store_v3` after one and after two changing writes by the new writer; both have a format-4 live file and a format-4 backup.
+
+```
+== store 'one' and store 'two' (identical results)
+OLD READER in process: load_todo_for_read -> FormatError "unsupported or missing format header '<!-- aitask-sitrep todo format=4 -->'"
+old writer: list                         exit 4  files unchanged
+old writer: add --kind task --title x    exit 4  files unchanged
+old writer: situation sitrep             exit 4  files unchanged
+old writer: set-state --batch            exit 4  files unchanged
+old writer: restore todo                 exit 4  files unchanged  | Error: cannot restore todo.md: its backup is missing or unreadable
+old writer: restore todo --if-damaged    exit 4  files unchanged  | Error: cannot restore todo.md: its backup is missing or unreadable
+new writer: restore todo --if-damaged -> RESTORE_NOT_NEEDED:todo.md
+== negative control: format-4 live file + a hand-placed format-3 backup
+old writer: restore todo --if-damaged    exit 0 | RESTORED:todo.md|recovered/todo.md.20261125T082204Z.3643392 | live is now format=3
+```
+
+"files unchanged" compares sha256 of `todo.md`, `todo.md.bak`, `next_id`, `next_rev`, `qa.md` and the number of files in `recovered/` before and after each verb. The negative control shows the rollback the migrated backup prevents.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-25 10:50)
+- **Requested by user:** four review concerns, each confirmed against the code. (1) A format-5 file with CR LF line endings was still treated as damaged and rolled back by both `restore` forms. (2) `direction-set --next core#42` crashed with a ValueError: the item-id check used a `c` prefix, not the `c<N>` grammar. (3) The t2335_4 text equated a direction dropped from a proposal with `direction-remove`, which deletes the saved summary and leaves items assigned. (4) `directions` rebuilt the membership map inside every `direction_stamp` call.
+- **Changes made:**
+  - `newer_format` normalizes CR LF and CR and ignores line 1; `parse_todo` asks it first, before the final-newline and banner checks; the qa branch of `newer-format` does the same.
+  - The `--next` item check matches `^c[1-9][0-9]*$` before converting.
+  - t2335_4 and the "Saving a proposal" doc section: a direction left out of a proposal is not written; `direction-remove` only on an explicit request.
+  - `direction_stamp(store, slug, members=None)`; `directions` and `direction-freshness --batch` pass the member list they already have.
+  - Tests: both restore forms preserve a CRLF newer-format `todo.md` and `qa.md` byte for byte; unit cases for CR LF, CR and a reworded banner; `--next core#42` and `--next c1`; the stamp with a given member list. `tests/test_sitrep_todo.sh` is now 675 assertions.
+- **Files affected:** `.aitask-scripts/lib/sitrep_todo.py`, `tests/test_sitrep_todo.sh`, `tests/test_sitrep_todo_format.py`, `aidocs/framework/sitrep.md`, `aitasks/t2335/t2335_4_skill_directions_code.md`
+
+### Change Request 2 (2026-11-25 11:05)
+- **Requested by user:** "a dropped direction stays untouched" was not true for its rank: `direction-rank` replaces the whole order, so a proposal that names only the directions it edits unranks the others (and deletes a rank-only block). Confirmed. The writer keeps its full-replacement contract; the guide and the sibling task must tell dropped edits apart from a change to the saved order.
+- **Changes made:** the "Saving a proposal" section of `aidocs/framework/sitrep.md`, the t2335_4 task text and the `direction-rank` entry of the wrapper header now say the rank input is always the complete order to save (every currently ranked direction in its place, plus the new ones), and a ranked direction is left out only on an explicit request to unrank it. No code change. The existing test "--clear unranks everything (c held nothing else: its block is gone)" already pins the `UNRANKED:<slug>|-` behaviour.
+- **Files affected:** `aidocs/framework/sitrep.md`, `.aitask-scripts/aitask_sitrep_todo.sh` (header comment), `aitasks/t2335/t2335_4_skill_directions_code.md`
