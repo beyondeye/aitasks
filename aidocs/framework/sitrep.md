@@ -733,6 +733,37 @@ the store, so nothing is marked by hand:
   not yet written) can clear with no change to the versions a cache hit
   rechecks.
 
+**Reverse index (t2350).** The sitrep TUI asks the same question from the other
+side: a question item's details carry a `Frozen` line per frozen record linked
+to it. It is display only and names no pane.
+
+- **Source.** `frozen_sitrep.FrozenSourceIndex.scan(store_dir)` runs the
+  tracker above over `SessionsView.frozen()` and inverts the verdicts in
+  `LINKED_STATES` (`triage_open`, `triaged`, `closed`, `review_pending`). It
+  keeps a record only when its receipt's `store=` (carried on the verdict as
+  `FrozenSitrepState.store`) has the TUI store's realpath, and when the verdict
+  is bound to the record's current instance. Every other verdict, another store
+  and any exception give no line: a missing hint is the fail-closed direction.
+- **Registry stamp.** `SessionsView` re-reads on a ctime change too, because a
+  `chmod` moves ctime only. Without that, a warm view would keep serving an
+  unreadable registry, and the hint would outlive its evidence. `load_safe`
+  turns the unreadable store into an empty one.
+- **Scan only while shown.** The TUI's `sitrep-frozen` thread worker runs one
+  scan at a time (a trigger during a scan reruns it once). The details
+  screen's `on_screen_resume` is the only request path, because Textual also
+  posts `ScreenResume` on the initial push. The 5 s interval rescans only while
+  such a screen is active, and store reloads never scan.
+- **Freshness.** Each activation withholds the shown line and sets a threshold:
+  the sequence number of the next scan to start. A result counts only from a
+  scan started at or after it. So neither a map from before the open nor one
+  from before the screen was covered (when polling paused) can reappear.
+  Delivery goes only to the active screen that opted in (`wants_frozen_sources`).
+- **Drop routes.** The line names `h` (Harvest) on the agent's card in the
+  monitor and, for a record whose card is missing (e.g. after a tmux restart),
+  `ait frozenagent` list mode → Enter → `k` (Drop). List mode does not stamp its
+  pane. It never names `ait frozenagent --record <id>`, which stamps its own
+  pane as the record's stand-in.
+
 **`S`.** The selected agent's root and session, else the app's own; the switcher
 uses its selected session. Result lines map to a toast; nothing is claimed for
 `SITREP_FOCUS_FAILED` or a refusal.
