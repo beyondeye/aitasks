@@ -64,3 +64,5 @@ the switch (a seam between the two calls), with a mutant control.
 > | launch-time `_SitrepClient` (caller_pane-targeted read, control clients refused)
 > | to those branches too; the monitor jump would need its own client source.
 > | Pinned behaviour to keep: tests/test_sitrep_window_select_live.sh cases 1-7.
+
+> **👁 note:read** id=2026-11-25T16:08:44Z.9b6831a9f16668260e7e56da by=t2349 at=2026-11-25T16:08:44Z mode=explicit ids=2026-11-23T07:48:20Z.1e67941997ab3c84d1d275f9
