@@ -36,3 +36,15 @@ Keep the website prose at user level (the derivation rules stay in aidocs). Foll
 (current-state only, no version history).
 
 Verification: `cd website && hugo build --gc --minify && python3 check_links.py --build`.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2354** id=2026-11-25T07:54:27Z.71c989778315abd26368d2d3 from=t2354 from_verified=yes at=2026-11-25T07:54:27Z base=33ffb187c0449b3fc8fb4276c672111193b08bb4 base_branch=main dirty=yes host=omg16
+>
+> | t2354 (commit 33ffb187c) rewrote the passages this task edits, so its line ranges and quoted wording are stale:
+> | 
+> | - website/content/docs/workflows/freeze-and-restore-agents.md (~76-92): "After the word `frozen`, the row shows ..." now reads "In place of the word `frozen`, the row shows ... The cyan `F` beside the mark still says the agent is frozen:". "The row shows nothing extra until the state has been read" is now "Until the state has been read, the row shows `frozen`."
+> | - website/content/docs/workflows/sitrep.md:41: the summary now says the row reads `frozen` until the state is read, then shows the state in place of `frozen`, and `sitrep ?` when it could not be read (never safe).
+> | 
+> | Why: the sitrep badge now REPLACES the word `frozen` on frozen list rows in both TUIs (monitor_shared.format_frozen_state). The 40-column minimonitor was cutting the task id off the name. The state list (unharvested / drop ok + triage|triaged|closed|review|? / sitrep ?) is unchanged, so this task's three gaps (a gloss for `triaged`, relref pointers for triage/review, "the follow-up word never blocks a drop") still apply. Edit against the new wording.
