@@ -1,4 +1,5 @@
 agent_chooser
+agent_command_dialog
 agent_keys
 agent_marks
 agentcrew
