@@ -15,6 +15,7 @@ Run: bash tests/run_all_python_tests.sh
 from __future__ import annotations
 
 import asyncio
+import os
 import re
 import sys
 import unittest
@@ -3638,6 +3639,17 @@ class ConcernMagnitudeRampTests(unittest.TestCase):
     ARROWS = (monitor_shared._IMPROVE_ARROW, monitor_shared._WORSEN_ARROW)
     MAGNITUDES = ("high", "medium", "low", "")
 
+    def setUp(self):
+        # Textual reads NO_COLOR when an App is constructed and then installs a
+        # colour-stripping line filter (Monochrome turns #ff0000 into #363636).
+        # The hexes below pin the colour pipeline, so they must not depend on
+        # the environment that launched the test run (t2331). patch.dict with
+        # no values snapshots os.environ and restores it on cleanup.
+        patcher = unittest.mock.patch.dict(os.environ)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        os.environ.pop("NO_COLOR", None)
+
     def _run(self, coro):
         return asyncio.run(coro)
 
@@ -3684,6 +3696,7 @@ class ConcernMagnitudeRampTests(unittest.TestCase):
     #: as Textual's #FF0000 / #FFFF00, while `rich.style.Style.parse` reports
     #: #800000 / #808000 for the same names in isolation. An assertion written
     #: against the bare-Rich values would pin a colour no user ever sees.
+    #: The literals assume no NO_COLOR filter is active, which `setUp` ensures.
     RESOLVED = {
         "high": ("#ff0000", True),
         "medium": ("#ffff00", True),
