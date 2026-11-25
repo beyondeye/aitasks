@@ -12,8 +12,9 @@ active_gates_profile: fast
 active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2281
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-17 18:37
-updated_at: 2026-11-25 15:25
+updated_at: 2026-11-25 17:46
 ---
 
 ## Goal
@@ -129,3 +130,8 @@ That keeps one ask and one receipt.
 > | - The answer record now carries `label`, `match` (exact|normalized|fuzzy) and, for fuzzy, `via`/`edits`; `Store.submit` returns `resolved`. An Other answer will need its own `match`/record shape decision.
 
 > **👁 note:read** id=2026-11-25T13:24:50Z.940f2f8e779138ef48fe4b6a by=t2329 at=2026-11-25T13:24:50Z mode=explicit ids=2026-11-17T20:02:17Z.d5118c497a11c6ed3e88ec98,2026-11-19T23:36:19Z.7c73edb3f4f21b296033bf1d
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-25T15:46:35Z status=pass attempt=1 type=human
