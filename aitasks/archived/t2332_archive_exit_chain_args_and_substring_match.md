@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [bash_scripts, shell]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -16,7 +16,8 @@ anchor: 2290
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-17 23:01
-updated_at: 2026-11-25 17:49
+updated_at: 2026-11-25 18:36
+completed_at: 2026-11-25 18:36
 ---
 
 ## Origin
@@ -74,3 +75,14 @@ the M-lit LEFT assertion once the sweep survives quoted data.
 > **✅ gate:plan_approved** run=2026-11-25T15:49:39Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-25T16:16:14Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-25T16:36:10Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:da7594c801a5148a
+
+> **✅ gate:risk_evaluated** run=2026-11-25T16:36:10Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2332/risk_evaluated_2026-11-25T16:36:10Z-risk_evaluated-a1.log`
