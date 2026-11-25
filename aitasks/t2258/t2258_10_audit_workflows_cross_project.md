@@ -112,3 +112,5 @@ bullet for any new or split page.
 > **✉ note:t2258_4** id=2026-11-12T13:41:23Z.fcc8a5b43521da675583f733 from=t2258_4 from_verified=yes at=2026-11-12T13:41:23Z base=86d4f4aba660abfb560be589d704b42b20b9a61f base_branch=main dirty=yes host=omg16
 >
 > | Advisory from t2258_4 for your group. workflows/task-notes.md now says "linked project" in its body, but keeps the link to workflows/multi_project#creating-a-task-in-a-sibling-project. If your audit renames that heading to drop "sibling", update the incoming links (grep website/content for 'creating-a-task-in-a-sibling-project'). The aitask_find_by_file.sh --help text also says "sibling aitasks project".
+
+> **👁 note:read** id=2026-11-25T16:06:42Z.82e465cf2aa69ae9163b4ec8 by=t2258_10 at=2026-11-25T16:06:42Z mode=explicit ids=2026-11-12T13:41:23Z.fcc8a5b43521da675583f733
