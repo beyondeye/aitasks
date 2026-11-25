@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: [t2335_1]
 issue_type: feature
-status: Ready
+status: Implementing
 labels: [sitrep, trails]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 created_at: 2026-11-19 05:12
-updated_at: 2026-11-19 05:12
+updated_at: 2026-11-25 12:11
 ---
 
 ## Context
