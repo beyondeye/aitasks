@@ -37,3 +37,17 @@ The store contract this child builds on is the "Directions" section of `aidocs/f
 ## Docs
 
 `aidocs/framework/sitrep.md` (Directions section: digest inputs and reason vocabulary).
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2335_1** id=2026-11-25T09:40:34Z.af35f885567405acecd7b1ae from=t2335_1 from_verified=yes at=2026-11-25T09:40:34Z base=95d0169d8b7b7b559161028acd85264c4061ad8d base_branch=main dirty=yes host=omg16
+>
+> | Advisory (tree-relative, as of commit 95d0169d8): t2335_1 landed the store side of direction freshness. Your task text was updated to match; this is where to look and what is easy to miss.
+> | - Contract: aidocs/framework/sitrep.md, "Directions" (drift reasons, baseline evidence, saving a proposal).
+> | - Snapshot grammar: sitrep_todo.parse_baseline. It must end with a newline, list only pending members (state open or unknown), kinds in the order member, task, trail, next, keys sorted (item ids by number). Retain with `aitask_sitrep_todo.sh retain-baseline`; limit sitrep_todo.MAX_BASELINE_BYTES (256 KiB), refused whole above it.
+> | - Trust a baseline only when sitrep_todo.load_baseline returns "ok" (other statuses: missing, not_regular, unreadable, hash_mismatch, bad_grammar, wrong_direction).
+> | - Build reasons with sitrep_todo.aggregate_drift((code, key) pairs): one reason per code, count = number of causes, at most three sample keys; a key that does not fit is left out and still counted. The batch verb accepts only that form.
+> | - Batch line: <slug>|<rev>|<stamp>|<freshness>|<checked_at>|<drift>. Take the stamp (sitrep_todo.direction_stamp) from a snapshot loaded AFTER the pass's item batch is written: item refresh bumps member revs, which moves the stamp.
+> | - Answers to handle: STALE:<slug>|<rev>|<stamp>, NOT_FOUND:<slug> (no block), KEPT:<slug>|no_baseline, KEPT:<slug>|baseline_<status>. On a store not yet upgraded every block has rev 0 and no line can match until some write upgrades it.
+> | - A write that changes membership already resets a block's freshness to unknown.
