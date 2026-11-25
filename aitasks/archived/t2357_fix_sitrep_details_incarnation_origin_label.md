@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [sitrep]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2337
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-24 22:14
-updated_at: 2026-11-25 12:22
+updated_at: 2026-11-25 13:58
+completed_at: 2026-11-25 13:58
 ---
 
 ## Origin
@@ -42,3 +43,14 @@ Add `"incarnation": "Incarnation"` (or a shorter label) to `ORIGIN_LABELS`. Make
 > **✅ gate:plan_approved** run=2026-11-25T10:21:48Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-25T11:09:26Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-25T11:58:27Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:9d7d909f7816af88
+
+> **✅ gate:risk_evaluated** run=2026-11-25T11:58:27Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2357/risk_evaluated_2026-11-25T11:58:27Z-risk_evaluated-a1.log`
