@@ -84,7 +84,7 @@ from monitor.monitor_shared import (  # noqa: E402
     TaskPickConfirmDialog, ShadowRejectionsMixin, STATE_STYLE_DONE,
     FROZEN_GLYPH,
     format_compare_mode_glyph, format_mark_glyph, format_frozen_prefix,
-    format_frozen_sitrep_badge, frozen_sitrep_badge_width,
+    format_frozen_sitrep_badge, format_frozen_state, frozen_state_width,
     format_pane_status, PANE_STATUS_MAX_CELLS, format_awaiting_terms,
     awaiting_evidence,
     format_section_header, format_session_divider, format_shadow_glyph,
@@ -266,6 +266,9 @@ def parse_own_window_listing(
 #             name = 36 − prefix − 2 − 11 = 17 | 15 | 14
 #     parked  P␠<name>␠␠parked          name = 36 − 2 − 8      = 26
 #     frozen  <mark>F␠<name>␠␠frozen    name = 36 − 3 − 8      = 25
+#             <mark>F␠<name>␠␠<badge>   the sitrep badge IN PLACE OF
+#             `frozen` (t2354): 7..16 cells ⇒ name 24..15, the widest being
+#             `drop ok, triaged` (16) → 15; every state keeps the floor
 #     other   ␠␠○␠<name>␠␠<cmd ≤ 10>    name = 36 − 4 − 2 − 10 = 20
 #     title   ␠␠<title>                 ≤ min(30, detail)      = 30
 #             (under live AND frozen rows — not capture-derived, t2042)
@@ -3024,13 +3027,13 @@ class MiniMonitorApp(
             # renders, composed by `format_frozen_prefix`, so `space` keeping its
             # meaning on this row stays visible.
             prefix = f"{format_frozen_prefix(self._mark_kind(snap))} "
-            # The sitrep badge (t2337), bound to this frozen instance; its
-            # width comes out of the name budget like the `frozen` word's.
+            # The sitrep badge (t2337), bound to this frozen instance, shows
+            # IN PLACE OF the `frozen` word (t2354): the `F` already says it,
+            # and word + badge broke the name floor (rule 3 of the budget
+            # block), cutting the task id off the tail.
             sitrep_state = self._frozen_sitrep_state(snap)
-            name = self._row_name(snap, prefix, cell_len("frozen")
-                                  + frozen_sitrep_badge_width(sitrep_state))
-            text = (f"{prefix}{name}  [dim]frozen[/]"
-                    f"{format_frozen_sitrep_badge(sitrep_state)}")
+            name = self._row_name(snap, prefix, frozen_state_width(sitrep_state))
+            text = f"{prefix}{name}  {format_frozen_state(sitrep_state)}"
             # The task title IS allowed here (t2042): it is not capture-derived
             # — the id comes from the window name and the title from the task
             # file, the same lookup `i` uses. The gate/phase row is not: the

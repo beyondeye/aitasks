@@ -52,7 +52,7 @@ from monitor.monitor_shared import (  # noqa: E402
     AgentMarksMixin, ConcernBlockInspectModal, ConcernPickerModal,
     ShadowRejectionsMixin, STATE_STYLE_DONE,
     format_compare_mode_glyph, format_mark_glyph, format_frozen_prefix,
-    format_frozen_sitrep_badge,
+    format_frozen_state,
     format_pane_status, format_awaiting_terms, is_maybe_awaiting,
     format_session_divider, format_shadow_glyph, format_state_dot,
     is_task_completed, uncertified_round_block_msg, unparsed_concerns_msg,
@@ -1939,12 +1939,15 @@ class MonitorApp(
             # counts of an agent that is not advancing its task add nothing
             # `i` does not show.
             # The sitrep badge (t2337) is the advisory "can I drop it?"
-            # answer, bound to this frozen instance; none until validated.
+            # answer, bound to this frozen instance; `frozen` until validated.
+            # It shows IN PLACE OF the word (t2354) even though this TUI does
+            # not clip names: the minimonitor needs the cells, and the two
+            # TUIs show the same words (`format_frozen_state`).
             text = (
                 f" {format_frozen_prefix(self._mark_kind(snap))} "
                 f"{snap.pane.window_index}:{markup_literal(snap.pane.window_name)} "
-                f"({snap.pane.pane_index})  [dim]frozen[/]"
-                f"{format_frozen_sitrep_badge(self._frozen_sitrep_state(snap))}"
+                f"({snap.pane.pane_index})  "
+                f"{format_frozen_state(self._frozen_sitrep_state(snap))}"
             )
             task_id = self._task_cache.get_task_id_for_pane(snap.pane)
             if task_id:

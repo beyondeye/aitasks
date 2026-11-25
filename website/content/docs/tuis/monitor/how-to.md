@@ -68,7 +68,7 @@ Each card shows:
   archive still resolves without restarting the TUI.
 - For agent panes carrying a task ID in the window name, the associated task number
 - A **shadow marker** `◆` when a shadow agent is bound to that pane, colored by the shadow's own state. It gains a `!` (`◆!`) when the shadow has raised concerns you have not picked yet — see [How to Pick Shadow Concerns](#how-to-pick-shadow-concerns). Panes with no shadow show nothing at all here.
-- An **agent mark** at the far left: `★` when you have prioritized the agent, `P` when you have parked it, dim `☆` when neither — see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized). A parked card shows the `P`, the window name and a dim `parked` and nothing else — no state dot, no status, no gate summary — because a parked agent is not being read at all. A [frozen]({{< relref "/docs/tuis/frozenagent" >}}) card is the same shape with a cyan `F` beside the mark and a dim `frozen`: frozen and the mark coexist, so the column never shifts.
+- An **agent mark** at the far left: `★` when you have prioritized the agent, `P` when you have parked it, dim `☆` when neither — see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized). A parked card shows the `P`, the window name and a dim `parked` and nothing else — no state dot, no status, no gate summary — because a parked agent is not being read at all. A [frozen]({{< relref "/docs/tuis/frozenagent" >}}) card is the same shape with a cyan `F` beside the mark and a dim `frozen` — or, once sitrep has read what it kept of the agent's output, that state (`drop ok`, `unharvested`, …) in its place: frozen and the mark coexist, so the column never shifts.
 - For agent panes carrying a task ID, the end of the status row carries the task's **gate summary** and then its **workflow phase** — `gates: 1/4 pass  phase: IMPLEMENT`. A trailing `⏸` on the phase means the agent is waiting on your input, and an `unknown (…)` phase is a "cannot tell" state that names its own cause rather than a missing one. Either part is omitted when there is nothing to say. The phase is **advisory** — it never gates anything. The [minimonitor how-to]({{< relref "/docs/tuis/minimonitor/how-to" >}}#how-to-read-the-agent-list) lists the phase values in full.
 
 The **`CODE AGENTS (N)`** header above the agent cards repeats the same four
@@ -272,7 +272,11 @@ The pane is not closed — the
 [frozen-agent viewer]({{< relref "/docs/tuis/frozenagent" >}}) takes it over and
 replays the capture in place, so the window keeps its name. In the pane list the
 card shows its mark plus a cyan `F`, the window name and a dim `frozen`, with no
-state dot and no status, for the same reason a parked card has none.
+state dot and no status, for the same reason a parked card has none. Once
+[sitrep]({{< relref "/docs/workflows/sitrep" >}}) has read what it kept of the
+agent's output, that state replaces the word `frozen` (see
+[Freeze and restore agents]({{< relref "/docs/workflows/freeze-and-restore-agents" >}})
+for what each state means).
 
 Restore and re-pick are the viewer's own keys, not monitor's. Press **s** on
 the frozen card to switch to its window, then **R** restores the agent in the

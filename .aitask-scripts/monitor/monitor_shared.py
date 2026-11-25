@@ -447,7 +447,10 @@ def format_frozen_prefix(kind: str) -> str:
 #: The frozen-agent sitrep badge (t2337), one table for both TUIs:
 #: ``state -> ((text, style), ...)``. ASCII only, so no font-coverage question
 #: arises (cf. FROZEN_GLYPH). "drop ok" is green only for the states
-#: `frozen_sitrep.SAFE_STATES` names; `unknown` never reads as safe.
+#: `frozen_sitrep.SAFE_STATES` names; `unknown` never reads as safe. On a list
+#: row the badge replaces the word `frozen` (:func:`format_frozen_state`), so a
+#: new entry's text must leave the minimonitor name `_MIN_NAME_CELLS` —
+#: tests/test_minimonitor_row_budget.py loops over this table to enforce it.
 FROZEN_SITREP_BADGES = {
     frozen_sitrep.UNHARVESTED: (("unharvested", "yellow"),),
     frozen_sitrep.NOTHING: (("drop ok", "green"),),
@@ -460,25 +463,49 @@ FROZEN_SITREP_BADGES = {
 }
 
 
-def format_frozen_sitrep_badge(state: "str | None") -> str:
-    """The badge after a frozen row's ``frozen`` word, with a leading space.
-
-    ``None`` (no validated verdict for THIS frozen instance yet) renders
-    nothing at all -- never a stale or guessed "drop ok". An unknown state
+def _frozen_sitrep_badge_markup(state: str) -> str:
+    """The badge's segments as markup, no surrounding space. An unknown state
     key raises, the :func:`format_mark_glyph` guard: every production value
-    comes from ``frozen_sitrep``'s closed vocabulary.
+    comes from ``frozen_sitrep``'s closed vocabulary."""
+    return "".join(f"[{style}]{text}[/]"
+                   for text, style in FROZEN_SITREP_BADGES[state])
+
+
+def format_frozen_state(state: "str | None") -> str:
+    """What a frozen LIST row shows after its name, in both TUIs (t2354).
+
+    ``None`` (no validated verdict for THIS frozen instance yet) is the dim
+    word ``frozen`` -- never a stale or guessed "drop ok". A verdict shows the
+    badge IN PLACE OF the word: the bold-cyan ``F`` in the row's prefix
+    already says the agent is frozen, and only frozen rows carry a badge, so
+    the word would only repeat it. On the 40-column minimonitor the word plus
+    the widest badge left the name 8 cells, below ``_MIN_NAME_CELLS``, cutting
+    off the task id. ``ait monitor`` does not clip names and has room for the
+    word, but drops it too, so the two TUIs show the same words.
+    """
+    if state is None:
+        return "[dim]frozen[/]"
+    return _frozen_sitrep_badge_markup(state)
+
+
+def frozen_state_width(state: "str | None") -> int:
+    """Plain cell width of :func:`format_frozen_state` -- the one width
+    calculation for the badge (name budgets; the docked card's suffix is this
+    plus its leading space)."""
+    if state is None:
+        return cell_len("frozen")
+    return sum(cell_len(text) for text, _style in FROZEN_SITREP_BADGES[state])
+
+
+def format_frozen_sitrep_badge(state: "str | None") -> str:
+    """The docked own-agent card's suffix after its ``frozen <stamp>`` line,
+    with a leading space. List rows use :func:`format_frozen_state` instead.
+
+    ``None`` renders nothing at all -- never a stale or guessed "drop ok".
     """
     if state is None:
         return ""
-    segs = FROZEN_SITREP_BADGES[state]
-    return " " + "".join(f"[{style}]{text}[/]" for text, style in segs)
-
-
-def frozen_sitrep_badge_width(state: "str | None") -> int:
-    """Plain cell width of :func:`format_frozen_sitrep_badge` (name budgets)."""
-    if state is None:
-        return 0
-    return 1 + sum(cell_len(text) for text, _style in FROZEN_SITREP_BADGES[state])
+    return " " + _frozen_sitrep_badge_markup(state)
 
 
 # Repo/session divider (t1449): in multi-session mode each tmux session is one

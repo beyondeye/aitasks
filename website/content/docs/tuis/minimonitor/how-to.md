@@ -53,7 +53,7 @@ Any pane that is **not** an agent — a shell, a log, a window you renamed off t
 
 Each agent card in the list shows:
 
-- An agent mark: **★** when the agent is prioritized, **P** when it is parked, dim **☆** when neither. In the list this is **display only** — it shows marks set from [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) or from another project, and `Space` here marks the *followed* agent instead (see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized)). A parked card shows only the **P**, the name and a dim `parked`; a [frozen]({{< relref "/docs/tuis/frozenagent" >}}) card shows the mark plus a cyan **F**, the name and a dim `frozen`. Press **P** to hide parked and frozen agents from this list
+- An agent mark: **★** when the agent is prioritized, **P** when it is parked, dim **☆** when neither. In the list this is **display only** — it shows marks set from [`ait monitor`]({{< relref "/docs/tuis/monitor" >}}) or from another project, and `Space` here marks the *followed* agent instead (see [How to Mark an Agent as Prioritized](#how-to-mark-an-agent-as-prioritized)). A parked card shows only the **P**, the name and a dim `parked`; a [frozen]({{< relref "/docs/tuis/frozenagent" >}}) card shows the mark plus a cyan **F**, the name and a dim `frozen`, or the sitrep state (`drop ok`, `unharvested`, …) in place of `frozen` once it has been read. Press **P** to hide parked and frozen agents from this list
 - A status dot: **green** when the agent has produced recent output, **magenta** when it is waiting for your input, **blue** when its task is finished, **yellow** when it is idle
 - The agent window name without the agent prefix — `agent-pick-42` shows as `pick-42`, since every card in this list carries that prefix. A name too long for the row is shortened at its end with `…`. The pinned card for the agent you follow, and cards in the **other** section, show the full window name
 - A matching label: `PROMPT <t>` when the agent is waiting for you, `ASKED? <t>` with a hollow dot **○** when a workflow question is waiting in this pane or in another Codex you started by hand in the same project, `DONE <t>` when its task is finished, or `IDLE <t>` when the pane has been quiet longer than `tmux.monitor.idle_threshold_seconds` (default 5 seconds). `<t>` is the time since the pane's output last changed — not how long it has been in that state — in at most four characters: seconds up to `999s`, then whole minutes up to `240m`, then whole hours up to `999h`, always rounded down. `DONE` reflects the pane's *task* — its status reads `Done`, or it has been archived — so an agent still printing output after its task landed reads `DONE`, while an agent waiting on you reads `PROMPT` even when its task is done
@@ -363,11 +363,17 @@ The agent's pane does not close. It is taken over by the
 captured output in place, so the window keeps its name and its layout.
 
 In the scrollable list a frozen agent renders as its mark followed by a cyan
-**F**, the window name without its agent prefix, and a dim `frozen`:
+**F**, the window name without its agent prefix, and a dim `frozen`. Once
+[sitrep]({{< relref "/docs/workflows/sitrep" >}}) has read what it kept of the
+agent's output, that state takes the place of `frozen`, which leaves the name
+room for its task id. The **F** still says the agent is frozen. What each state
+means is in
+[Freeze and restore agents]({{< relref "/docs/workflows/freeze-and-restore-agents" >}}):
 
 ```
 ☆F pick-1705  frozen
 ★F qa-1699  frozen
+☆F pick-2261_2  drop ok, triage
 ```
 
 There is no state dot and no captured preview — a frozen agent has no current

@@ -677,8 +677,12 @@ off the pump with `asyncio.to_thread`, recounted only when the sha256 of
 `todo.md` changed). No store, an unreadable one, or zero → no term. The
 minimonitor has none (its session bar is hidden by default).
 
-**Frozen-agent badge (t2337).** A frozen row in both TUIs reads `frozen` plus
-an advisory badge. It is derived by `lib/frozen_sitrep.py` from the receipt and
+**Frozen-agent badge (t2337).** A frozen list row in both TUIs reads `frozen`
+until a verdict is validated, then the advisory badge **in place of** the word
+(`monitor_shared.format_frozen_state`, t2354): the row's cyan `F` already says
+frozen, and word plus badge left the 40-column minimonitor name below
+`_MIN_NAME_CELLS`. The docked own-agent card keeps `frozen <stamp>` and appends
+the badge. It is derived by `lib/frozen_sitrep.py` from the receipt and
 the store, so nothing is marked by hand:
 
 | badge | state | derived from |

@@ -309,6 +309,65 @@ class NameFloorTests(unittest.TestCase):
         self.assertEqual(plain, "★ ● ◆! ≈ pick-1351_12  PROMPT 999s")
 
 
+class FrozenBadgeNameFloorTests(unittest.TestCase):
+    """t2354: a frozen row keeps the name floor in EVERY sitrep badge state.
+
+    Looping over the badge table itself (plus ``None``, no verdict yet) is the
+    point: a badge state added later that is too wide fails here instead of
+    silently cutting the task id off the name's tail.
+    """
+
+    _STATES = (None, *ms.FROZEN_SITREP_BADGES)
+    _MARKS = (agent_marks.KIND_NONE, agent_marks.KIND_PRIORITY)
+
+    @staticmethod
+    def _app(state, mark=agent_marks.KIND_NONE):
+        app = _row_app(mark=mark)
+        app._frozen_sitrep_state = lambda snap: state
+        return app
+
+    @staticmethod
+    def _shown(state) -> str:
+        """What follows the name: `frozen`, or the badge in its place."""
+        if state is None:
+            return "frozen"
+        return "".join(text for text, _style in ms.FROZEN_SITREP_BADGES[state])
+
+    def test_long_name_keeps_the_floor_in_every_state(self):
+        for state, mark in itertools.product(self._STATES, self._MARKS):
+            with self.subTest(state=state, mark=mark):
+                plain = _line1(self._app(state, mark),
+                               _snap(window_name="agent-" + "x" * 60,
+                                     frozen=True))
+                budget = mm._row_budget(_TARGET_WIDTH)
+                self.assertLessEqual(cell_len(plain), budget,
+                                     f"{cell_len(plain)} > {budget}: {plain!r}")
+                names = re.findall(r"x+…", plain)
+                self.assertEqual(len(names), 1, plain)
+                self.assertGreaterEqual(cell_len(names[0]), mm._MIN_NAME_CELLS,
+                                        plain)
+                self.assertTrue(plain.endswith("  " + self._shown(state)), plain)
+                if state is not None:
+                    self.assertNotIn("frozen", plain)
+
+    def test_the_frozen_prefix_survives_every_state(self):
+        """With a badge shown, the `F` is the row's only frozen marker."""
+        for state, mark in itertools.product(self._STATES, self._MARKS):
+            with self.subTest(state=state, mark=mark):
+                plain = _line1(self._app(state, mark), _snap(frozen=True))
+                prefix = _plain(ms.format_frozen_prefix(mark)) + " "
+                self.assertTrue(plain.startswith(prefix), (prefix, plain))
+
+    def test_launch_names_survive_whole_in_every_state(self):
+        for state, name in itertools.product(
+                self._STATES, ("agent-pick-2261_2", "agent-pick-1351_12")):
+            with self.subTest(state=state, name=name):
+                plain = _line1(self._app(state),
+                               _snap(window_name=name, frozen=True))
+                self.assertIn(f" {name.removeprefix('agent-')}  ", plain)
+                self.assertNotIn("…", plain)
+
+
 def _task_info(title: str) -> TaskInfo:
     return TaskInfo(
         task_id="1351", task_file="aitasks/t1351_demo.md", title=title,

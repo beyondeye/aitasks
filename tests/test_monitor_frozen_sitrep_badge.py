@@ -2,10 +2,12 @@
 """The frozen-agent sitrep badge in `ait monitor` / `ait minimonitor` (t2337).
 
 * the shared formatter is total over `frozen_sitrep.STATES`, and its width
-  helper matches what it renders;
+  helper (the one width calculation) matches what it renders;
 * a frozen row shows the badge only for a verdict bound to ITS frozen
   instance -- a reused record id on a new stand-in shows none;
-* the minimonitor's name budget pays for the badge;
+* the badge shows IN PLACE OF the word `frozen` (t2354), and the row keeps its
+  `F` prefix -- with a badge shown, the only frozen marker left;
+* the minimonitor's name budget pays only the badge's width over the word's;
 * the badge pass is ONE coalesced background worker: the refresh only kicks
   it, never awaits it, so a held badge read never delays a refresh (both
   TUIs, real `_refresh_data` under `App.run_test`);
@@ -42,7 +44,8 @@ from monitor.monitor_core import (  # noqa: E402
     PaneCategory, PaneSnapshot, TmuxControlState, TmuxPaneInfo,
 )
 from monitor.monitor_shared import (  # noqa: E402
-    FROZEN_SITREP_BADGES, format_frozen_sitrep_badge, frozen_sitrep_badge_width,
+    FROZEN_SITREP_BADGES, format_frozen_prefix, format_frozen_sitrep_badge,
+    format_frozen_state, frozen_state_width,
 )
 
 SESSION = "demo"
@@ -74,12 +77,26 @@ class FormatterTests(unittest.TestCase):
         self.assertEqual(set(frozen_sitrep.STATES), set(FROZEN_SITREP_BADGES))
 
     def test_the_width_matches_the_render(self):
+        for state in (None, *frozen_sitrep.STATES):
+            with self.subTest(state):
+                plain = Text.from_markup(format_frozen_state(state)).plain
+                self.assertEqual(cell_len(plain), frozen_state_width(state))
+                self.assertFalse(plain.startswith(" "), repr(plain))
+                self.assertTrue(plain.isascii())
+                if state is None:
+                    continue
+                # The docked card's suffix: the same badge, one leading space.
+                docked = Text.from_markup(format_frozen_sitrep_badge(state)).plain
+                self.assertEqual(docked, " " + plain)
+                self.assertEqual(cell_len(docked), 1 + frozen_state_width(state))
+
+    def test_a_badge_replaces_the_frozen_word(self):
         for state in frozen_sitrep.STATES:
             with self.subTest(state):
-                plain = Text.from_markup(format_frozen_sitrep_badge(state)).plain
-                self.assertEqual(cell_len(plain), frozen_sitrep_badge_width(state))
-                self.assertTrue(plain.startswith(" "))
-                self.assertTrue(plain.isascii())
+                plain = Text.from_markup(format_frozen_state(state)).plain
+                self.assertEqual(plain, "".join(
+                    text for text, _style in FROZEN_SITREP_BADGES[state]))
+                self.assertNotIn("frozen", plain)
 
     def test_drop_ok_only_for_safe_states(self):
         for state in frozen_sitrep.STATES:
@@ -87,13 +104,17 @@ class FormatterTests(unittest.TestCase):
             self.assertEqual("drop ok" in plain,
                              state in frozen_sitrep.SAFE_STATES, state)
 
-    def test_none_renders_nothing(self):
+    def test_none_renders_the_word(self):
         self.assertEqual("", format_frozen_sitrep_badge(None))
-        self.assertEqual(0, frozen_sitrep_badge_width(None))
+        self.assertEqual("frozen",
+                         Text.from_markup(format_frozen_state(None)).plain)
+        self.assertEqual(6, frozen_state_width(None))
 
     def test_an_unknown_key_raises(self):
-        with self.assertRaises(KeyError):
-            format_frozen_sitrep_badge("droppable")
+        for fn in (format_frozen_sitrep_badge, format_frozen_state,
+                   frozen_state_width):
+            with self.subTest(fn.__name__), self.assertRaises(KeyError):
+                fn("droppable")
 
 
 class _FakeTaskCache:
@@ -140,13 +161,25 @@ class RowTests(unittest.TestCase):
                    else app._format_agent_card_text)
         return Text.from_markup(builder(snap)).plain
 
+    def assert_badged_line(self, app, line: str, badge: str) -> None:
+        """A badged row: the badge in place of `frozen`, and the `F` prefix
+        still at the mark position -- the row's only frozen marker now."""
+        self.assertTrue(line.endswith("  " + badge), line)
+        self.assertNotIn("frozen", line)
+        prefix = Text.from_markup(
+            format_frozen_prefix(agent_marks.KIND_NONE)).plain + " "
+        # Minimonitor rows start at the mark; `ait monitor` indents one space.
+        lead = "" if isinstance(app, MiniMonitorApp) else " "
+        self.assertTrue(line.startswith(lead + prefix), (prefix, line))
+
     def test_a_bound_verdict_renders_in_both_tuis(self):
         for cls in (MonitorApp, MiniMonitorApp):
             with self.subTest(cls.__name__):
                 app = self.app(cls)
                 app._frozen_sitrep_results = {
                     RID: verdict(frozen_sitrep.TRIAGE_OPEN)}
-                self.assertIn("frozen drop ok, triage", self.row(app, frozen_snap()))
+                line = self.row(app, frozen_snap()).split("\n")[0]
+                self.assert_badged_line(app, line, "drop ok, triage")
 
     def test_no_result_renders_no_badge(self):
         for cls in (MonitorApp, MiniMonitorApp):
@@ -163,7 +196,7 @@ class RowTests(unittest.TestCase):
                 app = self.app(cls)
                 app._frozen_sitrep_results = {RID: verdict(frozen_sitrep.UNKNOWN)}
                 plain = self.row(app, frozen_snap())
-                self.assertIn("frozen sitrep ?", plain)
+                self.assert_badged_line(app, plain.split("\n")[0], "sitrep ?")
                 self.assertNotIn("drop ok", plain)
 
     def test_a_reused_record_id_on_a_new_standin_renders_no_badge(self):
@@ -190,7 +223,8 @@ class RowTests(unittest.TestCase):
         name_bare = bare.split("  ")[0].split(" ")[-1]
         name_badged = badged.split("  ")[0].split(" ")[-1]
         self.assertEqual(cell_len(name_bare) - cell_len(name_badged),
-                         frozen_sitrep_badge_width(frozen_sitrep.TRIAGED))
+                         frozen_state_width(frozen_sitrep.TRIAGED)
+                         - frozen_state_width(None))
         self.assertLessEqual(cell_len(badged.split("\n")[0]),
                              mm._row_budget(app._target_width))
 
