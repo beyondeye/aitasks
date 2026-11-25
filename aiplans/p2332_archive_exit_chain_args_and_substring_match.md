@@ -204,3 +204,57 @@ Step 9.
 ### Planned mitigations
 - timing: pre-phase | name: baseline_suites | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: framework-wide EXIT-trap regressions | desc: run all trap-composition and lock-caller suites on the unmodified tree first and record the baseline
 - timing: post-phase | name: prefix_controls | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: tests that pass on the old code | desc: run new tests against HEAD's libs and three mutants in a scratch copy; record which assertions fail
+
+## Final Implementation Notes
+- **Actual work done:** `lib/archive_utils.sh` installs the sweep chain from
+  `_AIT_ARCHIVE_CHAIN_CMD='_ait_archive_exit_chain "$@"'`, so the caller's text,
+  eval'd inside the function, keeps the script's positional parameters. The
+  chain's `trap -p` rewrite replaces the whole installed command (a bare
+  hand-written `_ait_archive_exit_chain` is still replaced by name).
+  `lib/registry_lock.sh`'s archive peel recognises the new command and still
+  accepts the bare one. Substring idempotence is kept and documented.
+  Tests: pinned trap text updated (rearm cases 1/7/9, the M `want_trap` column,
+  archive_utils J2a). New blocks: P (positional parameters: direct, lock-a/b,
+  wlock-a/b, txn) and R-term (re-arm idempotence over the `cmd;`, newline and
+  `t; cmd;` re-installs, built from the actually installed trap text).
+  Follow-up **t2362** was created for defect 2.
+- **Deviations from plan:** none beyond the plan-review rounds recorded above.
+  Two whole-command designs were rejected in review: their misses (newline
+  separator, trailing `;`) recurse, and they false-positive on a comment. The
+  user then chose to scope this task to defect 1.
+- **Issues encountered:** none during implementation.
+- **Key decisions:**
+  - Keep the substring rule; it fails benignly. The trade-off is documented in
+    `_ait_archive_exit_chain`'s header comment.
+  - Add no shared helper lib: 63 test scaffolds copy `archive_utils.sh` alone.
+  - The peel falls back with `${_AIT_ARCHIVE_CHAIN_CMD:-_ait_archive_exit_chain}`,
+    so an empty cmd can never reach `_registry_lock_owned_tail`. An empty cmd
+    would match any text ending in "; ".
+- **Baseline (pre-phase baseline_suites):** all green on the unmodified tree.
+  archive_rearm 194, archive_utils 78, registry_lock 98, resolve_tar_zst 81,
+  ledger_lock_exit_trap 78, txn_snapshot 60, merge_lock_broker 138,
+  merge_lock_concurrency 42, pick_own_scoped_commit 103,
+  pick_own_expect_status ok, projects_lock_released_on_die 38,
+  gates_sync_registry 94, fold_content 103, fold_file_refs_union 19,
+  fold_mark 277, fold_risk_mitigation_drop 5, fold_validate 7, tripwire OK.
+  After the change every suite is identical, except archive_rearm at 262
+  (+68 new). No TMPDIR leftovers (`tests/run_shell_test.sh`).
+- **Post-phase prefix_controls:** each run used a scratch copy of
+  `.aitask-scripts/` + the test file.
+  - (a) HEAD libs: 33 fail. 8 are pinned trap-text spellings (expected); 25 are
+    P behavioural failures (`$1: unbound variable` at archive_utils.sh:228 /
+    registry_lock.sh:423, handler never runs) across all six variants.
+    R-term passes on HEAD, as intended: it guards a regression, not a
+    pre-existing bug.
+  - (b) install without `"$@"`: the same 33.
+  - (c) rewrite without the CMD branch: 8 fail. A stray `"$@"` appears in
+    `trap -p` for P direct, lock-a, wlock-a and txn. lock-b and wlock-b pass,
+    because registry_lock's chain sets the final trap from its own saved text.
+  - (d) peel without the CMD branch: 16 fail. The caller is lost in the M
+    chain/txn/tg/ledger rows (both flows), the ledger lock is not released, and
+    P wlock-a/b fail. The raw lock-* variants pass, as predicted (nothing to
+    peel).
+  - No bash 3.2 is available here, so the `SHELL_UNDER_TEST=/bin/bash` run was
+    not done. `"$@"` is the same construct registry_lock already ships.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/archive_utils.sh:285 — _ait_archive_wrap_exit_trap's substring idempotence check treats a caller trap that merely names _ait_archive_cleanup / _ait_archive_exit_chain (quoted data, comment) as already wrapped, so the sweep is dropped and extractions leak (already filed as t2362)`
