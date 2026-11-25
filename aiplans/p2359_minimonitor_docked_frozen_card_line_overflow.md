@@ -205,3 +205,51 @@ configured widths the ladder keeps the verdict whole where it fits (e.g. the
 full badge at 22) and clips it once space runs out (`drop ok, tri…` at 17,
 `drop o…` at 11, nothing at 4). Both the all-states string matrix and a
 composited render pin this.
+
+## Final Implementation Notes
+
+- **Actual work done:** `minimonitor_app.py` — new module helper
+  `_short_frozen_stamp` (`_TS_FMT` → `MM-DD HH:MMZ`, raw on parse failure) and
+  method `MiniMonitorApp._own_frozen_line(frozen_at, sitrep_state)`, which builds
+  candidates in shed order (word+stamp+badge → word+badge → badge alone, the
+  last only when a verdict exists) and returns the first that fits
+  `_own_phase_budget(self._target_width)`, else the last truncated with `…`.
+  `_own_card_text`'s frozen branch now prepends `"\n  "` to that line. Budget
+  block comment extended with the docked frozen arithmetic (36 = 36 at width 40).
+- **Tests:** `DockedFrozenLineBudgetTests` (row_budget; every badge state + None,
+  widths 40/30/22/17/11/10/6/4/2, unreadable / unparseable / markup-looking
+  stamp) and `DockedFrozenLineRenderTests` (top_chrome_render; composited
+  panel, two-line name + two-line title, TRIAGED at 40 cols). Pins updated in
+  `test_monitor_markup_literal_sinks.py` (frozen case: text + dim span end 105,
+  not the plan's guessed 106 — `frozen 09-04 09:20Z` is 19 cells) and
+  `test_monitor_frozen_filter.py`.
+- **Red proofs (durable):** the string matrix run against the unchanged code:
+  7 failed / 1 passed (the unreadable-record case already held); the default-
+  width line was `frozen 2026-12-31T23:59:59Z drop ok, triaged`. The render
+  test with the old expression monkeypatched in from a scratch script (tree
+  untouched) composited `frozen 2026-12-31T23:59:59Z drop ok,` with `triaged`
+  hidden by the cap; with the fix, `frozen 12-31 23:59Z drop ok, triaged` on
+  one row, panel height 7 ≤ `_OWN_PANEL_MAX_ROWS`.
+- **Deviations from plan:** none in behaviour. Added a literal-markup stamp
+  assertion (t2017 sink) not in the plan.
+- **Issues encountered:** a misleading first red-proof printout — the scratch
+  script's own `grep -v "^  "` filter hid the indented rows; re-run without it
+  showed the stable 7-row render.
+- **Key decisions:** the word `frozen` is kept at the default width (it labels
+  the stamp); it is only shed beside a badge, on narrow configured widths.
+- **Upstream defects identified:** `minimonitor_app.py` `_own_agent_identity_text`
+  — `wrap_width = target_width - 4` budgets a 2-cell `★ ` glyph, but a frozen
+  card's prefix `<mark>F ` is 3 cells, so a 36-cell first name fold renders 39
+  against 38 usable and the cap hides the frozen detail line (measured with
+  `OWN_WINDOW_PATHOLOGICAL`, `"agent-" + "x"*120`, at width 40).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-25 15:27)
+- **Requested by user:** send the plan's Step 4 note to t2007 before archiving
+  (it had not been sent at review time).
+- **Changes made:** note sent via `/aitask-note 2007 --from 2359` —
+  `NOTE_APPENDED:2026-11-25T13:27:30Z.91c15986aa32e752055ad802` (LIVE_NONE:unlocked).
+  Covers the docked frozen line and the phase line (same configured-width
+  budget), the measured 38-column wrap, and the resize-repaint gap.
+- **Files affected:** `aitasks/t2007_budget_actual_pane_width.md` (inbox, committed by the note writer).
