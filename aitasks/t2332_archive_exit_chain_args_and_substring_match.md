@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2290
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-17 23:01
-updated_at: 2026-11-25 15:22
+updated_at: 2026-11-25 17:49
 ---
 
 ## Origin
@@ -64,3 +65,8 @@ whole-command recognition. Consider moving `_registry_lock_owned_tail` /
 trap text `_ait_archive_exit_chain` is pinned by several tests (archive suite
 cases 7, 9, the M matrix's expected restore text) — update them together. Add
 the M-lit LEFT assertion once the sweep survives quoted data.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-25T15:49:39Z status=pass attempt=1 type=human
