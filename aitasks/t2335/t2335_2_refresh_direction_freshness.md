@@ -51,3 +51,5 @@ The store contract this child builds on is the "Directions" section of `aidocs/f
 > | - Batch line: <slug>|<rev>|<stamp>|<freshness>|<checked_at>|<drift>. Take the stamp (sitrep_todo.direction_stamp) from a snapshot loaded AFTER the pass's item batch is written: item refresh bumps member revs, which moves the stamp.
 > | - Answers to handle: STALE:<slug>|<rev>|<stamp>, NOT_FOUND:<slug> (no block), KEPT:<slug>|no_baseline, KEPT:<slug>|baseline_<status>. On a store not yet upgraded every block has rev 0 and no line can match until some write upgrades it.
 > | - A write that changes membership already resets a block's freshness to unknown.
+
+> **👁 note:read** id=2026-11-25T10:11:34Z.52d1a85c9f93122a1a238936 by=t2335_2 at=2026-11-25T10:11:34Z mode=explicit ids=2026-11-25T09:40:34Z.af35f885567405acecd7b1ae
