@@ -3,13 +3,14 @@ priority: low
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [sitrep, tmux]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: review_finding
 created_at: 2026-11-22 19:20
-updated_at: 2026-11-22 19:20
+updated_at: 2026-11-25 18:09
 ---
 
 ## Origin
