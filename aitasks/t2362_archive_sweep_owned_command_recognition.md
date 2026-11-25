@@ -3,12 +3,13 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [bash_scripts, shell]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2290
 followup_kind: upstream_defect
 created_at: 2026-11-25 17:50
-updated_at: 2026-11-25 17:50
+updated_at: 2026-11-25 23:34
 ---
 
 ## Origin
