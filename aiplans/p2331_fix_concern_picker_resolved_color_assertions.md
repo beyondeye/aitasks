@@ -99,3 +99,19 @@ None identified.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Final Implementation Notes
+- **Actual work done:** `tests/test_concern_picker_modal.py`: added `import os`. Added a `setUp` to `ConcernMagnitudeRampTests` that snapshots `os.environ` with `unittest.mock.patch.dict(os.environ)` (restored through `addCleanup`) and pops `NO_COLOR`. Added one comment line to the `RESOLVED` block saying the literals assume no `NO_COLOR` filter. No product code changed.
+- **Deviations from plan:**
+  - The permanent "NO_COLOR monochromes the ramp" control test was dropped at plan review. Textual honours `NO_COLOR` two valid ways (`app.py:616`): `Monochrome` normally, and `NoColor` (colours reset to `default`) in native-ANSI mode. A test pinning "grey" could therefore fail on a correct configuration or dependency change. The pre-fix control below is the one-time proof.
+  - The commit type is `bug:` (the task's `issue_type`), not the `test:` the plan proposed.
+- **Issues encountered:** None during implementation.
+  - **Diagnosis evidence (pre-fix control, verbatim):** `NO_COLOR=1 ~/.aitask/venv/bin/python -m pytest -q tests/test_concern_picker_modal.py -k ConcernMagnitudeRampTests -p no:cacheprovider` → `2 failed, 11 passed, 211 deselected`. The failures were `AssertionError: '#363636' != '#ff0000'` at `tests/test_concern_picker_modal.py:3704` (`test_the_resolved_colours_are_pinned`) and `:3781` (`test_the_ramp_survives_every_row_state_that_recolours_its_text`, message "an improve arrow was recoloured by the row in state 'none': #363636").
+  - Without `NO_COLOR`, the same command gave 13 passed, and the whole file 224 passed.
+  - **Post-fix:** the class gives 13 passed both with `NO_COLOR=1` set and with it unset. The whole file gives 224 passed both ways (rc=0). A direct `unittest` run confirmed `NO_COLOR` is still `1` after the test, so the environment is restored.
+- **Key decisions:**
+  - The fix is in the test, not the product: `NO_COLOR` is the user's explicit request for monochrome, and Textual honours it correctly.
+  - `NO_COLOR` is stripped per test in `setUp`, not in the suite runner, so direct `pytest` / `unittest` runs are hermetic too.
+  - `TEXTUAL_FILTERS` and `TEXTUAL_COLOR_SYSTEM` are read once, when `textual.constants` is imported, so a per-test patch cannot neutralise them. They are left as a known boundary; neither was involved here.
+  - Source of `NO_COLOR` in the t2295 run: inferred to be the Codex agent's shell environment (t2295 `implemented_with: codex/gpt6_astra`; nothing in the repo sets it). Not proven, because the `/tmp/t2295-evidence/` logs are gone.
+- **Upstream defects identified:** None
