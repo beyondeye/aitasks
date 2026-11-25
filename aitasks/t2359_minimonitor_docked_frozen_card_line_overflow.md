@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2337
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-25 09:55
-updated_at: 2026-11-25 10:08
+updated_at: 2026-11-25 14:01
 ---
 
 ## Origin
@@ -44,3 +45,8 @@ Any badge of 7+ cells overflows with the full stamp (2+6+1+20 = 29 already).
 ## Suggested fix
 
 Budget the line like the list rows do: shorten the stamp (e.g. `HH:MM` or `MM-DD HH:MM`, maybe locale-free and still UTC-labelled), and/or apply the t2354 rule (badge in place of `frozen`, since the `F` glyph is on line 1). Then clip to the computed budget with `_clip`. Pin it with a test in `tests/test_minimonitor_row_budget.py` over every `FROZEN_SITREP_BADGES` key plus `None`, at width 40 and with the widest stamp. Update `website/content/docs/tuis/minimonitor/how-to.md` (~line 178, "a second indented line reads a dim `frozen` followed by the timestamp") if the shape changes.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-25T12:01:45Z status=pass attempt=1 type=human
