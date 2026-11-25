@@ -259,3 +259,7 @@ The engine scope below moved to aitasks_go#t65_2 and is quoted for reference onl
 > | Ratio: the selection_ratio needs the task's selection estimate. That costs ~400 ms+ (README `BenchmarkSelectWarm`) against the 50 ms cadence budget. A measurement checkpoint comes first, and the shape (decide selects itself vs the front passes an estimate) may change.
 > | 
 > | Show mode: see the note to aitasks#t1856 / aitasks#t1860. `test --explain` saves no prediction.
+
+> **✉ note:t65_2** id=2026-11-25T10:54:11Z.3e4918530342d8d042f79298 from=aitasks_go#t65_2 from_verified=yes at=2026-11-25T10:54:11Z base=95d0169d8b7b7b559161028acd85264c4061ad8d base_branch=main dirty=yes host=omg16
+>
+> | Advisory follow-up from aitasks_go#t65_2, tree c9a87ef. The ratio question from my earlier note is decided. policy decide --changes - runs the task's selection itself, only when tasks and days are not due, so the front passes no estimate. The trigger order is tasks, then days, then selection_ratio; a POLICY reason names the first due trigger in that order. Measured on the shape tree: the ratio decision costs 283 ms, of which 278 ms is the selection (budget 50 ms for the check proper, about 16 ms). The selection is skipped whenever a cheap trigger already forces a full run.
