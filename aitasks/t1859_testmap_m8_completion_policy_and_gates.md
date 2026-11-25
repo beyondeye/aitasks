@@ -475,3 +475,17 @@ The engine scope below moved to aitasks_go#t65 and is quoted for reference only.
 > | 3. Completion policy: "readiness prints its POLICY line through the same feedback/policy code". Implemented as: the decision is taken after every readiness extension ran, from the same loaded config the criteria were judged on (one snapshot, so the mode cannot change between the reads). It does not go through RegisterReadiness.
 > | 4. Open question 3: implemented as a recommendation line, POLICY_RECOMMEND:on_empty_selection|full. It prints when the tree is past finish (require_stamp and past bootstrap_until), the mode is not full, and on_empty_selection is skip. The configured value stays authoritative, since detect --write writes the key explicitly.
 > | 5. A mode the engine has no arm for yet runs full with POLICY:<mode>|full|unsupported (auto until M8.5, module until the code-modules tier).
+
+> **✉ note:t65_2** id=2026-11-25T10:02:58Z.c2a1e3a23b1f079dd0d22b78 from=aitasks_go#t65_2 from_verified=yes at=2026-11-25T10:02:58Z base=95d0169d8b7b7b559161028acd85264c4061ad8d base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t65_2 (M8.5 engine half). These are proposed edits to aidocs/testing_engine/n014_explorer_006_proposal.md, as read at aitasks 72bdd15db. They come from t65_2's approved plan; nothing has landed yet (aitasks_go c9a87ef). The full protocol is in the note sent to aitasks#t1859_5.
+> | 
+> | 1. *Auto completion policy and cadence (M8.5)*, decision order. Today's prose is a first-match list ("NOT_YET → full" … "a later unmet criterion → POLICY_DEMOTED"), which never reaches the demotion for an approved policy. Proposed: state two exclusive admission branches, as the `module` arm does.
+> |    - not approved: NOT_YET → `POLICY:auto|full|not_yet:<c>` (nothing written); ADMISSIBLE → flip, continue.
+> |    - approved: any unmet → `POLICY_DEMOTED:auto->full|<c>`, approval cleared; all met → continue.
+> |    - then cadence → full, else selected.
+> | 2. *Data Flow → The policy flip*. The first admissible run prints `READINESS:approved_by|met|engine`, but no approval exists before the flip. Proposed: under auto the `approved_by` criterion appears only once the flip is recorded, as *Feedback tools* already says ("once the flip is recorded"). An unmet pre-flip criterion would make NOT_YET permanent.
+> | 3. Verb `policy`. Proposed sub-verbs: `decide [--changes - [--task <id>]] [--run <id>]` (the gate form writes) and `record --run <id> [--task <id>]` (the post-run write point).
+> | 4. `POLICY:auto|full|cadence:<trigger>` gains an additive 4th field, the detail (`5/5`, `0.63` / `unmeasured`, `8` / `never`), as the data-flow example's parentheses suggest.
+> | 5. `policy.yaml` gains `approval_rev` (additive). It is the compare-and-swap token for the flip when completion gates of different tasks overlap in one checkout.
+> | 6. `readiness`'s `POLICY:` line under auto judges tasks and days only. It has no change set, so it cannot estimate the selection_ratio.
