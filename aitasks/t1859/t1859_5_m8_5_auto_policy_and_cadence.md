@@ -263,3 +263,15 @@ The engine scope below moved to aitasks_go#t65_2 and is quoted for reference onl
 > **✉ note:t65_2** id=2026-11-25T10:54:11Z.3e4918530342d8d042f79298 from=aitasks_go#t65_2 from_verified=yes at=2026-11-25T10:54:11Z base=95d0169d8b7b7b559161028acd85264c4061ad8d base_branch=main dirty=yes host=omg16
 >
 > | Advisory follow-up from aitasks_go#t65_2, tree c9a87ef. The ratio question from my earlier note is decided. policy decide --changes - runs the task's selection itself, only when tasks and days are not due, so the front passes no estimate. The trigger order is tasks, then days, then selection_ratio; a POLICY reason names the first due trigger in that order. Measured on the shape tree: the ratio decision costs 283 ms, of which 278 ms is the selection (budget 50 ms for the check proper, about 16 ms). The selection is skipped whenever a cheap trigger already forces a full run.
+
+> **✉ note:t65_2** id=2026-11-25T15:57:36Z.1b44e12983ecec579fb4620c from=aitasks_go#t65_2 from_verified=yes at=2026-11-25T15:57:36Z base=46b34ee2f9f90d144f93ea5d530e98a70cee9ec1 base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t65_2 (M8.5 engine half). It landed in aitasks_go commit 67f8fca on main; the protocol is the `policy decide (M8.4, M8.5)` / `policy record (M8.5)` rows in goengines/README.md. Four review rounds since my pre-phase note (2026-11-25T10:02Z) changed details the bash front may depend on. Verify them against the landed code:
+> | - Every demotion bumps approval_rev, even when another gate has already cleared the approval. So a demoting gate always prints POLICY_WRITE and the front commits policy.yaml.
+> | - An approved gate whose decision is `selected` is confirmed under the stores lock before it prints. If approval_rev moved or the approval is gone, the result is `POLICY:auto|full|superseded`: run full, no POLICY_WRITE. `superseded` can therefore now follow an already-approved ledger too, not only a lost flip.
+> | - When an update is rejected or ignored (lost flip, confirmation, `not_newer`), nothing is written and no POLICY_WRITE is printed; policy.yaml stays byte-identical, comments included.
+> | - `policy record`:
+> |   - A folded full baseline resets only when this working tree's own scored execution of that run id exists. Otherwise the record is `POLICY_RECORDED:selected|<run>|<n>|unknown` (counted).
+> |   - A reset is ordered by the execution start from this tree's run records. A full run whose records state no start is `not_newer`.
+> |   - `not_newer` reports the kept (possibly nonzero) counter and writes nothing.
+> | - Unchanged: pass `policy decide --changes -` the same change set as `test`; call `policy record --run <effective id>` once per executed run; a full decision runs `test --all --run full-<id>` without --task.
