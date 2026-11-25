@@ -3,11 +3,12 @@ priority: high
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [tui, minimonitor, execution_profiles, agent_command_dialog]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-25 18:32
-updated_at: 2026-11-25 18:32
+updated_at: 2026-11-25 18:37
 ---
 
 ## Symptom (user report)
