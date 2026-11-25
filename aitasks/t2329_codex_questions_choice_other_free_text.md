@@ -122,3 +122,5 @@ That keeps one ask and one receipt.
 > | - Any punctuation or symbol (Unicode P*/S*) in the normalized reply, any negation/hedge word, or more words than the label already disable fuzzy, so prose-like free text reaches "unknown choice" without being captured by a listed option. If you want fuzzy stricter on allow_other questions, the discrete knobs are MIN_PREFIX / TYPO_BUDGET (or skipping the fuzzy tier there entirely).
 > | - Refusal reasons are built by `_choice_names`, which offers only replies `_resolve` confirms select each choice. If Other becomes a selectable outcome, its reason text and `_choice_names` likely need to mention it.
 > | - The answer record now carries `label`, `match` (exact|normalized|fuzzy) and, for fuzzy, `via`/`edits`; `Store.submit` returns `resolved`. An Other answer will need its own `match`/record shape decision.
+
+> **👁 note:read** id=2026-11-25T13:24:50Z.940f2f8e779138ef48fe4b6a by=t2329 at=2026-11-25T13:24:50Z mode=explicit ids=2026-11-17T20:02:17Z.d5118c497a11c6ed3e88ec98,2026-11-19T23:36:19Z.7c73edb3f4f21b296033bf1d
