@@ -125,10 +125,14 @@ def _section(name: str) -> Content:
 
 def _field(label: str, value: str, indent: str = "") -> Content:
     """``label`` styled, ``value`` plain: store text is a plain-text part of
-    ``Content.assemble``, never markup (t2017)."""
+    ``Content.assemble``, never markup (t2017).
+
+    At least one space always separates label and value: a label that fills
+    the column (12 cells or more, indent included) would otherwise run straight
+    into its value. Shorter labels pad to ``_LABEL_W`` exactly as before."""
     if not value:
         return Content.assemble((f"{indent}{label}", "bold"))
-    return Content.assemble((f"{indent}{label}".ljust(_LABEL_W), "bold"), value)
+    return Content.assemble((f"{indent}{label}".ljust(_LABEL_W - 1) + " ", "bold"), value)
 
 
 #: The browsing screens' Enter. `priority`: the focused list's own `enter`

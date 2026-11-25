@@ -1795,6 +1795,20 @@ class TabTests(_AppCase):
             self.assertEqual(app._order, [f"c{num}"])
             self.assertEqual(self.main_list(app).highlighted_option.id, f"c{num}")
 
+    async def test_a_recovery_items_origin_shows_its_episode(self):
+        # t2357: the `incarnation` origin key is labelled and kept in the column,
+        # never glued to its id ("  incarnation0123456789ab").
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            num = recover_item(self.root, "30", "crashed", "0123456789ab")
+            await app._poll_store()
+            await pilot.pause()
+            screen = await self.open_details(app, pilot, num)
+            body = str(screen.query_one("#sd-body", Static).content)
+            self.assertIn("Origin\n  Task      t30\n  Episode   0123456789ab", body)
+            self.assertNotIn("incarnation", body)
+
     async def test_narrow_strip_keeps_every_target_and_clicks_select(self):
         app = self.make_app()
         async with app.run_test(size=SIZE) as pilot:

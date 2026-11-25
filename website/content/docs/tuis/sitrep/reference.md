@@ -239,7 +239,7 @@ The title is `c<N> · <title>`. The body, in order:
   A failed or partial scan never reads as `none`.
 - **Checked** (`never`, or the time and its age) and **Outcome**.
 - **Context**: **Background**, **Origin** (Agent, Task, Commit, Date, Skill,
-  Pane), **Direction**, and for an unparsed-output review its case and the
+  Pane, Episode), **Direction**, and for an unparsed-output review its case and the
   `ait sitrep case show <case>` command. `No context entry.` when the item has
   none.
 

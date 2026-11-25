@@ -796,9 +796,14 @@ def filter_match(meta: "TaskMeta | None | bool", labels: frozenset) -> bool:
 
 # --- plain-language labels -------------------------------------------------------
 
-#: An origin key -> its details label (an unknown key is shown as itself).
+#: An origin key -> its details label (an unknown key is shown as itself), one
+#: per accepted key (`sitrep_todo.ORIGIN_KEYS`). Each is shown indented two cells
+#: inside the details' 12-cell label column, so a label of 9 characters or fewer
+#: keeps its value aligned with the others. `incarnation` is the claim episode a
+#: recovery item is about, hence "Episode".
 ORIGIN_LABELS = {"agent": "Agent", "task": "Task", "commit": "Commit",
-                 "date": "Date", "skill": "Skill", "pane": "Pane"}
+                 "date": "Date", "skill": "Skill", "pane": "Pane",
+                 "incarnation": "Episode"}
 
 _CAPTURE_LABELS = {
     "banner": "Workflow result",
