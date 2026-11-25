@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [sitrep, frozen_agents]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -16,7 +16,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2337
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-23 02:28
-updated_at: 2026-11-24 19:14
+updated_at: 2026-11-25 10:08
+completed_at: 2026-11-25 10:08
 ---
 
 # Sitrep TUI: say when a triage item's source agent is still frozen
@@ -60,3 +61,14 @@ never drop, kill or type into a pane from the sitrep TUI.
 > **✅ gate:plan_approved** run=2026-11-24T17:14:31Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-24T20:00:52Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-25T07:52:05Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:2711230c99bd5f04
+
+> **✅ gate:risk_evaluated** run=2026-11-25T07:52:05Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2350/risk_evaluated_2026-11-25T07:52:05Z-risk_evaluated-a1.log`
