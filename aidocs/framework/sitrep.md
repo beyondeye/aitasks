@@ -883,8 +883,11 @@ minimonitor has none (its session bar is hidden by default).
 until a verdict is validated, then the advisory badge **in place of** the word
 (`monitor_shared.format_frozen_state`, t2354): the row's cyan `F` already says
 frozen, and word plus badge left the 40-column minimonitor name below
-`_MIN_NAME_CELLS`. The docked own-agent card keeps `frozen <stamp>` and appends
-the badge. It is derived by `lib/frozen_sitrep.py` from the receipt and
+`_MIN_NAME_CELLS`. The docked own-agent card keeps `frozen <MM-DD HH:MMZ>` and
+appends the badge, budgeted to its one row at the configured width
+(`_own_frozen_line`, t2359): the stamp is shed first, then the word beside a
+badge, then the badge is clipped. A pane narrower than its configured width
+is t2007's. It is derived by `lib/frozen_sitrep.py` from the receipt and
 the store, so nothing is marked by hand:
 
 | badge | state | derived from |

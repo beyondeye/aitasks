@@ -18,6 +18,7 @@ import subprocess
 import sys
 import textwrap
 import time
+from datetime import datetime
 from typing import NamedTuple
 from pathlib import Path
 
@@ -282,6 +283,18 @@ def parse_own_window_listing(
 # same reason as the list rows — `_OWN_PANEL_MAX_ROWS` reserves exactly ONE phase
 # row, so a wrapped continuation would be hidden by the panel cap.
 #
+# A frozen followed agent shows its frozen line in that row instead
+# (`_own_frozen_line`, t2359), on the same budget:
+#
+#     frozen␠<MM-DD HH:MMZ>␠<badge ≤ 16>   6 + 1 + 12 + 1 + 16 = 36 at width 40
+#
+# — the widest badge (`drop ok, triaged`) fits exactly, which is why the stamp
+# is the short form and not `_TS_FMT`'s 20 cells. On a narrower configured
+# width the STAMP gives way first (informational), then the word `frozen`
+# when a badge is present (line 1's `F` already says it — the t2354 rule),
+# and only then is the badge clipped; with no verdict the word is the state
+# and stays.
+#
 # What gives way, in order (t1351 — decided, not reflexive):
 #
 #   1. Agent rows never show the agent prefix (`agent-pick-1351_12` renders as
@@ -360,6 +373,23 @@ def _own_phase_budget(target_width: int) -> int:
     :func:`_detail_budget`, for the same reason.
     """
     return max(0, target_width - _ROW_PADDING - _DETAIL_INDENT)
+
+
+def _short_frozen_stamp(frozen_at: str) -> str:
+    """``frozen_at`` (``agent_sessions._TS_FMT``) as ``MM-DD HH:MMZ`` (t2359).
+
+    12 cells instead of 20, so the docked card's frozen line fits beside the
+    widest sitrep badge (see the budget block above). Still UTC — the stored
+    stamp is UTC and keeps its ``Z`` — and locale-free. A value that does not
+    parse is returned as-is: ``_own_frozen_line`` bounds whatever it gets.
+    """
+    if not frozen_at:
+        return ""
+    try:
+        stamp = datetime.strptime(frozen_at, agent_sessions._TS_FMT)
+    except ValueError:
+        return frozen_at
+    return stamp.strftime("%m-%d %H:%MZ")
 
 
 def _clip(text: str, budget: int) -> str:
@@ -3357,14 +3387,11 @@ class MiniMonitorApp(
             # current answer for it (t1705_7).
             prefix = (f"[bold cyan]{FROZEN_GLYPH}[/]" if mark_kind is None
                       else format_frozen_prefix(mark_kind))
-            stamp = f" {frozen_at}" if frozen_at else ""
-            # The sitrep badge (t2337): framework markup from a closed table,
-            # bound to this frozen instance; "" until a verdict is validated.
+            # The frozen line takes the phase line's ONE row, so it is
+            # budgeted to it (t2359) — see `_own_frozen_line`.
             return (Content.from_markup(f"{prefix} ") + identity
-                    + Content.from_markup("\n  [dim]frozen$stamp[/]",
-                                          stamp=stamp)
-                    + Content.from_markup(
-                        format_frozen_sitrep_badge(sitrep_state)))
+                    + Content.from_markup("\n  ")
+                    + self._own_frozen_line(frozen_at, sitrep_state))
         line = (identity if mark_kind is None
                 else Content.from_markup(f"{format_mark_glyph(mark_kind)} ")
                 + identity)
@@ -3374,6 +3401,43 @@ class MiniMonitorApp(
             # literal — so it is parsed here as-is, never wrapped in `[dim]`.
             line += Content.from_markup(f"\n  {phase}")
         return line
+
+    def _own_frozen_line(self, frozen_at: str,
+                         sitrep_state: str | None) -> Content:
+        """The docked card's frozen line, without its indent (t2359).
+
+        ``frozen <MM-DD HH:MMZ> <badge>``, sized to ``_own_phase_budget``: it
+        takes the phase line's one row in ``_OWN_PANEL_MAX_ROWS``, and
+        ``Static`` wraps rather than clips, so an over-long line would put the
+        badge — the part that says whether the agent is safe to drop — on a
+        row the panel cap hides. The shed order is in the budget block at the
+        top of this module: stamp, then the word (only beside a badge), then
+        the badge is clipped.
+
+        The budget is the CONFIGURED width's, like every budget here; a pane
+        narrower than its configured width can still wrap (t2007).
+
+        The stamp comes from the sessions store, so it is a ``$variable``,
+        never parsed as markup (t2017); the badge is framework markup from a
+        closed table, bound to this frozen instance and ``""`` until a verdict
+        is validated (t2337).
+        """
+        budget = _own_phase_budget(self._target_width)
+        stamp = _short_frozen_stamp(frozen_at)
+        badge = Content.from_markup(format_frozen_sitrep_badge(sitrep_state))
+        word = Content.from_markup("[dim]frozen$stamp[/]",
+                                   stamp=f" {stamp}" if stamp else "")
+        candidates = [word + badge]
+        if stamp:
+            candidates.append(Content.from_markup("[dim]frozen[/]") + badge)
+        if sitrep_state is not None:
+            # The badge alone: drop its leading separator space too.
+            candidates.append(Content.from_markup(
+                format_frozen_state(sitrep_state)))
+        for line in candidates:
+            if line.cell_length <= budget:
+                return line
+        return candidates[-1].truncate(budget, ellipsis=True)
 
     def _refresh_own_live_state(self) -> None:
         """Repaint the docked panel's mark glyph and advisory phase on change.

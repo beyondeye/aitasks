@@ -47,6 +47,7 @@ os.environ.pop("TMUX_PANE", None)
 
 from rich.cells import cell_len  # noqa: E402
 from rich.text import Text  # noqa: E402
+from textual.content import Content  # noqa: E402
 from textual.errors import NoWidget  # noqa: E402
 
 import agent_marks  # noqa: E402
@@ -366,6 +367,108 @@ class FrozenBadgeNameFloorTests(unittest.TestCase):
                                _snap(window_name=name, frozen=True))
                 self.assertIn(f" {name.removeprefix('agent-')}  ", plain)
                 self.assertNotIn("…", plain)
+
+
+class DockedFrozenLineBudgetTests(unittest.TestCase):
+    """t2359: the docked own-agent card's frozen line fits its ONE row.
+
+    ``_OWN_PANEL_MAX_ROWS`` counts one row for this line (it replaces the phase
+    line), so a wrapped continuation is hidden by the panel cap. Looped over
+    the badge table itself (plus ``None``) for the reason
+    ``FrozenBadgeNameFloorTests`` gives. The budget is the CONFIGURED width's
+    (``_own_phase_budget``); a pane narrower than its configured width is
+    t2007's.
+    """
+
+    _STATES = (None, *ms.FROZEN_SITREP_BADGES)
+    #: The widest canonical stamp (`agent_sessions._TS_FMT`) — every field at
+    #: its two-digit maximum.
+    _STAMP = "2026-12-31T23:59:59Z"
+    _SHORT = "12-31 23:59Z"
+
+    @staticmethod
+    def _line(width, stamp, state) -> str:
+        """The frozen detail line's text, without its two-cell indent."""
+        app = mm.MiniMonitorApp.__new__(mm.MiniMonitorApp)
+        app._target_width = width
+        app._own_identity_text = Content("agent-pick-2359")
+        plain = app._own_card_text(None, "", stamp, state).plain
+        lines = plain.split("\n")
+        # Exactly one detail line: the identity line plus this one.
+        assert len(lines) == 2, lines
+        assert lines[1].startswith("  "), lines[1]
+        return lines[1][2:]
+
+    @staticmethod
+    def _badge(state) -> str:
+        return "".join(text for text, _style in ms.FROZEN_SITREP_BADGES[state])
+
+    def test_every_state_fits_whole_at_the_default_width(self):
+        budget = mm._own_phase_budget(_TARGET_WIDTH)
+        for state in self._STATES:
+            with self.subTest(state=state):
+                line = self._line(_TARGET_WIDTH, self._STAMP, state)
+                self.assertLessEqual(cell_len(line), budget,
+                                     f"{cell_len(line)} > {budget}: {line!r}")
+                expected = f"frozen {self._SHORT}"
+                if state is not None:
+                    expected += " " + self._badge(state)
+                # Nothing shed at the default width: word, stamp, whole badge.
+                self.assertEqual(line, expected)
+
+    def test_every_state_fits_at_narrow_widths(self):
+        for width, state in itertools.product((30, 22, 17, 11, 10, 6, 4, 2),
+                                              self._STATES):
+            with self.subTest(width=width, state=state):
+                line = self._line(width, self._STAMP, state)
+                budget = mm._own_phase_budget(width)
+                self.assertLessEqual(cell_len(line), budget,
+                                     f"{cell_len(line)} > {budget}: {line!r}")
+
+    def test_the_stamp_goes_first(self):
+        """At 30 the widest badge no longer fits beside the stamp; the stamp
+        is informational, the badge is the drop verdict."""
+        line = self._line(30, self._STAMP, "triaged")
+        self.assertEqual(line, "frozen drop ok, triaged")
+
+    def test_the_word_goes_next_so_the_whole_badge_fits(self):
+        """At 22 the whole 16-cell badge fits the 18-cell budget, but not with
+        the word in front; line 1's cyan F already says frozen (the t2354
+        rule). Without this rung truncation reads `frozen drop ok, t…`."""
+        line = self._line(22, self._STAMP, "triaged")
+        self.assertEqual(line, "drop ok, triaged")
+
+    def test_a_clipped_badge_keeps_its_verdict(self):
+        line = self._line(17, self._STAMP, "triaged")
+        self.assertTrue(line.startswith("drop ok"), line)
+        self.assertTrue(line.endswith("…"), line)
+
+    def test_no_verdict_keeps_the_word(self):
+        """`None` has no badge: the word IS the state and is never shed."""
+        self.assertEqual(self._line(22, self._STAMP, None), "frozen")
+        self.assertEqual(self._line(_TARGET_WIDTH, self._STAMP, None),
+                         f"frozen {self._SHORT}")
+
+    def test_an_unreadable_record_shows_the_word_and_badge(self):
+        """`""` = frozen, record unreadable: no stamp, still `frozen`."""
+        self.assertEqual(self._line(_TARGET_WIDTH, "", None), "frozen")
+        self.assertEqual(self._line(_TARGET_WIDTH, "", "triaged"),
+                         "frozen drop ok, triaged")
+
+    def test_an_unparseable_stamp_is_shown_raw_and_bounded(self):
+        for stamp in ("yesterday", "x" * 80):
+            with self.subTest(stamp=stamp):
+                line = self._line(_TARGET_WIDTH, stamp, "triaged")
+                self.assertLessEqual(cell_len(line),
+                                     mm._own_phase_budget(_TARGET_WIDTH), line)
+                self.assertTrue(line.endswith("drop ok, triaged"), line)
+        self.assertEqual(self._line(_TARGET_WIDTH, "yesterday", None),
+                         "frozen yesterday")
+
+    def test_a_markup_looking_stamp_renders_literally(self):
+        """The stamp is store text: a `$variable`, never parsed (t2017)."""
+        self.assertEqual(self._line(_TARGET_WIDTH, "[red]x[/]", None),
+                         "frozen [red]x[/]")
 
 
 def _task_info(title: str) -> TaskInfo:

@@ -180,7 +180,9 @@ OWN_LONG_NAME = "agent-pick-" + "very-long-window-name-" * 2 + "end"
 
 #: Captured from the pre-t2017 code (``str`` markup), and never edited after:
 #: the conversion of the own panel to ``Content`` must not change one cell or
-#: one span of what benign input renders.
+#: one span of what benign input renders. The one deliberate exception is the
+#: ``frozen`` case's stamp, shortened to ``MM-DD HH:MMZ`` at t2359 so the frozen
+#: line fits its one row; its dim span still covers exactly word + stamp.
 OWN_PANEL_BEFORE = {
     "name_only": (
         "agent-followed",
@@ -203,9 +205,9 @@ OWN_PANEL_BEFORE = {
     ),
     "frozen": (
         "F agent-followed\n  Render the remaining user text\n"
-        "  literally across every monitor…\n  frozen 2026-09-04T09:20:00Z",
+        "  literally across every monitor…\n  frozen 09-04 09:20Z",
         [(0, 1, "bold cyan"), (2, 16, "bold"), (19, 49, "dim"), (52, 83, "dim"),
-         (86, 113, "dim")],
+         (86, 105, "dim")],
     ),
     "frozen_marked_long_name": (
         "★F agent-pick-very-long-window-name-\nvery-long-window-name-end\n"

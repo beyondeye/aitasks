@@ -1402,7 +1402,8 @@ class MinimonitorOwnPanelTests(_Fixture):
                             "2026-09-04T09:20:00Z")
         self.assertIn(FROZEN_GLYPH, plain)
         self.assertIn("frozen", plain)
-        self.assertIn("2026-09-04T09:20:00Z", plain)
+        # The short form (t2359): `MM-DD HH:MMZ`, so the line fits its row.
+        self.assertIn("frozen 09-04 09:20Z", plain)
 
     def test_a_frozen_agent_shows_no_phase_line(self):
         """The phase is the one live signal this panel carries, and a frozen

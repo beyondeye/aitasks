@@ -458,6 +458,65 @@ class TopChromeGeometryTests(_ChromeFixture):
                 )
 
 
+#: Folds naturally to two lines whose FIRST leaves room for the 3-cell frozen
+#: prefix (`☆F ` + 33 = 36 ≤ 38). `OWN_WINDOW_PATHOLOGICAL` would not: its
+#: 36-cell first fold plus `☆F ` is 39 against 38, so the prefix forces an
+#: extra row and the cap hides the frozen line whatever that line does — a
+#: separate, pre-existing identity-budget defect this module does not cover.
+OWN_WINDOW_FROZEN_TWO_LINE = "agent-pick-" + "very-long-window-name-" * 2 + "end"
+
+
+class DockedFrozenLineRenderTests(_ChromeFixture):
+    """t2359: the frozen line reaches the composited frame on ONE row.
+
+    `tests/test_minimonitor_row_budget.py` pins the line's text against its
+    budget; only a real layout shows it surviving the card padding, the panel's
+    height cap and a two-row name plus a two-row title around it.
+    """
+
+    STAMP = "2026-12-31T23:59:59Z"
+    EXPECTED = "frozen 12-31 23:59Z drop ok, triaged"
+
+    def _render(self, width=40):
+        result = {}
+
+        async def runner():
+            app = self._app(width=width)
+            async with app.run_test(size=(width, 30)) as pilot:
+                app._task_cache = _TitleCache()   # the two-row title
+                app._find_own_window_snapshot = (
+                    lambda: _own_snapshot(OWN_WINDOW_FROZEN_TWO_LINE))
+                app._is_marked = lambda snap: True
+                app._own_frozen_at = lambda snap: self.STAMP
+                app._frozen_sitrep_state = lambda snap: "triaged"
+                await app._maybe_build_own_agent_panel()
+                app._session_bar_enabled = False
+                app._snapshots = {}
+                app._completed_pane_ids = frozenset()
+                app._rebuild_session_bar()
+                await pilot.pause()
+                await pilot.pause()
+                result["region"] = app.query_one("#mini-own-agent").region
+                result["rows"] = _rows(app)
+
+        asyncio.run(runner())
+        return result
+
+    def test_the_whole_line_lands_on_one_composited_row(self):
+        out = self._render()
+        region = out["region"]
+        band = out["rows"][region.y:region.y + region.height]
+        hits = [row for row in band if self.EXPECTED in row]
+        self.assertEqual(len(hits), 1, "\n".join(band))
+        self.assertLessEqual(region.height, mm._OWN_PANEL_MAX_ROWS)
+        # The two-row name and title really are in play, so the line survived
+        # the worst case the cap is sized for, not an easy one.
+        self.assertTrue(any("very-long-window-name-end" in row for row in band),
+                        "\n".join(band))
+        self.assertTrue(any(OWN_TITLE.split()[-1] in row for row in band),
+                        "\n".join(band))
+
+
 class LiveChromeOverrunTests(_ChromeFixture):
     """Worst-case chrome must never overrun the bottom-docked hints."""
 

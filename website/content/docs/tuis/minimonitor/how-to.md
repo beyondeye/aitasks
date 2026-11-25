@@ -175,7 +175,7 @@ The pinned card's header names what it is following: `── this agent ──` 
 > on the list rows. At narrow widths the phase text is clipped to fit its one
 > line, keeping its symbol.
 
-When the followed agent is [frozen]({{< relref "/docs/tuis/frozenagent" >}}) the pinned card says so directly: its mark gains a cyan **F**, and a second indented line reads a dim `frozen` followed by the timestamp the record was frozen at. The workflow phase is dropped rather than left showing its last value — there is no process to have a phase — so an empty phase line here means "frozen", not "unknown".
+When the followed agent is [frozen]({{< relref "/docs/tuis/frozenagent" >}}) the pinned card says so directly: its mark gains a cyan **F**, and a second indented line reads a dim `frozen` followed by the month, day and UTC time the record was frozen at, then the sitrep state once it has been read: `frozen 11-24 18:52Z drop ok, triaged`. That line fits the card's configured width. When the width is too narrow for all of it, the time is dropped first, then the word `frozen` (the **F** still says it), so the state stays visible where it fits. On a very narrow width the state itself is shortened with `…`, and it can disappear entirely when almost no space is left. The workflow phase is dropped rather than left showing its last value — there is no process to have a phase — so an empty phase line here means "frozen", not "unknown".
 
 ### How to Pick a Task by Number
 
