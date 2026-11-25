@@ -2,7 +2,7 @@
 """`ait sitrep tui` — the sitrep store in readable form (t2211_1).
 
 The repository's persisted todo list grouped Now / Next / Waiting (Recently
-done and Dismissed on `d`), the situation text per theme, an item's details
+done and Dismissed on `d`), the situation text per direction, an item's details
 with its context map, read-only pointer following, and the Q&A log. The
 deterministic actions -- harvest + refresh, dismiss, restore, the agent
 respawn and the pick / board / trails / push launches -- live in
@@ -310,8 +310,8 @@ class ItemDetailScreen(_OpenLinkMixin, ShortcutsMixin, GuardedDismissMixin, Scre
                 lines.append(_field("Origin", ""))
                 for key, value in ctx.origin:
                     lines.append(_field(model.ORIGIN_LABELS.get(key, key), value, "  "))
-            if ctx.theme:
-                lines.append(_field("Theme", ctx.theme))
+            if ctx.direction:
+                lines.append(_field("Direction", ctx.direction))
             if not reuse_review or self._review_line is None:
                 self._review_line = model.review_line(self._store_dir, ctx)
             review = self._review_line
@@ -878,11 +878,15 @@ class SitrepTuiApp(actions.SitrepActionsMixin, TuiSwitcherMixin, ShortcutsMixin,
         banner.set_class(bool(lines), "visible")
 
     def _render_situation(self) -> None:
-        situations = self.store.situations if self.store is not None else {}
+        # The situation TEXT per direction. A direction's record (title, rank,
+        # freshness ...) is not shown here, and a block with no text adds no
+        # heading.
+        directions = self.store.directions if self.store is not None else {}
         lines = []
-        for theme in sorted(situations):
-            lines.append(f"#### {theme}")
-            lines.extend(situations[theme])
+        for slug in sorted(directions):
+            if directions[slug].situation:
+                lines.append(f"#### {slug}")
+                lines.extend(directions[slug].situation)
         pane = self._main().query_one("#st-situation", VerticalScroll)
         self._main().query_one("#st-situation-text", Static).update(_text("\n".join(lines)))
         pane.set_class(not (lines and self._show_situation), "hidden")

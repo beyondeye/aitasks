@@ -1,0 +1,7 @@
+sitrep direction baseline v1
+direction: sitrep
+member: c1|open|t2175_2
+member: c6|open|push:main@1a2b3c4d5e6f
+task: t2175_2|Implementing
+trail: art:trail-sitrep-1|v3:current
+next: t2175_2|valid

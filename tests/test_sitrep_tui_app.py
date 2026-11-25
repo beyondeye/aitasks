@@ -93,10 +93,10 @@ def _added(out: str) -> int:
     return int(_ptr(out, "ADDED:c"))
 
 
-def _context(background: str, sources: list, related: str = "", theme: str = "") -> str:
+def _context(background: str, sources: list, related: str = "", direction: str = "") -> str:
     lines = [f"- background: {background}", "- origin: agent=agent-pick-10 date=2026-11-01"]
-    if theme:
-        lines.append(f"- theme: {theme}")
+    if direction:
+        lines.append(f"- direction: {direction}")
     if sources:
         lines.append("- sources:")
         lines.extend(f"  - {t}: {p}" for t, p in sources)
@@ -174,7 +174,7 @@ def build_fixture(base: Path) -> dict:
     ]
     writer(root, "upsert-context", f"c{ids['task']}", stdin=_context(
         "Turns finished-agent output into items.", c1_sources,
-        related=f"c{ids['question']}, c{ids['push']}", theme="sitrep"))
+        related=f"c{ids['question']}, c{ids['push']}", direction="sitrep"))
     writer(root, "upsert-context", f"c{ids['review']}", stdin=_context(
         "An unparsed capture kept for review.",
         [("capture", passage), ("capture", origin_ptr), ("capture", analysis_ptr)]))
@@ -853,6 +853,39 @@ class MainScreenTests(_AppCase):
             self.assertIn("Board work is idle.", situation)
             await self.assert_no_workers(app)
 
+    async def test_a_store_with_direction_records_shows_situation_text_only(self):
+        # t2335_1: the store is format 4 and directions carry records. The
+        # Directions tab is a later task; until then the situation pane shows
+        # the TEXT per direction and nothing of the record.
+        def rev(slug):
+            line = writer(self.root, "directions", slug).splitlines()[0]
+            return line.split("|")[1]
+        writer(self.root, "direction-set", "sitrep", "--expect-rev", rev("sitrep"),
+               "--title", "Sitrep work", "--trails", "art:trail-sitrep-1",
+               "--next", "t10")
+        writer(self.root, "direction-set", "textless", "--expect-rev", "absent",
+               "--title", "A record with no situation text")
+        writer(self.root, "direction-rank", "--expect-ranked", "-",
+               stdin=f"sitrep|{rev('sitrep')}\ntextless|{rev('textless')}\n")
+        with open(os.path.join(self.store_dir, "todo.md"), encoding="utf-8") as fh:
+            text = fh.read()
+        self.assertIn("todo format=4 -->", text)
+        self.assertIn("- title: Sitrep work\n- rank: 1\n", text)
+        app = self.make_app()
+        async with app.run_test(size=SIZE) as pilot:
+            await pilot.pause()
+            self.assertEqual(app.todo_error, "")
+            self.assertEqual(app.store.directions["sitrep"].rank, 1)
+            situation = str(app.screen_stack[0].query_one("#st-situation-text",
+                                                          Static).content)
+            self.assertIn("#### sitrep\nHarvest is next.", situation)
+            self.assertIn("#### board\nBoard work is idle.", situation)
+            for hidden in ("- title:", "- rank:", "- freshness:", "Sitrep work",
+                           "| rev=", "textless"):
+                self.assertNotIn(hidden, situation)
+            self.assertTrue(self.label(self.main_list(app), "hdr:now").startswith("Now ("))
+            await self.assert_no_workers(app)
+
     async def test_hostile_markup_and_an_impossible_date_render_literally(self):
         app = self.make_app()
         async with app.run_test(size=SIZE) as pilot:
@@ -882,7 +915,7 @@ class DetailTests(_AppCase):
                          "About       t10\n",
                          "Checked     never\n", "Background  Turns finished-agent",
                          "Origin\n  Agent     agent-pick-10\n  Date      2026-11-01\n",
-                         "Theme       sitrep"):
+                         "Direction   sitrep"):
                 self.assertIn(want, body)
             for internal in ("kind", "state:", "derived", "rev ", "group"):
                 self.assertNotIn(internal, body, "internal store words stay internal")
@@ -1372,7 +1405,7 @@ class ClickSelectsTests(_AppCase):
 
 class LabelledDetailsTests(_AppCase):
     LABELS = {"Item", "Context", "What to do", "How", "About", "Checked", "Outcome",
-              "Background", "Origin", "Agent", "Date", "Theme",
+              "Background", "Origin", "Agent", "Date", "Direction",
               "Priority", "effort", "Task status", "Task",   # t2211_3
               "Created"}                                       # t2211_9: "Priority · effort" is one line
 

@@ -38,13 +38,30 @@ the recovery items it just wrote.
 ## The store
 
 `<main worktree>/.aitask-sitrep/`, gitignored, never committed. `todo.md` holds
-Part 1 (situation text per theme; items grouped Pick now / Next / Waiting /
-Recently done / Dismissed) and Part 2 (one context entry per item: a **map, not a
-summary** — background, origin, source pointers, related items). `qa.md` is the
+Part 1 (one block per direction, with its record and situation text; items
+grouped Pick now / Next / Waiting / Recently done / Dismissed) and Part 2 (one
+context entry per item: a **map, not a summary** — background, origin, the
+item's direction, source pointers, related items). `qa.md` is the
 dated Q&A log. `sources/<hex>.txt` are retained, content-addressed passages, so a
 pointer survives the frozen capture being dropped. `raw/<hex>.txt` are whole
 raw inputs of review cases (below), kept byte for byte; `cases/<hex>.txt` are
-the trusted review-case records.
+the trusted review-case records. `baselines/<hex>.txt` are direction baseline
+snapshots (see *Directions*).
+
+`todo.md` is **format 4**. Formats 1 to 3 are still read, byte for byte, and
+the first write that changes such a file upgrades it. A checkout whose writer
+is older than the store's format reads the store as unusable and writes
+nothing (exit 4) until it is updated, and a monitor or sitrep TUI started
+before the upgrade needs a restart. Two guards keep such a checkout's `restore`
+from rolling the store back:
+
+- The write that upgrades `todo.md` installs the previous generation,
+  re-rendered in format 4, as `todo.md.bak`, and keeps the original bytes as
+  `recovered/todo.md.format<N>.<timestamp>.<pid>`. An older `restore` installs
+  any backup its own parser accepts, so no such backup may sit behind a format-4
+  file.
+- `restore`, in both forms, refuses a live file whose format is newer than the
+  writer supports. Such a file is not damaged; the checkout is the old one.
 
 One store per repository: every helper maps its root to the main worktree
 (`sitrep_harvest.canonical_root`; a linked or removed `aiwork/<task>` worktree
@@ -52,6 +69,192 @@ maps to the repository that owns it). Harvest and refresh always write
 `<canonical root>/.aitask-sitrep` and ignore an outer `AITASK_SITREP_DIR`; only
 the writer honours that variable (relative to its cwd), so the skill runs from
 the main worktree root (`ait sitrep root` checks it).
+
+## Directions
+
+A direction is a line of work: a slug (`[a-z0-9][a-z0-9_-]*`) that items name
+in their context, with a record and situation text in Part 1. The store keeps
+the records and the membership rules; the refresh, the skill and the TUI build
+on what this section states. The wire lines of every verb are in the header of
+`aitask_sitrep_todo.sh`.
+
+### The record
+
+A block in Part 1 has a heading, exactly nine header lines in a fixed order,
+then the situation text:
+
+```
+#### sitrep | rev=14
+- title: Sitrep work directions
+- rank: 1
+- trails: art:trail-sitrep-1
+- next: t2335_2
+- summary: Store format landed; skill and TUI children open.
+- digest: 7c95381666ea18be
+- freshness: stale
+- checked_at: 2026-11-20T10:00:00Z
+- drift: member_closed:2:c2+c5, trail_stale:1:art:trail-sitrep-1
+Harvest is next; refresh waits on it.
+```
+
+An empty value is the bare key (`- title:`). The header always has nine lines,
+so situation text is never read as a header field.
+
+| Field | Value | Written by |
+|---|---|---|
+| `rev` | a stamp from the store-wide `next_rev` counter | every change to the block |
+| `title` | one line, at most 120 characters | `direction-set` |
+| `rank` | the ranked directions hold exactly 1..k | `direction-rank`; `direction-remove` closes a gap |
+| `trails` | up to 8 `art:trail-…` handles (at most 132 characters each) | `direction-set` |
+| `next` | a task ref or an item id `c<N>`; advisory | `direction-set` |
+| `summary` | one line, at most 400 characters | `direction-set` |
+| `digest` | the name of the baseline snapshot the summary was written from | `direction-set` |
+| `freshness` | `current`, `stale` or `unknown` | `direction-freshness --batch` |
+| `checked_at` | `never` or a timestamp | `direction-freshness --batch` |
+| `drift` | up to 32 reasons, one per cause code | `direction-freshness --batch` |
+
+The parser refuses a file that breaks one of these rules (exit 4):
+
+- `summary` and `digest` are both set or both empty.
+- `current` needs a digest and no drift reason. `stale` needs at least one
+  reason. A freshness other than `unknown` needs a `checked_at`.
+- A block that holds no situation text and no title, rank, trails, next or
+  summary does not exist. A write that leaves one drops it.
+
+The rev covers the block, header and situation text together. It does not
+cover membership.
+
+### Membership
+
+- An item is in the direction its context names (`- direction: <slug>`;
+  formats 1 to 3 spell the key `theme`). Nothing about members is stored in the
+  block.
+- `crashed-agents` is reserved. Its members are the `recover:` items whose
+  context names no direction. Context input that names it is refused, and
+  `direction-assign` never moves a `recover:` item. It has a record, a rank and
+  situation text like any other direction.
+- A direction is known when it has a block or at least one member.
+- `sitrep_todo.py` has the read helpers: `item_direction`, `direction_members`,
+  `pending_members` (state `open` or `unknown`), `known_directions`,
+  `unassigned_items` and `direction_stamp`.
+- `direction-assign --batch` changes only the direction key, for several items
+  in one all-or-nothing write guarded by each item's rev. An item with no
+  context entry gets the minimal one that can hold the key.
+- A write that changes membership resets the freshness of every block that
+  gained or lost a member to `unknown`.
+- Clearing the situation text (`situation <slug>` with empty input) removes the
+  text only. `direction-remove` deletes the block. In both cases the members
+  keep naming the direction, and it stays listed from them with no record.
+
+### Freshness and the membership stamp
+
+`direction-set` can only reset freshness to `unknown`; it never writes
+`current`. The refresh writes the verdict with `direction-freshness --batch`,
+which sets `freshness`, `checked_at` and `drift` and nothing else.
+
+A verdict also depends on which items are members and on their state and ref,
+which the direction's rev does not cover. `direction_stamp` is 16 hex
+characters over the members' ids and item revs, and `directions` prints it.
+Each batch line carries the stamp the verdict was computed from, and the writer
+applies the line only while both the rev and the stamp still hold. Task files
+and trail artifacts are outside the store and cannot be checked under its
+lock, as for item refresh.
+
+### Drift reasons
+
+A reason is `<code>`, `<code>:<count>` or `<code>:<count>:<k1>[+<k2>[+<k3>]]`.
+Each cause code appears once. The count is the number of causes that share the
+code, and the sample names at most three of them, so `member_closed:17:c3+c5+c8`
+stands for seventeen closed members. `sitrep_todo.aggregate_drift` builds
+reasons from `(code, key)` pairs. A key that does not fit the key grammar (at
+most 132 characters, the longest legal artifact handle) is left out of the
+sample and still counted. The store checks the grammar; the refresh owns the
+vocabulary of codes.
+
+### Baseline evidence
+
+The digest names a file, `baselines/<digest>.txt`, written by
+`retain-baseline`: the snapshot of the inputs the summary was written from. A
+hash could say that the inputs changed and nothing about what changed.
+
+```
+sitrep direction baseline v1
+direction: sitrep
+member: c1|open|t2175_2
+member: c6|open|push:main@1a2b3c4d5e6f
+task: t2175_2|Implementing
+trail: art:trail-sitrep-1|v3:current
+next: t2175_2|valid
+```
+
+- Lines are `<kind>: <key>|<value>`, kinds in the order `member`, `task`,
+  `trail`, `next`, sorted by key within a kind, with at most one `next` line.
+  Each input is one line with a stable key, so a specific drift reason is a
+  difference between two lines.
+- Only the pending members are listed. Items are never deleted, so listing the
+  closed ones would make every snapshot grow with the direction's history.
+- A member's value is `<state>|<ref>`. The store treats the other values as
+  opaque; the refresh defines them.
+- A snapshot is at most 256 KiB and is never truncated. Above that,
+  `retain-baseline` refuses it and the direction keeps its record: no new
+  summary can be saved, and the refresh reports `unknown` with
+  `baseline_too_large`. An ordinary direction can then be split.
+  `crashed-agents` cannot, so that outcome stands until its pending items
+  shrink.
+- A baseline is trusted only when `load_baseline` returns `ok`: a regular file
+  whose bytes hash to its name, in the snapshot grammar, for this direction.
+  `direction-set` refuses any other status. `direction-freshness` answers
+  `KEPT:<slug>|baseline_<status>` to a `current` or `stale` line over one,
+  and `check-sources` reports `SOURCE_INVALID`.
+
+Three reason codes are part of this contract: `inputs_changed` for a digest
+mismatch with no classified line difference, `baseline_unreadable` and
+`baseline_too_large`, the last two with an `unknown` verdict.
+
+### Saving a proposal
+
+The baseline must be the evidence the summary was written from.
+
+1. When a proposal is drafted, the snapshot of each proposed member set is
+   retained and each summary is written from its snapshot. A baseline is never
+   taken again at write time.
+2. The user confirms once.
+3. Before the first write, every snapshot is computed again. A different digest
+   means the evidence moved during the confirmation: nothing is written and the
+   proposal is revised. This is the check that sees inputs outside the store,
+   such as a task that closed.
+4. The writes run in this order: `direction-assign --batch`, then
+   `direction-set` per direction, then `direction-rank`.
+5. Under the lock, `direction-set` compares the baseline's member, trail and
+   next lines with the store. A difference answers
+   `EVIDENCE_CHANGED:<slug>|<kind>|<key>` and writes nothing.
+
+Leaving a direction out of a proposal drops the proposed edits to it, and
+nothing else:
+
+- No `direction-assign` line and no `direction-set` is sent for it, so its
+  saved record, summary and members stay.
+- Its rank stays too, and that needs care, because `direction-rank` replaces
+  the whole order and unranks every ranked direction its input does not name
+  (a block that held only its rank then goes). The rank input is therefore
+  always the complete order to save: every direction that is ranked now, in
+  its place, plus the newly ranked ones. A ranked direction is left out of the
+  input only when the user explicitly asked to unrank it.
+- `direction-remove` deletes a saved record and leaves its items assigned. It
+  is for an explicit request to delete a direction.
+
+Nothing is rolled back after a refusal, because each state is valid by itself:
+
+| Refused step | Already saved | State |
+|---|---|---|
+| `direction-assign` | nothing | unchanged |
+| `direction-set` for one direction | the assignments, and the records set before it | that direction has its new members, its previous record or none, and freshness `unknown` |
+| `direction-rank` | the assignments and records | the previous order stands |
+
+`direction-rank` replaces the whole order from one list and takes
+`--expect-ranked`, the full ranked order the caller saw. A rank that another
+session added changes no other direction's rev, so without that check it would
+be cleared by not being named.
 
 ## The sitrep window
 
@@ -323,7 +526,7 @@ How-text keys and the re-export the skill-parity test imports all come from it.
 |---|---|---|
 | `t` | `>t c<N>` | `classify` → `triage` / `review` |
 | `a` | `>q c<N> <text>` | any item (ask dialog: one line, ≤ 300 chars, no control characters, no trailing `@mention`) |
-| `w` | `>w <theme>` | the item's context names a theme, or the item is a crash-recovery item (`recover:` ref), which maps to the skill's virtual `crashed-agents` theme (`RECOVERY_THEME`; a read-side mapping only, the detector still writes no theme, and an explicit context theme wins) |
+| `w` | `>w <direction>` | the item is in a direction: its context names one, or it is a crash-recovery item (`recover:` ref), which belongs to the reserved `crashed-agents` direction (`sitrep_todo.item_direction`; a read-side mapping only, the detector still writes no direction, and an explicit context direction wins) |
 | `T` | `>tr c<N>` | `classify` → `watch` (a trail-checked watch) |
 | `n` | `>p` | store-wide |
 
@@ -488,9 +691,8 @@ crash detector (`aitask_sitrep_harvest.sh crashed [--root] [--dry-run]`,
 crashed work is one list the user can resume from. It is advisory: nothing in
 it reclaims, unlocks, edits task status or types into a pane.
 
-**The item.** `kind=task`, `ref=recover:t<N>[_<M>]` (store **format 3**, which
-adds this ref and the `incarnation` origin key; older files are upgraded by
-their first changing write). The outcome is `format_outcome(<label>,
+**The item.** `kind=task`, `ref=recover:t<N>[_<M>]` (this ref and the
+`incarnation` origin key need store format 3 or later). The outcome is `format_outcome(<label>,
 <evidence>)`, `<label> · <evidence>`, and its label is the category: `crashed`,
 `orphan` or `stale_lock`. The title is `Recover t<N> <slug> (<category>):
 <phase>, <plan state> plan (<freshness>), <n> files[, overlaps t<a> …]`. The
@@ -776,10 +978,10 @@ from its Capabilities section. It does **not** harvest or refresh: the TUI does
 both at its start and on `r`. `list` exit 4 (store unusable) → it names the
 TUI's `R` and writes nothing until `list` reads again.
 
-- **Codes:** `>t [c<N>]`, `>w [<theme>]`, `>q [c<N>]`, `>tr [c<N>]`, `>p`, `>c`,
+- **Codes:** `>t [c<N>]`, `>w [<direction>]`, `>q [c<N>]`, `>tr [c<N>]`, `>p`, `>c`,
   `>?`. A bare `>t` triages every open triage item as one batch; `>t c<N>` only
   that item (it never reads, proposes for or closes another one). A bare `>w` /
-  `>tr` covers every theme / trail watch.
+  `>tr` covers every direction / trail watch.
 - **Writes only through writer verbs** (`add`, `set-state`, `situation`,
   `upsert-context`, `qa`, plus `aitask_sitrep.sh case review`), with
   `--expect-rev` on every write to an existing item; `STALE:` means re-read,
@@ -789,10 +991,10 @@ TUI's `R` and writes nothing until `list` reads again.
   skill): the five request lines of `AGENT_REQUESTS`. A request carries the
   authority of typed input and no more, so every write is still confirmed. Before
   each one the agent re-reads `list` (plus `context c<N>` for an item request,
-  `read context` + `read todo` for `>w`) and checks the request on that fresh
+  `directions` + `read todo` for `>w`) and checks the request on that fresh
   read: an open triage item for `>t`, any listed item for `>q`, a watch with a
-  `trail:` source for `>tr`, a known theme for `>w`. A failed check is reported
-  and writes nothing.
+  `trail:` source for `>tr`, a direction `directions` lists for `>w`. A failed
+  check is reported and writes nothing.
 - **Done in the TUI, not here:** show, harvest + refresh, dismiss and restore
   are TUI keys; asked for one, the agent names the key (`r` / `x` / `R`).
 - **Guardrail:** the TUI may type into the agent at the user's request; the agent
@@ -825,11 +1027,11 @@ TUI's `R` and writes nothing until `list` reads again.
 - **Recovery items** (see *Crash recovery items*) are read, never written: no
   `add` of a `recover:` ref (the writer refuses it), no `set-state` or
   `upsert-context` on one, and `recovery-apply` is not an agent verb. Their
-  situation text is the **virtual theme** `crashed-agents`: no recovery context
-  names a theme, so the skill treats every `recover:` item as belonging to it
+  situation text is that of the **reserved direction** `crashed-agents`: no
+  recovery context names a direction, so every `recover:` item belongs to it
   (it needs text while one is open or unknown, `>w crashed-agents` is accepted
-  whenever `list` shows one, which is what the TUI's `w` types on a recovery
-  item, and the block is removed when none is left). `>p`
+  whenever `directions` lists it, which is what the TUI's `w` types on a
+  recovery item, and the text is removed when none is left). `>p`
   first advises a resume order from the survey (the detector's four rank
   tiers), names `/aitask-pick <N>` and the cleanup commands
   (`ait lock --unlock <N>` for stale locks), and never reclaims, unlocks or
@@ -861,7 +1063,7 @@ against the rendered skill.
 
 | Test | Covers |
 |---|---|
-| `tests/test_sitrep_todo.sh`, `tests/test_sitrep_todo_format.py` | writer, format, recovery |
+| `tests/test_sitrep_todo.sh`, `tests/test_sitrep_todo_format.py` | writer, format, recovery; directions (the record grammar, each verb, baselines, the membership stamp, the upgrade from formats 1 to 3 and the mixed-version guards) |
 | `tests/test_sitrep_harvest.sh`, `tests/test_sitrep_harvest.py` | harvest, receipts (incl. the link lines and the legacy lock-free short-circuit / backfill), the drop/purge gates, the self-harvest skip |
 | `tests/test_frozen_sitrep.py`, `tests/test_monitor_frozen_sitrep_badge.py`, `tests/test_agent_freeze.py` (`DropLegacyReceiptRealHarvestTests`) | the frozen-agent badge: receipt shapes vs `capture_harvested`, every state, the publish gate's races, the coalesced off-refresh pass, instance binding; the real Drop of a certified legacy receipt under a held harvest mutex |
 | `tests/test_sitrep_corpus.sh`, `tests/test_sitrep_corpus.py`, `tests/test_sitrep_corpus_fixtures.py` | the confidence check (every reason, per-occurrence pairing, negatives), legacy receipts, case files and provenance, faults, the replay / export loop, committed fixtures |

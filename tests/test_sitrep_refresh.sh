@@ -645,7 +645,7 @@ for variant in a b c; do
     sleep 2.5                                  # the worker is stalled in c$P13's check
     case "$variant" in
         b) wr "$R13" update "$P13" --title "Push main (edited)" >/dev/null ;;
-        c) ctx_of "Push main" "- theme: edited" | wr "$R13" upsert-context "$P13" >/dev/null ;;
+        c) ctx_of "Push main" "- direction: edited" | wr "$R13" upsert-context "$P13" >/dev/null ;;
     esac
     wait_done "$pid"
     OUT="$(cat "$TMP/bg.out")"
@@ -658,7 +658,7 @@ for variant in a b c; do
         b)  assert_eq "(b) title edit -> stale" "stale" "$(item_res "$P13")"
             assert_contains "(b) ... the edit is kept" "| Push main (edited)" "$(line_of "$R13" "$P13")" ;;
         c)  assert_eq "(c) context edit -> stale" "stale" "$(item_res "$P13")"
-            assert_contains "(c) ... the new context is kept" "theme: edited" "$(wr "$R13" context "$P13")" ;;
+            assert_contains "(c) ... the new context is kept" "direction: edited" "$(wr "$R13" context "$P13")" ;;
     esac
 done
 unset AITASK_SITREP_REFRESH_BATCH_LOG

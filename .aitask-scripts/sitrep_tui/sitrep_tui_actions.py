@@ -15,8 +15,8 @@ The deterministic work the sitrep agent used to do for the TUI's user, as keys:
   a trail; t2211_10 -- a picker for two or more), and the push command a push
   reminder SHOWS (`P`, never run);
 * **agent requests** (t2211_4): triage (`t`), ask (`a`, a one-line question),
-  situation text (`w`, items with a theme; a crash-recovery item names the
-  virtual `crashed-agents` theme), trail refresh (`T`, trail watches)
+  situation text (`w`, items in a direction; a crash-recovery item is in the
+  reserved `crashed-agents` direction), trail refresh (`T`, trail watches)
   and pick advice (`n`) TYPE a request into the sitrep agent and submit it,
   through ``monitor/agent_request_delivery.py`` (readiness, guarded paste, the
   composer proof before every Enter). Shown only while the agent runs; one at a
@@ -708,7 +708,7 @@ class SitrepActionsMixin:
         if action == "request_ask":
             return True
         if action == "request_situation":
-            return bool(reqs.item_theme(self.store, item))
+            return bool(reqs.item_direction(self.store, item))
         if action == "request_trail_refresh":
             return model.classify(item, self._checks.get(item.num)) == "watch"
         return False

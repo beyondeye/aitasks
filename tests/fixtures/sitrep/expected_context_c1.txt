@@ -1,7 +1,7 @@
 ### c1
 - background: Second sitrep child; turns finished-agent output into items.
 - origin: agent=agent-pick-2175 task=t2175 commit=c17a85002 date=2026-11-01 skill=aitask-pick pane=%12
-- theme: sitrep
+- direction: sitrep
 - sources:
   - task: aitasks/t2175/t2175_2_sitrep_harvest_parser_for_finished_agents.md
   - plan: aiplans/p2175/p2175_2_sitrep_harvest_parser_for_finished_agents.md

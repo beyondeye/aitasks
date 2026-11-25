@@ -20,7 +20,7 @@ from monitor import agent_request_delivery as delivery
 class AgentRequest:
     """One request key: the Textual ``action``, its default ``key``, the footer
     ``label``, and the ``template`` typed into the agent (``{cid}``,
-    ``{theme}``, ``{text}`` are filled from the item / the ask dialog)."""
+    ``{direction}``, ``{text}`` are filled from the item / the ask dialog)."""
 
     action: str
     key: str
@@ -31,7 +31,7 @@ class AgentRequest:
 AGENT_REQUESTS = (
     AgentRequest("request_triage", "t", "Triage", ">t {cid}"),
     AgentRequest("request_ask", "a", "Ask agent", ">q {cid} {text}"),
-    AgentRequest("request_situation", "w", "Situation text", ">w {theme}"),
+    AgentRequest("request_situation", "w", "Situation text", ">w {direction}"),
     AgentRequest("request_trail_refresh", "T", "Trail refresh", ">tr {cid}"),
     AgentRequest("request_pick_advice", "n", "Pick advice", ">p"),
 )
@@ -39,11 +39,6 @@ REQUESTS_BY_ACTION = {r.action: r for r in AGENT_REQUESTS}
 #: The requests that act on the selected item (the rest are store-wide).
 ITEM_REQUESTS = frozenset({"request_triage", "request_ask", "request_situation",
                            "request_trail_refresh"})
-
-#: The sitrep skill's virtual theme of every crash-recovery item (``recover:``
-#: ref): recovery contexts name no theme, so `w` on one types ``>w crashed-agents``.
-#: Pinned against the skill text by tests/test_sitrep_tui_requests.py.
-RECOVERY_THEME = "crashed-agents"
 
 #: Longest question the ask dialog accepts (a 300-char line was measured to land
 #: in all three agents' composers as typed text, no paste placeholder).
@@ -82,21 +77,16 @@ def ask_text_error(text: str) -> str:
     return _ASK_REASONS.get(reason, "") if reason else ""
 
 
-def item_theme(store: "st.TodoStore | None", item: "st.Item | None") -> str:
-    """The theme ``>w`` names for ``item``, or ``""``.
+def item_direction(store: "st.TodoStore | None", item: "st.Item | None") -> str:
+    """The direction ``>w`` names for ``item``, or ``""``.
 
-    An explicit context theme always wins (when it is a valid theme token);
-    otherwise a crash-recovery item (a ``recover:`` ref) maps to the skill's
-    virtual :data:`RECOVERY_THEME`. The mapping is read-side only: the crash
-    detector owns recovery contexts and nothing writes a theme into them.
+    The store owns the mapping (``sitrep_todo.item_direction``): an explicit
+    context direction wins, otherwise a crash-recovery item (a ``recover:``
+    ref) belongs to the reserved ``sitrep_todo.RECOVERY_DIRECTION``, so `w` on
+    one types ``>w crashed-agents``. That name is pinned against the skill
+    text by tests/test_sitrep_tui_requests.py.
     """
-    if item is None:
-        return ""
-    ctx = store.contexts.get(item.num) if store is not None else None
-    theme = getattr(ctx, "theme", "") if ctx is not None else ""
-    if theme and st.THEME_RE.match(theme):
-        return theme
-    return RECOVERY_THEME if st.parse_recover_ref(item.ref or "") else ""
+    return st.item_direction(store, item)
 
 
 def build_request(req: AgentRequest, item: "st.Item | None" = None,
@@ -107,10 +97,11 @@ def build_request(req: AgentRequest, item: "st.Item | None" = None,
     literal), and the finished line must pass the delivery's one-line rule.
     """
     fields = {"cid": item.cid if item is not None else "",
-              "theme": item_theme(store, item), "text": normalize_ask_text(text)}
+              "direction": item_direction(store, item),
+              "text": normalize_ask_text(text)}
     if "{cid}" in req.template and not fields["cid"]:
         return ""
-    if "{theme}" in req.template and not fields["theme"]:
+    if "{direction}" in req.template and not fields["direction"]:
         return ""
     if "{text}" in req.template and (not fields["text"] or ask_text_error(text)):
         return ""

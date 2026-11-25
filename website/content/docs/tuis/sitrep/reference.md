@@ -40,7 +40,7 @@ keys below apply.
 | `A` | Respawn agent | Start the sitrep agent again beside the TUI | The agent is not running |
 | `t` | Triage | Request: `>t c<N>` | The agent runs, and the item is an open triage or unparsed-output review item |
 | `a` | Ask agent | Request: `>q c<N> <question>` (asks for the question first) | The agent runs, and an item is highlighted |
-| `w` | Situation text | Request: `>w <theme>` | The agent runs, and the item's context names a work area (theme), or the item is a crash-recovery item: then it types `>w crashed-agents` |
+| `w` | Situation text | Request: `>w <direction>` | The agent runs, and the item's context names a direction (a line of work that several items belong to), or the item is a crash-recovery item: then it types `>w crashed-agents` |
 | `T` | Trail refresh | Request: `>tr c<N>` | The agent runs, and the item is an open watch that refresh checks through its trail |
 | `n` | Pick advice | Request: `>p` | The agent runs |
 | `j` | (hidden) | TUI switcher | Always |
@@ -239,7 +239,7 @@ The title is `c<N> · <title>`. The body, in order:
   A failed or partial scan never reads as `none`.
 - **Checked** (`never`, or the time and its age) and **Outcome**.
 - **Context**: **Background**, **Origin** (Agent, Task, Commit, Date, Skill,
-  Pane), **Theme**, and for an unparsed-output review its case and the
+  Pane), **Direction**, and for an unparsed-output review its case and the
   `ait sitrep case show <case>` command. `No context entry.` when the item has
   none.
 
@@ -272,7 +272,7 @@ harvest's identity receipts (KEY sources) stay in the store but are not listed.
 |-----|----------------------|------------|
 | `t` | `>t c<N>` | An open triage item, or an unparsed-output review item |
 | `a` | `>q c<N> <question>` | Any item |
-| `w` | `>w <theme>` | An item whose context names a work area |
+| `w` | `>w <direction>` | An item whose context names a direction |
 | `T` | `>tr c<N>` | An open watch that refresh checks through its trail |
 | `n` | `>p` | The whole list |
 
@@ -387,13 +387,14 @@ agent runs only from the main worktree, so a repository has one list.
 
 | Path | Holds |
 |------|-------|
-| `todo.md` | The items, grouped Pick now / Next / Waiting / Recently done / Dismissed, the situation text per work area, and one context entry per item |
+| `todo.md` | The items, grouped Pick now / Next / Waiting / Recently done / Dismissed, one block per direction with its situation text, and one context entry per item |
 | `qa.md` | The dated Q&A log |
 | `todo.md.bak`, `qa.md.bak` | The previous good copy of each file, which `R` restores |
 | `sources/` | Passages the harvest retained, so an item's source survives a dropped frozen capture |
 | `raw/` | The whole output of each [unparsed-output case](#unparsed-output-cases), byte for byte |
 | `cases/` | The case records: where each output came from, what the parser found, and each review |
-| `recovered/` | The file `R` replaced, kept when you restore |
+| `baselines/` | For each direction summary, the list of items, tasks and trails it was written from |
+| `recovered/` | The file `R` replaced, kept when you restore, and the copy of `todo.md` kept when a newer aitasks changes its format |
 
 - **Git** — the folder is git-ignored and never committed. `ait setup` adds
   `.aitask-sitrep/` to the project's `.gitignore`; when the folder is still not
@@ -404,7 +405,12 @@ agent runs only from the main worktree, so a repository has one list.
   `.bak` file. The TUI, the harvest and the sitrep agent all write through it.
 - **Not rebuildable** — dismissals, the agent's derived items and the Q&A log
   exist only here.
-- **Never pruned** — nothing deletes `sources/`, `raw/` or `cases/`.
+- **Never pruned** — nothing deletes `sources/`, `raw/`, `cases/` or
+  `baselines/`.
+- **Format** — after you update aitasks, the first change to the list can
+  rewrite `todo.md` in a newer format. A checkout with an older aitasks then
+  reads the list as unusable and changes nothing until you update it too. A
+  sitrep TUI or monitor that was already running needs a restart.
 
 ## Unparsed-output cases
 

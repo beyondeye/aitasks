@@ -107,7 +107,7 @@ done
 
 echo "=== Test 2s: shortcodes and shortcode rules present ==="
 # Full headings: a bare '### `>t' prefix would also match `>tr`.
-SHORTCODES=('### `>t [c<N>]`' '### `>w [<theme>]`' '### `>q [c<N>]`' '### `>tr [c<N>]`'
+SHORTCODES=('### `>t [c<N>]`' '### `>w [<direction>]`' '### `>q [c<N>]`' '### `>tr [c<N>]`'
             '### `>p`' '### `>c`' '### `>?`')
 # Show, refresh, dismiss and restore are the sitrep TUI's keys (t2211_5).
 NOT_SHORTCODES=('### `>s`' '### `>x' '### `>r`')

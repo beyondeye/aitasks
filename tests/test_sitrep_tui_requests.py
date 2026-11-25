@@ -131,46 +131,46 @@ class BuildRequestTests(unittest.TestCase):
         by = reqs.REQUESTS_BY_ACTION
         self.assertEqual(reqs.build_request(by["request_triage"], None), "")
         self.assertEqual(reqs.build_request(by["request_situation"], self.item()), "",
-                         "no theme")
+                         "no direction")
         for bad in ("", "a\nb", "a\tb", "see @tests/x", "x" * 301):
             with self.subTest(repr(bad)):
                 self.assertEqual(reqs.build_request(by["request_ask"], self.item(), text=bad),
                                  "")
 
-    def theme_store(self, num: int, theme: str):
+    def direction_store(self, num: int, direction: str):
         from sitrep_todo import ContextEntry, TodoStore
-        return TodoStore(contexts={num: ContextEntry(background="b", theme=theme)})
+        return TodoStore(contexts={num: ContextEntry(background="b", direction=direction)})
 
-    def test_a_recovery_item_names_the_virtual_theme(self):
-        # t2318: a recovery context names no theme (the detector owns it), so
-        # `w` maps the item to the skill's virtual `crashed-agents` theme.
+    def test_a_recovery_item_names_the_reserved_direction(self):
+        # t2318: a recovery context names no direction (the detector owns it), so
+        # `w` maps the item to the reserved `crashed-agents` direction.
         sit = reqs.REQUESTS_BY_ACTION["request_situation"]
         rec = self.item(ref="recover:t42")
-        for store in (None, self.theme_store(rec.num, "")):
+        for store in (None, self.direction_store(rec.num, "")):
             with self.subTest(store=store is not None):
-                self.assertEqual(reqs.item_theme(store, rec), "crashed-agents")
+                self.assertEqual(reqs.item_direction(store, rec), "crashed-agents")
                 self.assertEqual(reqs.build_request(sit, rec, store), ">w crashed-agents")
-        with self.subTest("an invalid context theme falls back"):
-            store = self.theme_store(rec.num, "Not A Theme")
-            self.assertEqual(reqs.item_theme(store, rec), "crashed-agents")
+        with self.subTest("an invalid context direction falls back"):
+            store = self.direction_store(rec.num, "Not A Direction")
+            self.assertEqual(reqs.item_direction(store, rec), "crashed-agents")
 
-    def test_an_explicit_theme_wins_and_other_items_get_none(self):
+    def test_an_explicit_direction_wins_and_other_items_get_none(self):
         sit = reqs.REQUESTS_BY_ACTION["request_situation"]
         rec = self.item(ref="recover:t42")
-        self.assertEqual(reqs.build_request(sit, rec, self.theme_store(rec.num, "sitrep")),
+        self.assertEqual(reqs.build_request(sit, rec, self.direction_store(rec.num, "sitrep")),
                          ">w sitrep")
-        # Negative control: a plain task item with no theme still names none.
+        # Negative control: a plain task item with no direction still names none.
         for ref in ("t42", "", "push:main@0123456"):
             with self.subTest(ref=ref):
                 plain = self.item(ref=ref)
-                self.assertEqual(reqs.item_theme(self.theme_store(plain.num, ""), plain), "")
+                self.assertEqual(reqs.item_direction(self.direction_store(plain.num, ""), plain), "")
                 self.assertEqual(reqs.build_request(sit, plain, None), "")
-        self.assertEqual(reqs.item_theme(None, None), "")
+        self.assertEqual(reqs.item_direction(None, None), "")
 
-    def test_the_virtual_theme_is_the_skills(self):
+    def test_the_reserved_direction_is_the_skills(self):
         skill = (HERE.parent / ".claude" / "skills" / "aitask-sitrep"
                  / "SKILL.md.j2").read_text(encoding="utf-8")
-        self.assertIn(f"**`{reqs.RECOVERY_THEME}` is the theme of every crash-recovery item**",
+        self.assertIn(f"**`{reqs.st.RECOVERY_DIRECTION}` is the direction of every crash-recovery item**",
                       skill)
 
     def test_a_question_may_start_with_any_character(self):
@@ -198,7 +198,7 @@ class BindingTests(_ReqCase):
     EXPECT = {
         "triage": (True, True, False, False),
         "review": (True, True, False, False),
-        "task": (False, True, True, False),        # the fixture's task has theme=sitrep
+        "task": (False, True, True, False),        # the fixture's task has direction=sitrep
         "question": (False, True, False, False),
         "watch": (False, True, False, True),       # made trail-checked below
         "done": (False, True, False, False),
@@ -259,11 +259,11 @@ class BindingTests(_ReqCase):
 
 
 class RecoverySituationTests(_ReqCase):
-    """t2318: `w` on a crash-recovery item (no context theme) types
+    """t2318: `w` on a crash-recovery item (no context direction) types
     `>w crashed-agents`, from the list and from details."""
 
     # The real-writer fixture of the `p` tests: a `recover:` item whose context
-    # names no theme, exactly as the crash detector writes it.
+    # names no direction, exactly as the crash detector writes it.
     recover_item = ta.RecoverPickTests.recover_item
 
     async def test_w_on_a_recovery_item(self):
@@ -271,7 +271,7 @@ class RecoverySituationTests(_ReqCase):
         app = self.make_app()
         async with app.run_test(size=SIZE) as pilot:
             await self.started(app, pilot)
-            self.assertEqual(app.store.contexts[num].theme, "", "the detector writes no theme")
+            self.assertEqual(app.store.contexts[num].direction, "", "the detector writes no direction")
             self.select(app, num)
             self.assertTrue(self.shown(app, "request_situation"), "main list")
             await self.open_details(app, pilot, num)

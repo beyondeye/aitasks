@@ -19,13 +19,13 @@ Each row has five columns:
 - **Created**: when that task was created. Today's tasks show the time, older ones the date.
 - **What to do**: one line saying what the item needs from you, such as "Triage t2175_2's wrap-up: …", "Pick t2182 (status: Ready): …" or "Waiting on: … — nothing to do now".
 
-The header line shows how many items there are and how many are open in Now, whether the sitrep agent is running, and when the list was last re-checked. Above the list, the **situation** text gives a short summary per work area. Press **s** to hide or show it.
+The header line shows how many items there are and how many are open in Now, whether the sitrep agent is running, and when the list was last re-checked. Above the list, the **situation** text gives a short summary per direction. A direction is a line of work that several items belong to. Press **s** to hide or show it.
 
 A click selects a row and **Enter** opens it. This is the same on every list in the TUI.
 
 ### How to Open an Item and Its Sources
 
-Press **Enter** on a row to open its details. The top part says what the item needs: **What to do**, **How** (which key does it), and **About** (the task, push or reference the item points at). For a task item it also shows the task's priority and effort, its status, when it was created and which trails it is in. Then come **Checked**, the **Outcome** of the last check or action, and the item's **Context**: its background, where it came from (agent, task, commit, date), and its work area.
+Press **Enter** on a row to open its details. The top part says what the item needs: **What to do**, **How** (which key does it), and **About** (the task, push or reference the item points at). For a task item it also shows the task's priority and effort, its status, when it was created and which trails it is in. Then come **Checked**, the **Outcome** of the last check or action, and the item's **Context**: its background, where it came from (agent, task, commit, date), and its direction.
 
 Below that is a list of links: the task's description, its trails, and every source the item points at, such as the agent's closing message, the workflow result, a plan, a commit or a file. Press **Tab** to move between the text and the links, then **Enter** on a link to open it:
 
@@ -74,7 +74,7 @@ For work that needs the agent, press a request key. The TUI types a one-line req
 
 - **t** — triage this wrap-up, or handle this unparsed-output review. Typing `>t` in the agent instead triages every open wrap-up at once.
 - **a** — ask the agent about this item. A one-line dialog takes your question.
-- **w** — rewrite the situation text of this item's work area.
+- **w** — rewrite the situation text of this item's direction.
 - **T** — have the agent report on the trail this watch follows, and offer to refresh it.
 - **n** — ask the agent what to pick next.
 

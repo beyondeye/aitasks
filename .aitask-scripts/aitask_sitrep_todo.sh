@@ -7,11 +7,12 @@
 # not rebuildable from anything else, so every write is locked, atomic and
 # backed up, and recovery never removes a live file.
 #
-#   todo.md, todo.md.bak  Part 1 (situation per theme; items grouped Pick now /
-#                         Next / Waiting / Recently done / Dismissed) and Part 2
-#                         (one context entry per item -- a MAP of pointers:
-#                         background, origin, theme, sources, related; never
-#                         status, counts or summaries)
+#   todo.md, todo.md.bak  Part 1 (one block per direction: its record and
+#                         situation text; items grouped Pick now / Next /
+#                         Waiting / Recently done / Dismissed) and Part 2 (one
+#                         context entry per item -- a MAP of pointers:
+#                         background, origin, direction, sources, related;
+#                         never status, counts or summaries)
 #   qa.md, qa.md.bak      the dated Q&A log
 #   store.init            written LAST by the one-time initialization
 #   next_id, next_rev     the item-id and revision high-water marks
@@ -20,7 +21,11 @@
 #                         content-addressed, immutable, never pruned)
 #   cases/<hex>.txt       the TRUSTED review-case records (origin, analysis,
 #                         review, key); never harvested text
-#   recovered/            damaged files preserved by `restore`
+#   baselines/<hex>.txt   direction baseline snapshots (content-addressed,
+#                         immutable, never pruned); a direction's `digest` is
+#                         the name of the one its summary was written from
+#   recovered/            damaged files preserved by `restore`, and the
+#                         pre-upgrade bytes of a todo.md moved to a newer format
 #   .lockd/               the registry_lock.sh mutex for the whole store
 #
 # FORMAT. Defined, parsed and rendered by lib/sitrep_todo.py (read its header).
@@ -28,10 +33,29 @@
 # banner and the parser is strict: a hand-edited file is refused (exit 4) until
 # `restore` puts the last good generation back. The consumer contract is the
 # golden store in tests/fixtures/sitrep/ -- a format change edits that fixture
-# and bumps `format=`. todo.md is format 3: format 2 adds the
+# and bumps `format=`. todo.md is format 4: format 2 adds the
 # `push:<branch>@<sha>` ref (t2175_3), format 3 the `recover:t<N>[_<M>]` ref and
-# the `incarnation` origin key (t2299_1). Older files are read and upgraded by
-# their first changing write; one holding a newer ref or key is refused.
+# the `incarnation` origin key (t2299_1), format 4 the direction records and the
+# `direction` context key, which formats 1-3 spell `theme` (t2335_1). Older
+# files are read and upgraded by their first changing write; one holding a newer
+# ref, key or heading is refused.
+#
+# MIXED VERSIONS. A checkout older than a store's format fails closed on it
+# (exit 4, nothing written) until it is updated; a monitor or sitrep TUI started
+# before the upgrade needs a restart. Two guards keep such a checkout's
+# `restore` from rolling a newer store back: the write that upgrades todo.md
+# installs the PREVIOUS generation re-rendered in the new format as todo.md.bak
+# (the pre-upgrade bytes go to recovered/todo.md.format<N>.<ts>.<pid>), so no
+# backup an older parser accepts sits behind a newer live file; and this writer's
+# `restore` refuses a live file whose format is newer than it supports.
+#
+# DIRECTIONS (t2335_1; the record contract is the "Directions" section of
+# aidocs/framework/sitrep.md). A direction is a slug. Its members are the items
+# whose context names it, plus, for the reserved `crashed-agents`, every
+# `recover:` item whose context names none; membership is never stored in the
+# block. `rev` covers the block (record and situation text), not membership, so
+# a freshness line also carries the membership stamp `directions` prints. A
+# write that changes membership resets the freshness of the blocks it touches.
 #
 # CONCURRENCY. `lib/atomic_write.sh` gives readers a whole-old-or-whole-new view
 # but does not serialize a read-modify-write, so every mutation holds the
@@ -129,11 +153,96 @@
 #                                   / NOT_FOUND:c<N> per line
 #   dismiss <id> [--outcome T] [--expect-rev N]
 #                                   STATE:c<N>|dismissed|<rev>
-#   situation <theme>               stdin (empty removes) -> SITUATION:<theme>|set
-#                                   | removed | absent
-#   upsert-context <id>             stdin -> CONTEXT:c<N>|created|replaced|unchanged;
-#                                   on a recover: item the entry must keep the
-#                                   recorded incarnation (else exit 2)
+#   situation <direction>           stdin (empty clears) -> SITUATION:<direction>|set
+#                                   | removed | absent. Clearing removes the TEXT
+#                                   only: the direction's record stays, the block
+#                                   goes when nothing agent-written is left, and
+#                                   members keep naming the direction
+#   upsert-context <id> [--expect-rev N]
+#                                   stdin -> CONTEXT:c<N>|created|replaced|unchanged
+#                                   | STALE:c<N>|<rev>; on a recover: item the
+#                                   entry must keep the recorded incarnation, and
+#                                   no entry may name the reserved direction
+#                                   crashed-agents (each exit 2)
+#   directions [<direction>]        per direction (ranked ones by rank, then the
+#                                   unranked by slug):
+#                                   DIRECTION:<slug>|<rev>|<stamp>|<rank>|<freshness>|
+#                                   <checked_at>|<digest>|<next>|<trails>|<pending>|
+#                                   <members>|<title>  (rev and rank `-` when
+#                                   absent; trails comma-separated; pending =
+#                                   members in state open or unknown; title LAST)
+#                                   DIRECTION_SUMMARY:<slug>|<summary>  (when set)
+#                                   DIRECTION_DRIFT:<slug>|<code>|<count>|<k1+k2+k3>
+#                                   DIRECTION_MEMBER:<slug>|c<N>|<state>|<kind>|<ref>
+#                                   full listing only: NO_DIRECTIONS when none, and
+#                                   a last line UNASSIGNED:<n>|c1,c2 (items in state
+#                                   open or unknown that are in no direction);
+#                                   an unknown <direction> is NOT_FOUND:<slug>, exit 2
+#   direction-assign --batch        stdin: <id>|<rev>|<direction or -> per line;
+#                                   changes ONLY the context's direction key, all
+#                                   or nothing. A line that cannot apply --
+#                                   STALE:c<N>|<rev> | NOT_FOUND:c<N> |
+#                                   KEPT:c<N>|recovery (a recover: item is never
+#                                   reassigned) -- and NOTHING is written. Else
+#                                   ASSIGNED:c<N>|<direction or ->|<rev> per line,
+#                                   then DIRECTION:<slug>|updated|unchanged|<rev>
+#                                   per block that gained or lost a member (its
+#                                   freshness is reset). An item with no context
+#                                   entry gets the minimal one; a duplicate id or
+#                                   the reserved slug is exit 2
+#   direction-set <direction> --expect-rev absent|<rev> [--title T]
+#       [--trails a,b] [--next R] [--summary-file - --digest H]
+#                                   DIRECTION:<slug>|created|updated|unchanged|<rev>
+#                                   | STALE:<slug>|<rev> | ABSENT:<slug>
+#                                   | EVIDENCE_CHANGED:<slug>|<kind>|<key> per
+#                                   difference (nothing written). The summary is
+#                                   ONE line on stdin (empty clears it and the
+#                                   digest); --digest names the baseline it was
+#                                   written from, which must verify and whose
+#                                   member / trail / next lines must match the
+#                                   store now. A change to summary, digest, trails
+#                                   or next resets the freshness; this verb never
+#                                   writes `current`. `absent` also matches a block
+#                                   an older format left with no rev
+#   direction-rank --expect-ranked <a,b|-> [--clear]
+#                                   stdin: <direction>|<rev or absent> per line, in
+#                                   rank order; replaces the WHOLE order, all or
+#                                   nothing. --expect-ranked is the full ranked
+#                                   order the caller saw (`-` = none):
+#                                   STALE_ORDER:<current|-> when it differs, so a
+#                                   rank added meanwhile is never cleared by
+#                                   omission. STALE:<slug>|<rev> | ABSENT:<slug> on
+#                                   a rev mismatch. Else RANKED:<slug>|<rank>|<rev>
+#                                   per line and UNRANKED:<slug>|<rev> per direction
+#                                   that lost its rank (a block that held only
+#                                   its rank is then gone: UNRANKED:<slug>|-).
+#                                   So the input is always the COMPLETE order to
+#                                   save: a caller that edits some directions
+#                                   still names every other ranked one, unless
+#                                   the user asked to unrank it. Empty stdin
+#                                   needs --clear;
+#                                   a duplicate or unknown direction is exit 2
+#   direction-freshness --batch     stdin: <direction>|<rev>|<stamp>|<freshness>|
+#                                   <checked_at>|<drift> per line; sets ONLY
+#                                   freshness, checked_at and drift ->
+#                                   FRESHNESS:<slug>|<freshness>|<rev>
+#                                   | STALE:<slug>|<rev>|<stamp> (the rev or the
+#                                   membership stamp moved) | NOT_FOUND:<slug> (no
+#                                   block) | KEPT:<slug>|no_baseline (`current`
+#                                   with no digest) | KEPT:<slug>|baseline_<status>
+#                                   (`current` or `stale` over a baseline that does
+#                                   not verify). drift is comma-separated reasons,
+#                                   ONE per cause code: <code> | <code>:<count> |
+#                                   <code>:<count>:<k1>[+<k2>[+<k3>]]
+#   direction-remove <direction> --expect-rev <rev>
+#                                   DIRECTION_REMOVED:<slug>|<members still naming
+#                                   it>, then RANKED:<slug>|<rank>|<rev> per
+#                                   direction whose rank closed the gap
+#                                   | STALE:<slug>|<rev> | ABSENT:<slug>
+#   retain-baseline                 stdin direction baseline snapshot (grammar in
+#                                   lib/sitrep_todo.py parse_baseline; <=256 KiB,
+#                                   never truncated) ->
+#                                   RETAINED_BASELINE:baselines/<hex>.txt|<hex>
 #   retain                          stdin passage (<=64 KiB) ->
 #                                   RETAINED:sources/<hex>.txt#L1-L<n>
 #   retain-raw                      stdin raw input, verbatim (any non-NUL bytes,
@@ -147,7 +256,9 @@
 #                                   | RESTORED:<file>|no-damaged-copy
 #                                   | RESTORE_NOT_NEEDED:<file> (--if-damaged
 #                                   only: the live file parses, checked under
-#                                   the lock; nothing written)
+#                                   the lock; nothing written). Both forms refuse
+#                                   (exit 4) a live file of a NEWER format than
+#                                   this writer supports: it is not damaged
 #   read [all|todo|context|qa]      raw text, no lock (works on a damaged file);
 #                                   `todo` is Part 1, `context` Part 2
 #   list [--machine]                ITEM:c<N>|<rev>|kind|state|group|checked_at|
@@ -157,7 +268,11 @@
 #   check-sources                   SOURCE_OK:c<N>|<ptr> | SOURCE_MISSING:c<N>|<ptr>
 #                                   per retained capture, plus one line per raw
 #                                   input a TRUSTED case origin names
-#                                   (raw/<hex>.txt; a sha mismatch is MISSING)
+#                                   (raw/<hex>.txt; a sha mismatch is MISSING),
+#                                   plus one line per direction baseline:
+#                                   SOURCE_OK:<slug>|baselines/<hex>.txt
+#                                   | SOURCE_MISSING:<slug>|<ptr>
+#                                   | SOURCE_INVALID:<slug>|<ptr>|<status>
 #                                   | NO_SOURCES
 #   path                            the canonical absolute store dir
 #
@@ -210,8 +325,16 @@ Usage: aitask_sitrep_todo.sh add --kind K --title T [--ref R] [--group G] [--sta
        aitask_sitrep_todo.sh set-state <id> <state> [--checked-at TS] [--outcome T] [--expect-rev N]
        aitask_sitrep_todo.sh set-state --batch        (lines on stdin)
        aitask_sitrep_todo.sh dismiss <id> [--outcome T] [--expect-rev N]
-       aitask_sitrep_todo.sh situation <theme>        (text on stdin)
-       aitask_sitrep_todo.sh upsert-context <id>      (entry on stdin)
+       aitask_sitrep_todo.sh situation <direction>    (text on stdin)
+       aitask_sitrep_todo.sh upsert-context <id> [--expect-rev N]   (entry on stdin)
+       aitask_sitrep_todo.sh directions [<direction>]
+       aitask_sitrep_todo.sh direction-assign --batch (lines on stdin)
+       aitask_sitrep_todo.sh direction-set <direction> --expect-rev absent|<rev> [--title T]
+                                 [--trails a,b] [--next R] [--summary-file - --digest H]
+       aitask_sitrep_todo.sh direction-rank --expect-ranked <a,b|-> [--clear]   (lines on stdin)
+       aitask_sitrep_todo.sh direction-freshness --batch   (lines on stdin)
+       aitask_sitrep_todo.sh direction-remove <direction> --expect-rev <rev>
+       aitask_sitrep_todo.sh retain-baseline          (snapshot on stdin)
        aitask_sitrep_todo.sh retain                   (passage on stdin)
        aitask_sitrep_todo.sh retain-raw               (raw input on stdin)
        aitask_sitrep_todo.sh retain-case              (case record on stdin)
@@ -411,27 +534,44 @@ directive() {
     printf '%s\n' "$2" | sed -n "s/^@$1://p" | head -n1
 }
 
+_discard_staged() {
+    ait_atomic_discard "$1"
+    [[ -z "${2:-}" ]] || ait_atomic_discard "$2"
+}
+
 # mutate <todo|qa> <op> [args...] -- the shared locked mutation sequence:
 # precheck already ran; lock -> ensure -> core renders into a staged temp ->
 # next_id (add) -> roll .bak -> one rename. Results print only after the commit.
+#
+# A todo write that UPGRADES the file's format does not roll the old file into
+# .bak: the core hands back the previous generation re-rendered in the new
+# format (--out-bak, announced by @BAK_MIGRATED:<old format>), that becomes the
+# .bak, and the pre-upgrade bytes are kept under recovered/. See MIXED VERSIONS
+# in the header: an older writer's `restore` must find no backup it can parse.
 mutate() {
-    local kind="$1" dest res rc=0 tmp next
+    local kind="$1" dest res rc=0 tmp tmpbak="" next
     shift
     dest="$STORE_DIR/$kind.md"
     lock_or_busy
     ensure_store "$kind"
     dest="$(ait_atomic_resolve "$dest")" || err_store "cannot resolve '$dest'"
     tmp="$(ait_atomic_tmp "$dest")" || err_store "cannot stage a write beside '$dest'"
-    res="$(py "$@" --store "$STORE_DIR" --out "$tmp")" || rc=$?
+    if [[ "$kind" == todo ]]; then
+        tmpbak="$(ait_atomic_tmp "$dest.bak")" || {
+            ait_atomic_discard "$tmp"
+            err_store "cannot stage a write beside '$dest.bak'"
+        }
+    fi
+    res="$(py "$@" --store "$STORE_DIR" --out "$tmp" ${tmpbak:+--out-bak "$tmpbak"})" || rc=$?
     case "$rc" in
         0) ;;
-        2) ait_atomic_discard "$tmp"; release; print_results "$res"; exit 2 ;;
-        4) ait_atomic_discard "$tmp"; exit 4 ;;
-        *) ait_atomic_discard "$tmp"; err_store "the sitrep core failed (exit $rc); nothing was written" ;;
+        2) _discard_staged "$tmp" "$tmpbak"; release; print_results "$res"; exit 2 ;;
+        4) _discard_staged "$tmp" "$tmpbak"; exit 4 ;;
+        *) _discard_staged "$tmp" "$tmpbak"; err_store "the sitrep core failed (exit $rc); nothing was written" ;;
     esac
     if [[ ! -s "$tmp" ]]; then
         # Nothing changed (EXISTS / STALE / KEPT / an identical value).
-        ait_atomic_discard "$tmp"
+        _discard_staged "$tmp" "$tmpbak"
         release
         print_results "$res"
         return 0
@@ -443,16 +583,30 @@ mutate() {
         next="$(directive "${pair%%:*}" "$res")"
         [[ -n "$next" ]] || continue
         if ! ait_atomic_write_text "${pair#*:}" "$next"; then
-            ait_atomic_discard "$tmp"
+            _discard_staged "$tmp" "$tmpbak"
             err_store "could not reserve the high-water mark in '${pair#*:}'"
         fi
         reserved=1
     done
     [[ "$reserved" -eq 0 ]] || pause_seam write:after_counter
-    if ! ait_atomic_render "$dest.bak" _render_copy "$dest"; then
-        ait_atomic_discard "$tmp"
+    local old_format keep
+    old_format="$(directive BAK_MIGRATED "$res")"
+    if [[ -n "$tmpbak" && -s "$tmpbak" && "$old_format" =~ ^[1-9][0-9]*$ ]]; then
+        keep="recovered/$kind.md.format$old_format.$(date -u +%Y%m%dT%H%M%SZ).$$"
+        if ! mkdir -p "$STORE_DIR/recovered" 2>/dev/null \
+                || ! ait_atomic_render "$STORE_DIR/$keep" _render_copy "$dest"; then
+            _discard_staged "$tmp" "$tmpbak"
+            err_store "could not preserve the format=$old_format '$dest' before upgrading it"
+        fi
+        if ! ait_atomic_render "$dest.bak" _render_copy "$tmpbak"; then
+            _discard_staged "$tmp" "$tmpbak"
+            err_store "could not write the upgraded backup '$dest.bak'"
+        fi
+    elif ! ait_atomic_render "$dest.bak" _render_copy "$dest"; then
+        _discard_staged "$tmp" "$tmpbak"
         err_store "could not roll the backup '$dest.bak'"
     fi
+    ait_atomic_discard "$tmpbak"
     pause_seam write:after_backup
     ait_atomic_commit "$tmp" "$dest" || err_store "could not write '$dest'"
     release
@@ -566,10 +720,92 @@ cmd_situation() {
 }
 
 cmd_upsert_context() {
-    [ $# -eq 1 ] || usage
+    [ $# -ge 1 ] || usage
+    local args=("$1")
+    shift
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --expect-rev)
+                [ $# -ge 2 ] || err_usage "$1 requires a value"
+                args+=("$1" "$2"); shift 2 ;;
+            *) usage ;;
+        esac
+    done
     read_stdin
-    precheck upsert-context "$1" --input -
-    mutate todo upsert-context "$1" --input -
+    precheck upsert-context "${args[@]}" --input -
+    mutate todo upsert-context "${args[@]}" --input -
+}
+
+# --- direction verbs (t2335_1) ------------------------------------------------
+
+cmd_direction_assign() {
+    [[ $# -eq 1 && "$1" == "--batch" ]] || usage
+    read_stdin
+    precheck direction-assign-batch --input -
+    mutate todo direction-assign-batch --input -
+}
+
+cmd_direction_set() {
+    [ $# -ge 1 ] || usage
+    local args=("$1") summary=false
+    shift
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --expect-rev|--title|--trails|--next|--digest)
+                [ $# -ge 2 ] || err_usage "$1 requires a value"
+                args+=("$1" "$2"); shift 2 ;;
+            --summary-file)
+                [ $# -ge 2 ] || err_usage "--summary-file requires a value"
+                [[ "$2" == "-" ]] || err_usage "--summary-file takes '-' (the summary on stdin)"
+                summary=true; shift 2 ;;
+            *) usage ;;
+        esac
+    done
+    if [[ "$summary" == true ]]; then
+        read_stdin
+        args+=(--input -)
+    fi
+    precheck direction-set "${args[@]}"
+    mutate todo direction-set "${args[@]}"
+}
+
+cmd_direction_rank() {
+    local args=()
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --expect-ranked)
+                [ $# -ge 2 ] || err_usage "$1 requires a value"
+                args+=("$1" "$2"); shift 2 ;;
+            --clear) args+=(--clear); shift ;;
+            *) usage ;;
+        esac
+    done
+    read_stdin
+    precheck direction-rank "${args[@]}" --input -
+    mutate todo direction-rank "${args[@]}" --input -
+}
+
+cmd_direction_freshness() {
+    [[ $# -eq 1 && "$1" == "--batch" ]] || usage
+    read_stdin
+    precheck direction-freshness-batch --input -
+    mutate todo direction-freshness-batch --input -
+}
+
+cmd_direction_remove() {
+    [ $# -ge 1 ] || usage
+    local args=("$1")
+    shift
+    while [ $# -gt 0 ]; do
+        case "$1" in
+            --expect-rev)
+                [ $# -ge 2 ] || err_usage "$1 requires a value"
+                args+=("$1" "$2"); shift 2 ;;
+            *) usage ;;
+        esac
+    done
+    precheck direction-remove "${args[@]}"
+    mutate todo direction-remove "${args[@]}"
 }
 
 cmd_qa() {
@@ -663,8 +899,34 @@ cmd_retain_case() {
     print_results "$res"
 }
 
+# retain-baseline: one direction baseline snapshot (t2335_1) under baselines/ --
+# only text in the snapshot grammar (checked by the core, with its size cap).
+cmd_retain_baseline() {
+    [ $# -eq 0 ] || usage
+    read_stdin
+    precheck retain-baseline
+    lock_or_busy
+    ensure_store none
+    mkdir -p "$STORE_DIR/baselines" 2>/dev/null \
+        || err_store "cannot create '$STORE_DIR/baselines'"
+    local res rc=0 target
+    res="$(py retain-baseline --store "$STORE_DIR")" || rc=$?
+    case "$rc" in
+        0) ;;
+        2) release; exit 2 ;;
+        *) exit 4 ;;
+    esac
+    target="$(directive TARGET "$res")"
+    if [[ -n "$target" ]]; then
+        ait_atomic_render "$STORE_DIR/$target" _render_buf \
+            || err_store "could not write '$STORE_DIR/$target'"
+    fi
+    release
+    print_results "$res"
+}
+
 cmd_restore() {
-    local kind="" if_damaged=0 live bak preserved="" name
+    local kind="" if_damaged=0 live bak preserved="" name newer
     while [ $# -gt 0 ]; do
         case "$1" in
             --if-damaged) if_damaged=1 ;;
@@ -681,6 +943,13 @@ cmd_restore() {
     live="$STORE_DIR/$kind.md"
     bak="$live.bak"
     lock_or_busy
+    # A live file written in a NEWER format than this writer reads is not
+    # damage: this checkout is the old one. Installing the backup over it would
+    # roll a newer store back, so both forms refuse (see MIXED VERSIONS).
+    newer="$("$PY" "$CORE" newer-format "$kind" "$live" 2>/dev/null)" || newer=""
+    if [[ "$newer" == NEWER:* ]]; then
+        err_store "$kind.md is format=${newer#NEWER:}, newer than this writer supports: it is not damaged -- update this checkout instead of restoring over it"
+    fi
     # --if-damaged (the sitrep TUI's restore, t2211_3): decided UNDER the lock,
     # so a repair or a newer write that landed while a confirm dialog was open
     # is never rolled back. "Damaged" is exactly what the readers see: a live
@@ -754,9 +1023,15 @@ main() {
         dismiss)        cmd_dismiss "$@" ;;
         situation)      cmd_situation "$@" ;;
         upsert-context) cmd_upsert_context "$@" ;;
+        direction-assign)    cmd_direction_assign "$@" ;;
+        direction-set)       cmd_direction_set "$@" ;;
+        direction-rank)      cmd_direction_rank "$@" ;;
+        direction-freshness) cmd_direction_freshness "$@" ;;
+        direction-remove)    cmd_direction_remove "$@" ;;
         retain)         cmd_retain "$@" ;;
         retain-raw)     cmd_retain_raw "$@" ;;
         retain-case)    cmd_retain_case "$@" ;;
+        retain-baseline) cmd_retain_baseline "$@" ;;
         qa)             cmd_qa "$@" ;;
         restore)        cmd_restore "$@" ;;
         read)
@@ -768,6 +1043,9 @@ main() {
         context)
             [ $# -eq 1 ] || usage
             cmd_readonly context "$1" ;;
+        directions)
+            [ $# -le 1 ] || usage
+            cmd_readonly directions "$@" ;;
         check-sources)
             [ $# -eq 0 ] || usage
             cmd_readonly check-sources ;;

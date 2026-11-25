@@ -259,7 +259,7 @@ assert_contains "the origin task is copied" "task=t42" "$(field "$TRI" ORIGIN)"
 assert_contains "final line names the item, its state and rev" "TRIAGE:$T1|open|" \
     "$(printf '%s\n' "$TRI" | tail -1)"
 
-export SX_BRANCH=main SX_COMMIT=9f8e7d6c5 SX_TASK=t42 SX_DATE=2026-11-04 SX_THEME=demo
+export SX_BRANCH=main SX_COMMIT=9f8e7d6c5 SX_TASK=t42 SX_DATE=2026-11-04 SX_DIRECTION=demo
 export SX_PASSAGE; SX_PASSAGE="$(field "$TRI" PASSAGE)"
 export SX_TASK_FILE=aitasks/archived/t42_demo_task.md SX_TRIAGE="$T1" SX_TRIAGES="$T1" SX_HANDLE="$HANDLE"
 run_example "$SKILL" push
@@ -339,7 +339,7 @@ assert_eq "each block still reports its own facts" "2" "$(grep -c "^TRAIL_UNWATC
 assert_eq "ONE batch line for the shared trail, naming both items" \
     "BATCH_TRAIL_UNWATCHED:$BH|$TA,$TB" "$(grep '^BATCH_TRAIL_UNWATCHED:' <<<"$ALL")"
 assert_eq "a block ends with its TRIAGE line" "2" "$(grep -c '^TRIAGE:' <<<"$ALL")"
-export SX_HANDLE="$BH" SX_TRIAGES="$TA, $TB" SX_TASK=t61 SX_THEME=batch SX_PASSAGE
+export SX_HANDLE="$BH" SX_TRIAGES="$TA, $TB" SX_TASK=t61 SX_DIRECTION=batch SX_PASSAGE
 SX_PASSAGE="$(sed -n 's/^PASSAGE://p' <<<"$ALL" | head -1)"
 run_example "$SKILL" trail-watch
 assert_contains "the one shared watch is accepted" "ADDED:c" "$OUT"

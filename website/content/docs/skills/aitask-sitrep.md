@@ -29,7 +29,7 @@ No arguments; text after the command is your first request. You normally do not 
 | Shortcode | Capability |
 |-----------|------------|
 | `>t [c<N>]` | **Triage** — propose action and watch items from each harvested wrap-up, and the missed items of each unparsed-output review; ask once, then write them. A bare `>t` takes every open triage item as one batch; `>t c<N>` only that item |
-| `>w [<theme>]` | **Situation text** — a short summary per work area: every one that needs it, or only `<theme>`. The crashed-agent items share the work area `crashed-agents` |
+| `>w [<direction>]` | **Situation text** — a short summary per direction (a line of work that several items belong to): every one that needs it, or only `<direction>`. The crashed-agent items share the direction `crashed-agents` |
 | `>q [c<N>]` | **Ask anything** — answered from the items' sources; stale checks are called out (for a crashed-agent item, the age of its evidence). With `c<N>` the question is about that item |
 | `>tr [c<N>]` | **Trails** — progress of watched trails, or of one watch; offers `/aitask-trail --refresh` for a stale one |
 | `>p` | **What to pick** — first the order to resume crashed work in, from each item's evidence, and the stale locks and orphans to clean up; then relates `/aitask-backlog-roadmap --show` to the Pick now items |
@@ -44,7 +44,7 @@ The sitrep TUI types one of these lines into the agent when you press a request 
 
 - `>t c<N>` — triage that item;
 - `>q c<N> <question>` — answer a question about that item;
-- `>w <theme>` — rewrite that work area's situation text;
+- `>w <direction>` — rewrite that direction's situation text;
 - `>tr c<N>` — report that trail watch;
 - `>p` — what to pick next.
 

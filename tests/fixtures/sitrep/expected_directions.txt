@@ -1,0 +1,11 @@
+DIRECTION:sitrep|19|4353f10b9339f235|1|stale|2026-11-20T10:00:00Z|7c95381666ea18be|t2175_2|art:trail-sitrep-1|2|3|Sitrep work directions
+DIRECTION_SUMMARY:sitrep|Store format landed; skill and TUI children open.
+DIRECTION_DRIFT:sitrep|member_closed|2|c2+c5
+DIRECTION_DRIFT:sitrep|trail_stale|1|art:trail-sitrep-1
+DIRECTION_MEMBER:sitrep|c1|open|task|t2175_2
+DIRECTION_MEMBER:sitrep|c6|open|action|push:main@1a2b3c4d5e6f
+DIRECTION_MEMBER:sitrep|c8|dismissed|task|recover:t43
+DIRECTION:crashed-agents|18|ff89b54dfa5fbb53|2|unknown|never||||1|1|Crashed agents
+DIRECTION_MEMBER:crashed-agents|c7|open|task|recover:t42
+DIRECTION:board|13|e3b0c44298fc1c14|-|unknown|never||||0|0|
+UNASSIGNED:2|c3,c4

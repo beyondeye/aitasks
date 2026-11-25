@@ -201,7 +201,7 @@ assert_file_exists "... marker now written" "$S/store.init"
 echo "=== Test 3: round trip -- each verb leaves other records byte-identical ==="
 reset_store
 run "$(ctx "First item.")" add --kind task --title "one" --ref t10 --context-file -
-run "$(ctx "Second item." "- theme: alpha")" add --kind action --title "two" --group now --context-file -
+run "$(ctx "Second item." "- direction: alpha")" add --kind action --title "two" --group now --context-file -
 c1_line="$(item_line c1)"
 run - context c1; c1_ctx="$OUT"
 run - update c2 --title "two renamed"
@@ -215,14 +215,15 @@ assert_eq "situation leaves the c1 item line byte-identical" "$c1_line" "$(item_
 run "$(ctx "Second item, new background.")" upsert-context c2
 assert_eq "upsert-context c2 -> replaced" "CONTEXT:c2|replaced" "$OUT"
 # A changed context entry gives its item a fresh rev (t2175_3): a refresh
-# verdict computed from the old entry must fail the batch's rev check.
-assert_eq "upsert-context c2 gives c2 a fresh rev" "4" "$(item_line c2 | sed -n 's/^- c2 | rev=\([0-9]*\) .*/\1/p')"
+# verdict computed from the old entry must fail the batch's rev check. (The
+# `situation` write above took rev 4: a direction block has a rev of its own.)
+assert_eq "upsert-context c2 gives c2 a fresh rev" "5" "$(item_line c2 | sed -n 's/^- c2 | rev=\([0-9]*\) .*/\1/p')"
 assert_eq "upsert-context c2 leaves the c1 item line byte-identical" "$c1_line" "$(item_line c1)"
 run - context c1
 assert_eq "upsert-context c2 leaves the c1 context byte-identical" "$c1_ctx" "$OUT"
 before="$(cat "$S/todo.md")"
 run - update c2 --title "two renamed"
-assert_eq "an identical update reports the unchanged rev" "UPDATED:c2|4" "$OUT"
+assert_eq "an identical update reports the unchanged rev" "UPDATED:c2|5" "$OUT"
 assert_eq "an identical update writes nothing" "$before" "$(cat "$S/todo.md")"
 run - verify-is-not-a-verb
 assert_eq "unknown verb -> exit 2" "2" "$RC"
@@ -561,7 +562,7 @@ assert_eq "qa parked after the backup" "write:after_backup" "$KILLED_AT"
 assert_eq "killed qa -> qa.md holds every earlier entry" "$(cat "$TMP/qa_good.md")" "$(cat "$S/qa.md")"
 run "Q: three?" qa
 assert_eq "the next qa succeeds" "0" "$RC"
-sed -i '2s/format=1/format=9/' "$S/qa.md"
+sed -i '2s/format=1/format=x/' "$S/qa.md"
 run "Q: refused" qa
 assert_eq "corrupt qa.md -> qa exit 4" "4" "$RC"
 run - add --kind task --title "todo still works"
@@ -571,6 +572,20 @@ assert_eq "restore qa recovers from the backup" "0" "$RC"
 assert_eq "restored qa.md is the previous generation" "$(cat "$TMP/qa_good.md")" "$(cat "$S/qa.md")"
 run - read qa
 assert_eq "read qa prints the log" "$(cat "$S/qa.md")" "$OUT"
+# A qa.md of a NEWER format is not damage: restore refuses to roll it back,
+# with LF and with CR LF line endings.
+sed -i '2s/format=1/format=9/' "$S/qa.md"
+for ending in LF CRLF; do
+    [[ "$ending" == CRLF ]] && sed -i 's/$/\r/' "$S/qa.md"
+    newer_qa="$(cat "$S/qa.md"; printf x)"
+    for form in "restore qa" "restore qa --if-damaged"; do
+        # shellcheck disable=SC2086
+        run - $form
+        assert_eq "$form over a newer-format qa.md ($ending) -> exit 4" "4" "$RC"
+        assert_contains "... says it is not damaged" "newer than this writer supports" "$ERR"
+        assert_eq "... qa.md untouched" "$newer_qa" "$(cat "$S/qa.md"; printf x)"
+    done
+done
 
 # =============================================================================
 echo "=== Test 12: retained sources and durable pointers ==="
@@ -656,9 +671,9 @@ run - add --kind task --title "t" --checked-at "$nl_ts"
 assert_eq "add --checked-at with a trailing LF -> exit 2" "2" "$RC"
 run - set-state c1 open --checked-at "$nl_ts"
 assert_eq "set-state --checked-at with a trailing LF -> exit 2" "2" "$RC"
-nl_theme="$(printf 'alpha\nX')"; nl_theme="${nl_theme%X}"
-run "text" situation "$nl_theme"
-assert_eq "a theme with a trailing LF -> exit 2" "2" "$RC"
+nl_slug="$(printf 'alpha\nX')"; nl_slug="${nl_slug%X}"
+run "text" situation "$nl_slug"
+assert_eq "a direction with a trailing LF -> exit 2" "2" "$RC"
 run - add --kind task --title "t" --ref "$(printf 't5\rX' | sed 's/X$//')"
 assert_eq "a ref with a CR -> exit 2" "2" "$RC"
 assert_eq "refused values leave todo.md unchanged" "$(cat "$TMP/nl_todo.md")" "$(cat "$S/todo.md")"
@@ -696,6 +711,71 @@ assert_eq "'..' root -> exit 2" "2" "$RC"
 assert_dir_not_exists "'..' root -> nothing created" "$TMP/dd"
 
 # =============================================================================
+# Directions (t2335_1). Helpers first.
+
+# The DIRECTION line of <slug>: field n (2 rev, 3 stamp, 4 rank, 5 freshness,
+# 6 checked_at, 7 digest, 8 next, 9 trails, 10 pending, 11 members, 12 title).
+dir_field() { "$H" directions "$1" 2>/dev/null | sed -n '1p' | cut -d'|' -f"$2"; }
+dir_rev() { dir_field "$1" 2; }
+dir_stamp() { dir_field "$1" 3; }
+item_rev() { item_line "$1" | sed -n 's/^- c[0-9]* | rev=\([0-9]*\) .*/\1/p'; }
+# The lines of <slug>'s block in todo.md (heading to the blank line).
+block() { sed -n "/^#### $1 | rev=/,/^\$/p" "$S/todo.md"; }
+# The block's AGENT-written lines: everything but the heading's rev and the
+# three refresh fields.
+agent_fields() { block "$1" | sed -e '1s/ | rev=.*//' -e '/^- freshness:/d' -e '/^- checked_at:/d' -e '/^- drift:/d'; }
+# snapshot <slug> <line>...: a baseline snapshot text (lines given in order).
+# Captured with $( ), it loses its final newline: retain_snapshot puts it back.
+snapshot() {
+    local slug="$1" l
+    shift
+    printf 'sitrep direction baseline v1\ndirection: %s\n' "$slug"
+    for l in "$@"; do printf '%s\n' "$l"; done
+}
+# retain_snapshot <text>: sets DIG (the digest) and OUT / RC.
+retain_snapshot() {
+    run "$1"$'\n' retain-baseline
+    DIG="$(printf '%s' "$OUT" | sed -n 's/^RETAINED_BASELINE:[^|]*|//p')"
+}
+# set_summary <slug> <digest> <text> [more direction-set args]: with the block's
+# current rev.
+set_summary() {
+    local slug="$1" dig="$2" text="$3"
+    shift 3
+    run "$text" direction-set "$slug" --expect-rev "$(dir_rev "$slug")" \
+        --summary-file - --digest "$dig" "$@"
+}
+freshness_line() {   # freshness_line <slug> <freshness> [drift]: with the current rev + stamp
+    printf '%s|%s|%s|%s|now|%s\n' "$1" "$(dir_rev "$1")" "$(dir_stamp "$1")" "$2" "${3:-}"
+}
+# The records of a format-4 file reduced to what formats 1-3 held: headings
+# without their rev, the nine header lines gone.
+strip_records() { sed -e '/^#### /s/ | rev=[0-9]*$//' -e '/^#### /{n;N;N;N;N;N;N;N;N;d;}'; }
+
+# upgrade_checks <fixture dir name> <format>: the store was just upgraded by
+# `update c4 --title ...` from that fixture.
+upgrade_checks() {
+    local src="$FIXTURE/$1/todo.md" fmt="$2" kept
+    assert_eq "$1: line 2 is now format=4" "<!-- aitask-sitrep todo format=4 -->" "$(sed -n 2p "$S/todo.md")"
+    assert_eq "$1: same items, contexts and situation text, bar the touched item" \
+        "$(sed -e 2d -e '/^- c4 |/d' -e 's/^- theme: /- direction: /' "$src")" \
+        "$(sed -e 2d -e '/^- c4 |/d' "$S/todo.md" | strip_records)"
+    assert_eq "$1: the upgraded todo.md verifies" "VERIFIED:todo" "$(python3 "$CORE" verify todo "$S/todo.md")"
+    # Mixed versions: no older-format backup is left behind the format-4 file.
+    assert_eq "$1: the backup is format=4 too" "<!-- aitask-sitrep todo format=4 -->" "$(sed -n 2p "$S/todo.md.bak")"
+    assert_eq "$1: the backup verifies" "VERIFIED:todo" "$(python3 "$CORE" verify todo "$S/todo.md.bak")"
+    assert_eq "$1: the backup is the PREVIOUS generation, same content" \
+        "$(sed -e 2d -e 's/^- theme: /- direction: /' "$src")" \
+        "$(sed -e 2d "$S/todo.md.bak" | strip_records)"
+    kept="$(ls "$S/recovered" 2>/dev/null | grep "^todo\.md\.format$fmt\." | head -n1)"
+    assert_contains "$1: the pre-upgrade bytes are kept under recovered/" "todo.md.format$fmt." "$kept"
+    assert_eq "$1: ... byte-identical" "$(cat "$src")" "$(cat "$S/recovered/$kept" 2>/dev/null)"
+    assert_eq "$1: an unchanged block has one rev in the file and its backup" \
+        "$(grep '^#### ' "$S/todo.md")" "$(grep '^#### ' "$S/todo.md.bak")"
+    assert_eq "$1: qa.md stays format=1" "<!-- aitask-sitrep qa format=1 -->" "$(sed -n 2p "$S/qa.md")"
+}
+
+# =============================================================================
 echo "=== Test 16: the consumer-contract fixture (tests/fixtures/sitrep/) ==="
 reset_store
 mkdir -p "$S"
@@ -713,7 +793,15 @@ run - update c2 --title "$title"
 assert_eq "a no-op update on the fixture succeeds" "0" "$RC"
 assert_eq "... and leaves todo.md byte-identical" "$(cat "$FIXTURE/store/todo.md")" "$(cat "$S/todo.md")"
 assert_eq "the fixture qa.md parses" "VERIFIED:qa" "$(python3 "$CORE" verify qa "$S/qa.md")"
-assert_contains "the fixture is todo format 3" "format=3" "$(sed -n 2p "$S/todo.md")"
+assert_contains "the fixture is todo format 4" "format=4" "$(sed -n 2p "$S/todo.md")"
+run - directions
+assert_eq "directions on the fixture" "$(cat "$FIXTURE/expected_directions.txt")" "$OUT"
+run - directions crashed-agents
+assert_eq "directions <slug> prints that direction only" \
+    "$(grep ':crashed-agents|' "$FIXTURE/expected_directions.txt")" "$OUT"
+run - directions nosuch
+assert_eq "directions of an unknown slug -> exit 2" "2" "$RC"
+assert_eq "... NOT_FOUND on stdout" "NOT_FOUND:nosuch" "$OUT"
 
 # =============================================================================
 echo "=== Test 16b: a format=1 store is read as-is and upgraded by its first changing write ==="
@@ -731,12 +819,7 @@ assert_eq "... and leaves the v1 todo.md byte-identical (still format=1)" \
     "$(cat "$FIXTURE/store_v1/todo.md")" "$(cat "$S/todo.md")"
 run - update c4 --title "CI on the sitrep branch (renamed)"
 assert_eq "a changing update on the v1 fixture succeeds" "0" "$RC"
-assert_eq "... line 2 is now format=3" "<!-- aitask-sitrep todo format=3 -->" "$(sed -n 2p "$S/todo.md")"
-v1_rest="$(sed -e 2d -e '/^- c4 |/d' "$FIXTURE/store_v1/todo.md")"
-v2_rest="$(sed -e 2d -e '/^- c4 |/d' "$S/todo.md")"
-assert_eq "... and every other line except the touched item is unchanged" "$v1_rest" "$v2_rest"
-assert_eq "the upgraded todo.md verifies" "VERIFIED:todo" "$(python3 "$CORE" verify todo "$S/todo.md")"
-assert_eq "qa.md stays format=1" "<!-- aitask-sitrep qa format=1 -->" "$(sed -n 2p "$S/qa.md")"
+upgrade_checks store_v1 1
 
 # =============================================================================
 echo "=== Test 16c: push refs ==="
@@ -758,7 +841,7 @@ done
 assert_eq "... and nothing was written" "$before" "$(cat "$S/todo.md")"
 
 # =============================================================================
-echo "=== Test 16d: a format=2 store is read as-is and upgraded to 3 by its first changing write ==="
+echo "=== Test 16d: a format=2 store is read as-is and upgraded to 4 by its first changing write ==="
 reset_store
 mkdir -p "$S"
 cp -R "$FIXTURE/store_v2/." "$S/"
@@ -773,11 +856,7 @@ assert_eq "... and leaves the v2 todo.md byte-identical (still format=2)" \
     "$(cat "$FIXTURE/store_v2/todo.md")" "$(cat "$S/todo.md")"
 run - update c4 --title "CI on the sitrep branch (renamed)"
 assert_eq "a changing update on the v2 fixture succeeds" "0" "$RC"
-assert_eq "... line 2 is now format=3" "<!-- aitask-sitrep todo format=3 -->" "$(sed -n 2p "$S/todo.md")"
-v2_rest="$(sed -e 2d -e '/^- c4 |/d' "$FIXTURE/store_v2/todo.md")"
-v3_rest="$(sed -e 2d -e '/^- c4 |/d' "$S/todo.md")"
-assert_eq "... and every other line except the touched item is unchanged" "$v2_rest" "$v3_rest"
-assert_eq "the upgraded todo.md verifies" "VERIFIED:todo" "$(python3 "$CORE" verify todo "$S/todo.md")"
+upgrade_checks store_v2 2
 # A v2 file holding format-3 grammar is refused (exit 4), never read loosely.
 reset_store
 mkdir -p "$S"
@@ -792,6 +871,105 @@ assert_contains "(the origin line was edited)" "incarnation=0123456789ab" "$(cat
 run - list
 assert_eq "a v2 file with an incarnation origin -> exit 4" "4" "$RC"
 assert_contains "... naming the format it needs" "incarnation origin key needs format=3" "$ERR"
+
+# =============================================================================
+echo "=== Test 16e: a format=3 store is read as-is and upgraded to 4 by its first changing write ==="
+reset_store
+mkdir -p "$S"
+cp -R "$FIXTURE/store_v3/." "$S/"
+run - read
+assert_eq "read returns the v3 fixture byte-identical" "$(cat "$FIXTURE/store_v3/todo.md")" "$OUT"
+run - list --machine
+assert_eq "list --machine on the v3 fixture" "$(cat "$FIXTURE/expected_list_v3.txt")" "$OUT"
+run - context c1
+assert_contains "context prints the current key on an old file" "- direction: sitrep" "$OUT"
+run - directions sitrep
+assert_contains "directions reads an old file: no rev yet" "DIRECTION:sitrep|-|" "$OUT"
+title="$(sed -n 's/^ITEM:c2|\([^|]*|\)\{8\}//p' "$FIXTURE/expected_list_v3.txt")"
+run - update c2 --title "$title"
+assert_eq "a no-op update on the v3 fixture succeeds" "0" "$RC"
+assert_eq "... and leaves the v3 todo.md byte-identical (still format=3)" \
+    "$(cat "$FIXTURE/store_v3/todo.md")" "$(cat "$S/todo.md")"
+assert_file_not_exists "... and no backup was rolled" "$S/todo.md.bak"
+run - update c4 --title "CI on the sitrep branch (renamed)"
+assert_eq "a changing update on the v3 fixture succeeds" "0" "$RC"
+upgrade_checks store_v3 3
+# Newer grammar under an older format= is refused (exit 4), never read loosely.
+reset_store
+mkdir -p "$S"
+cp -R "$FIXTURE/store_v3/." "$S/"
+sed -i 's/^#### sitrep$/#### sitrep | rev=5/' "$S/todo.md"
+run - list
+assert_eq "a v3 file with a direction heading -> exit 4" "4" "$RC"
+assert_contains "... naming the format it needs" "direction records need format=4" "$ERR"
+cp "$FIXTURE/store_v3/todo.md" "$S/todo.md"
+sed -i '0,/^- theme: sitrep$/s//- direction: sitrep/' "$S/todo.md"
+run - list
+assert_eq "a v3 file with a direction key -> exit 4" "4" "$RC"
+assert_contains "... naming the format it needs" "direction context key needs format=4" "$ERR"
+reset_store
+mkdir -p "$S"
+cp -R "$FIXTURE/store/." "$S/"
+sed -i '0,/^- direction: sitrep$/s//- theme: sitrep/' "$S/todo.md"
+run - list
+assert_eq "a v4 file with the old key -> exit 4" "4" "$RC"
+assert_contains "... as an unknown key" "unknown context key 'theme'" "$ERR"
+
+# =============================================================================
+echo "=== Test 16f: mixed versions -- a killed upgrade, and a file from a NEWER writer ==="
+reset_store
+mkdir -p "$S"
+cp -R "$FIXTURE/store_v3/." "$S/"
+printf 'Rewritten.\n' > "$TMP/sit.in"
+park_and_kill write:after_backup "$TMP/sit.in" situation sitrep
+assert_eq "the upgrading write parked after the backup" "write:after_backup" "$KILLED_AT"
+assert_eq "killed there -> todo.md is still the format=3 generation" \
+    "$(cat "$FIXTURE/store_v3/todo.md")" "$(cat "$S/todo.md")"
+assert_eq "... and the backup already is format=4" "<!-- aitask-sitrep todo format=4 -->" "$(sed -n 2p "$S/todo.md.bak")"
+assert_eq "... holding the same content" \
+    "$(sed -e 2d -e 's/^- theme: /- direction: /' "$FIXTURE/store_v3/todo.md")" \
+    "$(sed -e 2d "$S/todo.md.bak" | strip_records)"
+run - list --machine
+assert_eq "the next read works" "$(cat "$FIXTURE/expected_list_v3.txt")" "$OUT"
+run "Rewritten." situation sitrep
+assert_eq "the next write completes the upgrade" "SITUATION:sitrep|set" "$OUT"
+assert_eq "... to format=4" "<!-- aitask-sitrep todo format=4 -->" "$(sed -n 2p "$S/todo.md")"
+assert_eq "... and the store verifies" "VERIFIED:todo" "$(python3 "$CORE" verify todo "$S/todo.md")"
+# This writer is the OLD one for the next format: it must not restore over it.
+run - add --kind task --title "second generation"
+sed -i '2s/format=4/format=5/' "$S/todo.md"
+live="$(cat "$S/todo.md")"; bak="$(cat "$S/todo.md.bak")"
+assert_eq "(the backup is a valid generation)" "VERIFIED:todo" "$(python3 "$CORE" verify todo "$S/todo.md.bak")"
+for form in "restore todo" "restore todo --if-damaged"; do
+    # shellcheck disable=SC2086
+    run - $form
+    assert_eq "$form over a newer-format file -> exit 4" "4" "$RC"
+    assert_contains "... says it is not damaged" "newer than this writer supports" "$ERR"
+    assert_eq "... todo.md untouched" "$live" "$(cat "$S/todo.md")"
+    assert_eq "... todo.md.bak untouched" "$bak" "$(cat "$S/todo.md.bak")"
+done
+# The same file with CR LF line endings is still a newer file, not a damaged one.
+sed -i 's/$/\r/' "$S/todo.md"
+crlf="$(cat "$S/todo.md"; printf x)"
+for form in "restore todo" "restore todo --if-damaged"; do
+    # shellcheck disable=SC2086
+    run - $form
+    assert_eq "$form over a CRLF newer-format file -> exit 4" "4" "$RC"
+    assert_eq "... the CRLF file is preserved byte for byte" "$crlf" "$(cat "$S/todo.md"; printf x)"
+    assert_eq "... todo.md.bak untouched" "$bak" "$(cat "$S/todo.md.bak")"
+done
+printf '%s\n' "$live" > "$S/todo.md"
+run - add --kind task --title "refused"
+assert_eq "a mutation of a newer-format file -> exit 4" "4" "$RC"
+assert_contains "... tells the user to update the checkout" "update this checkout" "$ERR"
+assert_eq "... todo.md untouched" "$live" "$(cat "$S/todo.md")"
+run - list
+assert_eq "a read of a newer-format file -> exit 4" "4" "$RC"
+# Negative control: a DAMAGED file (not a newer one) is still restored.
+sed -i '2s/format=5/format=x/' "$S/todo.md"
+run - restore todo --if-damaged
+assert_contains "a damaged file is restored as before" "RESTORED:todo.md|recovered/" "$OUT"
+
 
 # =============================================================================
 echo "=== Test 17: recovery-apply (t2299_1) ==="
@@ -987,6 +1165,577 @@ assert_eq "killed after the backup -> todo.md is the old generation" "$(cat "$TM
 ra "$(rctx t80 $B)" recover:t80 "$r" $B open "crashed again"
 assert_contains "the next writer reopens it" "REOPENED:c1|" "$OUT"
 assert_eq "... with the new incarnation" "$B" "$(ctx_inc c1)"
+
+# =============================================================================
+echo "=== Test 18: direction-set ==="
+reset_store
+run "$(ctx "One." "- direction: alpha")" add --kind task --title one --ref t10 --context-file -
+run "$(ctx "Two." "- direction: alpha")" add --kind task --title two --ref t11 --context-file -
+run - add --kind task --title three
+run - directions
+assert_eq "a direction exists from its members alone" \
+    "DIRECTION:alpha|-|$(dir_stamp alpha)|-|unknown|never||||2|2|
+DIRECTION_MEMBER:alpha|c1|open|task|t10
+DIRECTION_MEMBER:alpha|c2|open|task|t11
+UNASSIGNED:1|c3" "$OUT"
+run - direction-set alpha --expect-rev absent --title "Alpha work" --trails art:trail-a --next 10
+A1="$(dir_rev alpha)"
+assert_eq "direction-set creates the record (next is normalized)" "DIRECTION:alpha|created|$A1" "$OUT"
+assert_eq "the block: heading, nine header lines, blank" "#### alpha | rev=$A1
+- title: Alpha work
+- rank:
+- trails: art:trail-a
+- next: t10
+- summary:
+- digest:
+- freshness: unknown
+- checked_at: never
+- drift:" "$(block alpha)"
+before="$(cat "$S/todo.md")"
+run - direction-set alpha --expect-rev absent --title "Other"
+assert_eq "absent on an existing record -> STALE" "STALE:alpha|$A1" "$OUT"
+run - direction-set alpha --expect-rev 999 --title "Other"
+assert_eq "a wrong rev -> STALE" "STALE:alpha|$A1" "$OUT"
+run - direction-set beta --expect-rev 7 --title "Beta"
+assert_eq "a rev for a direction with no record -> ABSENT" "ABSENT:beta" "$OUT"
+run - direction-set alpha --expect-rev "$A1" --title "Alpha work" --trails art:trail-a --next t10
+assert_eq "the same values -> unchanged, same rev" "DIRECTION:alpha|unchanged|$A1" "$OUT"
+for bad in "--title x --next c99" "--trails trail-a" "--trails art:trail-a,art:trail-a" \
+           "--next T10" "--digest 0123456789abcdef" ""; do
+    # shellcheck disable=SC2086
+    run - direction-set alpha --expect-rev "$A1" $bad
+    assert_eq "direction-set $bad -> exit 2" "2" "$RC"
+done
+run - direction-set alpha --expect-rev "$A1" --next core#42
+assert_contains "a cross-repo next whose project starts with c is a task ref, not an item id" "DIRECTION:alpha|updated|" "$OUT"
+assert_contains "... stored as given" "- next: core#42" "$(block alpha)"
+run - direction-set alpha --expect-rev "$(dir_rev alpha)" --next c1
+assert_contains "an existing item id is accepted" "DIRECTION:alpha|updated|" "$OUT"
+run - direction-set alpha --expect-rev "$(dir_rev alpha)" --next t10
+A1="$(dir_rev alpha)"
+before="$(cat "$S/todo.md")"
+run - direction-set alpha --title "no guard"
+assert_eq "direction-set without --expect-rev -> exit 2" "2" "$RC"
+run "A summary." direction-set alpha --expect-rev "$A1" --summary-file -
+assert_eq "a summary without --digest -> exit 2" "2" "$RC"
+run "Two
+lines." direction-set alpha --expect-rev "$A1" --summary-file - --digest 0123456789abcdef
+assert_eq "a two-line summary -> exit 2" "2" "$RC"
+run "A summary." direction-set alpha --expect-rev "$A1" --summary-file - --digest 0123456789abcdef
+assert_eq "a digest naming no retained baseline -> exit 2" "2" "$RC"
+assert_contains "... names the status" "is missing" "$ERR"
+run - direction-set gamma --expect-rev absent --title ""
+assert_eq "creating a direction that holds nothing -> exit 2" "2" "$RC"
+assert_eq "none of the refusals wrote anything" "$before" "$(cat "$S/todo.md")"
+ALPHA="$(snapshot alpha "member: c1|open|t10" "member: c2|open|t11" "task: t10|Ready" "trail: art:trail-a|v1:current" "next: t10|valid")"
+retain_snapshot "$ALPHA"
+assert_contains "retain-baseline -> RETAINED_BASELINE" "RETAINED_BASELINE:baselines/$DIG.txt|$DIG" "$OUT"
+assert_eq "the digest is sha256[:16] of the snapshot" "$(printf '%s\n' "$ALPHA" | sha256sum | cut -c1-16)" "$DIG"
+assert_eq "the snapshot is stored verbatim" "$ALPHA" "$(cat "$S/baselines/$DIG.txt")"
+retain_snapshot "$ALPHA"
+assert_contains "retaining it again is idempotent" "RETAINED_BASELINE:baselines/$DIG.txt|$DIG" "$OUT"
+ADIG="$DIG"
+set_summary alpha "$ADIG" "Alpha is moving; two tasks open."
+A2="$(dir_rev alpha)"
+assert_eq "a summary with its baseline -> updated" "DIRECTION:alpha|updated|$A2" "$OUT"
+assert_contains "the summary is stored" "- summary: Alpha is moving; two tasks open." "$(block alpha)"
+assert_contains "... with its digest" "- digest: $ADIG" "$(block alpha)"
+run - directions alpha
+assert_contains "directions prints the summary" "DIRECTION_SUMMARY:alpha|Alpha is moving; two tasks open." "$OUT"
+run - check-sources
+assert_contains "check-sources reports the baseline" "SOURCE_OK:alpha|baselines/$ADIG.txt" "$OUT"
+run "$(freshness_line alpha current)" direction-freshness --batch
+assert_eq "the refresh marks it current" "FRESHNESS:alpha|current|$(dir_rev alpha)" "$OUT"
+run - direction-set alpha --expect-rev "$(dir_rev alpha)" --title "Alpha (renamed)"
+assert_eq "a title change keeps the verdict (not a digest input)" "current" "$(dir_field alpha 5)"
+run - direction-set alpha --expect-rev "$(dir_rev alpha)" --next t11
+assert_eq "a next change resets the freshness" "unknown|never" "$(dir_field alpha 5)|$(dir_field alpha 6)"
+run - direction-set alpha --expect-rev "$(dir_rev alpha)" --next t10
+run "$(freshness_line alpha current)" direction-freshness --batch
+run "" direction-set alpha --expect-rev "$(dir_rev alpha)" --summary-file -
+assert_contains "an empty summary clears it" "DIRECTION:alpha|updated|" "$OUT"
+assert_eq "... and the digest, and resets the freshness" "||unknown" "$(block alpha | sed -n 's/^- summary:\(.*\)/\1/p')|$(dir_field alpha 7)|$(dir_field alpha 5)"
+
+# =============================================================================
+echo "=== Test 18b: direction-assign --batch ==="
+reset_store
+run "$(ctx "One." "- sources:" "  - commit: abcdef1")" add --kind task --title one --ref t10 --context-file -
+run - add --kind task --title two --ref t11
+run - add --kind task --title three
+ctx1="$("$H" context c1)"
+r1="$(item_rev c1)"; r2="$(item_rev c2)"
+run "c1|$r1|alpha
+c2|$r2|alpha" direction-assign --batch
+assert_eq "a mixed batch (with and without a context) assigns both" \
+    "ASSIGNED:c1|alpha|$(item_rev c1)
+ASSIGNED:c2|alpha|$(item_rev c2)" "$OUT"
+assert_eq "both items got a fresh rev" "1" "$([[ "$(item_rev c1)" != "$r1" && "$(item_rev c2)" != "$r2" ]] && echo 1)"
+run - context c1
+assert_eq "only the direction key changed in an existing context" \
+    "$(printf '%s\n' "$ctx1" | sed '/^- origin:/a - direction: alpha')" "$OUT"
+run - context c2
+assert_eq "the contextless item got exactly the minimal entry" "### c2
+- background: No context was recorded for this item; this entry holds its direction.
+- origin: date=2026-11-01
+- direction: alpha" "$OUT"
+before="$(cat "$S/todo.md")"
+run "c3|$(item_rev c3)|-" direction-assign --batch
+assert_eq "clearing an unassigned contextless item is unchanged" "ASSIGNED:c3|-|$(item_rev c3)" "$OUT"
+assert_eq "... writes nothing" "$before" "$(cat "$S/todo.md")"
+run - context c3
+assert_eq "... and creates no context entry" "NO_CONTEXT:c3" "$OUT"
+run "c1|$(item_rev c1)|alpha" direction-assign --batch
+assert_eq "re-assigning the same direction is unchanged" "ASSIGNED:c1|alpha|$(item_rev c1)" "$OUT"
+assert_eq "... writes nothing" "$before" "$(cat "$S/todo.md")"
+run "c3|999|alpha" direction-assign --batch
+assert_eq "a stale rev on a contextless item -> STALE" "STALE:c3|$(item_rev c3)" "$OUT"
+assert_eq "... writes nothing" "$before" "$(cat "$S/todo.md")"
+run "c1|$(item_rev c1)|beta
+c3|999|beta
+c9|1|beta" direction-assign --batch
+assert_eq "one stale line among several: every refusal is named" "STALE:c3|$(item_rev c3)
+NOT_FOUND:c9" "$OUT"
+assert_eq "... and NOTHING is written (all or nothing)" "$before" "$(cat "$S/todo.md")"
+for bad in "c1|1|crashed-agents" "c1|1|Not A Slug" "c1|1|alpha
+c1|1|beta" "c1|x|alpha" "c1|1" ""; do
+    run "$bad" direction-assign --batch
+    assert_eq "direction-assign '$bad' -> exit 2" "2" "$RC"
+done
+assert_eq "none of them wrote anything" "$before" "$(cat "$S/todo.md")"
+A=aaaaaaaaaaaa
+run "$(printf -- '- background: died.\n- origin: task=t80 incarnation=%s\n- sources:\n  - task: aitasks/t80_x.md\n' "$A")" \
+    recovery-apply --ref recover:t80 --expect-rev absent --incarnation "$A" --state open \
+    --outcome "crashed · plan approved" --checked-at now --title "Recover t80" --context-file -
+REC="$(printf '%s' "$OUT" | sed -n 's/^ADDED:\(c[0-9]*\)|.*/\1/p')"
+before="$(cat "$S/todo.md")"
+run "c3|$(item_rev c3)|beta
+$REC|$(item_rev "$REC")|beta" direction-assign --batch
+assert_eq "a recover: item is never reassigned" "KEPT:$REC|recovery" "$OUT"
+assert_eq "... and the rest of that batch is not written either" "$before" "$(cat "$S/todo.md")"
+run "$(ctx "Named." "- direction: crashed-agents")" upsert-context c1
+assert_eq "context input naming the reserved direction -> exit 2" "2" "$RC"
+assert_contains "... says why" "reserved" "$ERR"
+# A membership write resets the freshness of the blocks it touches.
+ALPHA="$(snapshot alpha "member: c1|open|t10" "member: c2|open|t11")"
+retain_snapshot "$ALPHA"
+run "Alpha." direction-set alpha --expect-rev absent --summary-file - --digest "$DIG"
+run "$(freshness_line alpha current)" direction-freshness --batch
+assert_eq "(alpha is current)" "current" "$(dir_field alpha 5)"
+arev="$(dir_rev alpha)"
+run "c3|$(item_rev c3)|alpha" direction-assign --batch
+assert_eq "an assignment into a block reports its new rev" "ASSIGNED:c3|alpha|$(item_rev c3)
+DIRECTION:alpha|updated|$(dir_rev alpha)" "$OUT"
+assert_eq "... and resets its freshness" "unknown|never" "$(dir_field alpha 5)|$(dir_field alpha 6)"
+assert_eq "... with a fresh rev" "1" "$([[ "$(dir_rev alpha)" != "$arev" ]] && echo 1)"
+ALPHA3="$(snapshot alpha "member: c1|open|t10" "member: c2|open|t11" "member: c3|open|")"
+retain_snapshot "$ALPHA3"
+set_summary alpha "$DIG" "Alpha, three items."
+run "$(freshness_line alpha current)" direction-freshness --batch
+run "$(printf -- '- background: Three, moved by upsert.\n- origin: date=2026-11-01\n')" upsert-context c3 --expect-rev "$(item_rev c3)"
+assert_eq "upsert-context moving an item out -> replaced" "CONTEXT:c3|replaced" "$OUT"
+assert_eq "... resets that block's freshness too" "unknown" "$(dir_field alpha 5)"
+before="$(cat "$S/todo.md")"
+run "$(ctx "Stale guard.")" upsert-context c3 --expect-rev 999
+assert_eq "upsert-context with a stale rev -> STALE" "STALE:c3|$(item_rev c3)" "$OUT"
+assert_eq "... writes nothing" "$before" "$(cat "$S/todo.md")"
+
+# =============================================================================
+echo "=== Test 18c: the proposal save sequence -- a change during confirmation ==="
+# rule 5: the baseline's store-side lines must match the store when it is saved.
+seed_alpha() {
+    reset_store
+    run "$(ctx "One.")" add --kind task --title one --ref t10 --context-file -
+    run "$(ctx "Two.")" add --kind task --title two --ref t11 --context-file -
+    run "$(ctx "Three.")" add --kind task --title three --ref t12 --context-file -
+    run "c1|$(item_rev c1)|alpha
+c2|$(item_rev c2)|alpha" direction-assign --batch
+    run - direction-set alpha --expect-rev absent --title "Alpha" --trails art:trail-a --next t10
+    ALPHA="$(snapshot alpha "member: c1|open|t10" "member: c2|open|t11" "task: t10|Ready" "trail: art:trail-a|v1:current" "next: t10|valid")"
+    retain_snapshot "$ALPHA"
+    ADIG="$DIG"
+}
+seed_alpha
+set_summary alpha "$ADIG" "Alpha."
+assert_contains "control: with nothing changed the summary saves" "DIRECTION:alpha|updated|" "$OUT"
+seed_alpha
+run - set-state c2 done --outcome "landed"
+before="$(cat "$S/todo.md")"
+set_summary alpha "$ADIG" "Alpha."
+assert_eq "a member closed during confirmation -> EVIDENCE_CHANGED" "EVIDENCE_CHANGED:alpha|member|c2" "$OUT"
+assert_eq "... exit 0, nothing written" "0|$before" "$RC|$(cat "$S/todo.md")"
+seed_alpha
+run - update c1 --ref t99
+before="$(cat "$S/todo.md")"
+set_summary alpha "$ADIG" "Alpha."
+assert_eq "a member's ref moved -> EVIDENCE_CHANGED" "EVIDENCE_CHANGED:alpha|member|c1" "$OUT"
+assert_eq "... nothing written" "$before" "$(cat "$S/todo.md")"
+seed_alpha
+run "c3|$(item_rev c3)|alpha" direction-assign --batch
+before="$(cat "$S/todo.md")"
+set_summary alpha "$ADIG" "Alpha."
+assert_eq "an item moved in -> EVIDENCE_CHANGED" "EVIDENCE_CHANGED:alpha|member|c3" "$OUT"
+assert_eq "... nothing written" "$before" "$(cat "$S/todo.md")"
+seed_alpha
+run "c2|$(item_rev c2)|-" direction-assign --batch
+before="$(cat "$S/todo.md")"
+set_summary alpha "$ADIG" "Alpha."
+assert_eq "a member moved out -> EVIDENCE_CHANGED" "EVIDENCE_CHANGED:alpha|member|c2" "$OUT"
+assert_eq "... nothing written" "$before" "$(cat "$S/todo.md")"
+seed_alpha
+set_summary alpha "$ADIG" "Alpha." --trails art:trail-b --next t11
+assert_eq "trail and next keys must be the record's after this call" \
+    "EVIDENCE_CHANGED:alpha|trail|art:trail-a
+EVIDENCE_CHANGED:alpha|trail|art:trail-b
+EVIDENCE_CHANGED:alpha|next|t11" "$OUT"
+retain_snapshot "$(snapshot beta "member: c1|open|t10")"
+assert_contains "(a baseline for another direction is retained)" "RETAINED_BASELINE:" "$OUT"
+set_summary alpha "$DIG" "Alpha."
+assert_eq "a baseline of another direction -> exit 2" "2" "$RC"
+assert_contains "... naming the status" "wrong_direction" "$ERR"
+
+echo "=== Test 18d: a refusal after the first assignment (rule 6) ==="
+seed_alpha
+set_summary alpha "$ADIG" "Alpha, two items."
+run "$(freshness_line alpha current)" direction-freshness --batch
+assert_eq "(alpha has a saved, current record)" "current" "$(dir_field alpha 5)"
+# The proposal: c3 joins alpha. Its baseline is taken for the PROPOSED members.
+PROPOSED="$(snapshot alpha "member: c1|open|t10" "member: c2|open|t11" "member: c3|open|t12" "task: t10|Ready" "trail: art:trail-a|v1:current" "next: t10|valid")"
+retain_snapshot "$PROPOSED"
+PDIG="$DIG"
+run "c3|$(item_rev c3)|alpha" direction-assign --batch
+STEP_A="$(printf '%s' "$OUT" | sed -n 's/^DIRECTION:alpha|updated|//p')"
+assert_eq "step a prints the rev step b needs" "$(dir_rev alpha)" "$STEP_A"
+run - set-state c1 done --outcome "landed meanwhile"
+before="$(cat "$S/todo.md")"
+run "Alpha, three items." direction-set alpha --expect-rev "$STEP_A" --summary-file - --digest "$PDIG"
+assert_eq "step b refuses: the evidence moved" "EVIDENCE_CHANGED:alpha|member|c1" "$OUT"
+assert_eq "... writing nothing" "$before" "$(cat "$S/todo.md")"
+run - directions alpha
+assert_contains "the assignment stays" "DIRECTION_MEMBER:alpha|c3|open|task|t12" "$OUT"
+assert_contains "... with the PREVIOUS summary" "DIRECTION_SUMMARY:alpha|Alpha, two items." "$OUT"
+assert_eq "... and freshness unknown, never a stale 'current'" "unknown" "$(dir_field alpha 5)"
+REVISED="$(snapshot alpha "member: c2|open|t11" "member: c3|open|t12" "task: t10|Done" "trail: art:trail-a|v1:current" "next: t10|valid")"
+retain_snapshot "$REVISED"
+run "Alpha: t10 landed, two items left." direction-set alpha --expect-rev "$STEP_A" --summary-file - --digest "$DIG"
+assert_contains "the revised proposal saves with step a's rev" "DIRECTION:alpha|updated|" "$OUT"
+run "alpha|$(dir_rev alpha)" direction-rank --expect-ranked -
+assert_eq "step c still applies" "RANKED:alpha|1|$(dir_rev alpha)" "$OUT"
+
+# =============================================================================
+echo "=== Test 18e: baseline integrity, size and grammar ==="
+seed_alpha
+set_summary alpha "$ADIG" "Alpha."
+BL="$S/baselines/$ADIG.txt"
+integrity_case() {   # integrity_case <label> <status> <check-sources line>
+    local before
+    before="$(cat "$S/todo.md")"
+    set_summary alpha "$ADIG" "Alpha, again."
+    assert_eq "$1: direction-set -> exit 2" "2" "$RC"
+    assert_contains "$1: ... naming the status" "is $2" "$ERR"
+    run "$(freshness_line alpha current)" direction-freshness --batch
+    assert_eq "$1: 'current' is not published" "KEPT:alpha|baseline_$2" "$OUT"
+    run "$(freshness_line alpha stale "member_closed:1:c2")" direction-freshness --batch
+    assert_eq "$1: 'stale' with a guessed reason is not either" "KEPT:alpha|baseline_$2" "$OUT"
+    assert_eq "$1: nothing was written" "$before" "$(cat "$S/todo.md")"
+    run - check-sources
+    assert_contains "$1: check-sources reports it unusable" "$3" "$OUT"
+}
+printf '%s\n' "${ALPHA/Ready/Done}" > "$BL"
+integrity_case "a different valid snapshot at the right path" hash_mismatch "SOURCE_INVALID:alpha|baselines/$ADIG.txt|hash_mismatch"
+printf '%s' "${ALPHA:0:40}" > "$BL"
+integrity_case "a truncated file" hash_mismatch "SOURCE_INVALID:alpha|baselines/$ADIG.txt|hash_mismatch"
+rm -f "$BL"; ln -s "$TMP/elsewhere" "$BL"
+integrity_case "a symlink" not_regular "SOURCE_INVALID:alpha|baselines/$ADIG.txt|not_regular"
+rm -f "$BL"
+integrity_case "a deleted file" missing "SOURCE_MISSING:alpha|baselines/$ADIG.txt"
+run "$(freshness_line alpha unknown "baseline_unreadable:1")" direction-freshness --batch
+assert_eq "an 'unknown' verdict always applies" "FRESHNESS:alpha|unknown|$(dir_rev alpha)" "$OUT"
+printf 'damaged\n' > "$BL"
+retain_snapshot "$ALPHA"
+assert_eq "retaining the right bytes again repairs a damaged file" "$ALPHA" "$(cat "$BL")"
+run "$(freshness_line alpha current)" direction-freshness --batch
+assert_eq "... and the verdict applies again" "FRESHNESS:alpha|current|$(dir_rev alpha)" "$OUT"
+# Size: exactly the limit is retained, one byte more is refused whole.
+MAXB="$(python3 -c "import sys; sys.path.insert(0, sys.argv[1]); import sitrep_todo; print(sitrep_todo.MAX_BASELINE_BYTES)" "$PROJECT_DIR/.aitask-scripts/lib")"
+gen_snapshot() {   # gen_snapshot <slug> <bytes> > file: a valid snapshot of exactly that size
+    python3 - "$1" "$2" <<'PYEOF'
+import sys
+slug, size = sys.argv[1], int(sys.argv[2])
+head = f"sitrep direction baseline v1\ndirection: {slug}\n"
+tail = "next: t1|"
+lines, n, total = [], 0, len(head)
+while True:
+    left = size - total - len(tail) - 1
+    if 0 <= left <= 120:
+        break
+    n += 1
+    line = f"member: c{n}|open|t{n}\n"
+    lines.append(line)
+    total += len(line)
+sys.stdout.write(head + "".join(lines) + tail + "v" * left + "\n")
+PYEOF
+}
+gen_snapshot big "$MAXB" > "$TMP/at.txt"
+gen_snapshot big "$((MAXB + 1))" > "$TMP/over.txt"
+assert_eq "(the generated snapshots have the intended sizes)" "$MAXB $((MAXB + 1))" "$(wc -c < "$TMP/at.txt" | tr -d ' ') $(wc -c < "$TMP/over.txt" | tr -d ' ')"
+RC=0; OUT="$("$H" retain-baseline < "$TMP/at.txt" 2>"$TMP/err")" || RC=$?
+assert_contains "a snapshot of exactly the limit is retained" "RETAINED_BASELINE:baselines/" "$OUT"
+nfiles="$(ls "$S/baselines" | wc -l | tr -d ' ')"
+before="$(cat "$S/todo.md")"
+RC=0; OUT="$("$H" retain-baseline < "$TMP/over.txt" 2>"$TMP/err")" || RC=$?
+assert_eq "one byte more -> exit 2" "2" "$RC"
+assert_contains "... naming the size" "$((MAXB + 1)) bytes" "$(cat "$TMP/err")"
+assert_contains "... and the limit" "limit $MAXB" "$(cat "$TMP/err")"
+assert_eq "... no file was created" "$nfiles" "$(ls "$S/baselines" | wc -l | tr -d ' ')"
+assert_eq "... and the direction's record is untouched" "$before" "$(cat "$S/todo.md")"
+retain_snapshot "$ALPHA"
+set_summary alpha "$DIG" "Alpha, after the split."
+assert_contains "a snapshot for a smaller member set saves (the split outcome)" "DIRECTION:alpha|updated|" "$OUT"
+for bad in "$(snapshot alpha "member: c2|open|t11" "member: c1|open|t10")" \
+           "$(snapshot alpha "task: t10|Ready" "task: t10|Done")" \
+           "$(snapshot alpha "member: c1|open|t10" "" "task: t10|Ready")" \
+           "$(snapshot alpha "member: c1|done|t10")" \
+           "$(printf 'not a snapshot\ndirection: alpha')"; do
+    nfiles="$(ls "$S/baselines" | wc -l | tr -d ' ')"
+    run "$bad"$'\n' retain-baseline
+    assert_eq "a snapshot outside the grammar -> exit 2" "2" "$RC"
+    assert_eq "... nothing retained" "$nfiles" "$(ls "$S/baselines" | wc -l | tr -d ' ')"
+done
+run "$(snapshot alpha "member: c1|open|t10")" retain-baseline
+assert_eq "a snapshot with no final newline -> exit 2" "2" "$RC"
+assert_contains "... says so" "final newline" "$ERR"
+
+# =============================================================================
+echo "=== Test 18f: direction-rank ==="
+reset_store
+for n in a b c; do run "$(ctx "Item $n." "- direction: $n")" add --kind task --title "item $n" --context-file -; done
+run - direction-set a --expect-rev absent --title "A"
+run - direction-set b --expect-rev absent --title "B"
+before="$(cat "$S/todo.md")"
+run "" direction-rank --expect-ranked -
+assert_eq "empty stdin without --clear -> exit 2" "2" "$RC"
+run "a|$(dir_rev a)
+a|$(dir_rev a)" direction-rank --expect-ranked -
+assert_eq "a duplicate direction -> exit 2" "2" "$RC"
+run "a|$(dir_rev a)
+zzz|absent" direction-rank --expect-ranked -
+assert_eq "an unknown direction -> exit 2" "2" "$RC"
+assert_contains "... says why" "unknown direction 'zzz'" "$ERR"
+run "a|$(dir_rev a)" direction-rank
+assert_eq "direction-rank without --expect-ranked -> exit 2" "2" "$RC"
+run "a|$(dir_rev a)
+b|999" direction-rank --expect-ranked -
+assert_eq "a stale rev on one line -> STALE, nothing else" "STALE:b|$(dir_rev b)" "$OUT"
+run "a|absent" direction-rank --expect-ranked -
+assert_eq "absent for a direction that has a record -> STALE" "STALE:a|$(dir_rev a)" "$OUT"
+assert_eq "none of the refusals wrote anything" "$before" "$(cat "$S/todo.md")"
+run "b|$(dir_rev b)
+a|$(dir_rev a)
+c|absent" direction-rank --expect-ranked -
+assert_eq "the whole order is set from one list; a member-only direction gets a block" \
+    "RANKED:b|1|$(dir_rev b)
+RANKED:a|2|$(dir_rev a)
+RANKED:c|3|$(dir_rev c)" "$OUT"
+assert_eq "directions lists them in rank order" "b a c" "$("$H" directions | sed -n 's/^DIRECTION:\([^|]*\)|.*/\1/p' | tr '\n' ' ' | sed 's/ $//')"
+# The intervening rank addition: the user saw [a]; another session ranks [a, b].
+run "" direction-rank --expect-ranked b,a,c --clear
+assert_eq "--clear unranks everything (c held nothing else: its block is gone)" \
+    "UNRANKED:a|$(dir_rev a)
+UNRANKED:b|$(dir_rev b)
+UNRANKED:c|-" "$OUT"
+run "a|$(dir_rev a)" direction-rank --expect-ranked -
+SEEN_A="$(dir_rev a)"
+run "a|$SEEN_A
+b|$(dir_rev b)" direction-rank --expect-ranked a
+assert_eq "(another session ranks b second; a's rev does not move)" "$SEEN_A" "$(dir_rev a)"
+before="$(cat "$S/todo.md")"
+run "a|$SEEN_A" direction-rank --expect-ranked a
+assert_eq "the original request, made for [a], is refused" "STALE_ORDER:a,b" "$OUT"
+assert_eq "... and b keeps rank 2" "2|$before" "$(dir_field b 4)|$(cat "$S/todo.md")"
+run "" direction-rank --expect-ranked a --clear
+assert_eq "--clear made for [a] is refused the same way" "STALE_ORDER:a,b" "$OUT"
+assert_eq "... nothing written" "$before" "$(cat "$S/todo.md")"
+run "a|$SEEN_A" direction-rank --expect-ranked a,b
+assert_eq "control: with the order it now sees, the same request applies" \
+    "RANKED:a|1|$(dir_rev a)
+UNRANKED:b|$(dir_rev b)" "$OUT"
+run "a|$(dir_rev a)" direction-rank --expect-ranked a
+assert_eq "an identical order writes nothing" "RANKED:a|1|$SEEN_A" "$OUT"
+# direction-remove closes the gap.
+run "b|$(dir_rev b)
+a|$(dir_rev a)
+c|absent" direction-rank --expect-ranked a
+run - direction-remove b --expect-rev 999
+assert_eq "direction-remove with a stale rev -> STALE" "STALE:b|$(dir_rev b)" "$OUT"
+run - direction-remove zzz --expect-rev 5
+assert_eq "direction-remove of nothing -> ABSENT" "ABSENT:zzz" "$OUT"
+run - direction-remove b --expect-rev "$(dir_rev b)"
+assert_eq "direction-remove deletes the block and closes the rank gap" \
+    "DIRECTION_REMOVED:b|1
+RANKED:a|1|$(dir_rev a)
+RANKED:c|2|$(dir_rev c)" "$OUT"
+run - directions b
+assert_eq "the removed direction stays listed from its member, with no record" \
+    "DIRECTION:b|-|$(dir_stamp b)|-|unknown|never||||1|1|
+DIRECTION_MEMBER:b|c2|open|task|" "$OUT"
+assert_eq "the store verifies" "VERIFIED:todo" "$(python3 "$CORE" verify todo "$S/todo.md")"
+
+# =============================================================================
+echo "=== Test 18g: direction-freshness --batch ==="
+seed_alpha
+set_summary alpha "$ADIG" "Alpha."
+agent="$(agent_fields alpha)"
+run "$(freshness_line alpha stale "member_closed:2:c1+c2, trail_stale:1:art:trail-a")" direction-freshness --batch
+F1="$(dir_rev alpha)"
+assert_eq "a stale verdict is stored" "FRESHNESS:alpha|stale|$F1" "$OUT"
+assert_eq "... with its reasons" "- drift: member_closed:2:c1+c2, trail_stale:1:art:trail-a" "$(block alpha | grep '^- drift:')"
+assert_eq "the agent-written fields are byte-identical" "$agent" "$(agent_fields alpha)"
+run - directions alpha
+assert_contains "directions prints count and sample" "DIRECTION_DRIFT:alpha|member_closed|2|c1+c2" "$OUT"
+before="$(cat "$S/todo.md")"
+run "$(printf 'alpha|%s|%s|stale|2026-11-01T10:00:00Z|member_closed:2:c1+c2,trail_stale:1:art:trail-a\n' "$F1" "$(dir_stamp alpha)")" direction-freshness --batch
+assert_eq "an equal line keeps the rev" "FRESHNESS:alpha|stale|$F1" "$OUT"
+assert_eq "... and writes nothing" "$before" "$(cat "$S/todo.md")"
+run "zzz|5|0123456789abcdef|unknown|now|" direction-freshness --batch
+assert_eq "a direction with no block -> NOT_FOUND" "NOT_FOUND:zzz" "$OUT"
+for bad in "alpha|$F1|$(dir_stamp alpha)|current|now|x:1" "alpha|$F1|$(dir_stamp alpha)|stale|now|" \
+           "alpha|$F1|nostamp|unknown|now|" "alpha|$F1|$(dir_stamp alpha)|fresh|now|" \
+           "alpha|$F1|$(dir_stamp alpha)|stale|now|x:1,x:2" "alpha|$F1|$(dir_stamp alpha)|stale|now|x:1:a+b" \
+           "alpha|$F1|$(dir_stamp alpha)|stale|now|x:9:a+b+c+d" "alpha|$F1|$(dir_stamp alpha)|unknown|never|"; do
+    run "$bad" direction-freshness --batch
+    assert_eq "freshness line '$bad' -> exit 2" "2" "$RC"
+done
+assert_eq "none of them wrote anything" "$before" "$(cat "$S/todo.md")"
+run - direction-set beta --expect-rev absent --title "Beta"
+run "$(freshness_line beta current)" direction-freshness --batch
+assert_eq "'current' for a record with no baseline -> KEPT" "KEPT:beta|no_baseline" "$OUT"
+run "$(freshness_line beta stale "never_summarized")" direction-freshness --batch
+assert_eq "'stale' (never summarised) applies without one" "FRESHNESS:beta|stale|$(dir_rev beta)" "$OUT"
+# The intervening input change: the rev does not cover membership or state.
+fresh_case() {   # the verdict line was computed BEFORE the mutation the caller ran
+    local line="$1" label="$2" before
+    before="$(cat "$S/todo.md")"
+    run "$line" direction-freshness --batch
+    assert_eq "$label -> STALE with the current rev and stamp" "STALE:alpha|$(dir_rev alpha)|$(dir_stamp alpha)" "$OUT"
+    assert_eq "$label: nothing written" "$before" "$(cat "$S/todo.md")"
+}
+seed_alpha; set_summary alpha "$ADIG" "Alpha."
+LINE="$(freshness_line alpha current)"
+run "$LINE" direction-freshness --batch
+assert_eq "control: with no change in between the verdict applies" "FRESHNESS:alpha|current|$(dir_rev alpha)" "$OUT"
+seed_alpha; set_summary alpha "$ADIG" "Alpha."
+LINE="$(freshness_line alpha current)"; SEEN_REV="$(dir_rev alpha)"
+run - set-state c2 done --outcome "landed"
+assert_eq "(a member's state change leaves the direction rev alone)" "$SEEN_REV" "$(dir_rev alpha)"
+fresh_case "$LINE" "a member's set-state between snapshot and batch"
+seed_alpha; set_summary alpha "$ADIG" "Alpha."
+LINE="$(freshness_line alpha current)"
+run "$(ctx "Three, joining." "- direction: alpha")" upsert-context c3
+fresh_case "$LINE" "an item moved in by upsert-context"
+seed_alpha; set_summary alpha "$ADIG" "Alpha."
+LINE="$(freshness_line alpha current)"
+run "$(ctx "Two, leaving.")" upsert-context c2
+fresh_case "$LINE" "a member moved out"
+
+# =============================================================================
+echo "=== Test 18h: more causes than reasons fit; a legal long trail handle; an oversized group ==="
+seed_alpha; set_summary alpha "$ADIG" "Alpha."
+AGG="$(python3 -c "
+import sys; sys.path.insert(0, sys.argv[1]); import sitrep_todo as st
+pairs = [('member_closed', 'c%d' % i) for i in range(20, 0, -1)] + [('trail_stale', 'art:trail-a'), ('task_archived', 't10')]
+print(','.join(st.render_reason(r) for r in st.aggregate_drift(pairs)))" "$PROJECT_DIR/.aitask-scripts/lib")"
+assert_eq "22 causes aggregate into three reasons" "member_closed:20:c1+c2+c3,trail_stale:1:art:trail-a,task_archived:1:t10" "$AGG"
+run "$(freshness_line alpha stale "$AGG")" direction-freshness --batch
+assert_eq "the verdict above the cause count persists as stale" "FRESHNESS:alpha|stale|$(dir_rev alpha)" "$OUT"
+run - directions alpha
+assert_contains "... with the count as the overflow indication" "DIRECTION_DRIFT:alpha|member_closed|20|c1+c2+c3" "$OUT"
+LONG="art:trail-$(printf 'x%.0s' $(seq 1 122))"
+assert_eq "(the handle is the longest legal one)" "132" "${#LONG}"
+seed_alpha
+run - direction-set alpha --expect-rev "$(dir_rev alpha)" --trails "$LONG"
+assert_contains "direction-set takes a 132-character handle" "DIRECTION:alpha|updated|" "$OUT"
+retain_snapshot "$(snapshot alpha "member: c1|open|t10" "member: c2|open|t11" "trail: $LONG|v1:unreadable" "next: t10|valid")"
+assert_contains "a baseline trail line takes it" "RETAINED_BASELINE:" "$OUT"
+set_summary alpha "$DIG" "Alpha, long handle."
+assert_contains "... and the summary saves against it" "DIRECTION:alpha|updated|" "$OUT"
+run "$(freshness_line alpha stale "trail_unreadable:1:$LONG")" direction-freshness --batch
+assert_eq "it is a valid drift sample key" "FRESHNESS:alpha|stale|$(dir_rev alpha)" "$OUT"
+assert_eq "... and round-trips" "- drift: trail_unreadable:1:$LONG" "$(block alpha | grep '^- drift:')"
+assert_eq "the store verifies" "VERIFIED:todo" "$(python3 "$CORE" verify todo "$S/todo.md")"
+before="$(cat "$S/todo.md")"
+run - direction-set alpha --expect-rev "$(dir_rev alpha)" --trails "${LONG}x"
+assert_eq "133 characters: direction-set -> exit 2" "2" "$RC"
+run "$(snapshot alpha "trail: ${LONG}x|v1:current")"$'\n' retain-baseline
+assert_eq "133 characters: retain-baseline -> exit 2" "2" "$RC"
+run "$(freshness_line alpha stale "trail_unreadable:1:${LONG}x")" direction-freshness --batch
+assert_eq "133 characters: a drift key -> exit 2" "2" "$RC"
+assert_eq "none of them wrote anything" "$before" "$(cat "$S/todo.md")"
+ONLY_LONG="$(python3 -c "
+import sys; sys.path.insert(0, sys.argv[1]); import sitrep_todo as st
+print(','.join(st.render_reason(r) for r in st.aggregate_drift([('trail_stale', sys.argv[2] + '=tasks_changed'), ('trail_stale', sys.argv[2] + '=wave_moved')])))" "$PROJECT_DIR/.aitask-scripts/lib" "$LONG")"
+assert_eq "keys that do not fit are left out, the count stays" "trail_stale:2" "$ONLY_LONG"
+run "$(freshness_line alpha stale "$ONLY_LONG")" direction-freshness --batch
+assert_eq "the count-only form persists as stale" "FRESHNESS:alpha|stale|$(dir_rev alpha)" "$OUT"
+# crashed-agents cannot be split: its members are derived and never reassigned.
+reset_store
+A=aaaaaaaaaaaa
+run "$(printf -- '- background: died.\n- origin: task=t80 incarnation=%s\n- sources:\n  - task: aitasks/t80_x.md\n' "$A")" \
+    recovery-apply --ref recover:t80 --expect-rev absent --incarnation "$A" --state open \
+    --outcome "crashed · plan approved" --checked-at now --title "Recover t80" --context-file -
+run - direction-set crashed-agents --expect-rev absent --title "Crashed agents"
+run "crashed-agents|$(dir_rev crashed-agents)" direction-rank --expect-ranked -
+gen_snapshot crashed-agents "$((MAXB + 1))" > "$TMP/over.txt"
+RC=0; OUT="$("$H" retain-baseline < "$TMP/over.txt" 2>"$TMP/err")" || RC=$?
+assert_eq "its oversized snapshot is refused like any other" "2" "$RC"
+members="$("$H" directions crashed-agents | grep '^DIRECTION_MEMBER:')"
+run "$(freshness_line crashed-agents unknown "baseline_too_large:1")" direction-freshness --batch
+assert_eq "the supported outcome: unknown with a size reason" "FRESHNESS:crashed-agents|unknown|$(dir_rev crashed-agents)" "$OUT"
+assert_eq "... the reason is stored" "- drift: baseline_too_large:1" "$(block crashed-agents | grep '^- drift:')"
+assert_eq "... membership is still derived" "$members" "$("$H" directions crashed-agents | grep '^DIRECTION_MEMBER:')"
+assert_eq "... the rank and title stay" "1|Crashed agents" "$(dir_field crashed-agents 4)|$(dir_field crashed-agents 12)"
+run "$(freshness_line crashed-agents current)" direction-freshness --batch
+assert_eq "... and it can never read current" "KEPT:crashed-agents|no_baseline" "$OUT"
+
+# =============================================================================
+echo "=== Test 18i: situation text and the record; existing verbs on a format-4 store ==="
+reset_store
+run "$(ctx "One." "- direction: alpha")" add --kind task --title one --ref t10 --context-file -
+run "Alpha is moving." situation alpha
+assert_eq "situation creates a block" "SITUATION:alpha|set" "$OUT"
+S1="$(dir_rev alpha)"
+run "Alpha is moving." situation alpha
+assert_eq "the same text again writes nothing" "$S1" "$(dir_rev alpha)"
+run "Alpha moved on." situation alpha
+assert_eq "new text bumps the block's rev" "1" "$([[ "$(dir_rev alpha)" != "$S1" ]] && echo 1)"
+run - direction-set alpha --expect-rev "$(dir_rev alpha)" --title "Alpha"
+assert_contains "the record keeps the situation text" "Alpha moved on." "$(block alpha)"
+run "" situation alpha
+assert_eq "empty situation removes the text" "SITUATION:alpha|removed" "$OUT"
+assert_contains "... and keeps the record" "- title: Alpha" "$(block alpha)"
+assert_eq "... with no text left" "11" "$(block alpha | wc -l | tr -d ' ')"
+run "" situation alpha
+assert_eq "removing it again -> absent" "SITUATION:alpha|absent" "$OUT"
+run - directions alpha
+assert_contains "the member still names the direction" "DIRECTION_MEMBER:alpha|c1|open|task|t10" "$OUT"
+run "Text only." situation beta
+run "" situation beta
+assert_eq "a text-only block goes with its text" "" "$(block beta)"
+run "Recovery." situation crashed-agents
+assert_eq "the reserved direction takes situation text" "SITUATION:crashed-agents|set" "$OUT"
+run - set-state c1 done --outcome ok --expect-rev "$(item_rev c1)"
+assert_contains "set-state works on a format-4 store" "STATE:c1|done|" "$OUT"
+run "c1|$(item_rev c1)|open|now|" set-state --batch
+assert_contains "set-state --batch works" "STATE:c1|open|" "$OUT"
+run - dismiss c1 --outcome "user: no"
+assert_contains "dismiss works" "STATE:c1|dismissed|" "$OUT"
+run "Q: ok?" qa --items c1
+assert_eq "qa works" "0" "$RC"
+run - restore todo
+assert_contains "restore works on a format-4 store" "RESTORED:todo.md|recovered/" "$OUT"
+assert_eq "the restored store verifies" "VERIFIED:todo" "$(python3 "$CORE" verify todo "$S/todo.md")"
+REV_NOW="$(cat "$S/next_rev")"
+HIGH="$(grep -o 'rev=[0-9]*' "$S/todo.md" "$S/todo.md.bak" "$S"/recovered/* | sed 's/.*rev=//' | sort -n | tail -1)"
+assert_eq "restore pins next_rev above every rev ever seen, direction revs included" "1" "$([[ "$REV_NOW" -gt "$HIGH" ]] && echo 1)"
 
 echo ""
 echo "==============================="
