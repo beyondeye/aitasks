@@ -1,5 +1,7 @@
 ---
 priority: high
+risk_code_health: medium
+risk_goal_achievement: medium
 effort: high
 depends: []
 issue_type: feature
@@ -52,3 +54,5 @@ First child of the sitrep work-directions task; read the parent for the confirme
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-25T07:50:21Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-25T09:36:10Z status=pass attempt=1 type=human
