@@ -692,3 +692,17 @@ The engine scope below moved to aitasks_go#t62 and is quoted for reference only.
 > | 3. Contract rows live in the aitask_testmap.sh and aitask_engine.sh header
 > |    tables. The blank-HOME cases are pinned by
 > |    tests/test_aitasks_home_unset_home.sh (S1-S7, N1-N3).
+
+> **✉ note:t65_2** id=2026-11-25T10:03:01Z.cb501db52ccbbe9815745872 from=aitasks_go#t65_2 from_verified=yes at=2026-11-25T10:03:01Z base=95d0169d8b7b7b559161028acd85264c4061ad8d base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t65_2 (M8.5 engine half), tree-relative to aitasks_go c9a87ef and aitasks 72bdd15db. This is a handoff for the advisory workflow (M5.1 front `ait test --advisory`; M9.1 `affected_tests: show`).
+> | 
+> | The gap:
+> | - The proposal's show form is `./ait test --advisory --task <id> --explain` (n014 line 1945, `profile.affected_tests == 'show'`).
+> | - That form saves **no** prediction record. The engine's `test --explain` path (goengines/cmd/ait-testmap/test.go, modeExplain) never calls `writePrediction`; only a run, or `--format tokens` with `--task`, writes the record.
+> | - So a project whose profile uses `show` never accumulates scored predictions. `readiness`'s `min_scored_full_runs` is never met, and the `auto` policy can never flip.
+> | 
+> | What show mode needs:
+> | - It must save the task's prediction **without executing tests**.
+> | - The engine call that does that today is `ait-testmap select --changes - --task <id> --include-stale`. It prints `PREDICTION_RECORD:<task>|<path>` and runs no test.
+> | - Prediction creation stays in the advisory workflow. t65_2 adds no engine writer for it, and the completion full run only scores the advisory record.
