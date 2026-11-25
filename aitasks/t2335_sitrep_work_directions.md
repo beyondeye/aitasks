@@ -5,10 +5,10 @@ depends: []
 issue_type: feature
 status: Ready
 labels: [sitrep, trails, tui, skills]
-children_to_implement: [t2335_2, t2335_3, t2335_4, t2335_5, t2335_6]
+children_to_implement: [t2335_3, t2335_4, t2335_5, t2335_6]
 anchor: 2175
 created_at: 2026-11-19 05:12
-updated_at: 2026-11-25 11:40
+updated_at: 2026-11-25 19:24
 ---
 
 ## Problem

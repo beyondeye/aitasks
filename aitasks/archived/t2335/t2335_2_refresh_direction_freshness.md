@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: [t2335_1]
 issue_type: feature
-status: Implementing
+status: Done
 labels: [sitrep, trails]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -15,7 +15,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 implemented_with: claudecode/fable5_2
 created_at: 2026-11-19 05:12
-updated_at: 2026-11-25 15:44
+updated_at: 2026-11-25 19:24
+completed_at: 2026-11-25 19:24
 ---
 
 ## Context
@@ -68,3 +69,14 @@ The store contract this child builds on is the "Directions" section of `aidocs/f
 > **✅ gate:plan_approved** run=2026-11-25T13:44:18Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-25T17:22:04Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-25T17:24:45Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:94951ed8149cadb1
+
+> **✅ gate:risk_evaluated** run=2026-11-25T17:24:45Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2335_2/risk_evaluated_2026-11-25T17:24:45Z-risk_evaluated-a1.log`
