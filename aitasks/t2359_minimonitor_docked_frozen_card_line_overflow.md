@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -50,3 +52,5 @@ Budget the line like the list rows do: shorten the stamp (e.g. `HH:MM` or `MM-DD
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-25T12:01:45Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-25T13:30:39Z status=pass attempt=1 type=human
