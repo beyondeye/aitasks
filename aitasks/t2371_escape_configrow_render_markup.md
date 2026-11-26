@@ -5,6 +5,7 @@ depends: []
 issue_type: bug
 status: Ready
 labels: [tui, execution_profiles]
+gates: [risk_evaluated]
 anchor: 2363
 followup_kind: upstream_defect
 created_at: 2026-11-27 01:18
