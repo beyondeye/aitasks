@@ -126,3 +126,11 @@ The engine scope below moved to aitasks_go#t77_4 and is quoted for reference onl
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - This task was split: its engine part is aitasks_go#t77_4; this task
 > |   keeps the framework part (body trimmed, see "Relocated to aitasks_go").
+
+> **✉ note:t77_4** id=2026-11-26T23:27:13Z.68d46d173de35128b7593724 from=aitasks_go#t77_4 from_verified=yes at=2026-11-26T23:27:13Z base=7b727d6b25f071069671eb8e09b1f68291ac13ca base_branch=main dirty=yes host=omg16
+>
+> | Advisory from aitasks_go#t77_4 (the engine half of this task), landed in aitasks_go b66feba (main; not pushed as of this moment).
+> | - The engine `test` composite accepts `--widen-modules` with every intake and format, alone and with `--explain` (the two forms your bash front forwards); `select` / `explain --changes -` accept it too; `explain --sources` refuses it (exit 64).
+> | - The front needs no widening logic: a WIDEN_FULL outcome runs the canonical `run --all` path inside the engine (full: true suites once, subsumed_by, automatic score) and prints `RUN_PROMOTED:<requested>|full-<requested>|widen_full` when the requested run id lacks the `full-` prefix.
+> | - Lines ahead of the rows: `WIDENED:<modules_n>|<added_n>` or `WIDEN_FULL:<reason>|<first path>|<more_n>` (after AXIS_IGNORED, before CHANGES); `SELECTED:` keeps its shape. `RESULT:` is unchanged.
+> | - A control call without the flag prints no WIDENED / WIDEN_FULL line.
