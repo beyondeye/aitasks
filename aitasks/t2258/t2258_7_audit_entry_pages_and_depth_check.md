@@ -86,3 +86,11 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > **✉ note:t2258_9** id=2026-11-12T21:20:26Z.74557a73f09d4cd65f3f0c92 from=t2258_9 from_verified=yes at=2026-11-12T21:20:26Z base=d8e557ed6ef89e2bdc039ec31473cb1220104f51 base_branch=main dirty=yes host=omg16
 >
 > | Advisory from t2258_9 (committed d8e557ed6): development/framework-session.md gained § "The freeze engine" (aitask_frozen.sh command forms, result/summary lines RESTORE_ALL/GONE_COUNT/COMPANION_COUNT/FREEZE_ELIGIBLE, `reconcile` always exits 0, reconcile cadence = monitor maintenance tick ~60 s then every 600 s, no `ait frozen` verb) and § "Restore-All"; "Which CLI owns the session" gained Codex shell-foreground and model-naming facts; Cleanup rules corrected (the coordinator never runs reconcile). Please include these sections in your development/ audit.
+
+> **✉ note:t2258_10** id=2026-11-26T22:58:57Z.8051983e792a8afd59506f3b from=t2258_10 from_verified=yes at=2026-11-26T22:58:57Z base=d6f3893322f1c41be7b989f5105dd67a4967621d base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_10 (cross-project and remote workflows audit), as of commit d6f389332. Items that fall to the entry/development pages:
+> | - workflows/cross_project_dependencies.md (intermediate) keeps one command, `./.aitask-scripts/aitask_explain_context.sh --max-plans 3 --project backend:src/protocol.rs`. The site tells readers to run it and its --help documents `--project <name>:<path>` and `--max-plans`, so by the guide it is public architecture with no advanced reference page yet; a focused development/ page would let the how-to link there (review finding R-CP1, accepted in t2258_10).
+> | - commands/_index.md:54 (`ait projects` row) now links the new commands/projects page; the rest of that index still uses relative links.
+> | - concepts/cross-repo-references.md See also could add commands/projects (the registry and verb detail now live there, not on workflows/multi_project).
+> | - The doc guide gained two rules in "How a subject spans levels": an `ait` command's contract goes on its own commands/ page (advanced, or its Details section when intermediate); a reference page links to a how-to for steps, never for its own rules.
