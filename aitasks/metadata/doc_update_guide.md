@@ -171,6 +171,15 @@ Before calling a script's output, status line or flag contributor-only, check
 whether a site page tells readers to run that script and whether its `--help`
 documents the output for callers. Either one makes it public architecture: its
 contract goes on an `advanced` reference page, and the how-to links there.
+For an `ait` command, that page is the command's own page in `commands/`:
+an `advanced` page, or its "Details" section (below) when the page is
+`intermediate`. Create one when the command has none, rather than leaving its
+verb table and output on a workflow page.
+
+A reference page links to a how-to for steps, never for its own rules. When a
+reference page sends readers to a workflow page for the states, messages or
+rules of its own screens, move those rules onto the reference page and let the
+workflow link to them.
 
 Outside `concepts/`, a short page may end with one section headed "Details",
 written one level above the rest; the page's `depth` is the level of everything

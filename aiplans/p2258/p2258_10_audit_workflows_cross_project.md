@@ -644,11 +644,133 @@ Final Implementation Notes record each entry's outcome (`audited` /
 |---|---|---|---|---|
 | (none at planning) | | | | |
 
+**Close-out (Step 7):** ledger empty. Every unit (U-A1, U-A1b, U-A2, U-A3, U-B1 incl. the board part, U-B2, U-B3, U-C1, U-C2, U-D, U-G) landed on the first pass; no gate failure, no fallback.
+
 ## Moved-fact table
 
 (source#section → fact → destination#anchor →
 `moved` / `already-stated` / `corrected` / `dropped(reason)`; filled from the
 agents' reports and the survival check.)
+
+### `multi_project.md` (Agent A; P = aitask_projects.sh, R = aitask_project_resolve.sh, ALU = lib/agent_launch_utils.py)
+
+| source#section | fact | destination | outcome |
+|---|---|---|---|
+| #intro | frontend/backend goal; names vs ../ paths | multi_project intro | moved |
+| #why-logical-project-names | paths break; names resolved at use | concepts/cross-repo-references#why-it-exists (linked) | already-stated |
+| #per-project-identity | project: YAML block | commands/projects#project-identity | moved |
+| #per-project-identity | name defaults to dir basename (P:196-202) | commands/projects#project-identity; multi_project step 1 | moved |
+| #per-project-identity | name "lowercase [a-z0-9_-], unique" | commands/projects#project-identity | corrected: add does not check it (P:196-202,360); unique only because add replaces same-name entry (P:392-402); charset enforced by readers (aitask_note.sh:965, lib/note_inbox.py:65, lib/cross_repo_notation.py:21) |
+| #per-project-identity | git_remote shown in list, used by doctor --clone (P:330-331,658) | commands/projects | moved |
+| #per-project-identity | project_group fallback slug regex (ALU:782) | commands/projects#project-identity/#project-groups | moved; + add/group sync stop on invalid slug (P:385-386,934-936), TUIs ignore it (ALU:849-850) |
+| #per-project-identity | add reads the block, basename fallback | commands/projects#project-identity | moved |
+| #the-project-registry | path, AITASKS_PROJECTS_INDEX (P:47), YAML | commands/projects#the-registry-file | moved |
+| #the-project-registry | "gitignored" | commands/projects; multi_project | corrected: lives in ~/.config outside every repo |
+| #the-project-registry | manage with ait projects | same | moved; + writes rebuild from five fields, dropping hand comments/keys (P:247-267) |
+| #the-project-registry | unreadable file stops list/add/remove/update/prune/doctor/group, file unchanged (P:222-239) | commands/projects#the-registry-file | moved; + resolve/exec keep working (R:122,189) |
+| #the-project-registry | TUI discovery treats unreadable registry as empty (ALU:853-885) | commands/projects | moved |
+| #project-groups | used by switcher and Stats TUI | commands/projects; multi_project#group-related-projects | moved |
+| #project-groups | registry wins, config fallback, `-` = explicitly ungrouped (ALU:1027-1050, P:773-789) | commands/projects#project-groups | moved |
+| #project-groups | CLI example block | multi_project#group-related-projects; commands/projects#verbs | moved |
+| #project-groups | rename merges (P:813-836) | commands/projects; multi_project | moved; + config-only groups not renamed; renaming an empty group is an error |
+| #project-groups | sync fills only missing (P:914-947) | commands/projects | moved |
+| #how-a-name-resolves-to-a-path | three sources in order | commands/projects#name-resolution; multi_project (plain) | moved |
+| #how-a-name-resolves-to-a-path | tmux scan "by project name, then session name" | same | corrected: matches project directory basename (ALU:232,1525; R:165-173) |
+| #how-a-name-resolves-to-a-path | env var override (R:236-242) | same | moved; + a stale registry hit stops the search, hiding the env var (R:433-440) |
+| #how-a-name-resolves-to-a-path | state table, LIVE/OK labels | commands/projects#name-resolution | moved (LIVE rule exact, P:274-309) |
+| #how-a-name-resolves-to-a-path | never repaired, add hint, no cloning except doctor --clone | commands/projects; multi_project | moved |
+| #the-ait-projects-command | verb table | commands/projects#verbs | moved + additions (rm alias, -y, doctor answers, exec optional --, [STALE] in group list, Error:/exit 1, 10 s registry lock) |
+| #the-ait-projects-command | add idempotent | commands/projects; multi_project step 2 | moved; + same-name replacement, re-add keeps group (P:372-390) |
+| #the-ait-projects-command | update keeps git_remote (P:516-524) | commands/projects; multi_project#keep-the-registry-current | moved; also keeps group |
+| #the-ait-projects-command | resolve output forms | commands/projects | moved; always exits 0 (R:396-455) |
+| #the-ait-projects-command | exec | commands/projects; multi_project#run-a-command-in-a-linked-project | moved |
+| #the-ait-projects-command | examples | commands/projects; multi_project | moved; aitask_ls.sh -v 5 → ./ait ls -v 5 |
+| #creating-a-task-in-a-sibling-project | --batch required, --parent in target, two-parents link (aitask_create.sh:2650-2725) | multi_project#creating-a-task-in-a-linked-project | moved |
+| #sending-a-note-to-a-sibling-projects-task | every source checked, conflict refuses, other project commits | multi_project#sending-a-note…; commands/projects#name-resolution | moved; mobile → backend; + unreadable source refuses (aitask_note.sh:983-1015) |
+| #referring-to-cross-project-tasks-and-files | notation | same | moved (kept) |
+| #switching-between-projects | inactive projects listed, spawn session (tui_switcher.py:1729-1737), (stale) dimmed (L1097-1104) | same | moved; labels Prune / Repoint (stale_entry_modal.py:99-102) |
+| #switching-between-projects | Left/Right, [/] (tui_switcher.py:668-671) | same | moved |
+| #switching-between-projects | Stats TUI group nav "on session-aware panes" | same | corrected: [/] change group on every pane except agent ranking panes, when ≥2 projects shown (stats_app.py:207,516-524) |
+| #switching-between-projects | ait monitor "intentionally unchanged" | same | moved, current-state: shows only projects with a running tmux session (monitor_core.py:3238) |
+| #recipe | identity, add, list/resolve, create | multi_project#register-a-linked-project / #creating-a-task… | moved |
+| (code) | ait ide registers the project best-effort (lib/tmux_bootstrap.sh:731-732, aitask_ide.sh:137) | commands/projects; multi_project step 2 | added |
+| commands/_index L54 | verb list omitted group | same | corrected |
+
+aidocs additions: registry mutex `${REGISTRY_FILE}.lockd` (10 s), strict re-read, full rebuild, atomic write; why (t1073, t2163, t2164); remove locks after its prompt; bootstrap swallows lock timeout; single-name lookup is an awk reader (why resolve/exec/create --project work on a registry the strict reader refuses); first name wins, a stale hit skips the env tier.
+
+Added by survival run 1 (unlisted, correct → **corrected**): `commands/projects#name-resolution` NOT_FOUND = "No source knows the name" (was "No registered project matched") and STALE = "The name is known…" (was "registered"): `aitask_project_resolve.sh` main() prints NOT_FOUND only after all three tiers miss, and the env tier can return STALE.
+
+### `cross_project_dependencies.md` (Agent B; S = source, TR = tuis/trails/reference, BR = tuis/board/reference, TM = commands/task-management)
+
+Every source section was moved and survival run 1 classified all 137 claims (125 preserved, 9 listed corrections, 2 unlisted-but-correct, 1 minor missing rationale restored in TM#cross-repo-options). Destinations: S (rewritten how-to), TR#blocked-members / #members-from-another-project / #when-the-checks-run / #what-links-two-trails / #the-search / #the-jump, BR#task-card-anatomy (`↗` line, **Cross-repo lines**) and #task-operations (`#` row), TM#cross-repo-options / #listing-another-projects-tasks / #updating-a-task-in-another-project / #cross-repo-dependencies-in-the-listing. Corrected rows (code evidence):
+
+1. ait ls keeps blocked tasks, sorted after unblocked, `Blocked (by …)` under -v (aitask_ls.sh:34-36, 642-658, 812-814; tests/test_xdeps_blocking.sh:117,137,144,215). TM#ait-ls never said skip.
+2. /aitask-pick: Step 2 uses aitask_ls.sh -v 15, filters nothing (aitask-pick/SKILL.md.j2:212-221) → blocked task listed after unblocked, may fall outside top 15; direct /aitask-pick <id> runs no dependency check (Step 0b, j2:91-136; none in aitask_pick_own.sh or task-workflow).
+3. Chip carries no (UNREACHABLE); the marker is on the ↗ entry (board_widgets.py:430-431,450-451; lib/cross_repo_deps.py:28-38).
+4. A 10 s timeout also shows (UNREACHABLE) (lib/cross_repo_deps.py:50-60).
+5. ait update --project allow-list not enforced; only --name, --status Implementing|Done|Folded, --batch, resolution and lock checked (aitask_update.sh:2470-2524,1905-1929); --deps in help list (:316), was missing from page.
+6. aitask_explain_context.sh needs --max-plans N, else exits 0 silently (:18,312-314); example corrected; no ait verb.
+7. Interactive ait create asks cross-repo project after Dependencies; Labels come before both (aitask_create.sh:2846-2858); offers only resolving projects excluding this one, skipped when none (:1311-1352). Menu labels end in "(from <project>)" (:1898,1927,1941).
+8. Paired planning creates one new parent (current task becomes this repo's parent; counterpart created in the other repo); children created one by one in dependency order, labels resolved to real IDs, rare back-fill; no lockstep numbering (cross-repo-child-assignment.md Steps 1-4).
+9. Stale-path problem line also covers a path that is not an aitasks project (lib/trail_links.py:546-554).
+Also: Folded also blocks (test_xdeps_blocking.sh:113); "usually takes a second or two" dropped (no guaranteed duration; 30 s per-project bound kept, up to four at a time trail_links.py:74,436-444,505); many TR additions from code (new messages, sort order, (+N more), per-project-and-kind dedupe, session-ownership re-check, stop notices) — see the TR diff.
+Unlisted, correct (survival run 1, → **corrected**): TR problem line "not registered" → "names a project that does not resolve" (lib/trail_links.py:398-416, 567-568); the TR#blocked-members example entry `backend#16_2` → `backend#16_2 (not checked)` (example only).
+Fix pass: "Projects are compared by where they live on disk… registry alias" → TR#what-links-two-trails in plain words (any name that resolves to the same checkout: `project.name`, registry name or tmux session name; lib/trail_links.py:14-21). Folding/renaming are not done "through `/aitask-pick`" (review round 2, corrected).
+
+### `claude-web.md` (Agent C)
+
+| source#section | fact | destination | outcome |
+|---|---|---|---|
+| #intro | Web pushes only its own branch | claude-web intro (links concepts/git-branching-model) | moved (kept) |
+| #intro | "This guide covers…" | — | dropped (writes about the page) |
+| #standard-vs-claude-web-workflow | comparison table + "standard workflow…" line | skills/aitask-pickweb#key-differences-* | already-stated |
+| same | three-stage diagram | claude-web#run-a-task-on-claude-code-web | moved (kept) |
+| #step-1 | board Lock button + email prompt | step 1 | moved (board_detail_screen.py:1889,2133-2146,1339-1366; key l at 1474) |
+| #step-1 | ait lock <id> | step 1 | moved (aitask_lock.sh:8) |
+| #step-1 | pre-lock optional; pickweb warns and proceeds | step 1, If something goes wrong | moved (pickweb-remote SKILL.md:117-130); warns only when someone else holds a lock |
+| #step-2 | /aitask-pickweb <id> / 42_2; only plan approval waits | step 2 | moved (`--profile remote` added) |
+| #step-2 | 7-item step list | skills/aitask-pickweb#step-by-step | already-stated; "Loads the remote profile" was wrong |
+| (new) | pickweb commits, does not push | step 2; pickweb#completion-and-merging | corrected (rendered SKILL.md:280-343; scan remote-only aitask_web_merge.sh:271) |
+| #step-3 | scan, merge w/o dir, plan copy, delete remote branch, sequential branches | web-merge #step-by-step/#merge-strategy/#plan-file-handling/#multiple-branches | already-stated (skip list aitask_web_merge.sh:219-229) |
+| #step-3 | archives task (+parent when last child) | web-merge step 6, #when-archival-stops | corrected: conditional (SKILL.md:136-162; aitask_archive.sh:91,844) |
+| #step-3 | pushes main and aitask-data | web-merge step 7 | corrected: only after archival (SKILL.md:172-184) — SEE OPEN POINT: skill does not state Step 6 is skipped on GATE_PENDING |
+| #the-aitask-data-updated-directory | file table | pickweb#completion-and-merging | moved (when each file is written; rendered SKILL.md:201-222,307-343) |
+| same | marker JSON | pickweb#completion-and-merging | corrected: + implemented_with, profile, profile_filename (j2:322-336; rendered:317-332); example now a child task |
+| same | git rm -rf exclusion, plan copy | web-merge #merge-strategy/#plan-file-handling | already-stated |
+| #execution-profile | "remote, else first alphabetically" | pickweb#execution-profiles; claude-web#the-execution-profile | corrected |
+| same | remote.yaml shared with pickrem; extra fields ignored | pickweb#execution-profiles | already-stated (+ description ignored) |
+| same | key table | pickweb#execution-profiles | corrected: post_plan_action has no effect |
+| #troubleshooting | branch not detected; conflicts prompt/abort; locked by someone else | claude-web#if-something-goes-wrong | moved (conflict prompt SKILL.md:72-79) |
+| same | "Web workflow requires an execution profile" | pickweb#execution-profiles | corrected: unreachable |
+| same | "ait setup creates one automatically" | pickweb#execution-profiles | corrected: the installer does it |
+| same | minimal remote.yaml content | — | dropped: omits rendered_gates: [] so web-merge would materialize a wider gate set (aitask_gate.sh:1095-1096; seed/profiles/remote.yaml:4); committed remote variant doesn't read remote.yaml on Web; replaced by "restore the shipped file, then Retry" |
+| #see-also | 4 links | See also | moved (relref; ait lock link added) |
+| (code) materialize-gates.md:11-37, aitask_web_merge.sh:99-216 | gates step, WEBMAT_* outcomes, reasons, Retry/Abort, manual repair, never self-record | web-merge step 5, #the-enforced-gates-step-fails | moved (new) |
+| (code) SKILL.md:157-162, aitask_archive.sh:1117-1127 | GATE_PENDING backstop, ait gate pass / ait gates run, re-run, never self-signal | web-merge #the-archive-script-reports-pending-gates | moved (new) |
+| (code) SKILL.md:24-28,172-184 | re-run re-reads remote marker; same-run push carries a stopped branch's commits | web-merge #re-running-after-a-stop | moved (new) |
+| (code) SKILL.md:57-64,145-149,205-207 | diverged-pull prompt, attribution, satisfaction feedback | web-merge #step-by-step | moved (new) |
+
+
+1. pickweb profile: --profile arg → default_profiles.pickweb (userconfig, then project_config) → default (stub SKILL.md:12-16; aitask_skill_resolve_profile.sh:7-10,68-72); runs aitask-pickweb-<profile>-/SKILL.md, rendering if missing (stub:18-27); only the remote variant is committed (.gitignore:67,83); values fixed at render time (j2:167-173,331-332).
+2. NO_PROFILES message unreachable for pickweb; real failure `skill_render: profile '<name>' not found` (aitask_skill_render.sh:81-86).
+3. remote.yaml installed by the installer (install.sh:617-633,1859-1860; merge_seed:581-591); ait setup copies seed profiles only when creating a data branch from seed/ (aitask_setup.sh:2616-2638).
+4. Only plan_preference changes behaviour (j2:167-173); name → marker profile; post_plan_action no effect (j2:228-230); description never shown.
+5. web-merge reads implemented_with (SKILL.md:30,145-149), validates profile pair (aitask_web_merge.sh:113-194).
+6. Archival conditional: WEBMAT_INVALID/FAIL (materialize-gates.md:24-34), GATE_PENDING (SKILL.md:157-162); push/delete after (Step 6, :172-190).
+7. pickweb pushes nothing (rendered:280-343).
+8. pickweb § Completion list said "Move the plan"/"Clean up the dir": plan copied; dir left out of the merge, goes away with the deleted remote branch.
+9. Stop paths: Abort → merge committed, task unarchived, Step 6 not reached, remote branch stays (materialize-gates.md:33); re-run re-reads marker from origin/<branch> (SKILL.md:24-28); GATE_PENDING → doc says keep remote branch (scan needs it, aitask_web_merge.sh:256-262).
+Fix pass (O1, **corrected**): the web-merge skill does not state that Step 6 (push, `git push origin --delete`) is skipped after `GATE_PENDING` (`.claude/skills/aitask-web-merge/SKILL.md:157-190`), so neither page promises it; `skills/aitask-web-merge#the-archive-script-reports-pending-gates` gives the by-hand finish (`ait gate pass` / `ait gates run`, `aitask_archive.sh <id>`, `./ait git push`, `ait issue-update`). pickweb profile row and step list (`--profile`, then `default_profiles.pickweb`, then `default`, chosen before the data-branch init) → **corrected**; pickweb lock check warns on any lock, the reader's own included (`aitask-pickweb-remote-/SKILL.md:117-130`) → **corrected**.
+
+## Step results
+
+- **Step 1 (gate):** helper `scratchpad/gate.sh` (claim / claim-new / check / record, per-file base + last, task-data files through `./ait git`). Every unit's files claimed clean. One slip each by Agent B (an unrecorded fix-up between two writes on TR, seconds apart) and by me (round-2 fixes applied before `check`): in both cases the diff against `last` was confirmed to be only this task's own edits before `record`. Final commit-gate `check`: 15/15 OK; git status vs tracker: nothing to investigate.
+- **Step 2 (restructure):** all units landed (see ledger). Lines: multi_project 216 → ~150, cross_project_dependencies 236 → ~140, claude-web 163 → ~60. New page `commands/projects.md` (`advanced`, weight 39, title "Projects" to match the other `commands/` pages).
+- **Step 3 (guide):** two paragraphs added to "How a subject spans levels": an `ait` command's contract goes on its own `commands/` page (an `advanced` page, or its Details section when the page is `intermediate`; create one when missing); a reference page links to a how-to for steps, never for its own rules. `test_docs_review_contract.sh` 71/71.
+- **Step 4 (review):** round 1 (independent agent, `--caller audit --budget 0`): level 7 / prose 24 findings over 9 pages, 3 FACT corrections, 5 author decisions. Round 2 after the fix pass: every round-1 item resolved; 8 new minor findings (1 factual), applied by me using the reviewer's wording, then link-checked (no round 3). Final per page: multi_project `level=ok prose=ok reader=not-run(not-beginner)`; cross_project_dependencies `level=ok prose=ok reader=not-run(not-beginner)` with one accepted finding (R-CP1: the `aitask_explain_context.sh` command stays; it needs an `advanced` reference page, owner t2258_7); claude-web, commands/projects, tuis/trails/reference, commands/task-management, skills/aitask-pickweb (now `advanced`), skills/aitask-web-merge `level=ok prose=ok reader=not-run(not-beginner)`; tuis/board/reference no findings. Unresolved: 0 besides R-CP1.
+- **Step 5 (depth):** `grep -L '^depth:'` over the three pages is empty. multi_project, cross_project_dependencies and claude-web are `intermediate` (U-A1, U-B1, U-C1 landed); commands/projects and skills/aitask-pickweb are `advanced`; other destinations unchanged (trails/board reference and web-merge `advanced`, task-management `intermediate`).
+- **Step 6 (links):** `check_links.py --build` SWEEP PASSED (after every pass); `check_link_relevance.py` reports one link, `workflows/risk-evaluation.md:38` → `tuis/board/reference#task-metadata-fields`, neither added nor retargeted here (outside this child); no link this child added or retargeted is reported. `test_website_doc_lists.sh` 63/63, `test_docs_vocabulary_coverage.sh` 32/32, `check_screenshots.py` PASSED. Inbound anchors: all kept or retargeted in the same unit (`commands/_index:54` → `commands/projects`, `task-notes:46` → `#creating-a-task-in-a-linked-project`; re-greps before removal found no other link).
+- **Post-phase (moved_fact_survival_check):** run 1 (one independent agent per file set, removed blocks of sources **and** destinations, guide via `./ait git`): A 115 claims (99 preserved, 0 weakened, 3 example-only missing, 11 listed / 2 unlisted-correct changes); B 165 claims (153 preserved, 0 weakened, 1 minor missing rationale, 9 listed / 2 unlisted-correct); C 110 claims (79 preserved, 7 weakened, 0 missing, 24 listed); D (index + guide) all preserved. Fix pass restored the 7 weakened claims and the missing rationale. Run 2 (fix-pass cuts + 11 newly removed base blocks): 45 claims, 34 preserved, 10 deliberate corrections, 1 weakened (claude-web no longer said the plan is archived; fixed), 0 missing; all 7 run-1 weakened claims confirmed restored.
 
 ## Verification
 
@@ -749,3 +871,92 @@ good as the per-fact code checks.
 
 ### Planned mitigations
 - timing: post-phase | name: moved_fact_survival_check | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: low | addresses: code-health restructure fact loss (sources and destination consolidations); goal-achievement stale moved facts | desc: claim-level comparison of every removed block (sources and edited destinations) with the current file set by an independent sub-agent, before commit
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-26)
+- **Requested by user:** six fact-check concerns on the reworked pages (treat as fact checks, not verbatim fixes):
+  1. claude-web / web-merge promised that a re-run finishes archival after a stop, though the branch may already be deleted after `GATE_PENDING` and a re-run's Step 3d commit fails after an `Already up to date` merge (user fixture: exit 1).
+  2. cross_project_dependencies / task-management described registry membership as mandatory and said update refuses `--xdeps` without a new `--xdeprepo`; validation uses the resolver (tmux / registry / env) and update validates against the stored `xdeprepo` (user fixture).
+  3. commands/projects: "every error prints `Error:` and exits 1" ignored `exec`'s passthrough status (fixture: exit 7); the resolution table paired `RESOLVED` with `LIVE`/`OK` though env-only names have no registry row.
+  4. skills/aitask-pickweb: "plan approval is always interactive" — with an existing plan and `use_current` the remote variant goes straight to implementation (`aitask-pickweb-remote-/SKILL.md` Step 5 → unconditional checkpoint).
+  5. Docs-review coverage: not every edited page was reviewed, and round-2 fixes were only link-checked.
+  6. relref anchors placed inside the shortcode on added lines, against `aidocs/framework/documentation_conventions.md:69-72`.
+- **Verified:** all six confirmed in code (`.claude/skills/aitask-web-merge/SKILL.md` Step 3d unconditional `git commit`, L157-190; `lib/task_utils.sh` `validate_xdeps_pair` uses `aitask_project_resolve.sh`; `aitask_update.sh` ~L2110-2131 builds the pair from stored values; `aitask_projects.sh` `classify_registry_entry` L274-288 classifies registry entries only; `aitask-pickweb-remote-/SKILL.md` L155-226). Also found: Retry re-uses the marker read at the start of the run (`materialize-gates.md`), so a marker fix does not reach Retry.
+- **Changes made:**
+  1. claude-web: the stop bullets and closing paragraph now send the reader to the manual finish (web-merge reference) for both stops; a re-run is stated as not dependable, with why. web-merge: Abort-this-branch repair no longer offers "re-run later" as equal; the pending-gates manual finish works whether or not the branch exists (archive, push `main` and task data, delete the branch if still there, issue update); "Re-running after a stop" states the conditional rediscovery and the Step 3 commit failure; Retry vs marker fix corrected.
+  2. "registered" → "resolves" (tmux, registry or `AITASKS_PROJECT_<name>`) on cross_project_dependencies and task-management; `ait update` accepts `--xdeps` alone when the task has an `xdeprepo`.
+  3. projects: error claim scoped to `ait projects`' own refusals; `list` status described separately from `resolve` output, and env/tmux-only names are not listed.
+  4. pickweb intro, key-differences row, step 6, plan-file row, `post_plan_action` row and claude-web step 2: approval only when a plan is written or re-checked.
+  5. Final review of all 13 edited/created site pages (see the final review result below).
+  6. 20 relref fragments on added lines moved outside the shortcode.
+- **Files affected:** workflows/claude-web.md, skills/aitask-web-merge.md, workflows/cross_project_dependencies.md, commands/task-management.md, commands/projects.md, skills/aitask-pickweb.md, tuis/trails/reference.md, workflows/multi_project.md.
+- **Final review (all 13 edited/created site pages, independent agent, `--caller audit --budget 0`):** items 1–4 confirmed against the code; no relref fragment left inside the shortcode on a changed line. Findings applied: claude-web lock sentence (no false "so"), "skill variant" defined, gates bullet and closing paragraph reworded; multi_project "registered" → "linked"/"resolves", "Two constraints apply:" run-up cut; cross_project_dependencies intro "names must resolve first"; task-management `ait ls --project` resolution wording (same three-source resolver, `lib/cross_repo_reexec.sh`); pickweb Profile row de-duplicated and intro link → relref; web-merge Abort repair now writes `implemented_with` and handles `ISSUE:` lines, Retry/marker claim narrowed, three "the skill text says" sentences rewritten as behaviour, `<marker_json>` placeholder unified. Final per page: all 13 `level=ok prose=ok reader=not-run(not-beginner)` after these fixes (the two `_index` pages are link-list indexes without `depth`, allowed by the guide). `check_links.py --build` PASSED, vocabulary 32/32, doc lists 63/63.
+- **Upstream (from this round):** `.claude/skills/aitask-web-merge/materialize-gates.md:33` — the Abort-this-branch manual repair skips the `implemented_with` write and the issue update, and offers "re-run (no-op merge)" although Step 3d's commit fails after an `Already up to date` merge.
+
+### Change Request 2 (2026-11-27)
+- **Requested by user:** two fact-check concerns (not verbatim edits; level and language rules stay in force):
+  1. web-merge recovery said every declared gate must pass; the guard reads the enforced active set and accepts `pass` and `skip`.
+  2. task-management (intermediate) carried literal `Blocked (by …)` / `UNREACHABLE` status text and the blocker order, and cross_project_dependencies (intermediate) showed the literal CLI status line; the guide reserves status lines and vocabularies for `advanced`.
+- **Verified:** `lib/gate_ledger.py` `archive_status_from_text` reads the ENFORCED active set ("a profile-filtered gate can never block archival"), `SATISFIED_STATUSES = {pass, skip}` (L99, `_gate_satisfied` L1340-1346), and `archive_status` adds code-stale `ait gate pass` signatures to the blocked list (`stale_signed_gates`, L1878-1903); `tests/test_gate_orchestrator_registry.py` asserts skip satisfies. `aitask_ls.sh` L618-672: local blockers first, then the first unmet cross-repo dep, joined by `,` with no space; `(UNREACHABLE)` when the status read is empty or `NOT_FOUND`.
+- **Changes made:** web-merge pending-gates paragraph states the exact rule (enforced set, latest `pass`/`skip`, stale signatures block, filtered gates never block); pickweb "an enforced gate that is not yet satisfied"; claude-web "gates that the task's profile enforces are still pending". cross_project_dependencies step 2 and task-management "Cross-repo dependencies in the listing" describe the blocker in words; the literal format, order, separator and `(UNREACHABLE)` cases moved to a closing `## Details` section of `commands/task-management.md` (the guide's one-level-up section; `ait ls` has no `advanced` page).
+- **Files affected:** skills/aitask-web-merge.md, skills/aitask-pickweb.md, workflows/claude-web.md, workflows/cross_project_dependencies.md, commands/task-management.md.
+- **Review of the Change Request 2 regions (independent agent, `--caller audit --budget 0`):** one factual error fixed (the enforced set is the one the gates step writes, or, after `WEBMAT_SKIP:no-profile`, the task's existing `active_gates` or its `gates:` field when that tuple is missing or stale; `aitask_web_merge.sh` L151-155, `gate_ledger.py` `read_active_tuple_from_text` L692-710); the stale-signature rule worded as the one exception; "pending" used throughout; claude-web says who runs machine gates; cross_project_dependencies names "the first linked task it still waits on"; task-management Details gains `<id> (UNRESOLVED)` and the `[unverified]` scan-failure form (`aitask_ls.sh` L626-640, L815-819; `dep_resolution.py` L129-144). No leftover CLI status text on the intermediate pages. Links PASSED, vocabulary 32/32.
+
+### Change Request 3 (2026-11-27)
+- **Requested by user:** two fact checks: (1) web-merge's `WEBMAT_SKIP:no-profile` row said the task's `gates:` field governs, contradicting the archival rule (the skip leaves the gate set unchanged; a valid existing `active_gates` still applies — user fixture: legacy marker + declared gate + valid empty active set → `WEBMAT_SKIP:no-profile`, `NO_GATES`); (2) task-management Details promised a stderr warning whenever the scan cannot run, but a missing/non-executable `aitask_gate.sh` sets the failed state without warning (user fixture).
+- **Verified:** `aitask_web_merge.sh` L151-155 (returns without writing); `aitask_ls.sh` `build_dep_blocking_map` L337-357 (`[[ -x "$gate_script" ]] || { dep_scan_state="failed"; return 0; }` precedes the warn branch, which fires only on non-zero exit or a missing `SCAN_OK` final line).
+- **Changes made:** the `WEBMAT_SKIP` row says the gate set is left unchanged and archival uses the existing enforced set (linked to the archival rule); the Details paragraph scopes the warning to a scanner that ran and failed or returned incomplete output, and says no warning is printed when the script is missing or not executable.
+- **Files affected:** skills/aitask-web-merge.md, commands/task-management.md.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - **Inventory and verdicts** for the three pages (measured at 46b34ee2f).
+  - **Three restructures into how-tos**, all retagged `advanced` → `intermediate` because the units that removed their `advanced` detail landed:
+    - `workflows/multi_project.md`: the `ait projects` contract (verbs, identity fields, registry file, groups, name resolution, `resolve` output, `list` status) moved to a **new `commands/projects.md`** (`advanced`); `commands/_index.md:54` retargeted to it; `#creating-a-task-in-a-sibling-project` renamed to `#creating-a-task-in-a-linked-project` with `task-notes.md:46` retargeted.
+    - `workflows/cross_project_dependencies.md`: trail entry states, link rules, search and jump moved to new `tuis/trails/reference.md` sections (`#cross-repo-entries`, `#linked-trails-and-the-jump`), whose links now point at their own sections (ownership was inverted); board `↗`/`#` facts to `tuis/board/reference.md`; `--project`/`--xdeps`/`--xdeprepo` rules to `commands/task-management.md` (new subsections plus a closing `## Details` section holding the exact `ait ls` blocked-status format).
+    - `workflows/claude-web.md`: one 3-stage procedure; the marker schema and profile rules moved to `skills/aitask-pickweb.md` (retagged `advanced`); a new `skills/aitask-web-merge.md#when-archival-stops` documents the gates step, the pending-gates guard, Retry/Abort, the manual finish and why a re-run is not dependable.
+  - **Contributor detail** (registry write path, lock, awk single-name lookup) added to `aidocs/framework/cross_repo_references.md`, whose stale "gitignored" and "reserved for future auto-clone" lines were corrected.
+  - **Guide lesson** (task-data branch): an `ait` command's contract goes on its own `commands/` page (advanced, or its Details section when intermediate); a reference page links to a how-to for steps, never for its own rules.
+  - **Checks:** review rounds 1, 2, a final all-pages round and a Change-Request-2 regions round; survival runs 1 and 2 (sources and destinations, guide via `./ait git`) ending at 0 missing / 0 weakened; links PASSED, doc lists 63/63, vocabulary 32/32, docs-review contract 71/71, screenshots PASSED.
+- **Deviations from plan:**
+  - Agent B retargeted `tuis/trails/how-to.md` L34/L82 to the trails reference (the plan kept how-to links on the workflow anchors): their link text promises "every state" / "every line the dialog can show", which only the reference lists now.
+  - `commands/projects.md` is titled "Projects" with an `## ait projects` heading, matching the other `commands/` pages, not "`ait projects`".
+  - `skills/aitask-pickweb.md` was retagged `advanced` (review R-PW1) and three untouched lines on it (profile row, step 2, suggested workflow) were corrected because they contradicted the corrected profile rule on the same page.
+  - The `ait ls` blocked-status format went to a `## Details` section of the intermediate `commands/task-management.md` (Change Request 2), since `ait ls` has no `advanced` page.
+  - Three user change requests (fact checks) after the first review prompt; see Post-Review Changes.
+- **Issues encountered:**
+  - Subagents could not write report files; their hand-backs were saved to the scratchpad by the orchestrator.
+  - Two gate-discipline slips (Agent B: an unrecorded fix-up write; me: round-2 and relref edits applied before `check`); each was resolved by diffing against `last` and confirming only this task's own edits before `record`. Final commit gate 15/15 OK, no foreign change.
+  - Several facts were wrong in the old pages and some in the first rewrite (all corrected from code): `ait ls`/`/aitask-pick` do not skip cross-repo-blocked tasks; names must resolve (tmux / registry / env), not be registered; the pickweb profile rule; plan approval is skipped with an existing plan under `use_current`; web-merge archival is conditional and a re-run after a stop is not a dependable finish; the archive guard reads the enforced set and accepts `pass`/`skip`.
+- **Key decisions:**
+  - All three workflow pages are `intermediate`, matching `concepts/cross-repo-references`; status lines, outcome tables and internal paths live on `advanced` reference pages or in a Details section.
+  - R-CP1 accepted: the single `aitask_explain_context.sh --max-plans N --project <name>:<path>` command stays on cross_project_dependencies (it was there before); it needs an `advanced` reference page (owner: t2258_7).
+  - The web-merge pages document the manual finish as the dependable recovery, because the skill neither skips Step 6 after `GATE_PENDING` nor skips Step 3d's commit after an `Already up to date` re-merge.
+- **Upstream defects identified:**
+  - `.claude/skills/aitask-web-merge/SKILL.md:157-190` — the `GATE_PENDING` backstop does not say to skip Step 6, so the run can push and `git push origin --delete` the branch the prescribed re-run needs.
+  - `.claude/skills/aitask-web-merge/SKILL.md:87-101` — on a re-run after a stop the merge is `Already up to date` and the unconditional Step 3d `git commit` fails; no skip rule (confirmed by the user's fixture, exit 1).
+  - `.claude/skills/aitask-web-merge/materialize-gates.md:33` — the Abort-this-branch repair text offers "re-run (no-op merge)" and omits the `implemented_with` write and the linked-issue update.
+  - `.aitask-scripts/aitask_archive.sh:106-108` — exit 2 also covers VERIFICATION_PENDING / VERIFICATION_DEFERRED, but web-merge handles only `GATE_PENDING`.
+  - `.claude/skills/aitask-pickweb/SKILL.md:12-16` — the profile is resolved before the data-branch init, so on a fresh Claude Code Web clone of a data-branch repo `default_profiles.pickweb` is invisible and `default` (not committed, cannot render there) is chosen; pickweb fails without `--profile remote`.
+  - `.claude/skills/aitask-pickweb/SKILL.md.j2:376-385` — the Profile Schema says `name`/`description` are "shown during profile load" and `post_plan_action` is used at the checkpoint; neither is true.
+  - `.claude/skills/aitask-pickweb-remote-/SKILL.md:134-147` — Done / orphaned-parent tasks are told to use aitask-web-merge locally, which only handles marker-bearing remote branches.
+  - `.claude/skills/task-workflow/execution-profile-selection-auto.md:4-5` — claims pickweb's Step 1 references it; pickweb has no such step.
+  - `.aitask-scripts/aitask_update.sh:311-324` — help says only administrative fields are allowed cross-repo, but `main()` (L2470-2524) enforces only the refusals, so any other flag is applied in the other project.
+  - `.aitask-scripts/lib/task_utils.sh:3017-3019` — `validate_xdeps_pair` says "is not registered" for any `NOT_FOUND`, though resolution also covers tmux and the env tier.
+  - `.aitask-scripts/aitask_create.sh:133-135` — help says `--xdeps`/`--xdeprepo` are "required together"; `--xdeprepo` alone is accepted.
+  - `.aitask-scripts/aitask_ls.sh:68-71` — help says `--project` must come first; `lib/cross_repo_reexec.sh:35-56` accepts it anywhere.
+  - `.aitask-scripts/aitask_explain_context.sh:312-314` — without `--max-plans` it exits 0 silently although its help calls the flag required.
+  - `.aitask-scripts/aitask_projects.sh:222-237` — with no Python, `list` blames the registry file ("Cannot read the project registry … Fix or remove it").
+  - `.aitask-scripts/aitask_project_resolve.sh:89` — `--help` still says NOT_FOUND means "No registered project matched".
+  - `seed/project_config.yaml:444` — says the profile fallback is "interactive selection / auto-select"; the resolver falls back to `default`.
+- **Notes for sibling tasks:**
+  - **Method:** three restructure agents on disjoint file sets with one brief, a per-file snapshot gate (`claim` / `claim-new` / `check` / `record`, task-data files via `./ait git`), one independent review agent plus one survival agent per file set (removed blocks of sources AND destinations), one fix agent, then round 2. Re-create `scratchpad/gate.sh` and `scratchpad/removed_blocks.py` from the plan's Step 1 and post-phase descriptions.
+  - **Expect fact errors in "how the skill recovers" claims.** Read the skill's stop paths, and test re-run paths (a no-op re-merge fails at commit). Do not document recovery the skill text does not guarantee.
+  - **Check "registered" vs "resolves"** wherever a page talks about cross-repo names: every consumer uses `aitask_project_resolve.sh` (tmux, registry, env).
+  - **Status lines on intermediate pages:** describe in words; put the literal format on an `advanced` page or in a closing Details section.
+  - **Leftovers by owner:**
+    - **t2258_5:** the new `tuis/trails/reference` sections and `tuis/board/reference` additions; unchecked whether `#` works in `ait trails` (no `#` row in its key table).
+    - **t2258_6:** the new `commands/projects.md`; `commands/note.md` L22/L56/L59 still say "sibling project" and use `mobile`; `skills/aitask-pickrem.md:39,55` and `commands/lock.md:150` keep the old pickweb/pickrem profile wording; `skills/aitask-pickweb.md` "Suggested Workflow" repeats the claude-web diagram and its intro keeps bold emphasis and relative links; the `ait update` option table has no `--xdeps`/`--xdeprepo` rows.
+    - **t2258_7:** `aitask_explain_context.sh --project` needs an `advanced` reference page (R-CP1); `concepts/cross-repo-references` See also could link `commands/projects`; `commands/_index.md` still uses relative links elsewhere.
+- **Ledger outcomes:** ledger empty (every unit landed on the first pass).
