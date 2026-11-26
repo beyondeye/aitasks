@@ -80,6 +80,16 @@ Round 6 (2026-11-26):
 | Next task eligibility: any readable non-terminal task with clear dependencies was NEXT, including `Postponed` and `Implementing`, while t2335_4's `>p` reads NEXT as pick advice | **NEXT is pick eligibility**: clear of every trail-known blocker **and** status `Ready`. A clear `Implementing` task is `in_progress`, any other clear non-terminal status is `on_hold` (status named); both have their own CLI lines (`IN_PROGRESS:` / `ON_HOLD:`) and card notes, and the consumer rule is written into the advice contract. Pinned: `Ready` / `Postponed` / `Implementing` with zero blockers, in the pure tests, the CLI and on cards |
 | Cached remote advice: subtracting cached keys from the pending set let a cached `Done` yield a plain `next` while its re-read was in flight | The pending set is passed whole. A key with a previous result that is in flight is **rechecking**: the previous evidence stays visible and decides blocked / clear, but every `next` that relies on it is qualified `next? (rechecking cross-repo)` and the banner counts the rechecked keys. Test: a delayed probe that turns a cached `Done` into `Implementing` (and into unreachable) |
 
+t2367 review (2026-11-26), the "before" risk mitigation — verdicts per point in
+"Critical-path rule review" below:
+
+| Concern | Resolution |
+|---|---|
+| A Done prerequisite found only in an archive bundle: `ait ls` blocks its dependent, the trail cards show it landed | User decision: it stays `done` (reason `bundle`) and clears wave-hard and saved fallback edges; a **live** depends edge from it blocks the dependent as `unresolved:bundled` (no NEXT, no pick), and the dependent's card names it |
+| A highlighted task that is not a trail member had no readiness rule | Own state first (`done` / `unresolved` not expanded); live depends on members decided as ordinary edges; no readiness, never NEXT; `NOT_IN_TRAIL:` carries its state |
+| Nothing tied a blocked node to what blocks it directly | `CriticalPath.blocked_by` and the `BLOCKED_BY:` line, for every blocked highlighted or path node |
+| Consumer contract gaps: no NEXT with only outside / cross-repo blockers; the trail's freshness versus the direction's | Four consumer rules added to the advice contract |
+
 ## Semantics (traced from `implementation_trail.schema.json`, `trail_schema.py`, `aidocs/implementation_trail_design.md`, `website/content/docs/workflows/implementation-trails.md`, the board reference's classification table, `lib/dep_resolution.py`, `lib/cross_repo_deps.py`)
 
 **Edges** (`from` must land before `to`):
@@ -89,14 +99,24 @@ Round 6 (2026-11-26):
   - otherwise (X unresolved, or a foreign member): the saved evidence — `relations[type=hard_depends]`
     with `to == X` and X's entry `snapshot.depends`;
   - saved edges into a node with readable live depends that the live list lacks are reported as
-    **superseded** (historical evidence, not blockers).
+    **superseded** (historical evidence, not blockers);
+  - **live edge, bundle-only predecessor**: an edge taken from X's **live** `depends:` whose
+    predecessor is `done` only through a numbered bundle (`reason=bundle`) is **not satisfied**. It
+    blocks X as `unresolved:bundled`. That is the picker's verdict for the same edge
+    (`dep_resolution` never reads bundles, so `ait ls` shows X blocked), and NEXT is pick
+    eligibility. The predecessor itself stays `done`: its card keeps `✔`, it is listed `LANDED` with
+    `bundle`, it is not a path node and is not expanded;
+  - **saved fallback edge, bundle-only predecessor**: an edge taken from the saved evidence
+    (`hard_depends` / `snapshot.depends`, used when X is unresolved or foreign) is **satisfied** by a
+    bundle-only `done` predecessor, like any verified Done. No picker reads that edge, so there is
+    no picker verdict to mirror.
 - **Cross-repo (strong, readiness)**: each `xdeprepo`/`xdeps` pair of a local node with a readable
   file (`cross_repo_deps.xdep_ref_pairs`). Satisfied only when a completed probe says `Done`
   (`classify_xdep_status`); a completed probe with any other status or `NOT_FOUND` / unreachable
   blocks; a ref not probed yet (or still being probed) is **unresolved** and blocks. Cross-repo
   prerequisites are reported, never followed.
 - **Wave-hard (strong)**: an entry classified `hard_prerequisite` in a wave with a lower ordinal than
-  X's earliest wave.
+  X's earliest wave. A bundle-only `done` entry satisfies it (verified Done clears wave order).
 - **Weak (advisory)**: `relations[type=advisory_precedes]`; **wave-soft** — earlier-wave entries
   classified `preferred_predecessor` or `core`.
 - **None**: earlier-wave `coordination_only` and `optional` entries; same-wave peers; `coordinates_with`,
@@ -105,22 +125,46 @@ Round 6 (2026-11-26):
 
 **States** (never from the trail snapshot):
 
-| State | Meaning | Depends edge from it | Wave-hard edge from it | NEXT-eligible |
-|---|---|---|---|---|
-| `done` | verified landed: status Done (active, loose archive, or bundle after confirmed absence everywhere above); a foreign task whose probe says `Done` | satisfied | satisfied | no |
-| `released` | local, active, not Done, required gates pass (the t635_3 rule `ait ls` uses) | satisfied | **blocks** | no |
-| `open` | local readable file, non-terminal status (carried verbatim in `TaskState.status`), readable `depends:`; a foreign task whose probe returned another status | blocks | blocks | local only, with status `Ready`, when all its strong edges are satisfied |
-| `unresolved:<reason>` | missing, unreadable, stat/listing failed, bundle copy not Done, folded, malformed `depends:`, bad dep token, foreign unreachable / `NOT_FOUND`, not probed or resolved yet | blocks | blocks | no |
+| State | Meaning | Live depends edge from it | Saved (fallback) depends edge from it | Wave-hard edge from it | NEXT-eligible |
+|---|---|---|---|---|---|
+| `done` | verified landed: status Done (active, loose archive, or bundle after confirmed absence everywhere above); a foreign task whose probe says `Done` | satisfied; a **bundle-only** copy blocks the dependent (`unresolved:bundled`) | satisfied | satisfied | no |
+| `released` | local, active, not Done, required gates pass (the t635_3 rule `ait ls` uses) | satisfied | satisfied | **blocks** | no |
+| `open` | local readable file, non-terminal status (carried verbatim in `TaskState.status`), readable `depends:`; a foreign task whose probe returned another status | blocks | blocks | blocks | local only, with status `Ready`, when all its strong edges are satisfied |
+| `unresolved:<reason>` | missing, unreadable, stat/listing failed, bundle copy not Done, folded, malformed `depends:`, bad dep token, foreign unreachable / `NOT_FOUND`, not probed or resolved yet | blocks | blocks | blocks | no |
 
 **Sets**, for highlight set H. Traverse backwards from H over strong depends + wave-hard edges; an
 edge whose predecessor satisfies it is not traversed and the predecessor is recorded — `done` in
 **landed**, `released` in **released**. A predecessor reached by at least one unsatisfied edge is on
-the **path** (`via`: `depends` when reachable from H by depends edges only, else `wave`).
+the **path** (`via`: `depends` when reachable from H by depends edges only, else `wave`). A live edge
+blocked as `unresolved:bundled` is an unsatisfied edge of its dependent and a **direct blocker** of
+it, but its predecessor is not traversed and not put on the path: it is `done`, and is recorded in
+**landed**.
 
 - **advisory** = backward closure from H ∪ path over strong + weak edges, minus H ∪ path ∪ landed.
 - A local prerequisite with no trail entry → **outside**; a cross-repo prerequisite → **cross_repo**.
   Both block unless satisfied, have no card, and are **not followed** (both surfaces say so).
-- A highlighted id that is not a member → **not_in_trail**, never dropped. Empty H → empty result.
+- A highlighted id that is not a member → **not_in_trail**, never dropped, and recorded with its own
+  resolved state. **Its own state decides first whether it is expanded** — the rule a highlighted
+  member follows, total over the four states:
+  - `done` (loose or bundle-only) → **not expanded**: a completed task waits on nothing, even though
+    its file still lists `depends:`. No path node, no direct blocker and no NEXT come from it;
+  - `unresolved` (missing, unreadable, folded, malformed `depends:`) → not expanded: its live depends
+    are unavailable, and no saved edges exist for a non-member;
+  - `open` or `released` → expanded as below (a released highlighted member is expanded too).
+
+  When expanded, its live `depends:` entries that are trail members are **ordinary live depends
+  edges** into it, decided by the same rules as any other, **before** anything is traversed:
+  - predecessor `done` → satisfied, recorded in **landed**, not traversed;
+  - predecessor `released` → satisfied, recorded in **released**, not traversed;
+  - predecessor `done` only through a bundle → unsatisfied as `unresolved:bundled`: a direct blocker
+    of the non-member, recorded in **landed**, not put on the path, not expanded;
+  - otherwise (`open` / `unresolved`) → unsatisfied: the member goes on the path (`via=depends`) and
+    the traversal continues from it as from any path node.
+
+  The non-member has no wave edges, no readiness, and is never NEXT; its xdeps are not probed and its
+  non-member prerequisites are not reported. The trail knows nothing about its own readiness, which
+  is `ait ls`'s business.
+- Empty H → empty result.
 - **Clear**: a local node of H ∪ path in state `open` whose every direct strong edge — depends,
   wave-hard and cross-repo — is satisfied. Clearance says only that nothing the trail knows blocks it.
 - **Next actionable = pick eligibility**: a clear node whose status is exactly `Ready` — the status
@@ -131,8 +175,9 @@ the **path** (`via`: `depends` when reachable from H by depends edges only, else
   foreign nodes are never NEXT. What NEXT does **not** establish, stated in the CLI docstring and the
   docs: it reads no locks and no gates of the task itself — the pick's own claim does; a `Ready`
   parent with pending children is NEXT (picking it leads to its children).
-- **Readiness** of every highlighted node (H can hold a task in any state) and every path node,
-  exactly one of — the function is total over (state, edges), asserted:
+- **Readiness** of every highlighted **member** (H can hold a task in any state) and every path node
+  — a not_in_trail highlight has none — exactly one of; the function is total over (state, edges),
+  asserted:
   - `landed` — state `done` (highlighted nodes only; a `done` node is never on the path). It has no
     blockers, is not expanded, and is not NEXT;
   - `released` — its required gates have passed: **cleared for its dependents, awaiting landing**
@@ -149,8 +194,17 @@ the **path** (`via`: `depends` when reachable from H by depends edges only, else
   Precedence when several could apply: `landed` > `released` > `unresolved` > `blocked` > `unverified`
   > `in_progress` > `on_hold` > `next`. `blocked` with zero blockers cannot occur (asserted in the
   function and in tests).
-- **Blockers** of a highlighted task: its transitive strong predecessors reached by unsatisfied edges,
+- **Blockers** of a highlighted **member** (a not_in_trail highlight has none; its evidence is the
+  direct blockers below): its transitive strong predecessors reached by unsatisfied edges,
   plus the unsatisfied cross-repo prerequisites of itself and of those predecessors.
+- **Direct blockers** (`CriticalPath.blocked_by`, one `(node, blocker, via, state, reason)` edge
+  each): for every node of (highlighted members ∪ path) with readiness `blocked`, the predecessors of
+  its own unsatisfied strong depends and wave-hard edges (its unsatisfied cross-repo prerequisites
+  stay in **cross_repo**, keyed by the same node); and for every expanded not_in_trail highlight, the
+  predecessors of its unsatisfied live depends edges to members — a partial list by construction
+  (members only), said so on both surfaces. A bundled edge carries state `unresolved`, reason
+  `bundled`. `blocked` ⇒ at least one direct blocker or one blocked cross-repo prerequisite
+  (asserted).
 - Cycles are safe (visited sets). Order is deterministic: (earliest wave, ref).
 
 ### Advice contract (freshness and lifecycle)
@@ -176,9 +230,98 @@ everything the trail knows **and** status `Ready`. `IN_PROGRESS` and `ON_HOLD` a
 pick advice; `>p` may say "the direction's next step, t12, is already in progress" from `IN_PROGRESS`,
 and must not offer an `ON_HOLD` task as a pick.
 
+Four more consumer rules (added by the t2367 review):
+
+- **No NEXT, outside / cross-repo blockers only**: report what the direction waits on (the `OUTSIDE:`
+  / `XDEP:` refs) and never say "nothing to do". An `OUTSIDE` ref is never pick advice, because its
+  own prerequisites were not checked. Name it as "waiting on tN (outside the trail; check `ait ls`)".
+- **Bundled prerequisite**: a candidate blocked by `unresolved:bundled` is not offered as a pick. Say
+  that its prerequisite is Done but archived in a bundle, so `ait ls` shows it blocked too.
+- **Two freshness verdicts, two sources**: `FRESHNESS` on this verb is the **trail's** drift verdict
+  at this call. A **direction's** freshness (current / stale / unknown) is the sitrep refresh's
+  comparison of the direction's inputs now with its saved baseline; the trail's hash and drift
+  verdict are one input line of it. The words are the same and the verdicts are independent: a
+  direction summarized over an already-stale trail reads `current` while its inputs still match, and
+  an unreadable input makes it `unknown` whatever the trail's verdict. Report each verdict by name
+  from its own source (`FRESHNESS:` here, the `directions` record there). Never derive one from the
+  other.
+- **`NOT_IN_TRAIL`**: no readiness from this verb. Do not infer one. The line carries the task's own
+  state: a `done` one needs no work and nothing is reported for it. For an `open` or `released` one,
+  its `BLOCKED_BY:` lines name the trail members it waits on, and only those: its prerequisites
+  outside the trail and its cross-repo prerequisites were not examined. No `BLOCKED_BY:` line does
+  not mean it is ready.
+
 In the TUI, advice exists only while its inputs are the ones it was computed from: any refresh or
 replacement of the task states, the document or the highlight drops it until the states worker for
 the new inputs lands (see §7).
+
+## Critical-path rule review
+
+Review by t2367 (2026-11-26), before implementation: each point of the rule and the advice contract
+checked against the sources named in the Semantics heading and against how t2335_4's `>d` / `>q` /
+`>p` codes will quote the result. The corrections are already applied to the sections above and
+below; this section is the record.
+
+1. **Wave edges by classification — confirmed.** The workflow page says "Only a hard prerequisite is
+   a reason to wait: a coordination-only entry only has to land at a different time". The board
+   reference's table agrees (`◆` "a true blocker", `▲` "not strictly blocking", `●` core, `⇄` "no
+   dependency", `○` "the trail does not depend on it"). `trail_schema.py` has no rule that a task
+   appears in one entry only, so "earliest ordinal" is needed.
+2. **Live `depends:` authoritative, saved edges as fallback, dropped saved edges superseded —
+   confirmed.** The schema calls `snapshot` a "point-in-time copy … the task file remains the source
+   of truth" and says `provenance: fact` relations "mirror real recorded constraints";
+   `trail_schema.py` checks `hard_depends` against `snapshot.depends`.
+3. **`released` satisfies dependency edges and not wave-hard edges — confirmed.**
+   `dep_resolution.classify_facts` returns SATISFIED for a gate-released task (t635_3), and
+   `gate_ledger.dependents_status` says "dependents may proceed". A hard prerequisite blocks "until
+   this lands", and the trail's landed is status Done (`board_trail_view.build_trail_lanes`).
+4. **Cross-repo prerequisites block under the existing rule — confirmed.**
+   `cross_repo_deps.classify_xdep_status`: only `Done` unblocks, an empty status or `NOT_FOUND` is
+   unreachable. `aitask_ls.sh` applies the same rule.
+5. **NEXT as pick eligibility and the readiness value set — corrected.** The value set and the
+   meaning of NEXT are confirmed for trail members. Two gaps:
+   - A highlighted id that is not a trail member had no defined readiness and no stated traversal.
+     Change: the `not_in_trail` bullet in "Semantics → Sets" now gives a total own-state rule (`done`
+     and `unresolved` are not expanded; `open` and `released` are), treats the non-member's live
+     depends on members as ordinary live depends edges, and gives it no readiness and no NEXT. The
+     Readiness bullet says "every highlighted **member**". The protocol line becomes
+     `NOT_IN_TRAIL:<ref>|<state>|<reason or ->`, and `CriticalPath.not_in_trail` holds
+     `(ref, state, reason)`.
+   - `BLOCKER:` lines are transitive and keyed to a highlighted member, so nothing said which node a
+     blocker blocks. Change: a "Direct blockers" bullet in "Semantics → Sets", the field
+     `CriticalPath.blocked_by` in §3 and the protocol line `BLOCKED_BY:` in §4, for every `blocked`
+     highlighted or path node and for an expanded non-member highlight's unsatisfied edges to
+     members.
+6. **Outside prerequisites reported and not followed — rule confirmed, consumer contract
+   corrected.** Change: the rule "No NEXT, outside / cross-repo blockers only" in the advice contract
+   (report what the direction waits on; an `OUTSIDE` ref is never pick advice).
+7. **Only a verified Done clears — corrected, by the user's decision.** The sources disagree on a
+   Done task that exists only in a numbered archive bundle. `dep_resolution.py` never reads bundles
+   ("a surface that resolved more than the others would break the parity"), so `ait ls` shows a
+   dependent whose live `depends:` names it as `Blocked (… (UNRESOLVED))`; the trail cards read
+   bundles and show it `✔`. Asked, the user answered: "Keep verified bundled tasks landed with
+   reason=bundle. If a candidate's live depends: includes a prerequisite found only in a bundle, show
+   the picker's unresolved:bundled blocker on the candidate and withhold NEXT and >p pick advice. For
+   wave-order edges, verified Done still clears the edge." Changes: two bullets under "Depends
+   (strong)" (a live edge from a bundle-only predecessor blocks as `unresolved:bundled`; a saved
+   fallback edge is satisfied); one sentence on the Wave-hard bullet; the state table's depends
+   column split into live and saved; one sentence in "Sets" (the bundled predecessor is a direct
+   blocker, recorded in landed, not on the path); the "Bundled prerequisite" rule in the advice
+   contract; the `…|depends|unresolved|bundled` note in §4; the card note in §6 that names the
+   bundled prerequisite.
+8. **The freshness qualifier on every NEXT claim — qualifiers confirmed, consumer contract
+   corrected.** current / stale / unknown and the TUI-only "rechecking cross-repo" are confirmed. The
+   contract did not separate the trail's verdict from a direction's own freshness verdict
+   (`aidocs/framework/sitrep.md`, "The freshness verdict"), which uses the same three words. The
+   direction verdict compares the direction's inputs now with its saved baseline, and the trail's
+   hash and drift verdict are one input line: `trail_stale` is written only when the trail's verdict
+   *became* stale, and an unreadable input gives `unknown`. Change: the rule "Two freshness verdicts,
+   two sources" in the advice contract.
+9. **Direction identity (slug) versus display title — confirmed.** `sitrep_todo.DIRECTION_RE` is
+   `^[a-z0-9][a-z0-9_-]*\Z` with no length bound; `MAX_DIRECTION_TITLE` is 120; `_single_line`
+   refuses CR / LF, strips, and allows `|` in a title, which is why the title travels encoded.
+
+The fixtures that pin the corrections are in "Tests" (marked t2367).
 
 ## Implementation
 
@@ -264,8 +407,11 @@ class CriticalPath:
     highlighted: tuple; path: tuple; advisory: tuple; landed: tuple; released: tuple
     outside: tuple                 # local non-member prerequisites (not followed)
     cross_repo: tuple              # (node ref, xdep key, status | "unchecked", blocked)
-    not_in_trail: tuple; next_actionable: tuple
+    not_in_trail: tuple            # (ref, state, reason) — its own state; no readiness
+    next_actionable: tuple
     unresolved: tuple; superseded: tuple
+    blocked_by: tuple              # direct edges (node ref, blocker ref, via, state, reason);
+                                   # a bundle-only live depends edge: state "unresolved", reason "bundled"
 
 def canonical_ref(ref, local_project="") -> str | None
 def trail_refs(doc, highlight, *, local_project="") -> set        # local refs to resolve
@@ -278,7 +424,9 @@ def critical_path(doc, highlight, *, states, remote, remote_pending=frozenset(),
   each active local member's xdep pairs plus each foreign member ref) — moved into this lib module
   and re-exported from `board_trail_view` so there is one definition — so the CLI and the TUI probe
   exactly the same keys. Outside prerequisites' xdeps are not probed: outside nodes are never NEXT.
-- `states`: local refs → `TaskState`; a local ref missing from it is `unresolved:not_resolved`.
+- `states`: local refs → `TaskState`; a local ref missing from it is `unresolved:not_resolved`. A
+  bundle-only Done task is the one with `state="done"`, `reason="bundle"` (§2); the function reads
+  that to apply the live-edge rule of "Semantics → Edges".
 - `remote`: completed probe results `{"repo#id": status}`; a foreign member's state and every xdep
   verdict come from `cross_repo_deps.classify_xdep_status(key, status)` (only Done unblocks). A key in
   `remote_pending` **without** a completed result is `unresolved:checking`, a key in neither is
@@ -310,11 +458,16 @@ def critical_path(doc, highlight, *, states, remote, remote_pending=frozenset(),
 TRAIL:<trail_id>
 FRESHNESS:<current|stale|unknown>|<drift codes csv or reason or ->
 HIGHLIGHT:<ref>|<waves csv>|<state>|<landed|released|unresolved|blocked|unverified|in_progress|on_hold|next>|<n blockers>|<status or ->|<reason or ->
-NOT_IN_TRAIL:<ref>
+NOT_IN_TRAIL:<ref>|<state>|<reason or ->                (its own state, no readiness; a done or unresolved
+                                                         one is not expanded; else see its BLOCKED_BY lines)
 NEXT:<ref>|<waves csv>|<current|stale|unknown>          (pick-eligible: clear AND status Ready)
 IN_PROGRESS:<ref>|<waves csv>|<status>                  (clear, already Implementing — not a pick)
 ON_HOLD:<ref>|<waves csv>|<status or ->                 (clear, status not Ready — not a pick)
-BLOCKER:<highlighted ref>|<blocker ref>|<waves csv or ->|<via>|<state>|<reason or ->
+BLOCKER:<highlighted ref>|<blocker ref>|<waves csv or ->|<via>|<state>|<reason or ->   (transitive, per highlighted member)
+BLOCKED_BY:<node ref>|<direct blocker ref>|<waves csv or ->|<depends|wave>|<state>|<reason or ->
+                                                        (one per direct unsatisfied depends / wave-hard edge of every
+                                                         blocked HIGHLIGHT or PATH node; for a NOT_IN_TRAIL ref: its
+                                                         unsatisfied live depends edges to trail members only)
 PATH:<ref>|<waves csv>|<via>|<state>|<released|unresolved|blocked|unverified|in_progress|on_hold|next>|<status or ->|<reason or ->
 ADVISORY:<ref>|<waves csv>|<state>|<reason or ->
 LANDED:<ref>|<waves csv or ->|<reason or ->      (a Done PREDECESSOR; a Done highlighted task is HIGHLIGHT:…|done|landed|0|-)
@@ -324,6 +477,26 @@ XDEP:<node ref>|<repo#id>|<status or unchecked>|<blocked|clear>   (not followed)
 SUPERSEDED:<from ref>|<to ref>                   (saved edge, absent from the live depends)
 SUMMARY:highlighted=<n>|path=<n>|advisory=<n>|landed=<n>|released=<n>|not_in_trail=<n>|outside=<n>|xdep_blocked=<n>|unresolved=<n>|next=<n>|in_progress=<n>|on_hold=<n>
 ```
+
+A live depends edge to a prerequisite that is Done only in a bundle carries the edge's verdict
+`…|depends|unresolved|bundled` (the one `ait ls` gives), while the same ref has
+`LANDED:<ref>|…|bundle` (its own state). Where that verdict is printed follows the scope of each line:
+
+- `BLOCKED_BY:` is the direct evidence, keyed to the dependent, and is printed under its own emission
+  conditions only (the "Direct blockers" rule in "Semantics → Sets"): the dependent is a `HIGHLIGHT`
+  member or a `PATH` node whose readiness is `blocked`, or an expanded `NOT_IN_TRAIL` ref. A
+  dependent with any other readiness prints no `BLOCKED_BY:` line for the edge. The case that
+  matters: a gate-`released` member with a bundled live dependency keeps readiness `released` (the
+  precedence puts it above `blocked`), so it has no `BLOCKED_BY:` line.
+- `BLOCKER:` stays transitive and keyed to a highlighted **trail member**: it lists the bundled
+  prerequisite for every highlighted member that reaches it by unsatisfied edges, whatever that
+  member's readiness — so a `released` highlighted member with a bundled live dependency shows it
+  as `BLOCKER:<member>|<prerequisite>|…|depends|unresolved|bundled` and in the `<n blockers>` count
+  of its `HIGHLIGHT:` line. A `NOT_IN_TRAIL` highlight has no `BLOCKER:` lines, so a run whose only
+  highlight is outside the trail prints no `BLOCKER:` line at all and `BLOCKED_BY:` is the only
+  blocker evidence (the mixed fixture in "Tests").
+
+A saved fallback edge or a wave-hard edge from the same ref is satisfied and prints neither line.
 
 No new whitelist entry: the script is already a whitelisted internal helper; only a verb is added.
 
@@ -386,6 +559,13 @@ No new whitelist entry: the script is already a whitelisted internal helper; onl
     `· on hold (<status>)` / `· next` (bold); advisory `› advisory predecessor` (italic); `next` qualified per
     the advice contract. A card whose own xdeps block is never `next` — consistent with its existing
     `🌐 blocked (cross-repo)` line, because both read `session.xdep`.
+  - **Bundled prerequisite named on the card** (no new marker, no new lookup): `overlay_for_entry`
+    reads the node's `blocked_by` edges from the result it already receives. When one of them is a
+    bundled edge, the note names that prerequisite and its reason after the standard text —
+    `★ direction · blocked by <n> · t40 unresolved (bundled)` (highlighted) and
+    `» critical path · blocked · t40 unresolved (bundled)` (path); with several bundled
+    prerequisites the first in (wave, ref) order, then ` +<k>`. Other blockers keep the standard
+    note. The bundled prerequisite's own card keeps `✔` and carries no path marker.
   - `TrailTaskCard` / `TrailGhostCard`: `compose` yields the marker Label (class `trail-overlay`, right
     after the title) only when the view carries an overlay — a view without one composes exactly as
     today. `apply_overlay(kind, note)` updates the card **in place** (mount / update / remove that one
@@ -484,7 +664,8 @@ No new whitelist entry: the script is already a whitelisted internal helper; onl
   `--highlight-total` / `--highlight-direction` / `--highlight-title`, key `h`, a markers table
   (★ » ›, heavy border, `next?`); `how-to.md`: "Show a direction's tasks in a trail" — what blocks and
   what does not (classification rule, gate-released tasks, cross-repo prerequisites, outside
-  prerequisites not followed), why a `next` can be qualified, why markers disappear briefly after `r`.
+  prerequisites not followed, a prerequisite that is Done but archived in a bundle, a highlighted
+  task that is not in the trail), why a `next` can be qualified, why markers disappear briefly after `r`.
   Current-state prose only. Then `cd website && python3 check_links.py --build`.
 - `lib/trail_gather.py` docstring: the `critical-path` verb, its line protocol and the advice contract.
 - `lib/dep_resolution.py` docstring: `lookup()`'s precedence-strict tri-state and why `facts()` stays
@@ -498,7 +679,10 @@ Both siblings already exist and name this child's output, so the contract goes t
 - **t2335_4** (skill): the `critical-path` verb and its line protocol; NEXT = pick eligibility
   (`IN_PROGRESS` / `ON_HOLD` are not picks); the freshness qualifier on every NEXT; `released` =
   cleared for dependents, awaiting landing; outside and cross-repo prerequisites reported and not
-  followed; `unverified` for foreign members.
+  followed; `unverified` for foreign members; and the four consumer rules the t2367 review added —
+  no NEXT with outside / cross-repo blockers only, the bundled prerequisite (`unresolved:bundled`,
+  never a pick), the trail's `FRESHNESS` versus the direction's own freshness verdict, and
+  `NOT_IN_TRAIL` (own state, no readiness) with `BLOCKED_BY:` and its partial meaning for such a ref.
 - **t2335_5** (TUI tab): the `launch_or_focus_trails(…, highlight=, direction=, title=)` signature; the
   256-id cap with `of=` and its warning; the slug bound and its warning; warnings are `; `-joined;
   the older-receiver fallback warning.
@@ -562,12 +746,44 @@ Both siblings already exist and name this child's output, so the contract goes t
   from its allowed set (the function raises on a state it cannot classify); an outside chain longer than four (only the first reported); a
   non-member highlight; empty highlight set; lite trail; two highlighted tasks blocking each other; a
   cycle; canonicalization; deterministic order.
+- `tests/test_trail_critical_path.py`, **added by the t2367 review**:
+  - (a) **live edge**: a Ready member whose live depends names a bundle-only Done task → `blocked`,
+    one `blocked_by` edge `unresolved` / `bundled`, not NEXT; the prerequisite is in `landed` (reason
+    `bundle`) and not on the path;
+  - (b) **wave edge**: the same bundle-only Done task as an earlier-wave `hard_prerequisite` of
+    another member, with no depends edge → that edge is satisfied and the member is NEXT;
+  - (c) **saved fallback edge**: an unresolved member and a foreign member, each with a saved
+    `hard_depends` / `snapshot.depends` edge from the bundle-only Done task → the edge is satisfied,
+    no `bundled` blocker on either (the unresolved one reads `unresolved`, the foreign one
+    `unverified`);
+  - (d) a highlighted non-member with an xdep and a live depends on an **open** member → the member
+    is on the path with a `blocked_by` edge from the non-member, the non-member has no readiness and
+    no NEXT, `remote_keys` does not contain its xdep;
+  - (e) **outside highlight, satisfied prerequisite**: non-member A depends on member B, and B has an
+    unfinished member predecessor P. With B **Done**: B in `landed`, path empty, P neither on the
+    path nor NEXT, no `blocked_by` edge for A. With B **released**: B in `released`, the same
+    otherwise. With B **Done only in a bundle**: B in `landed` (reason `bundle`), one `blocked_by`
+    edge A → B `unresolved` / `bundled`, path empty, P not NEXT;
+  - (f) **completed outside highlight**: the single highlighted root is non-member A, **Done**, whose
+    file still lists `depends: [B]`, and B is a `Ready` member with no blockers → `not_in_trail`
+    holds A with state `done`; path, `blocked_by` and `next_actionable` are all empty. The same with
+    A Done only in a bundle, and with A missing (`unresolved`). A control with A `Ready`: B is on the
+    path and is NEXT — so the emptiness above comes from A's state, not from the fixture;
+  - (g) the property check is extended: every `blocked` node in every fixture has ≥ 1 `blocked_by`
+    edge or ≥ 1 blocked cross-repo prerequisite.
 - `tests/test_trail_gather.py`: `CriticalPathVerbTests` over `SyntheticRepo` — protocol lines,
   `bad_highlight`, `invalid_trail`, `FRESHNESS:current` with unqualified NEXT; dependency added after
   trail creation (new blocker, dependent not NEXT, `FRESHNESS:stale|…dependency_changed…`, remaining
   NEXT `|stale`); dependency removed (`SUPERSEDED:`, dependent NEXT `|stale`); **an xdep with
   `probe_xdep_status` stubbed to `Implementing` then `Done`** (`XDEP:…|blocked` and no NEXT, then
   `XDEP:…|clear` and NEXT); a wrapper test that `critical-path --trail art:…` is resolved like `drift`.
+  **Added by the t2367 review**: (1) the **completed outside root** — only Done non-member A
+  highlighted, A's file lists Ready member B → `NOT_IN_TRAIL:A|done|-`, and no `PATH:`, `BLOCKED_BY:`
+  or `NEXT:` line (`SUMMARY:…|path=0|…|not_in_trail=1|…|next=0|…`); (2) the **mixed case** — only
+  non-member A highlighted, A depends on open member B, B's live depends names bundle-only Done C (a
+  member) → `NOT_IN_TRAIL:A|open|-`, `BLOCKED_BY:A|B|…|depends|open|-`,
+  `PATH:B|…|depends|open|blocked|…`, `BLOCKED_BY:B|C|…|depends|unresolved|bundled`,
+  `LANDED:C|…|bundle`, no `NEXT:`, no `HIGHLIGHT:` and no `BLOCKER:` line.
 - **CLI/TUI parity** (`tests/test_trails_app.py`, `OverlayParityTests`), one fixture tree + trail,
   sets compared from the CLI lines and `session.overlay` (highlight / path / advisory / outside /
   released / cross-repo / next): (1) highlighted B depends on outside task A — both say B blocked by
@@ -587,7 +803,13 @@ Both siblings already exist and name this child's output, so the contract goes t
   the others, and the cards read `★ direction · next`, `· on hold (Postponed)` and `· in progress`;
   (5) a highlighted **Done** task → `HIGHLIGHT:…|done|landed|0|-` in the CLI and `★ direction · landed`
   on its card, never NEXT and never a blocker; a highlighted **released** task →
-  `HIGHLIGHT:…|released|released|…` and `★ direction · cleared for dependents, awaiting landing`.
+  `HIGHLIGHT:…|released|released|…` and `★ direction · cleared for dependents, awaiting landing`;
+  (7, t2367) the mixed tree of `CriticalPathVerbTests` (outside A → open member B → bundle-only Done
+  member C): the CLI lines as listed there, B's card reads
+  `» critical path · blocked · t<C> unresolved (bundled)`, and C's card keeps `✔` and carries no path
+  marker; (8, t2367) the same tree with B itself highlighted: `HIGHLIGHT:B|…|open|blocked|1|…`,
+  `BLOCKED_BY:B|C|…|depends|unresolved|bundled`, and the card
+  `★ direction · blocked by 1 · t<C> unresolved (bundled)`.
 - **Overlapping remote checks** (`tests/test_trails_app.py`, `OverlayXdepOverlapTests`, pilot with a
   controllable `probe_xdep_status` stub that blocks until released): (a) edit 1 adds key K1, `r`; edit 2
   adds key K2, `r` while the first probe is still running; release the **first** probe, then the second
