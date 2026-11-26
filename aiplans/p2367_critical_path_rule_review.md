@@ -207,3 +207,22 @@ answered by the user, and the edited plan is reviewed at Step 8 before the commi
 
 No code commit (plan-only change). Archive t2367 per Step 9. t2335_3's next pick force-reverifies its
 plan because this mitigation landed (§6.0a).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-27 01:10)
+- **Requested by user:** the §4 protocol note said a bundle-only live dependency prints in both `BLOCKER:` and `BLOCKED_BY:`, which contradicts the mixed fixture (only outside A highlighted → `BLOCKED_BY:` for B's bundled blocker and no `BLOCKER:` line). Qualify the protocol; keep the fixture unchanged.
+- **Changes made:** the §4 note now states the scope of each line: `BLOCKED_BY:` is always printed for the edge, keyed to the dependent; `BLOCKER:` stays transitive and scoped to highlighted trail members, so a run whose only highlight is outside the trail prints none. The "Blockers" bullet in "Semantics → Sets" says "of a highlighted **member**" and that a not_in_trail highlight has none. The fixture is unchanged.
+- **Files affected:** `aiplans/p2335/p2335_3_trails_highlight_and_critical_path_overlay.md`
+
+### Change Request 2 (2026-11-27 01:23)
+- **Requested by user:** the revised §4 note promised that `BLOCKED_BY:` is always printed for a bundled live dependency. A gate-released highlighted member with such a dependency keeps readiness `released`, and the direct-blocker rule and the line format restrict `BLOCKED_BY:` to `blocked` nodes and expanded outside highlights. Replace the promise with the existing emission conditions and keep transitive `BLOCKER:` evidence keyed to the highlighted member.
+- **Changes made:** the §4 note now states `BLOCKED_BY:`'s emission conditions (a `HIGHLIGHT` member or `PATH` node with readiness `blocked`, or an expanded `NOT_IN_TRAIL` ref) and names the released case as printing none. `BLOCKER:` is described as transitive and keyed to a highlighted member whatever its readiness, so the released member's bundled dependency appears there and in its `<n blockers>` count.
+- **Files affected:** `aiplans/p2335/p2335_3_trails_highlight_and_critical_path_overlay.md`
+
+## Final Implementation Notes
+- **Actual work done:** Reviewed the nine points of t2335_3's critical-path rule and advice contract against the schema, the validator, the trail docs, `dep_resolution.py`, `cross_repo_deps.py`, `aitask_ls.sh` and the sitrep freshness contract. Edited `aiplans/p2335/p2335_3_trails_highlight_and_critical_path_overlay.md` in place and added its `## Critical-path rule review` section: points 1–4 and 9 confirmed, points 5–8 corrected. The corrections: the bundled-Done rule (live depends edge blocks as `unresolved:bundled`; saved fallback and wave-hard edges are satisfied; the dependent's card names the prerequisite), a total rule for a highlighted non-member (own state first, live depends on members as ordinary edges, no readiness), direct blocker evidence (`CriticalPath.blocked_by`, `BLOCKED_BY:`), `NOT_IN_TRAIL:<ref>|<state>|<reason>`, four consumer rules in the advice contract, and the fixtures that pin them. No code changed.
+- **Deviations from plan:** None in scope. Two additions beyond the numbered edits: a sentence in §3 saying a bundle-only Done task is recognised by `reason="bundle"`, and the Post-Review Changes above (the `BLOCKER:` / `BLOCKED_BY:` scope note in §4).
+- **Issues encountered:** The task-data sync at claim time warned that unstaged changes from other sessions block the rebase (`ait syncer` reconciles). It did not affect the edits or the path-scoped commits.
+- **Key decisions:** Point 7 was not decidable from the sources (`ait ls` never reads bundles; the trail cards do), so the user decided it; the answer is quoted verbatim in the review section. `BLOCKED_BY:` is a separate line and not a wider `BLOCKER:`, so `BLOCKER:` keeps its meaning (transitive, per highlighted member) and the `<n blockers>` count on `HIGHLIGHT:` still matches it. `implemented_with` is `claudecode/fable5_2`: the session's model changed mid-run, while the launch-time `AITASK_AGENT_STRING` still read `claudecode/opus5_5`.
+- **Upstream defects identified:** None
