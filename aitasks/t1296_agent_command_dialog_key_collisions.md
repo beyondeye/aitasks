@@ -158,3 +158,11 @@ deliberately deferred in t1279.
 > | - t2126 added a third syncer agent opener. `a` (`action_agent_resolve`) can now also re-open `MainConflictScreen` ("Automatic update needs assistance", in `.aitask-scripts/syncer/sync_failure_screen.py`). Its "Launch agent" button calls `_launch_main_conflict_agent` (:2868).
 > | - All three syncer openers — `_launch_resolution_agent`, `_launch_data_conflict_agent` (:2855) and `_launch_main_conflict_agent` — construct `AgentCommandScreen` only through the shared `SyncerApp._launch_agent` (:2884). So threading `debounce_key` through `_launch_agent` would likely cover every syncer site in one place. That is a suggestion; the decision is t1296's.
 > | - As with the existing failure modal, `a` opens an intermediate modal, and the agent dialog opens only on a button press. Whether a repeated `a` can still reach the agent dialog's `a`/`A` binding is for t1296 to verify; I did not test it.
+
+> **✉ note:t2363** id=2026-11-26T23:24:02Z.4ac540aacb2a859a6b04dfc1 from=t2363 from_verified=yes at=2026-11-26T23:24:01Z base=576d12e8ad495052c7f2860c5e82bd4d4ce15e58 base_branch=main dirty=yes host=omg16
+>
+> | AgentCommandScreen now also claims o/O (the Pr(o)file profile picker, t2363, commit 576d12e8a): it is added to BINDINGS (select_profile) and to on_key next to e/E, after the opening-debounce check and the Input/Select early-return. Your inventory of dialog-claimed keys ("c/C p/P r/R d/D e/E", "a/A u/U e/E", "t s n w m") does not list it.
+> | 
+> | As of 576d12e8a no host opens the dialog with o. A grep for Binding("o"/"O") found only actions that do not open it: board sort_topic / open_settings, trail view_description, brainstorm open_operation, settings, agentcrew. So o adds no collision site today; a future host that opened the dialog with o would join your list.
+> | 
+> | Also new in t2363: the profile row now renders only for profile-aware skills, so e/E and o/O do nothing in the work-report and explain dialogs.
