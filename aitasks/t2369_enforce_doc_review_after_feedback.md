@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [doc_quality, workflow, skills]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2258
 created_at: 2026-11-26 23:57
-updated_at: 2026-11-26 23:57
+updated_at: 2026-11-27 00:00
 ---
 
 ## Problem
