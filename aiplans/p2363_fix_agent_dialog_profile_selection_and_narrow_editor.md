@@ -500,3 +500,58 @@ Reassessed after inlining the pre-phase and the review fixes: code-health stays 
 
 Commit code and plan separately per Step 8, then archival/merge per Step 9 of
 the task workflow (current-branch mode: no worktree to remove).
+
+## Final Implementation Notes
+
+- **Actual work done:** as planned.
+  - `agent_launch_utils.py`: `PROFILE_ENV_OVERRIDES`, `target_root_profile_env()`, `with_target_root_profile_env()` (adds the `env -u …` flags; idempotent; leaves non-`env` commands alone).
+  - `profile_editor.py`: `ProfileInfo` / `scan_profiles()` (first scanner row per name, `_skillrun_*` excluded, `usable` via `PROFILE_NAME_RE`), `ProfilePickerScreen` (positional option ids, unusable names disabled, narrow mode), and `compact` `CycleField` / `ConfigRow` (two-line rows; clicks hit-tested against the drawn row via `render_lines`). `compose_profile_fields(compact=)` and `ProfileEditScreen(narrow=)` (full-width chrome, two-line help, stacked buttons, `(O)ne-shot` label).
+  - `agent_command_screen.py`: rooted profile paths (`_profiles_dir` / `_local_profiles_dir`, `_prune_stale_skillrun_overrides(root)`), `skill_is_profile_aware()` gate, default resolution when the caller omits it, `_selected_profile` state, `Pr(o)file` button + `o`/`O` key + `#profile_status` / `#profile_oneshot_badge` / `#profile_buttons` layout, resolve-then-commit for select / one-shot save / override clear (`_profile_args`, `_resolve_candidate`, `_commit_command`), and edit/save that follow the selection through one name→file map. The rerender runs in root with the target-root env and its exit status is reported. `resolve_skill_profile` uses the target-root env.
+- **Pre-phase result (characterize_profile_edit_flows):** `EditFlowCharacterizationTests` was run on the unmodified code from a scratchpad runner that chdir'd into each fixture root, because the old paths were cwd-relative. Result: 3 of 4 green. The only failure was the intended row-label change: `'Profile: fast' not found in 'Profile: _skillrun_415051_…'` (the old row showed the raw override name). The repo's own `profiles/local/` was untouched. After the refactor all four pass unchanged, with cwd ≠ the fixture root. The intended-change expectations encoded from the start:
+  - the label shows the selected profile plus a `(one-shot)` badge;
+  - paths resolve under `project_root`;
+  - a resolver-shaped command gains the `env -u …` flags (asserted in `ProfileSelectorTests`, since the characterization file's fake commands do not test the prefix).
+- **Deviations from plan:** none in behaviour. Test-side details:
+  - the launch-chain test needs the project's real resolved agent string, because the real wrapper rejects a fake `claudecode/opus`;
+  - the narrow long-name test sets the selection state directly (the selection logic itself is covered in `test_agent_command_profile_select.py`);
+  - the compact `ConfigRow` check compares whitespace-normalised text, because a long CSV value wraps onto two rows and stays fully visible.
+- **Issues encountered:** the first pre-phase runner removed the fixture dir while it was still the cwd. Fixed by restoring the cwd per test via `addCleanup`. The test file itself was unaffected.
+- **Key decisions:**
+  - the env-carrying `-u` prefix, instead of pinning `--profile`, which keeps the "default ⇒ no `--profile`" acceptance contract;
+  - a positional `p<index>` option id in the picker;
+  - wide golden: only `btn_edit_profile` moved (x 19→31), and `btn_select_profile` was added at (19, 4, 11, 3).
+  - Negative controls: the naive click rule (`y == 0` ignore, `x <= 2` previous) fails `test_clicks_on_a_wrapped_label_do_nothing`; the launch chain without the `-u` flags resolves `fast` and the renderer reports `profile 'remote' not found`.
+- **Upstream defects identified:** None
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-26)
+- **Requested by user:** three review findings, all verified:
+  1. In the board and trails hosts, ↑/↓ never reached the picker's OptionList (priority App bindings).
+  2. Edit used a stale cached name→file map, so it read the project file after a `local/` override appeared, and Save could overwrite that local file with stale values.
+  3. A one-shot save wrote the active override file before resolving, so a failed second save leaked its edit into the file the current command names.
+- **Changes made:**
+  1. `KanbanApp.check_action` and `TrailsApp.check_action` now let ↑/↓ fall through to a focused `OptionList`, the same rule as `DataTable`. The syncer disables its arrows under any modal, and codebrowser's `file_search` bindings are widget-scoped, so neither was affected.
+  2. `action_edit_profile` re-scans before loading and records the loaded source as (path, bytes). `_on_profile_saved_persistent` re-scans and refuses, with an error and nothing written, when the resolved source path or its bytes changed since Edit opened.
+  3. `_on_profile_saved_one_shot` resolves the candidate command before writing. Both saves write through `_atomic_write_yaml`: a temp file, then `os.replace`.
+- **Files affected:** `.aitask-scripts/board/aitask_board.py`, `.aitask-scripts/board/trails_app.py`, `.aitask-scripts/lib/agent_command_screen.py`, new `tests/test_profile_picker_host_arrows.py` (real KanbanApp / TrailsApp, ↓ + Enter → `remote`, with a pre-fix-gate control → `fast`), `tests/test_agent_command_profile_select.py` (new cases: a failed second one-shot keeps the active file; Edit reads a later `local/` override; persistent save refuses a changed source, both for an appearing override and for an edited project file; an unchanged source saves; a failed first one-shot writes no file).
+
+### Change Request 2 (2026-11-26)
+- **Requested by user:** three review findings, all verified:
+  1. With a one-shot active, the conflict guard checked the loaded override file while the persistent save writes the base profile, so a newer base was overwritten.
+  2. `_atomic_write_yaml` renamed a default-mode temp file over the path, which replaced a symlinked profile and turned a 0600 file into 0644.
+  3. A rejected save still dismissed the editor and lost the draft.
+- **Changes made:**
+  1. `_take_edit_snapshot()` records (role, path, bytes) for the loaded file, the selected base profile's file (`_selected_profile_file`) and the persistent target (`_persistent_target`). The save refuses when any of the three differs.
+  2. `_atomic_write_yaml` now goes through the shared `lib/atomic_write.atomic_write`, which resolves symlinks and preserves modes.
+  3. Both save callbacks return `True`/`False`. `ProfileEditScreen` keeps the editor open when a callback returns exactly `False`; `None` and legacy callbacks dismiss as before.
+- **Files affected:** `.aitask-scripts/lib/agent_command_screen.py`, `.aitask-scripts/lib/profile_editor.py`, `tests/test_agent_command_profile_select.py` (promotion after a local and a project base update; symlink + 0600 mode preserved under umask 022; a rejected save keeps the editor and draft, a later success closes it), `tests/test_profile_editor_narrow.py` (`SaveCallbackContractTests`). Pre-fix controls: the old writer fails the symlink/mode test, and a loaded-only snapshot fails both promotion subtests.
+
+### Change Request 3 (2026-11-27)
+- **Requested by user:** `ProfileEditScreen`'s three save-callback annotations still said `Callable[[dict], None]`.
+- **Changes made:** they now read `Callable[[dict], bool | None]`. Annotation only.
+- **Files affected:** `.aitask-scripts/lib/profile_editor.py`.
+
+## Commit notes
+- `agent_launch_utils.py` also carried another session's uncommitted t2349 work (the `all_of` import and the `switch_client_to_pane` block). Code commit `576d12e8a` was built from a temporary index: HEAD plus only this task's hunk of that file, plus this task's other files.
+- Verified standalone in a detached worktree at `576d12e8a`: 231 tests passed across the task's test files and the host and structure suites. The other session's hunks were left unstaged in the shared worktree.
