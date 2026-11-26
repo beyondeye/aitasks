@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: chore
@@ -56,3 +58,5 @@ This task changes no code. When a point cannot be decided from the sources, ask 
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-26T22:52:14Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-26T23:31:22Z status=pass attempt=1 type=human
