@@ -1,5 +1,7 @@
 ---
 priority: medium
+risk_code_health: medium
+risk_goal_achievement: low
 effort: medium
 depends: []
 issue_type: feature
@@ -135,3 +137,5 @@ That keeps one ask and one receipt.
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-25T15:46:35Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-26T10:12:42Z status=pass attempt=1 type=human
