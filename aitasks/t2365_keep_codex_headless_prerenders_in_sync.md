@@ -3,10 +3,11 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [skills, codex, setup]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-26 09:34
-updated_at: 2026-11-26 09:34
+updated_at: 2026-11-26 09:36
 ---
 
 ## Problem
