@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-19 05:12
-updated_at: 2026-11-25 19:33
+updated_at: 2026-11-26 12:40
 ---
 
 ## Context
@@ -34,3 +35,8 @@ Child of the sitrep work-directions task, independent of the store children. A d
 ## Docs
 
 `aidocs/framework/tui_conventions.md` or the trails reference doc for the overlay contract; `website/content/docs/tuis/` trails page; `check_links.py --build`.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-26T10:40:11Z status=pass attempt=1 type=human
