@@ -3,13 +3,14 @@ priority: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [claudeskills, cross_repo]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2258
 followup_kind: upstream_defect
 created_at: 2026-11-27 00:46
-updated_at: 2026-11-27 00:46
+updated_at: 2026-11-27 01:04
 ---
 
 ## Origin
