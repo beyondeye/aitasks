@@ -5,6 +5,8 @@ Sibling Tasks: aitasks/t2335/t2335_4_skill_directions_code.md, aitasks/t2335/t23
 Archived Sibling Plans: aiplans/archived/p2335/p2335_*_*.md
 Base branch: main
 Output branch: main
+plan_verified:
+  - claudecode/fable5_2 @ 2026-11-27 01:53
 ---
 
 # t2335_3 — Trails highlight set and critical-path overlay
@@ -323,12 +325,54 @@ below; this section is the record.
 
 The fixtures that pin the corrections are in "Tests" (marked t2367).
 
+## Plan verification (2026-11-27, re-pick after t2367 landed)
+
+The plan was re-checked against `main` at `7b727d6b2`. It stands as written; nothing in the design
+changes. What moved since it was approved, and what follows for the implementation:
+
+- **t2367** (the "before" mitigation) landed as a plan-only change: the review section above and the
+  corrections it lists (bundle-only prerequisite on a live edge, the not-in-trail rule, `blocked_by`
+  / `BLOCKED_BY:`, four consumer rules, the fixtures marked t2367). No code changed.
+- **t2363** added `OptionList` to the focused-widget guard in `TrailsApp.check_action`
+  (`trails_app.py`). The new `trail_overlay_clear` action goes through the same `check_action`, so
+  `h` is also inert while the launch dialog's profile picker is focused. No conflict.
+- **t2349 / t2363** touched `lib/agent_launch_utils.py` in other areas (`switch_to_pane_anywhere`,
+  `resolve_dry_run_command`). The trails mailbox block (`TRAILS_FOCUS_OPTION`,
+  `parse_trails_focus_target`, `_trails_receiver_takes_task`, `launch_or_focus_trails`) is
+  unchanged; only its line numbers moved (now from about line 3214).
+- **t2258_10** restructured `website/content/docs/tuis/trails/reference.md`: it now has
+  "Cross-repo entries" (blocked members, members from another project, when the checks run) and
+  "Launch and environment". §8's reference edits therefore land as: the launch options in "Launch
+  and environment", the `h` key in "Keybindings", a new "Direction highlight" section after
+  "Cross-repo entries" holding the markers table, and one sentence in "When the checks run" for the
+  `r`-with-a-highlight probe. The how-to entry is a new "How to Show a Direction's Tasks in a Trail".
+- Every symbol the plan names was found: `LocalDepResolver._path_for` / `_index_for` / `facts`,
+  `_dir_identity`, `read_depends`, `canonical_dep_id`, `classify_facts` (`lib/dep_resolution.py`);
+  `xdep_ref_pairs`, `classify_xdep_status`, `probe_xdep_status` (`lib/cross_repo_deps.py`);
+  `archive_iter.find_archived_markdown_by_id(…, errors=)`; `cmd_drift` and the `drift` subparser
+  (`lib/trail_gather.py`); `TrailSession`, `_bump_trail_gen`, `_load_trail_tasks`,
+  `_start_session_xdep`, `_on_trail_xdep`, `_build_active_trail_lanes`, `_refresh_subtitle`
+  (`board_trail_screen.py`); `trail_xdep_refs`, `TrailTaskCard`, `TrailGhostCard`
+  (`board_trail_view.py`); `TRAIL_TAB_BINDINGS`, `trail_tab_label`, `_deliver_trail_focus`,
+  `_pending_trail_focus`, `_pending_card` (`trails_app.py`); `DIRECTION_RE`, `MAX_DIRECTION_TITLE`,
+  `_single_line` (`lib/sitrep_todo.py`); and every test file in the pre-phase list.
+- **Corrected in §2 (review of this re-verification):** `find_archived_markdown_by_id` reads loose
+  archived files before the bundles and returns `(basename, text)` for both, so its result cannot
+  say which source was read — and the source decides whether a live dependency blocks NEXT
+  (`reason=bundle`). §2 no longer calls it. It calls a new **bundle-only** reader,
+  `archive_iter.find_bundled_markdown_by_id`, and then **rechecks the precedence chain** before it
+  trusts the bundle copy (§1b and §2 below). A loose copy that appears between the two reads is
+  therefore resolved as a loose copy, never as a bundle hit.
+
+Risk levels are unchanged (both medium). The goal-achievement risk on the rule's interpretation is
+now covered by the landed review; the three inline mitigations remain to be done with the task.
+
 ## Implementation
 
 ### Pre-phase (risk mitigations)
 
 1. [baseline_trails_suites] Before editing any file, run
-   `~/.aitask/venv/bin/python -m pytest tests/test_trails_app.py tests/test_board_bytrail_view.py tests/test_board_trail_view.py tests/test_trail_screen_host_protocol.py tests/test_trails_focus_writer.py tests/test_trail_gather.py tests/test_sitrep_tui_trails_actions.py tests/test_local_dep_parity.py tests/test_minimonitor_pick_by_number.py -q -p no:cacheprovider`
+   `~/.aitask/venv/bin/python -m pytest tests/test_trails_app.py tests/test_board_bytrail_view.py tests/test_board_trail_view.py tests/test_trail_screen_host_protocol.py tests/test_trails_focus_writer.py tests/test_trail_gather.py tests/test_sitrep_tui_trails_actions.py tests/test_local_dep_parity.py tests/test_minimonitor_pick_by_number.py tests/test_archive_iter_consolidated.py tests/test_archive_iter_characterization.py -q -p no:cacheprovider`
    (and `tests/test_trails_focus_mailbox_live.py` separately) and record the pass/fail counts and the
    names of any failing tests in the plan's Final Implementation Notes. A test that fails here is
    pre-existing and is reported, not fixed, by this task. Do not stash or reset anything to get the
@@ -352,6 +396,20 @@ The fixtures that pin the corrections are in "Tests" (marked t2367).
   - Every location confirmed absent → `ABSENT`.
 - `facts()` / `classify*()` / `scan` keep their exact behaviour; a test pins that.
 
+### 1b. `lib/archive_iter.py` — a bundle-only reader (existing callers unchanged)
+
+- New `find_bundled_markdown_by_id(task_id, archived_dir, *, errors=None) -> (filename, text) | None`:
+  the second half of today's `find_archived_markdown_by_id`, moved out unchanged — the numbered
+  bundle for the parent id (`.tar.zst`, then `.tar.gz`), then the legacy `old.tar.*`. It never reads
+  a loose file. Same id normalization, same `errors` contract (`None` with `errors` still empty =
+  not in a bundle; with `errors` non-empty = could not rule it out).
+- `find_archived_markdown_by_id` keeps its signature, its return shape and its order: its loose pass
+  stays where it is, and its bundle half becomes one call to the new function. An extraction only —
+  the 14 call sites (`board_task_manager`, `aitask_board`, `trail_gather`, `trail_links`,
+  `relations_store`, `sitrep_crash`, `sitrep_refresh`, `roadmap_origin_facts`) are not touched.
+- Module docstring: one sentence naming the bundle-only reader and when a caller needs it (the source
+  of the copy matters).
+
 ### 2. `lib/trail_task_states.py` (new, I/O — the ONE local resolver both callers use)
 
 `resolve_local_states(refs, *, local_project, tasks_dir, archived_dir, registry_file) -> {ref: TaskState}`
@@ -369,10 +427,20 @@ and `resolve_for_trail(doc, highlight, ...)`.
     project, a non-canonical token → an unresolved prerequisite `unresolved:bad_dep_token`), and the
     cross-repo pairs via `cross_repo_deps.xdep_ref_pairs(meta.get("xdeprepo"), meta.get("xdeps"))`.
   - `UNREADABLE` → `unresolved:unreadable` (no archive fallback).
-  - `ABSENT` → only now `archive_iter.find_archived_markdown_by_id(id, archived_dir, errors=…)` for
-    the numbered bundles: any recorded error → `unresolved:unreadable`; a parsed copy with status Done
-    → `done` (`reason=bundle`); another status → `unresolved:bundle_not_done`; nothing →
-    `unresolved:missing`.
+  - `ABSENT` → only now the bundles, in three steps:
+    1. `archive_iter.find_bundled_markdown_by_id(id, archived_dir, errors=errs)` (§1b) — the
+       bundle-only reader, so a hit is a bundle hit by construction. Any recorded error →
+       `unresolved:unreadable`, stop. No hit → `unresolved:missing`, stop.
+    2. **Precedence recheck** on a hit: call `lookup(canonical)` once more. The bundle read is slow
+       (it can decompress an archive), and a copy may have appeared at a higher-precedence location
+       meanwhile. If the recheck is `FOUND`, resolve from that copy exactly as the `FOUND` branch
+       above (no `reason=bundle`); if it is `UNREADABLE`, `unresolved:unreadable`. One recheck, no
+       loop: its answer is final.
+    3. Recheck still `ABSENT` → the bundle copy stands: status Done → `done` (`reason=bundle`);
+       another status → `unresolved:bundle_not_done`; frontmatter that does not parse →
+       `unresolved:unreadable`.
+    `reason=bundle` is thus set in exactly one place, and only for a copy that the bundle-only reader
+    returned while every higher-precedence location was confirmed absent before and after the read.
 - **Foreign refs and xdep keys are not resolved here.** They are remote statuses, supplied by the
   caller from `cross_repo_deps.probe_xdep_status` (§4 CLI, §7 TUI — the existing xdep probe).
 - `TaskState(state, reason, depends: tuple | None, xdeps: tuple | None)`.
@@ -725,6 +793,20 @@ Both siblings already exist and name this child's output, so the contract goes t
   with a Done copy loose and bundled → `unresolved:unreadable`**; **active-dir stat failure with a
   bundled Done copy → `unresolved:unreadable`**; missing; malformed `depends:`; bad dep token;
   gate-released upstream → `released`; xdep pairs read; pass 2 stops at outside refs.
+  **Source of the archived copy** (the bundle-only reader is wrapped so the test acts between the two
+  reads): (a) the id is ABSENT, the wrapped reader writes a **loose archived Done copy** and then
+  returns the bundled one → `done` with a reason other than `bundle`, and in a `critical_path` run
+  over the same tree a live depends edge from it is **satisfied** (dependent NEXT); (b) the same with
+  the loose copy **unparseable** → `unresolved:unreadable`; (c) the same with an **active** copy
+  (status Ready) appearing → `open`, never `done`; (d) control: nothing appears → `done`,
+  `reason=bundle`, and the same live edge blocks as `unresolved:bundled`; (e) a loose Done copy
+  present from the start, with a bundled copy as well → `lookup()` is FOUND and the bundle-only
+  reader is **not called** (asserted by the wrapper's call count).
+- `tests/test_archive_iter_consolidated.py` (extend): `find_bundled_markdown_by_id` returns the
+  bundled copy for a parent and a child id, in a numbered bundle and in the legacy archive; returns
+  `None` when only a loose copy exists; reports an unreadable bundle through `errors`.
+  `find_archived_markdown_by_id` is pinned unchanged by the existing cases of this file and of
+  `tests/test_archive_iter_characterization.py` (loose first, then bundle, then legacy).
 - `tests/test_trail_critical_path.py` (new, pure, states and remote given as dicts): chain; diamond;
   advisory-only edges; later-wave highlight with no explicit edge (earlier-wave `hard_prerequisite` on
   the path, `core` / `preferred_predecessor` advisory, `optional` / `coordination_only` absent,
@@ -853,7 +935,8 @@ Both siblings already exist and name this child's output, so the contract goes t
   tests/test_trail_task_states.py tests/test_trail_critical_path.py tests/test_trail_gather.py \
   tests/test_trails_focus_writer.py tests/test_trails_focus_mailbox_live.py tests/test_trails_app.py \
   tests/test_board_bytrail_view.py tests/test_board_trail_view.py tests/test_trail_screen_host_protocol.py \
-  tests/test_sitrep_tui_trails_actions.py -q
+  tests/test_sitrep_tui_trails_actions.py tests/test_archive_iter_consolidated.py \
+  tests/test_archive_iter_characterization.py -q
 bash tests/test_no_lib_to_tui_import.sh
 shellcheck .aitask-scripts/aitask_trail_gather.sh
 ./.aitask-scripts/aitask_trail_gather.sh critical-path --trail <a real art: handle> --highlight <member ids>
@@ -868,6 +951,7 @@ belongs to t2335_6).
 
 ### Code-health risk: medium
 - The trails request state machine (`_pending_trail_focus` / `_pending_card`, modal hold-back, rescan, the `_trail_active` setter — t2211_10) is intricate; widening its tuples, render-time overlay consumption, invalidation and an async states worker can regress card focus or a held-back request · severity: medium · → mitigation: inline pre-phase baseline_trails_suites, inline post-phase request_flow_order_tests
+- `archive_iter.find_archived_markdown_by_id` has 14 call sites; splitting its bundle half into `find_bundled_markdown_by_id` must leave its order and results unchanged · severity: low · → mitigation: inline pre-phase baseline_trails_suites (includes both archive_iter suites)
 - The overlay lives in the renderer and cards the board's By-Trail view shares; a defect could change the board's cards even with no highlight · severity: low · → mitigation: inline post-phase board_render_parity_test
 - `dep_resolution` is the parity core of `ait ls`, the board and the minimonitor; the new `lookup()` and `_dir_state()` must not change `facts()` / `classify()` / `_dir_identity` · severity: medium · → mitigation: inline pre-phase baseline_trails_suites (includes the dep_resolution suites) plus the unchanged-output tests in §Tests
 - Mailbox grammar grows (ids, `of=`, `direction=`, encoded `title=`); an older running receiver must never be sent a form it refuses (capability gate + fallback planned) · severity: low · → mitigation: none needed beyond the planned writer and live-mailbox tests
