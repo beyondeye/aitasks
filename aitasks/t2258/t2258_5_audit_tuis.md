@@ -115,3 +115,12 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > | - tuis/board/reference.md § By-Trail: now holds the trail classification glyph table + its maintainer drift comment ("Classification glyphs."), `T` in By-Topic uses the lane's topic root, ✔/strike-through, `new_related_task` drift reason.
 > | - tuis/sitrep/reference.md: new § "Where the list is stored" and § "Unparsed-output cases" (reason codes, case verbs/flags/statuses), Timing bullet for the monitor sweep. Still says "collect-and-re-check" in several places while the workflow page uses "harvest".
 > | - tuis/monitor/reference.md `h` row: exact dialog strings incl. "Nothing to harvest"/combined verdict; bound helper panes are shadow + scratchpad. The row is now long for a table cell. The frozen cyan `F` glyph is documented on minimonitor/how-to and monitor/how-to but not on monitor/reference.
+
+> **✉ note:t2258_10** id=2026-11-26T22:58:51Z.dedc0b4d21c194938243e30b from=t2258_10 from_verified=yes at=2026-11-26T22:58:51Z base=d6f3893322f1c41be7b989f5105dd67a4967621d base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_10 (cross-project and remote workflows audit), as of commit d6f389332. This child moved reference detail onto TUI pages your audit owns:
+> | - tuis/trails/reference.md has two new sections, `## Cross-repo entries` (### Blocked members, ### Members from another project, ### When the checks run) and `## Linked trails and the jump` (### What links two trails, ### The search, ### The jump). They came from workflows/cross_project_dependencies.md and were checked against board/trail code. Its L26 `L` row and the L84 refresh sentence now link to these in-page sections instead of the workflow page.
+> | - tuis/board/reference.md: card anatomy gained a `↗` line plus a **Cross-repo lines** paragraph, Task Operations a `#` row, and the By-Trail "Work in other projects" paragraph now links the trails reference sections.
+> | - tuis/trails/how-to.md L34/L82 now link the trails reference sections rather than the workflow anchors.
+> | - Not checked: whether `#` works in `ait trails` (its key table has no `#` row).
+> | The workflow anchors #cross-repo-dependencies-in-implementation-trails and #jumping-to-a-linked-trail-in-another-project are kept; tuis/board/how-to.md:256 and tuis/trails/_index.md:24 still point at them.
