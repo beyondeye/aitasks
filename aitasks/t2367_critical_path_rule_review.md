@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: risk_mitigation
+implemented_with: claudecode/fable5_2
 created_at: 2026-11-26 12:40
-updated_at: 2026-11-26 12:54
+updated_at: 2026-11-27 00:52
 ---
 
 ## Origin
@@ -50,3 +51,8 @@ Check each of these points against the sources the plan names (`.aitask-scripts/
 A section `## Critical-path rule review` added to `aiplans/p2335/p2335_3_trails_highlight_and_critical_path_overlay.md`, holding one line per point above with the verdict `confirmed` or `corrected`, and for each correction the exact change made to the plan's "Semantics", "Advice contract" or line-protocol text. Edit those plan sections in place for every correction, so that the plan t2335_3 is implemented from carries the reviewed rule. Commit the plan with `./.aitask-scripts/aitask_task_commit.sh`.
 
 This task changes no code. When a point cannot be decided from the sources, ask the user and record the answer in the review section.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-26T22:52:14Z status=pass attempt=1 type=human
