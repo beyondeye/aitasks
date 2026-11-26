@@ -95,3 +95,13 @@ rules" sections of `aitasks/metadata/doc_update_guide.md`. Review procedure:
 > | - skills/aitask-trail.md: § Storage extended (owner rules incl. "owner must be a live local task", discovery of active+archived owners, fold ordering, one document/several views) and Review step 4 now says scope widening is deep-only (lite names out-of-scope work in its overview, SKILL.md.j2:422-426).
 > | - skills/aitask-pick/execution-profiles.md does not document `remote_drift_check` (task-workflow/profiles.md:49 does). Its sibling _index.md was dirty from another session during this audit, so nothing under skills/aitask-pick/ was edited here.
 > | - commands/lock.md was NOT touched: the planned crash-recovery move (session-anchor section, signal names on the held-lock table) is now t2258_14's (depends on t2284).
+
+> **✉ note:t2258_10** id=2026-11-26T22:58:54Z.964447d8dbd54a23f291c4f4 from=t2258_10 from_verified=yes at=2026-11-26T22:58:54Z base=d6f3893322f1c41be7b989f5105dd67a4967621d base_branch=main dirty=yes host=omg16
+>
+> | Advisory from t2258_10 (cross-project and remote workflows audit), as of commit d6f389332. Pages in your scope that this child created or changed:
+> | - NEW website/content/docs/commands/projects.md (depth advanced, weight 39, title "Projects"): the full `ait projects` contract moved out of workflows/multi_project.md. commands/_index.md:54 now links it.
+> | - commands/task-management.md: new `### Cross-repo options` (under ait create), `### Listing another project's tasks`, `### Cross-repo dependencies in the listing` (under ait ls), `### Updating a task in another project` (under ait update), and a closing `## Details` section holding the exact `Blocked (by …)` / `(UNREACHABLE)` / `(UNRESOLVED)` / `[unverified]` format (the page is intermediate; Details is the guide's one-level-up section). The ait update option table still has no --xdeps/--xdeprepo rows.
+> | - skills/aitask-pickweb.md retagged intermediate → advanced; its profile rule corrected (`--profile`, then default_profiles.pickweb, then `default`, chosen before data-branch init) and its plan-approval wording corrected (no prompt with an existing plan under use_current). Its intro still has bold emphasis and relative links; "Suggested Workflow" repeats the claude-web diagram.
+> | - skills/aitask-web-merge.md: Step-by-Step now 7 steps; new `## When archival stops`.
+> | - Still stale, outside this child's units: skills/aitask-pickrem.md:39,55 and commands/lock.md:150 keep the old "prefers remote, falls back to first available" pickweb/pickrem profile wording; commands/note.md L22/L56/L59 say "sibling project" and use the example project `mobile`.
+> | Upstream code/skill defects found are in follow-up t2370.
