@@ -651,7 +651,7 @@ belongs to t2335_6).
 - Mailbox grammar grows (ids, `of=`, `direction=`, encoded `title=`); an older running receiver must never be sent a form it refuses (capability gate + fallback planned) · severity: low · → mitigation: none needed beyond the planned writer and live-mailbox tests
 
 ### Goal-achievement risk: medium
-- The critical-path rule is an interpretation of the schema and the documented classifications (classification-aware wave edges, live depends authoritative, `released` satisfying depends but not waves, cross-repo prerequisites blocking readiness, outside prerequisites not followed, only verified-Done clears); child t2335_4's skill quotes it, so a wrong shape means rework there · severity: medium · → mitigation: critical_path_rule_review
+- The critical-path rule is an interpretation of the schema and the documented classifications (classification-aware wave edges, live depends authoritative, `released` satisfying depends but not waves, cross-repo prerequisites blocking readiness, outside prerequisites not followed, only verified-Done clears); child t2335_4's skill quotes it, so a wrong shape means rework there · severity: medium · → mitigation: t2367
 - "The banner names the overlay" is delivered as a dedicated overlay row under the tab strip, not inside the header banner, to keep the header's freshness-shedding ladder unchanged · severity: low · → mitigation: none (stated in the plan for approval)
 
 ### Planned mitigations
