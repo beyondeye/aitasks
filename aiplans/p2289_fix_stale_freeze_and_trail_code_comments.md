@@ -175,3 +175,66 @@ logic changes. The schema `description` is not hashed into any digest, and
 ### Goal-achievement risk: low
 None identified. Every replacement claim was checked against the current code
 (callers, cadence constants, the macOS probe backend, the digest record shape).
+
+## Implementation notes
+
+- All steps (1, 2, 3, 4, 5, 6, 6b, 7, 8) applied as planned. Only text changed.
+- **Deviation: an eighth path.** `tests/test_trail_schema.py::SchemaCopyDrift`
+  requires `.aitask-scripts/lib/implementation_trail.schema.json` to be
+  byte-identical to the pinned `aidocs/implementation_trail.schema.json`
+  contract. The step-4 description edit is therefore mirrored into the aidocs
+  copy (`cp` lib → aidocs; before the edit, the aidocs copy matched the old lib
+  file exactly).
+- `monitor_shared.py`: the bullet just above the rewritten paragraph read
+  "reconcile settles every non-`live` record". It now says "tries to settle",
+  to match the may-leave-pending wording. The "Both are best-effort" sentence
+  moved into its own paragraph and now says "Both commands", so it no longer
+  reads as referring to the two invocation routes.
+- Verification run: JSON valid; `py_compile` OK on the four `.py` files;
+  `shellcheck -x -P SCRIPTDIR` clean on both scripts; the stale-phrase grep over
+  the task paths is clean; pytest over `test_trail_schema`,
+  `test_implementation_trail_design`, `test_agent_freeze`,
+  `test_monitor_sessions_purge`, `test_trail_discovery_cache` and
+  `test_board_bytrail_view` passed (654 passed, 0 failed).
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-26)
+- **Requested by user:** (a) The `_maybe_purge_sessions` docstring said both
+  commands get the freeze budget. In fact the purge runs with
+  `_MARKS_CMD_TIMEOUT` (20 s) and reconcile, through `_run_frozen_cmd`, with
+  `_FREEZE_ONE_TIMEOUT` (90 s). (b) The `aitask_frozen.sh` header described
+  restore and drop alike as outliving "the pane it respawns". Drop kills the
+  stand-in pane, while restore replaces its process.
+- **Changes made:** The docstring keeps "both best-effort" and now states the
+  two budgets separately. The header now says the job must outlive a pane it
+  replaces or closes, and spells out what restore and drop each do. Neither
+  call site changed.
+- **Files affected:** `.aitask-scripts/monitor/monitor_shared.py`,
+  `.aitask-scripts/aitask_frozen.sh`
+
+## Final Implementation Notes
+- **Actual work done:** Corrected stale comment, docstring and description
+  text in eight files; no behaviour changed. Reconcile is now described as
+  invoked only by the monitor maintenance pass and by hand, never by freeze or
+  restore. A pending restore can be settled by the coordinator or by a valid
+  startup ack, and otherwise reconcile checks it on evidence, takes the lease
+  only before a repair, and may leave it pending. The text also states that the
+  codex freeze-time capture works on Linux and macOS (t2048), and that the trail
+  `input_digest` covers each input's kind, reference and presence, task
+  status/depends/pending gates, and plan content hash, with board column and
+  position deliberately excluded. The `aitask_frozen.sh` header now names
+  restore and drop as its detached coordinators. One test assertion message
+  was reworded.
+- **Deviations from plan:** The pinned `aidocs/implementation_trail.schema.json`
+  copy was updated together with the lib schema, because `SchemaCopyDrift`
+  requires the two to be byte-identical. The `monitor_shared.py` bullet "settles
+  every non-live record" became "tries to settle". Review then added the
+  separate purge and reconcile timeout budgets and the replace/close distinction
+  (see Post-Review Changes).
+- **Issues encountered:** `test_trail_schema.py::SchemaCopyDrift` failed until
+  the aidocs copy was synced.
+- **Key decisions:** The digest was left as it is. The code and
+  `trail_schema.py` say outright that board fields are unrepresentable, so the
+  stale part was the schema text.
+- **Upstream defects identified:** None
