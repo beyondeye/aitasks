@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: review_finding
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-22 19:20
-updated_at: 2026-11-25 18:09
+updated_at: 2026-11-26 12:55
 ---
 
 ## Origin
@@ -71,3 +72,8 @@ the switch (a seam between the two calls), with a mutant control.
 > | Pinned behaviour to keep: tests/test_sitrep_window_select_live.sh cases 1-7.
 
 > **👁 note:read** id=2026-11-25T16:08:44Z.9b6831a9f16668260e7e56da by=t2349 at=2026-11-25T16:08:44Z mode=explicit ids=2026-11-23T07:48:20Z.1e67941997ab3c84d1d275f9
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-26T10:55:39Z status=pass attempt=1 type=human
