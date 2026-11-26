@@ -305,3 +305,114 @@ Step 9 (Post-Implementation): commit, then archive per the workflow.
 - timing: post-phase | name: pin_jump_outcome_routing | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: exact classification of the two guarded stages | desc: unit-pin each helper outcome's warning and that the cold path makes no list-clients / switch_to_pane_anywhere call (was pin_fallback_routing; the fallback no longer exists)
 - timing: post-phase | name: prove_mutant_controls_bite | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: rewired live mutants losing their bite | desc: run every live mutant control red/green and record the per-assertion table
 - timing: post-phase | name: measure_old_tmux | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: tmux < 3.4 guard behaviour | desc: run the live file against the real tmux 3.3a binary and record per-case results (was 'after' spawn measure_old_tmux_L_fallback; inlined after review because a real 3.3a binary is available)
+
+## Final Implementation Notes
+
+- **Actual work done:** all of steps 1–6 and 8, plus the three inline
+  post-phases. Step 7 (the follow-up task for the other implicit-client
+  switches) is created in Step 8 of the workflow.
+  - `switch_client_to_pane` (`lib/agent_launch_utils.py`): stage A is the
+    client loop with an exact match; stage B is the resolved-client check.
+    Each stage is one `if-shell -F` whose branch is ONE full-target
+    `switch-client`. The exit status is checked first, and success needs
+    `MOVED`.
+  - `spawn_sitrep`'s cold jump maps the outcome: `failed` → `focus_failed`,
+    `skipped` → `focus_skipped`, `absent` → silent.
+  - `_sitrep_client_still_attached` and `_SITREP_CLIENTS_FORMAT` are deleted.
+  - `focus_skipped` is added to the warning vocabulary (`aitask_sitrep.sh`,
+    `sitrep_open.py`, `aidocs/framework/sitrep.md`).
+  - The jump is documented in the sitrep.md "Focus" section, and the test
+    table row is added.
+- **Deviations from plan:**
+  - The MATCHED marker was dropped at the user's request (exit status first,
+    `MOVED` for success).
+  - The 9dX control uses the real, unchanged `switch_to_pane_anywhere(client=)`
+    through the same after-ids seam, which IS the pre-fix three-call switch,
+    instead of a scratch copy.
+  - The `TARGET_FREE["list-clients"]` entry is kept with a neutral reason. The
+    scanner passes, and the live tests and the TWO_CALL mutant still use
+    `list-clients` outside the routed scan.
+- **Issues encountered:**
+  - A concurrent session (t2363) has uncommitted hunks in
+    `lib/agent_launch_utils.py` (`PROFILE_ENV_OVERRIDES`, and others). Only
+    this task's hunks may be staged.
+  - My first heredoc patch of the live file ended early on an inner `PYEOF`
+    and wrote nothing. It was reapplied from a scratch script.
+- **Key decisions:**
+  - The user chose a guarded best-effort jump on tmux < 3.4 (2026-11-26):
+    there is no two-call fallback anywhere.
+  - The version knob is set only after `require_isolated_tmux`, so that its
+    refusal probe still asks the user's server with the user's own tmux.
+- **Upstream defects identified:** None. The dead-destination partial move of
+  `switch_to_pane_anywhere` (three calls) is recorded for the step-7
+  follow-up; it is within this framework, not upstream.
+
+### Evidence (2026-11-26, this box)
+
+Runs of `tests/test_sitrep_window_select_live.sh` (61 assertions each):
+
+| run | tmux | client loop | result | pty reuse (6/6X/8/8X) |
+|---|---|---|---|---|
+| shipped | 3.8 | 1 | 61/61 pass | 1/1/1/1 |
+| shipped, `AIT_LIVE_TMUX_BIN=/tmp/aitask-2349-tmux.opQN0foR/usr/bin/tmux` | 3.3a | 0 | 61/61 pass, case 7 included (no 3.3a divergence) | 1/1/1/1 |
+
+Mutant controls: each fix assertion goes red under its mutant, and each
+in-file control (X/3X/4X/5X/6X/8X/9dX) passes, i.e. it observes its mutant's
+wrong behaviour:
+
+| fix assertion | shipped | global `TWO_CALL` | global `NO_PID_CHECK` | global `IMPLICIT_CLIENT` |
+|---|---|---|---|---|
+| 5: second terminal not moved | pass | pass | pass | **FAIL** (moved to sel_b) |
+| 6: replacement not moved | pass | pass (t2338 handled the startup window) | **FAIL** | **FAIL** |
+| 8: replacement in the gap not moved | pass | **FAIL** (moved to sel_b) | **FAIL** | **FAIL** |
+
+Under a global mutant the X, 5X and 6X controls also flip: the global mutant
+overrides the case's own mutant, which is expected interference and not
+counted as a result.
+
+Helper pid guard (case 9a has no in-file mutant; run by hand against a real
+server):
+
+| tmux | identity | wrong pid → | client |
+|---|---|---|---|
+| 3.8 | name+pid (fix) | `absent` | not moved |
+| 3.8 | name only (mutant) | `moved` | moved, i.e. the guard is load-bearing |
+| 3.3a | name+pid (fix) | `skipped` | not moved |
+| 3.3a | name only (mutant) | `moved` | moved |
+
+Other verification:
+- `test_multi_session_primitives.sh`: 56/56
+- `test_sitrep_window.py`: 97 OK
+- `test_monitor_sitrep_harvest_close`: 77 OK
+- `test_sitrep_window_live.sh`: 79/79
+- `test_multi_session_monitor.sh`: pass
+- `test_no_raw_tmux.sh`: 5/5
+- `test_control_routed_explicit_targets.py`: OK
+- shellcheck at `-S warning`: clean
+
+### Review round 1 (Step 8): two follow-ups, both fixed
+
+1. **`AIT_LIVE_TMUX_BIN` relative path.** The path is now resolved against the
+   invoking directory, before `enter_scratch_cwd`. A path that is not an
+   executable file now fails the run with exit 1 instead of a zero-exit SKIP.
+   Verified: `AIT_LIVE_TMUX_BIN=./tmux` from the binary's directory gives tmux
+   3.3a with 61/61 passing, and `./nope` gives `FAIL: setup`, rc=1.
+2. **Docs: confirmed absence versus unconfirmable identity.** `sitrep.md`
+   and the `monitor_core` comment now separate the two cases:
+   - **confirmed gone:** silent. On 3.4+ this is the client loop; on older
+     tmux it is no resolved client at all.
+   - **cannot be confirmed:** `focus_skipped`. This is older tmux resolving
+     another terminal, including an initiator that detached while another
+     terminal stays attached.
+
+### Review round 2 (Step 8): one follow-up, fixed
+
+- **Default-tmux preflight under an override.** The `command -v tmux` SKIP
+  now applies only when no `AIT_LIVE_TMUX_BIN` is given. The override is
+  validated later and fails loudly. `require_isolated_tmux` is unchanged.
+- Verified with `tmux` removed from `PATH` (every other part of the
+  environment intact) and the absolute 3.3a override: 61/61 pass, where before
+  the fix this was a zero-exit SKIP.
+- An `env -i` attempt failed cases 3 and 7, because there was no locale: tmux
+  control mode rendered tabs as `_`. That failure came from the harness and is
+  not attributed to this change.
