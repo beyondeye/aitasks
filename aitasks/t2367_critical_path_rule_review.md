@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: chore
-status: Ready
+status: Implementing
 labels: [trails, tui]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: risk_mitigation
 created_at: 2026-11-26 12:40
-updated_at: 2026-11-26 12:40
+updated_at: 2026-11-26 12:54
 ---
 
 ## Origin
