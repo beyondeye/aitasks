@@ -12,8 +12,9 @@ active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2290
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-25 17:50
-updated_at: 2026-11-25 23:34
+updated_at: 2026-11-27 01:39
 ---
 
 ## Origin
@@ -90,3 +91,8 @@ rare shapes), which is why t2332 kept it.
 - Exercise registry_lock's exit chain while held, with a prefix and a
   terminating `;`, and have the caller inspect `trap -p` to show the prefix
   survives.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-26T23:39:25Z status=pass attempt=1 type=human
