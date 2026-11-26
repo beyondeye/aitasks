@@ -338,3 +338,64 @@ already have a native Other.
 
 ### Planned mitigations
 - timing: pre-phase | name: live_optional_field_probe | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: Codex two-page form behaviour unverified | desc: Live tmux-driven Codex 0.172.0 probe with a scratch MCP server (round 1 optional field: failed; round 2 required "Notes or your own answer" page: C1 none / C2 note / C3 Other all passed on the 2025-06-18 form handshake), before any product code changes
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-26)
+- **Requested by user:** three review findings: (1) a resume that records a
+  prompt answer and gets the next form answered returned only the prompt
+  answer's `resolved`, losing the form answer's note; (2) the listed-choice
+  path stored `detail_raw` before any length check, and blank or `none`
+  entries skipped `_user_text`; (3) `back_to_choices: str | None` let the SDK
+  turn the question id `null` into `None`.
+- **Changes made:** (1) `resolved` stays the prompt answer, and the form's
+  answer is returned as `form_resolved` (docstring, mapping and design doc
+  updated); (2) page 2 is bounded at `TEXT_LIMIT` as typed, before the no-note
+  rule; (3) `back_to_choices` is a plain `str`, with `""` meaning absent. Each fix
+  has a regression test, red-proofed by reverting the fix in an isolated copy.
+- **Files affected:** `.aitask-scripts/aitask_questions/server.py`,
+  `.aitask-scripts/aitask_questions/store.py`, `.agents/skills/codex_tool_mapping.md`,
+  `aidocs/codeagents/codex_questions.md`, `tests/test_aitask_questions.py`,
+  `tests/test_aitask_questions_mcp.py`.
+
+### Change Request 2 (2026-11-26)
+- **Requested by user:** the pre-existing nullable `question_id` (and
+  `page_id`) parameters have the same JSON-parsing exposure. Disposition: a
+  follow-up, in a separate change.
+- **Changes made:** created follow-up t2366 (`review_finding`, bug). No code
+  change here.
+
+## Final Implementation Notes
+- **Actual work done:** `allow_other: true` on `kind: "choice"`, with a
+  server-added Other option and a two-page form. Page 2 is the required
+  `detail` field, "Notes or your own answer": `none` means no note for a listed
+  option, and for Other the text is the answer verbatim. Also added: the
+  explicit chat route `as_other`, recovery of the Other intent
+  (`other_requested` marker, a text-only form, `pending_part`), and the
+  in-occurrence back-out `back_to_choices`. Guards: lifecycle, attempt retire,
+  attempt-bound parts, the text bound, and refusal before the multi dispatch.
+  Records carry `other_text` / `note` / `detail_raw`, echoed in `resolved` /
+  `form_resolved`. Docs: the tool mapping, `codex_questions.md` ("Other
+  answers"), and the prototype doc ("Other free text — 2026-11-25").
+- **Deviations from plan:** the original plan had an optional page 2. The
+  pre-phase live probe showed Codex 0.172.0 cannot submit a blank optional text
+  field, so the user redesigned page 2 as required, with `none`. Round 2 of the
+  probe passed C1, C2 and C3, and the plan was revised before any code was
+  written. The plan's optional end-to-end live run was done with the real
+  server and stored C1–C3 as designed.
+- **Issues encountered:** Codex's tool-approval prompt is itself an elicitation
+  form. A `-c mcp_servers.<x>.env=` override crashes Codex at start, so the live
+  run passed `--state-dir` through `args` instead. Implementation bug: identity
+  (`is`) checks between Other dicts built separately by `choice_options` and
+  `other_option` never matched. Fixed by comparing ids.
+- **Key decisions:**
+  - The stored question stays the caller's own, so the spec digest covers
+    `allow_other`.
+  - Other matches only in the exact and normalized tiers, never fuzzy.
+  - Unmarked unmatched chat text is still refused: there is no silent Other.
+  - A note never blocks an approval, and Other never approves.
+  - A form reply is judged by its attempt's part.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_questions/server.py:233` — `aitask_question_resume`
+    declares `question_id` / `page_id` as `str | None`, so the MCP SDK parses a
+    literal id `null` into `None`. Follow-up t2366.
