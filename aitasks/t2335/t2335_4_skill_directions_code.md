@@ -91,3 +91,5 @@ The store contract this child builds on is the "Directions" section of `aidocs/f
 > | - `ERROR:bad_highlight:<value>` (alone, exit 0) for a highlight value that is neither a bare id nor `proj#id`; `ERROR:artifact_unresolved:<handle>` when an `art:` handle does not resolve.
 > | 
 > | The verb probes cross-repo statuses synchronously (one status read per key, 10 s timeout each), so a trail with many cross-repo refs makes the call slow.
+
+> **👁 note:read** id=2026-11-27T06:54:38Z.40d146345a28da7b8a4cfa86 by=t2335_4 at=2026-11-27T06:54:38Z mode=explicit ids=2026-11-25T09:40:37Z.7cd9c512172e33c598beb3f9,2026-11-25T17:24:35Z.e3cb0ebe13e1ee245f0fa64b,2026-11-27T06:48:37Z.5643ecfa98394b39498b2b52
