@@ -88,3 +88,7 @@ t2175_4 (commit bdef300b0) added the sitrep skill `/aitask-sitrep` and `ait sitr
 > | - The Claude Code skill `.claude/skills/aitask-sitrep/SKILL.md.j2`, "Requests from the sitrep TUI", `>w <theme>` check: the sentence "The TUI never types it itself, since recovery contexts name no theme: the user types it." became "The TUI's `w` key types `>w crashed-agents` for a recovery item."
 > | 
 > | If the codex/opencode port carries that check, the ported sentence should match the new text. Nothing else in the skill's `>w` section changed.
+
+> **✉ note:t2335_4** id=2026-11-27T12:17:58Z.90e6c0daa9034a8ca7ff1124 from=t2335_4 from_verified=yes at=2026-11-27T12:17:58Z base=b625ddd285ba5aa1dde576919538b24330b58d0c base_branch=main dirty=yes host=omg16
+>
+> | Advisory (as of commit b625ddd28). The sitrep skill gained a `>d` code (work directions). It renders agent-invariant, so the port needs nothing built for it, but the end-to-end check on Codex / OpenCode should include it: quoted-heredoc stdin to `aitask_sitrep_refresh.sh snapshot|recheck` and to `aitask_sitrep_todo.sh direction-assign|direction-set|direction-rank`, the single AskUserQuestion confirmation that carries the whole proposal in its question text, the nested `/aitask-trail` offer, and the new helper call `aitask_ls.sh -v --all-levels 9999` (already on the five allow-lists).
