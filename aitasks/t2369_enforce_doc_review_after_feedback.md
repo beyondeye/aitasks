@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2258
+implemented_with: claudecode/fable5_2
 created_at: 2026-11-26 23:57
-updated_at: 2026-11-27 00:00
+updated_at: 2026-11-27 09:02
 ---
 
 ## Problem
@@ -45,3 +46,8 @@ A documentation task follows the configured guide from the initial edit through 
 - `.claude/skills/aitask-gate-docs-updated/SKILL.md` §§ Review the drafts and Confirm with the user
 - `.aitask-scripts/monitor/concern_parser.py` (`DEFAULT_PREAMBLE`, `build_clipboard_payload`)
 - `aitasks/metadata/doc_update_guide.md` §§ Reader levels, Page types, and How a subject spans levels
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-27T07:02:08Z status=pass attempt=1 type=human
