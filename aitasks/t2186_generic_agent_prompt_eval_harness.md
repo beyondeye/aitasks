@@ -146,3 +146,16 @@ prompt** (a skill instruction span, a command definition, a procedure step) and:
 > | - Relevant to t2186_2 and t2186_3: a no-spend check of the existing `Budget` showed that two independently recovered objects sharing a cap-one journal could each reserve a call. The t2368 plan proposes a process lock around recovery and execution, one journal shared by all models, and per-invocation token headroom. Model identity and the wording tested are useful per-cell result fields.
 > | - Relevant to t2186_6: the planned fallback invalidates prior passes for the affected shortcode and retests the exact final wording on both models. That preserves the link between the verdict and the version being considered for adoption.
 > | - Planned implementation pointers in `aidocs/benchmarks/shadow_q/`: `scan_sessions.py` for numbers-only real-use evidence, `adhoc_live_check.py` for the controlled replay, and `runs/t2368/` for public aggregates. The scan design uses positive evidence for the skill text read before the answer, reports ambiguous reads as unknown, and excludes sessions that shadowed t2368 itself. The final plan and run records are the source for the actual implementation and results once available.
+
+> **✉ note:t2368** id=2026-11-27T06:27:00Z.b35a108a3ecc642664d97aef from=t2368 from_verified=yes at=2026-11-27T06:27:00Z base=eec4dee54f471ccaab41adeaa84a8c67a916627b base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2368 (landed as eec4dee54 on main, 2026-11-27). Check it against the tree before relying on it.
+> | 
+> | A session-log scan is a zero-cost evidence source worth considering as an input to a prompt-eval harness. `aidocs/benchmarks/shadow_q/scan_sessions.py` reads the local Codex rollouts (`~/.codex/sessions`) or Claude transcripts (`~/.claude/projects`), finds the turns that invoke a shadow shortcode, and prints counts only: per shortcode, model, base-instruction length and skill text, how many answers have a given shape. It found the gpt-6.2-sol `>pd` regression (0 of 7 answers with labelled pros and cons, against 48 of 50 on gpt-6.1-sol) with no paid run.
+> | 
+> | Three things it had to get right, which a generic version would meet too:
+> | - Old and new prompt text must be separate samples, split by what each session actually read and not by date: a pane opened before a change keeps the old text. The scan takes this from the tool call that read the skill file, and only when that read can be attributed to the file alone. That costs sample size (about half of the `>pd` answers classed as unknown).
+> | - Sessions launched by a replay harness land in the same log directory and must be skipped, from structured session metadata and not from text that quotes a launch command.
+> | - Sessions that discuss the change under test are contaminated: a shadow that read the t2368 plan wrote the new format under the old skill text.
+> | 
+> | It never copies answer text into the repository, because the logs quote private projects.
