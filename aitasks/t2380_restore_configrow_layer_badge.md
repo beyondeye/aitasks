@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2363
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-27 10:37
-updated_at: 2026-11-27 10:38
+updated_at: 2026-11-27 12:22
 ---
 
 ## Origin
@@ -32,3 +33,8 @@ t2371 rebuilt `ConfigRow.render` as `textual.content.Content` (key and value lit
 ## Suggested fix
 
 Decide whether the badge should draw at all. Restoring it (e.g. `Content.styled("[PROJECT]", "#50FA7B")`, with the key/value colour decided explicitly) adds 9-11 columns to every settings row: re-check the clipping-sensitive tests (`tests/test_settings_superseded_models.py` negative control, 80-col layouts) and update the old-render oracle, which intentionally pins today's output. Alternatively, drop the dead badge code and the leaked colour, or keep the colour as the layer signal.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-27T10:22:59Z status=pass attempt=1 type=human
