@@ -3,11 +3,12 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Implementing
 labels: [monitor]
+assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
 created_at: 2026-11-27 01:43
-updated_at: 2026-11-27 01:43
+updated_at: 2026-11-27 08:03
 ---
 
 ## Origin
