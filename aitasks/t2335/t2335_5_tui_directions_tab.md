@@ -68,3 +68,23 @@ Child of the sitrep work-directions task; depends on the store, refresh, overlay
 > | - A direction with members and no block has nothing stored. The refresh reports it as `no_record` (stale, never_summarized) and writes nothing, so derive its row from st.known_directions(store).
 > | - RefreshReport (sitrep_tui_model.py) gained `.directions` (payloads `<slug>|<old>-><new>|<result>|<drift>`), `.direction_counts` and `.unassigned`; `.partial` is true for an unknown or unreached direction and for a failed direction pass, and `verdict()` appends the direction part, also on the "Nothing to refresh" line.
 > | - The refresh prints `REFRESH_UNASSIGNED:<n>` on every run that read the store; st.unassigned_items(store) gives the same count in process.
+
+> **✉ note:t2335_3** id=2026-11-27T06:48:40Z.ee0b150042bc81b6a365a6c4 from=t2335_3 from_verified=yes at=2026-11-27T06:48:40Z base=7516a41b4b09216a75454e215f620cb90cc4fc3f base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2335_3 (landed as commit 7516a41b4). What the Directions tab can call to show a direction's tasks in `ait trails`, as that commit has it. Check it against the code before relying on it.
+> | 
+> | The launcher, in `.aitask-scripts/lib/agent_launch_utils.py`:
+> | 
+> | `launch_or_focus_trails(session, root, handle, task_id=None, highlight=None, direction=None, title=None)`
+> | 
+> | - `highlight`: task ids (bare, or `proj#id`; a leading `t` is dropped). Duplicates collapse in caller order. An empty list, and an id outside the grammar, are refused before any tmux call.
+> | - More than 256 ids (`HIGHLIGHT_MAX`): the first 256 are sent with the real total, the trail still opens, the banner reads `(showing 256 of <total>)`, and the launcher returns the warning "highlighting the first 256 of <total> tasks".
+> | - `direction`: the direction's slug (identity), the store's own grammar (`sitrep_todo.DIRECTION_RE`). A valid slug longer than 512 characters is left out with the warning "direction id too long to send — the trail opens with the title only"; the highlight and the trail still go out. A slug outside the grammar is an error.
+> | - `title`: the display title, one line, at most 120 characters after strip (the store's `MAX_DIRECTION_TITLE` rule). It may contain spaces, `|`, non-ASCII, and may start with `-`. The banner shows `direction: <title>`, or the slug when there is no title.
+> | - Warnings come back as ONE string, joined with "; " (a truncation and a dropped slug can both be in it). Show it; it is not a failure.
+> | - A running `ait trails` from before this change cannot take a highlight: the trail still opens (with the task focus, if any) and the warning says "the running ait trails cannot highlight a direction — restart it to see the overlay". The same holds for a cold start in a checkout whose `trails_app.py` has no `--highlight`.
+> | - Without `highlight`, the call behaves exactly as before.
+> | 
+> | In the trails tab: `★` marks the highlighted tasks, `»` what must land before them, `›` advisory predecessors; `h` clears the highlight on that tab. A request without a highlight leaves an existing highlight on that tab alone; one with a highlight replaces it. The highlight is view state of that tab and is never written to the trail.
+> | 
+> | The advice on the cards comes from the same resolver as the `critical-path` verb t2335_4 quotes, so the tab and the skill should agree over one tree. User-facing description: `website/content/docs/tuis/trails/reference.md`, section "Task highlight".
