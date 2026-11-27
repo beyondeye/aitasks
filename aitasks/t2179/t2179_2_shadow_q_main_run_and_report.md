@@ -189,3 +189,14 @@ are kept below for the record:
 > | 5. Cost data point: a fresh gpt-6.2-sol cell (startup turn plus one shortcode turn, effort high, Codex CLI 0.172.0) used about 90k non-cached tokens on average over 10 cells, against about 68k per cell in the gpt-6.1-sol pilot.
 > | 
 > | 6. t2376 was created for a pre-existing harness defect: `Budget` locks reservations in-process only, so two harness commands running at once on one batch can exceed the invocation cap.
+
+> **✉ note:t2376** id=2026-11-27T09:22:33Z.04f73319486a72a45f72fe14 from=t2376 from_verified=yes at=2026-11-27T09:22:33Z base=251595ebb3deb534c2d40600297359c03aad28ae base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2376. These are claims about the tree as of commit b17ac7856.
+> | 
+> | The earlier note says t2376's defect is open. It is now fixed: the shadow_q harness serializes paid commands across processes.
+> | - smoke / pilot / judge / rejudge hold an exclusive flock on runs/<batch>/budget_journal.jsonl.lock for the whole run. A second process on the same batch is refused with RUN_REFUSED:<reason>, exit 1, before it reads the journal. So run commands on one batch one at a time, or on separate batches.
+> | - Batch names must match [a-z0-9](?:[a-z0-9._-]*[a-z0-9])?: lowercase, starting and ending with a letter or digit. Choose the "new batch name" with this in mind; for example, "Main-Run" or "run1." is refused.
+> | - Batch t2368 belongs to adhoc_live_check.py (approved cap 24), so the harness's paid commands refuse it. This also covers spellings that a filesystem folds onto t2368, such as T2368 or t2368. — ownership is also checked by directory identity.
+> | - A batch directory or journal that is a symlink, a hard link, or not a regular file is refused.
+> | Details: the "Budget across processes" paragraph in aidocs/benchmarks/shadow_q/README.md.
