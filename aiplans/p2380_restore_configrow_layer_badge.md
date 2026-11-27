@@ -224,10 +224,10 @@ via the standard Step 9 flow on `main` (current-branch mode, no merge).
 
 ### Goal-achievement risk: low
 - The scoping narrows the pick-time choice ("every row") to the Agent Defaults tab. This is the only place the docs promise the badge and the only tab with layer pairs, but it is a deviation the user approves with this plan. · severity: low · → mitigation: none (plan approval)
-- The home/settings page screenshot (`website/static/imgs/home/settings.svg`, recipe `home_settings`) will not show the restored badges until it is regenerated. The recipe's `expect` lines still match, so nothing fails, but the image goes stale against the docs text. · severity: low · → mitigation: refresh_settings_screenshot
+- The home/settings page screenshot (`website/static/imgs/home/settings.svg`, recipe `home_settings`) will not show the restored badges until it is regenerated. The recipe's `expect` lines still match, so nothing fails, but the image goes stale against the docs text. · severity: low · → mitigation: t2389
 
 ### Planned mitigations
-- timing: after | name: refresh_settings_screenshot | type: documentation | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: stale home/settings.svg screenshot without the restored layer badges | desc: Regenerate the home_settings TUI screenshot (website/static/imgs/home/settings.svg) with the aitask-docs-screenshots skill so the Agent Defaults rows show the [PROJECT]/[USER] badges restored by t2380
+- timing: after | name: refresh_settings_screenshot | type: documentation | priority: low | effort: low | inline_risk: low | added_complexity: medium | addresses: stale home/settings.svg screenshot without the restored layer badges | desc: Regenerate the home_settings TUI screenshot (website/static/imgs/home/settings.svg) with the aitask-docs-screenshots skill so the Agent Defaults rows show the [PROJECT]/[USER] badges restored by t2380 | created: t2389
 
 ## Post-Review Changes
 
