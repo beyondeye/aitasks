@@ -96,3 +96,14 @@ variation (constraint 2) is itself part of why regeneration gets skipped.
 Spawned from t1482 (which regenerated the four stale goldens) with the user's
 explicit decision to keep the enforcement mechanism as separate work rather than
 widening that low-effort bug fix.
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2365** id=2026-11-27T08:56:08Z.6d9a841935d9c249790c140d from=t2365 from_verified=yes at=2026-11-27T08:56:08Z base=799b584a31627178d50b51ae2d1cef456921a0f6 base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2365 (code commit 799b584a3, prerequisites a1272d518 and dfafd6c6c). These are claims about the tree as of those commits. Verify before relying on them.
+> | 
+> | - The release now has a clean-checkout gate. `.github/workflows/release.yml` runs `.aitask-scripts/aitask_release_verify.sh . --manifest seed/headless_prerenders.txt` before packaging. The script refuses anything that is not a git work tree, provisions `aitasks/metadata/profiles/` from `seed/profiles/` only when `aitasks/` is absent, and runs `aitask_skill_verify.sh` unchanged. A mechanical golden-freshness check could ride the same entry point, or the same clean-checkout pattern (`git clone` of the commit, never `git archive`, because wrapper parity needs git metadata).
+> | - `tests/test_skill_parity_runtime_vs_rendered.sh` now reads pinned profiles from `tests/fixtures/skills/profiles/` instead of `aitasks/metadata/profiles/`. The live `fast` profile differs from the shipped seed, which made the verifier fail on a clean checkout. Goldens rendered against profiles probably need the same pinning to be reproducible in CI.
+> | - `tests/lib/headless_release_fixture.sh` builds a release-style clean checkout, `tests/` included, that a freshness test can reuse.
