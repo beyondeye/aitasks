@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [shadow, skills, codex]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2179
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-27 08:23
-updated_at: 2026-11-27 10:36
+updated_at: 2026-11-27 11:23
+completed_at: 2026-11-27 11:23
 ---
 
 ## Origin
@@ -48,3 +49,14 @@ Relevant to t2179_2 (the main run) and t2187, which are the paid users of the ha
 > **✅ gate:plan_approved** run=2026-11-27T08:36:37Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-27T09:17:52Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-27T09:23:13Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:a18800e27aa6869e
+
+> **✅ gate:risk_evaluated** run=2026-11-27T09:23:13Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2376/risk_evaluated_2026-11-27T09:23:13Z-risk_evaluated-a1.log`
