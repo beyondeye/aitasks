@@ -400,3 +400,149 @@ Step 9.
 ### Planned mitigations
 - timing: pre-phase | name: baseline_suites | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: framework-wide EXIT-trap regressions | desc: run every trap-composition and lock-caller suite on the unmodified tree first, and record the baseline counts plus block O's HEAD verdicts
 - timing: post-phase | name: prefix_controls | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: tests that pass on the old code; unpinned rules (position, identity, recursion guard) | desc: run the updated test file against HEAD's libs and five mutants in a scratch copy, and record which assertions fail
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-27)
+- **Requested by user:** two blocking review findings, both confirmed on
+  bash 3.2 and 5.3, and both reproduced here:
+  1. A backslash-newline after the wrapper name of the leading call. Bash folds
+     it into the same command, and the baseline exits 42. The patch fell
+     through to display rule 3 and exited 1 with a false first-command
+     warning. Recognise continuations between the leading command's words,
+     and add an O-status case for 42 that keeps the non-leading case at 1.
+  2. The "byte-exact" bare-cleanup check used `[[ == ]]`, which honours
+     `nocasematch`. A caller's own `_AIT_ARCHIVE_CLEANUP` handler was taken
+     for ours: it was not wrapped, and the archive dir leaked. Use a
+     case-sensitive comparison and add a regression test.
+- **Changes made:**
+  - *Probe.* Under nocasematch, `[[ == ]]`, `case` and `${x/pat/rep}` fold
+    case; `[ = ]`, `${x#pat}`, `${x%pat}` and `${x:i:n}` do not.
+  - *Case-exact matching.* Every identity or position match in the new code
+    that involves letters now uses the case-exact constructs. That covers:
+    - the wrap's cleanup check;
+    - `_ait_archive_owned_text`, which now also rebuilds and `[ = ]`-compares;
+    - the chain's `--ait-id=` parse;
+    - `_ait_archive_lead_span`;
+    - rule 2's contains-check;
+    - registry_lock's `_registry_lock_splice` and `_registry_lock_owned_tail`.
+
+    `case` remains only where its patterns carry no letters.
+  - *Separators.* New `_ait_archive_skip_seps` and `_ait_archive_at_boundary`
+    read separators the way bash does:
+    - a run of blanks and line continuations separates two words only if it
+      holds a real blank;
+    - a continuation alone joins words;
+    - a boundary may sit behind continuations.
+
+    registry_lock has twin helpers (`_RL_BSNL`, `_registry_lock_skip_blanks`,
+    `_registry_lock_at_boundary`).
+  - *Tests.* O-status gains `cont` (the continuation leads: 42, no warning)
+    and `nonlead_cont` (behind `:;`: 1, with the warning). The new O-case
+    block runs under `shopt -s nocasematch`. Variant `cleanup` uses the
+    caller's own `_AIT_ARCHIVE_CLEANUP`; variant `chain` calls the caller's
+    own `_AIT_ARCHIVE_EXIT_CHAIN --AIT-ID=0`. Each must be wrapped, run once
+    and swept. 445 assertions in total.
+  - *Controls.*
+    - HEAD's libs pass both new O-status variants (42 / 1) and fail O-case
+      (HEAD's substring rule).
+    - Mutant (g), the cleanup check back to `[[ == ]]`, fails only
+      O-case[cleanup] (not wrapped, not swept).
+    - Mutant (h), continuations not skipped, fails only O-status[cont].
+- **Files affected:** `.aitask-scripts/lib/archive_utils.sh`,
+  `.aitask-scripts/lib/registry_lock.sh`,
+  `tests/test_archive_rearm_exit_trap.sh`.
+
+## Final Implementation Notes
+- **Actual work done:**
+  - `lib/archive_utils.sh` gives every installed EXIT handler its own id:
+    `_ait_archive_exit_chain --ait-id=<k> "$@"`, with the caller text in
+    `_AIT_ARCHIVE_CALLERS[k]`.
+  - A re-arm owns a trap only when its text is byte-exactly the bare cleanup,
+    or the install text of an allocated id. Anything else is a new handler.
+  - The chain runs the handler its own argument names. A nested call must
+    carry a lower id, so nothing recurses.
+  - The `trap -p` display rule claims "first" only for a provable leading
+    call: leading span, then last canonical occurrence, then
+    "text, newline, caller", then blank.
+  - `_AIT_ARCHIVE_CALLER_EXIT_TRAP` is kept as a write-once mirror of id 0.
+  - `lib/registry_lock.sh`:
+    - re-arms the sweep before saving the caller trap;
+    - saves it verbatim (the archive peel is gone);
+    - uses `_registry_lock_splice` for its display, which fixes `t; <cmd>;`;
+    - drops `_registry_lock_join`.
+  - Tests:
+    - the pinned spellings now use `--ait-id=<k>`;
+    - M-lit gains LEFT and a verbatim STORED;
+    - new block O: O-status (quoted, nonlead, lead, cont, nonlead_cont),
+      O-saverestore, O-comment, O-lit, O-shape×lock (12), O-resrc, O-hold,
+      O-rldisp, O-self, O-case;
+    - test_archive_utils J2a's pin is updated.
+
+  The archive_rearm suite went from 262 to 445 assertions.
+- **Deviations from plan:**
+  - Change Request 1 (see Post-Review Changes) widened the separator rule to
+    line continuations, and made all identity/position matching case-exact
+    under `nocasematch`. That includes the registry_lock twin and its
+    `owned_tail`, which goes slightly beyond the two reported sites, for the
+    same contract.
+  - Two plan-review rounds before coding replaced the first design (a
+    shared-text caller stack) with per-handler ids, then made the display's
+    fallback fail-safe.
+- **Issues encountered:**
+  - One mutant control (g) was built wrong at first: its marker comment
+    swallowed the rest of the `if` line, giving 211 spurious failures. Rebuilt
+    with `bash -n` checked: 2 targeted failures.
+  - No bash 3.2 here; review reports the original two defects confirmed on
+    3.2.
+- **Key decisions:**
+  - Ids are never reused, because saved trap texts may name old ones.
+  - Rule 3 of the display ("position unknown → keep the head") reports a lost
+    status as a failure, never as success.
+  - The splice helpers are duplicated across the two libs, because
+    registry_lock loads standalone and test scaffolds copy archive_utils
+    alone. Each comment names its twin.
+- **Baseline (pre-phase baseline_suites):** all green on the unmodified tree:
+  archive_rearm 262, archive_utils 78, registry_lock 98, resolve_tar_zst 81,
+  ledger_lock_exit_trap 78, txn_snapshot 60, merge_lock_broker 138,
+  merge_lock_concurrency 42, pick_own_scoped_commit 103,
+  pick_own_expect_status ok, projects_lock_released_on_die 38,
+  gates_sync_registry 94, gate_lock_characterization 62, fold_content 103,
+  fold_file_refs_union 19, fold_mark 277, fold_risk_mitigation_drop 5,
+  fold_validate 7, tripwire OK.
+  - Block O against the unmodified libs fails 34 assertions. 13 are
+    pinned-spelling only. 21 are behavioural:
+    - M-lit, O-comment and O-lit: not swept, STORED empty;
+    - O-shape: all 12 flows lose h;
+    - O-rldisp: prefix dropped;
+    - O-self: HEAD ignores the id.
+
+    O-status, O-saverestore, O-resrc and O-hold's counts pass on HEAD.
+  - After the change, every suite equals its baseline except archive_rearm
+    (445).
+  - 71 further suites that resolve archived tasks all pass.
+  - `run_shell_test.sh` reports no leftovers.
+  - shellcheck is clean on both libs; the test file has the same 10
+    pre-existing findings as HEAD.
+- **Post-phase prefix_controls:** every run in a scratch copy, failing exactly
+  what is listed:
+  - (b) substring idempotence restored:
+    - O-comment, O-lit and M-lit;
+    - also M[txn/tg/a] and M-bs[even/a], because the substring check makes
+      the acquire-time pre-wrap a no-op on prepend texts.
+  - (c) display rule 1 removed: O-status quoted and lead.
+  - (c2) rule 3 → caller text: O-status[nonlead] exits 0 with no warning.
+  - (c3) exact-only leading match: O-status[lead].
+  - (d) id ignored: O-saverestore, plus 78 other assertions across every
+    nested flow.
+  - (e) rl display without the splice: O-rldisp ×2.
+  - (f) guard removed (FUNCNEST=150): O-self only.
+  - (g) cleanup check via `[[ == ]]`: O-case[cleanup] only.
+  - (h) continuations not skipped: O-status[cont] only.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/archive_utils.sh:212` (pre-existing): the
+    `_ait_archive_cleanup` base comparison
+    `[[ "${TMPDIR:-/tmp}" == "$_AIT_ARCHIVE_TMPBASE" ]]` folds case under a
+    caller's `nocasematch`. An exit-time TMPDIR that differs from the pinned
+    base only by case is then not swept as a second base, so its extractions
+    can leak.
