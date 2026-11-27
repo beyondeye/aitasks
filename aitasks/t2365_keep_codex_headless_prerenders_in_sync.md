@@ -10,8 +10,9 @@ active_gates_filtered: []
 active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-26 09:34
-updated_at: 2026-11-26 09:36
+updated_at: 2026-11-27 08:24
 ---
 
 ## Problem
@@ -31,3 +32,8 @@ Framework upgrades can leave tracked Codex headless skill files modified in a co
 - Exercise an upgrade with a pre-existing local edit and confirm the installer preserves it.
 
 Related work includes t2297 (tool-mapping refresh), t1154 (a separate OpenCode prerender drift), and t1484 (test golden freshness).
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-27T06:24:57Z status=pass attempt=1 type=human
