@@ -546,3 +546,139 @@ With `./ait note … --from 2368`:
 
 ### Planned mitigations
 - timing: after | name: rescan_shadow_q_pd_real_use | type: test | priority: medium | effort: low | inline_risk: high | added_complexity: low | addresses: one answer per wording and model on replay fixtures; real answers could still mix pros and cons or >q could drift long | desc: Some days after t2368 lands, re-run aidocs/benchmarks/shadow_q/scan_sessions.py on real shadow sessions, record the numbers for >q, >qd and >pd on gpt-6.2-sol as two samples split by the skill text each session read (old / new, with n for each, same matcher), read how >q answers on workflow menus and >qd answers look, and report >px / >t and Claude counts
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-27 02:10)
+- **Requested by user:** three review concerns, all confirmed.
+  1. `require_manifest` checked every pilot fixture whatever scenarios the run
+     named, so a store holding the shared inputs and only `workflow_menu` was
+     refused.
+  2. The scan took a read of `SKILL.md.bak` as evidence for `SKILL.md`, and
+     took a marker from another file in a combined command's output.
+  3. The validator recorded off-path helper calls but did not reject the
+     trial for the new replay checks.
+- **Changes made:**
+  1. The base manifest check covers the shared inputs plus the requested
+     pilot scenarios only. Test: a store with only the requested extra
+     fixture validates; a named pilot fixture is still required; the shared
+     inputs are always checked.
+  2. Skill-text evidence needs an attributable read: the exact path, one
+     plain read (`cat`, `sed -n`, `nl`, `head`, or a file-read tool) with no
+     pipe or chaining, and only companions whose output cannot carry skill
+     text (context, profile and render helpers, `--phase`). Anything else
+     that names the file is ambiguous and gives `unknown`, also after an
+     earlier clean read. Tests cover `.bak`, a combined command, a read
+     batched with a screen capture, piped and chained reads.
+  3. `SessionSpec.strict_helpers` (set by the runner through
+     `Experiment.strict_helpers`) makes a trial non-compliant when the session
+     called a helper outside the replay set, in that turn or an earlier one.
+     The pilot default keeps its flag-only reading. `verify-production` now
+     also checks that every counted row's session recorded no off-path helper
+     call; all eight do.
+  4. Found while re-measuring: the scan counted the replay harness's own
+     sessions (this check's and the t2179 pilot's) as real use. Sessions with
+     a sandbox working directory or the harness's fake pane are now skipped
+     and counted separately.
+- **Files affected:** `aidocs/benchmarks/shadow_q/harness.py`, `validate.py`,
+  `scan_sessions.py`, `adhoc_live_check.py`, `README.md`,
+  `tests/test_shadow_q_harness.py`, `tests/test_shadow_scan_sessions.py`.
+
+### Change Request 2 (2026-11-27 02:40)
+- **Requested by user:** two review concerns on `scan_sessions.py`, both
+  confirmed.
+  1. The replay filter searched the whole transcript for the fake-pane launch
+     text, so real sessions that only quoted it were skipped (four sessions,
+     five answers).
+  2. The plain-read matcher accepted any non-whitespace target, so
+     `cat notes.md;cat<…/SKILL.md` classed an answer from a marker in
+     `notes.md`.
+- **Changes made:**
+  1. A replay is recognised from structured data only: the session's recorded
+     working directory (Codex `session_meta.cwd`, the Claude record `cwd`), or
+     a user message that is exactly the harness's launch command. Tests: a
+     real session that quotes the launch and a sandbox path in a tool output,
+     in a longer user message and in an answer is kept; a Claude replay is
+     recognised from its record `cwd`.
+  2. A plain read needs a literal pathname as its target, and any shell
+     operator or redirection in the command (`; | & < >`, backtick, `$(`,
+     `${`, a backslash, a newline), spaced or not, makes the call ambiguous.
+     Quotes and globs are not literal pathnames. Tests cover eight such
+     forms.
+- **Files affected:** `aidocs/benchmarks/shadow_q/scan_sessions.py`,
+  `tests/test_shadow_scan_sessions.py`.
+
+## Final Implementation Notes
+- **Actual work done:** as planned. `>q` is the short answer, `>qd` is the new
+  full comparison, `>pd` asks for a Pros list and a Cons list per decision, and
+  the proactive offer names `>qd`. Goldens, test pins, the framework doc and
+  the website page follow. New: `scan_sessions.py` with its test, the
+  `workflow_menu` fixture (private store) with its own public manifest, the
+  harness turn prompt, per-kind validity and strict helper rule, scoped
+  manifest checks, and `adhoc_live_check.py`. Candidate texts live in
+  `aidocs/benchmarks/shadow_q/t2368/` and `variants/v5_quick.md`, and
+  `verify-production` shows production byte-equal to them.
+- **Live check (2026-11-27, Codex CLI 0.172.0, effort high):** 8 cells, 10
+  attempts, 20 of 24 invocations, 737,970 of 1,000,000 non-cached tokens. All
+  counted cells `valid`, reported model equal to the requested one, no
+  off-path helper call.
+
+  | row | model | wording | code | fixture | chars | pros blocks | cons blocks |
+  |---|---|---|---|---|---|---|---|
+  | 1 | gpt-6.2-sol | new | `>q` | workflow_menu | 665 | 0 | 0 |
+  | 2 | gpt-6.2-sol | old | `>q` | workflow_menu | 1170 | 0 | 0 |
+  | 3 | gpt-6.2-sol | new | `>qd` | file_selection | 2086 | 2 | 2 |
+  | 4 | gpt-6.2-sol | new | `>q` | file_selection | 984 | 0 | 0 |
+  | 5 | gpt-6.2-sol | new | `>pd` | working_wait | 2678 | 3 | 3 |
+  | 6 | gpt-6.2-sol | old | `>pd` | working_wait | 2146 | 0 | 0 |
+  | 7 | gpt-6.1-sol | new | `>qd` | file_selection | 2642 | 2 | 2 |
+  | 8 | gpt-6.1-sol | new | `>pd` | working_wait | 2794 | 3 | 3 |
+
+  Read against the pass bar: `>qd` and `>pd` pass on both models; depth
+  follows the command (rows 3 and 4, same screen); the controls reproduce the
+  old behaviour (row 6 is one prose paragraph per decision; row 2 opens with
+  the pick and lists the menu's free-text and chat entries as options).
+- **Before numbers** (`scan_sessions.py --months 2026-10,2026-11 --exclude-task
+  2368`, 17 replay sessions skipped): gpt-6.2-sol `>pd` 7 answers, 0 labelled,
+  1 with separate lists (class `unknown`, source not traced), 3 `unknown`;
+  gpt-6.1-sol `>pd` 50 answers, 48 labelled; gpt-6-astra `>pd` 10, 9 labelled;
+  `>q` 45 on gpt-6.2-sol and 404 on gpt-6.1-sol, none with lists. These replace
+  the table at the top of this plan: the model of a turn is now read before
+  its first answer text (two `>pd` answers moved from gpt-6-astra to
+  gpt-6.1-sol), and replay-harness sessions are no longer counted.
+- **Deviations from plan:**
+  - One revision was used, on `>q` only. The first `>q` answers (576 and 644
+    chars) opened with the recommendation and did not say what was being
+    decided. The answer block now states the order as the format the user
+    wants. Both `>q` cells were re-run; rows 1 and 4 above are the re-runs.
+  - A cell cost about 90k non-cached tokens on average (120k for the first),
+    not the 68k estimated from the pilot. The runner gained a per-cell guard
+    so a cell is not started when its second turn would be refused.
+  - The wording hash is per shortcode, so a `>q`-only revision voids `>q`
+    rows only. Rows 3-5 were recorded under one combined hash first;
+    `LEGACY_SHA` maps it to the per-shortcode hashes of the same texts.
+  - The test pin for "the plan does not say why" matches the part of the
+    phrase that stays on one line, because the tested text wraps inside it.
+  - Review rounds added: manifest scope by requested scenarios, attributable
+    reads in the scan, the strict off-path helper rule, replay-session
+    skipping from structured data (see "Post-Review Changes").
+- **Issues encountered:** none that blocked. The scan first counted the
+  harness's own sessions as real use; fixed before the numbers above.
+- **Key decisions:**
+  - Decision help is two commands so the user picks the depth (user decision).
+    Any ask for decision help that does not ask for a comparison is `>q`.
+  - The full comparison is `>qd`, and `>pd` keeps its name (user decision).
+  - Lists under bold `**Pros**` / `**Cons**` lines with no colon, stated as
+    the format the user wants. The colon hypothesis was not tested.
+  - Strict read attribution in the scan costs sample size: about half of the
+    `>pd` answers class as `unknown`, because the shadow usually reads
+    `plan-decisions.md` in the same call as a screen capture.
+- **Not covered, by choice:** `>q` on gpt-6.1-sol; `>q` / `>qd` with no
+  question on screen; a second `>qd` fixture; Claude Code and OpenCode (Claude
+  transcripts hold one shadow `>q` answer in total); `>px` (one answer in
+  total). The "after" task re-scans real use.
+- **Outside this repository:** aitasks_go commit `413dcf5` (the
+  `workflow_menu` fixture) is local and not pushed. The raw answers of the
+  check are in that repository's `aidocs/shadow_q_store/runs/t2368/`,
+  uncommitted.
+- **Upstream defects identified:** None
