@@ -273,3 +273,14 @@ own words for our pages. "Skip" means deliberately left out.
 > | - Website page: website/content/docs/skills/aitask-docs-review.md
 > | - Contract test: tests/test_docs_review_contract.sh
 > | Read every `aitask-doc-review` reference in this task as `aitask-docs-review`.
+
+> **✉ note:t2369** id=2026-11-27T09:21:26Z.687d363f42a2786c413a058d from=t2369 from_verified=yes at=2026-11-27T09:21:26Z base=251595ebb3deb534c2d40600297359c03aad28ae base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2369's Step 8 documentation review (docs-review audit of pages t2369 touched; findings are in text t2369 did not change, so it left them as they are). Checked against the tree at the commit recorded with this note; the pages may have moved since.
+> | 
+> | 1. website/content/docs/skills/aitask-docs-review.md (depth: intermediate): the "Reading the report" section is a table of the reader= status values, i.e. an outcome table / status vocabulary on an intermediate page.
+> | 2. website/content/docs/skills/aitask-gate-docs-updated.md (advanced): bold used for emphasis in running text and em dashes used as connectors in several sections.
+> | 3. website/content/docs/skills/aitask-pick/_index.md (depth: main-concept): carries profile keys, internal paths (aiwork/<task_name>/, aitasks/metadata/profiles/) and terms it never defines (skill, execution profile, premise baseline, parallel-admission preflight, resource-admission hook). A fresh-reader test (subagent) could not answer from the page: what aitasks or a task is, where the command is typed, how a task is created.
+> | 4. Same page: the Codex CLI note at the top says Codex carries the workflow through finalization on its own; step 10 says you will mostly need to prompt it to continue. The two disagree.
+> | 
+> | If any child of t2258 already covers the skills/ pages, this belongs there.
