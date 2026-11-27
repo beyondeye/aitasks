@@ -984,7 +984,7 @@ Runs after step 13 and before the Step 8 approval prompt.
 ## Risk
 
 ### Code-health risk: medium
-- Step 8 text is rendered into every profile and into the committed remote variants, so a wording mistake changes the commit path of every task · severity: medium · → mitigation: manual_verify_doc_review_loop
+- Step 8 text is rendered into every profile and into the committed remote variants, so a wording mistake changes the commit path of every task · severity: medium · → mitigation: t2385
 - The review round adds work on every Step 8 pass of a doc-changing task, and the doc set and the claim-basis lists depend on agent judgement · severity: medium · → mitigation: inline post-phase dogfood_review_round
 - The committed `task-workflow-remote-` variants are already dirty from another session; a re-render could sweep in foreign changes · severity: medium · → mitigation: none (handled by the decision rule in implementation step 10)
 - The code-commit command of every task now runs behind `guard`; a helper defect (a crash, a wrong exit status) would block commits for tasks with no documentation at all · severity: medium · → mitigation: none (pinned by the no-documentation and unrelated-edit positive controls in implementation step 3; a blocked guard is recoverable — nothing is committed or staged)
@@ -992,13 +992,13 @@ Runs after step 13 and before the Step 8 approval prompt.
 - The helper now carries eight page states, eleven verbs, snapshots, issued keys and a presented scope; a state the tests do not pin could report a stale set as current · severity: medium · → mitigation: none (the state table is the test matrix of implementation step 3)
 
 ### Goal-achievement risk: medium
-- The enforcement is prose the agent follows; the helper proves hashes match, but only static contract tests check that Step 8 calls it · severity: medium · → mitigation: inline post-phase dogfood_review_round; manual_verify_doc_review_loop
+- The enforcement is prose the agent follows; the helper proves hashes match, but only static contract tests check that Step 8 calls it · severity: medium · → mitigation: inline post-phase dogfood_review_round; t2385
 - A claim whose implementation file the agent did not list as a basis is not re-flagged when that file changes · severity: medium · → mitigation: none (the feedback rules require re-checking task-changed claims about changed behaviour; stated as a residual limit in `aidocs/framework/doc_review_record.md`)
 - A page edited across many rounds can exhaust the fresh-reader budget and end as `reader=not-run(cap)`; visible in the prompt · severity: low · → mitigation: none
 
 ### Planned mitigations
 - timing: post-phase | name: dogfood_review_round | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: judgement-dependent doc set; prose-only enforcement | desc: Run the new review round and commit check with the real helper on this task's own documentation pages and record the transcript in the plan
-- timing: after | name: manual_verify_doc_review_loop | type: manual_verification | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: prose-only enforcement; Step 8 wording on the commit path | desc: In a fresh session on a real docs task, forward a shadow concern and type feedback, then check the re-review and the refusal to commit a stale documentation revision
+- timing: after | name: manual_verify_doc_review_loop | type: manual_verification | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: prose-only enforcement; Step 8 wording on the commit path | desc: In a fresh session on a real docs task, forward a shadow concern and type feedback, then check the re-review and the refusal to commit a stale documentation revision | created: t2385
 
 ## Post-Review Changes
 
