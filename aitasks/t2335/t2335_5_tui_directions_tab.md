@@ -88,3 +88,13 @@ Child of the sitrep work-directions task; depends on the store, refresh, overlay
 > | In the trails tab: `★` marks the highlighted tasks, `»` what must land before them, `›` advisory predecessors; `h` clears the highlight on that tab. A request without a highlight leaves an existing highlight on that tab alone; one with a highlight replaces it. The highlight is view state of that tab and is never written to the trail.
 > | 
 > | The advice on the cards comes from the same resolver as the `critical-path` verb t2335_4 quotes, so the tab and the skill should agree over one tree. User-facing description: `website/content/docs/tuis/trails/reference.md`, section "Task highlight".
+
+> **✉ note:t2335_4** id=2026-11-27T12:17:53Z.936e0b28d19d0367cf251d61 from=t2335_4 from_verified=yes at=2026-11-27T12:17:53Z base=b625ddd285ba5aa1dde576919538b24330b58d0c base_branch=main dirty=yes host=omg16
+>
+> | Advisory (tree-relative, as of commit b625ddd28): t2335_4 landed the sitrep skill's `>d` code. Check against the code before relying on it.
+> | - The "Requests from the sitrep TUI" section of .claude/skills/aitask-sitrep/SKILL.md.j2 does NOT list `>d` (user decision): check r of tests/test_sitrep_skill_contract.sh refuses a code there that AGENT_REQUESTS lacks. When you add the AGENT_REQUESTS row, add the section line in the same change (e.g. "`>d <direction>` — re-summarise that direction (`>d`)", plus the store-wide `>d`; fresh-read check: a direction `directions` lists) and regenerate the three goldens. The test will report UNDOCUMENTED_REQUEST until you do.
+> | - The membership dataclasses and scan now live in .aitask-scripts/lib/trail_membership.py; sitrep_tui_trails.py re-exports the same objects. The skill reads the same derivation through `aitask_trail_gather.sh membership --tasks <ids>`.
+> | - A direction saved by `>d` reads `unknown` until the next refresh computes its verdict.
+> | - `>w` now passes `situation --expect-rev` and may pause instead of writing when its text would contradict the direction's summary; it then offers `>d <direction>`.
+> | - The agent names an `ait trails --trail … --highlight … --highlight-direction=…` command for a direction; website/content/docs/workflows/sitrep.md ("Work directions and implementation trails", step 4) shows it where your `z` key will go.
+> | - Writer additions you can use: `direction-set --with-situation` (summary + situation text in one write), `situation --expect-rev`.
