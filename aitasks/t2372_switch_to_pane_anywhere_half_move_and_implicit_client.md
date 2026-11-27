@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2175
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-27 01:28
-updated_at: 2026-11-27 01:39
+updated_at: 2026-11-27 14:15
 ---
 
 ## Origin
@@ -83,3 +84,8 @@ t2338 note's wider blast radius that t2349 left out of scope ("keep
 Keep `tests/test_multi_session_primitives.sh` Tier 1b
 (`switch_to_pane_anywhere` call order) in step with any change to its call
 shape.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-27T12:15:09Z status=pass attempt=1 type=human
