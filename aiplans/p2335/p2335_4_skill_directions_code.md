@@ -959,3 +959,208 @@ assertions with the trail skill files unmodified (recorded by t2335_3).
 - timing: pre-phase | name: baseline_tui_trail_tests | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: the membership move changing where a live TUI path resolves its names | desc: record the four sitrep TUI test files' pass counts before the move and require the same counts after it
 - timing: post-phase | name: walk_rendered_d_flow | type: test | priority: medium | effort: medium | inline_risk: low | added_complexity: low | addresses: the `>d` save sequence being prose whose gaps the tests cannot see | desc: follow the rendered `>d` text literally in a scratch repository (full save, a dropped direction, a refusal, one direction) and fix the prose where a value had to be guessed
 - timing: post-phase | name: docs_current_state_check | type: documentation | priority: low | effort: low | inline_risk: low | added_complexity: low | addresses: the website describing behaviour that only exists after t2335_5 | desc: grep the changed pages for t2335_5-only behaviour and run /aitask-docs-review on the new workflow section
+
+## Final Implementation Notes
+
+- **Actual work done:** every plan step, the pre-phase and both post-phases.
+  - `lib/trail_membership.py` (new): the membership derivation moved out of `sitrep_tui/sitrep_tui_trails.py`, which re-exports the same objects.
+  - `lib/trail_gather.py`, `aitask_trail_gather.sh`: the `membership --tasks` read verb (`IN_TRAIL` / `NO_TRAIL` / `UNKNOWN` / final `MEMBERSHIP:` line).
+  - `lib/sitrep_todo.py`, `aitask_sitrep_todo.sh`: `direction-set --with-situation` (summary and situation text in one write) and `situation --expect-rev` (optional guard, under the lock).
+  - `.claude/skills/aitask-sitrep/SKILL.md.j2` and its three goldens: the `>d` capability, the guarded `>w` with its pause, direction questions in `>q`, the direction order in `>p`, Step 0, Writing, the TUI and Guardrail sections.
+  - Tests: `tests/test_trail_membership.py` (new, 10), `tests/test_sitrep_todo.sh` Tests 18p and 18s (660 -> 728 assertions), `tests/test_sitrep_skill_contract.sh` (section f, new checks a/b, mutants; 128 assertions), `tests/test_skill_render_aitask_sitrep.sh` (the `>d` heading).
+  - Docs: `aidocs/framework/sitrep.md`, `website/content/docs/workflows/sitrep.md` (section "Work directions and implementation trails"), `website/content/docs/skills/aitask-sitrep.md`, `website/content/docs/concepts/implementation-trails.md`; the caller note in the header of `aitask_sitrep_refresh.sh`.
+- **Deviations from plan:**
+  - The "Requests from the sitrep TUI" line for `>d` is left to t2335_5 (planning decision 2), against the task text.
+  - Two writer extensions and one read verb were added during planning and plan review; the task text named none of them.
+  - The docs review of the post-phase was a self-review of the changed sections by their author, not an independent reader.
+- **Issues encountered:**
+  - `direction-assign` answers `DIRECTION:<slug>|unchanged|<rev>` (rev not moved) for a block that already read `unknown`; the plan assumed `updated`. The skill and the contract test state both forms. It makes the rev verification of `>d` step 7 necessary even more often.
+  - A wave alone does not block: only an earlier-wave entry classified `hard_prerequisite` is a strong edge; `core` / `preferred_predecessor` are `ADVISORY:`. The website's worked example and the skill's line list say so.
+  - Pre-phase: the first post-move run of `tests/test_sitrep_tui_app.py` reported 1 failed / 89 passed while three other suites ran concurrently; the failing test's name was not captured. Two re-runs (one under the same load) and the final run gave 90 passed. Treated as a load flake, not explained further.
+  - A harness with `rm -rf "$var"` was refused by the agent's safety check; the mutant harness below uses fresh `mktemp` directories and removes nothing.
+- **Key decisions:** one eligibility rule shared by `>d` and `>p` (a blocked trail reading wins; every candidate needs `Status: Ready` from `aitask_ls.sh -v --all-levels 9999`); coverage claims need every ref passed and at least one task ref; a summary is written from its baseline file only; texts that must agree are one write; every direction write carries a compared rev.
+- **Upstream defects identified:** None
+- **Notes for sibling tasks:**
+  - t2335_5: add the `>d <direction>` (and store-wide `>d`) line to the skill's "Requests from the sitrep TUI" section together with the `AGENT_REQUESTS` row, and regenerate the goldens; parity check r forces it. Import membership types from `lib/trail_membership.py` (the TUI module re-exports them). A direction saved by `>d` reads `unknown` until a refresh. The workflow page's new section shows the `ait trails --highlight` command where the `z` key will go.
+  - t2335_6: between "the agent rewrites it" and "the row reads current" a refresh (`r`) is needed. `>w` may now refuse to write and offer `>d <direction>`.
+  - t2199: include `>d` in the Codex / OpenCode end-to-end check (heredoc stdin to `snapshot` / `recheck` / `direction-*`, the one confirmation, the nested `/aitask-trail` offer).
+
+### Pre-phase evidence: baseline_tui_trail_tests
+
+| File | before the move | after the move (final run) |
+|---|---|---|
+| `tests/test_sitrep_tui_trails.py` | 14 passed | 14 passed |
+| `tests/test_sitrep_tui_trails_actions.py` | 26 passed | 26 passed |
+| `tests/test_sitrep_tui_app.py` | 90 passed | 90 passed (first post-move run: 1 failed, see "Issues encountered") |
+| `tests/test_sitrep_tui_actions.py` | 81 passed | 81 passed |
+
+### Post-phase evidence: guard mutants
+
+Control: 7 membership-line tests and 728 writer assertions pass. Every mutant was killed:
+
+| Mutant (the guard removed) | A failing assertion that names it |
+|---|---|
+| a partial scan is `UNKNOWN` | `test_a_partial_scan_keeps_what_it_found_and_never_says_no_trail` |
+| a foreign ref is not searched | `test_a_task_of_another_project_is_never_searched`, `test_uncovered_needs_every_ref_to_be_no_trail` |
+| the `situation` rev guard | "session one's guarded write is refused" (got `SITUATION:alpha|set`) and 7 more |
+| the paired text is validated before the write | "an over-long text -> exit 2" (got 0) |
+| `unchanged` compares the text | "a pair that changes only the text -> updated" (got `unchanged`) |
+| `--with-situation` needs `--summary-file -` | "--with-situation without --summary-file - -> exit 2" (got 0) |
+
+The harness, verbatim (`bash mutants.sh <repo root> <scratch parent dir>`):
+
+```bash
+#!/usr/bin/env bash
+# guard mutants (t2335_4): remove one guard at a time in a SCRATCH COPY of the
+# tree and run the tests that name it. Never touches the working tree, and
+# removes nothing: every copy goes into a fresh mktemp directory.
+# Usage: mutants.sh <repo root> <scratch parent dir>
+set -uo pipefail
+REPO="$1"
+PARENT="$2"
+PY="$HOME/.aitask/venv/bin/python"
+WORK="$(mktemp -d "$PARENT/mutants.XXXXXX")"
+mkdir -p "$WORK/base/tests/fixtures"
+cp -a "$REPO/.aitask-scripts" "$WORK/base/.aitask-scripts"
+cp -a "$REPO/tests/lib" "$WORK/base/tests/lib"
+cp -a "$REPO/tests/fixtures/sitrep" "$WORK/base/tests/fixtures/sitrep"
+cp "$REPO/tests/test_sitrep_todo.sh" "$REPO/tests/test_trail_membership.py" \
+   "$REPO/tests/test_trail_links.py" "$WORK/base/tests/"
+find "$WORK/base" -name __pycache__ -type d -prune -exec rm -r {} +
+
+MEMBER_CMD="$PY -m pytest -q tests/test_trail_membership.py -k MembershipLinesTests -p no:cacheprovider"
+WRITER_CMD="bash tests/test_sitrep_todo.sh"
+show() { grep -E "^FAIL|^FAILED|passed|failed|^Results" | cut -c1-210 | head -8; }
+
+echo "=== CONTROL (no mutation)"
+(cd "$WORK/base" && $MEMBER_CMD 2>&1 | show; $WRITER_CMD 2>&1 | show)
+
+# mutant <name> <test command> ; the python patch comes on stdin
+mutant() {
+    local name="$1" cmd="$2" tree="$WORK/$1"
+    cp -a "$WORK/base" "$tree"
+    if ! python3 - "$tree" /dev/fd/3 3<&0 <<'PYEOF'
+import sys
+tree = sys.argv[1]
+def sub(rel, old, new):
+    p = tree + "/.aitask-scripts/" + rel
+    s = open(p, encoding="utf-8").read()
+    assert s.count(old) == 1, (rel, s.count(old), old[:50])
+    open(p, "w", encoding="utf-8").write(s.replace(old, new))
+exec(open(sys.argv[2]).read())
+PYEOF
+    then echo "=== MUTANT $name: PATCH DID NOT APPLY"; return; fi
+    echo "=== MUTANT $name"
+    (cd "$tree" && $cmd 2>&1 | show)
+}
+
+mutant partial_scan_is_unknown "$MEMBER_CMD" <<'EOF'
+sub("lib/trail_membership.py", """        if self.partial:
+            return TaskTrails(UNKNOWN, reason=self.partial)
+""", "")
+EOF
+
+mutant foreign_ref_not_searched "$MEMBER_CMD" <<'EOF'
+sub("lib/trail_gather.py", """        if project != local_name:
+            counts[tm.UNKNOWN] += 1
+            lines.append(f"UNKNOWN:{ref}|cross_repo_not_searched")
+            continue
+""", "")
+EOF
+
+mutant situation_guard "$WRITER_CMD" <<'EOF'
+sub("lib/sitrep_todo.py", """    if guarded and not _expect_direction(slug, d, expect):
+        return
+""", "")
+EOF
+
+mutant paired_text_validated_before_the_write "$WRITER_CMD" <<'EOF'
+sub("lib/sitrep_todo.py", """            situation = validate_situation(rest)
+            text = first
+""", """            situation = [ln for ln in rest.split(chr(10)) if ln]
+            text = first
+""")
+EOF
+
+mutant paired_unchanged_compares_the_text "$WRITER_CMD" <<'EOF'
+sub("lib/sitrep_todo.py", """    if (old is not None and old.header_lines() == new.header_lines()
+            and old.situation == new.situation):
+""", """    if old is not None and old.header_lines() == new.header_lines():
+""")
+EOF
+
+mutant paired_needs_summary_file "$WRITER_CMD" <<'EOF'
+sub("lib/sitrep_todo.py", """    if args.with_situation and not args.input:
+        raise RequestError("--with-situation goes with --summary-file -")
+""", "")
+sub("aitask_sitrep_todo.sh", """        [[ "$summary" == true ]] || err_usage "--with-situation goes with --summary-file -"
+""", "")
+EOF
+echo "=== done ($WORK)"
+```
+
+### Post-phase evidence: walk_rendered_d_flow
+
+Scratch project: tasks t12, t31 (`depends: [12]`), t60 (parent of t60_1), t51 (`depends: [52]`), t52, t70; one stored trail `art:trail-checkout` (wave 1: t12, t60; wave 2: t31); items c1..c7 (c7 = `other#5`). Every command was taken from the rendered skill. Result lines, verbatim:
+
+```
+step 2   IN_TRAIL:walk#31|art:trail-checkout|2|Checkout trail
+         NO_TRAIL:walk#51 / NO_TRAIL:walk#70 / UNKNOWN:other#5|cross_repo_not_searched
+         MEMBERSHIP:in=3|none=2|unknown=1|scan=complete|-
+         HIGHLIGHT:walk#31|2|open|blocked|1|Ready|-   NEXT:walk#12|1|stale
+         BLOCKED_BY:walk#31|walk#12|1|depends|open|-   PATH:walk#12|1|depends|open|next|Ready|-   ADVISORY:walk#60|1|open|-
+picker   t31_task.md [Status: Blocked (by 12), ...]   t51_task.md [Status: Blocked (by 52), ...]
+         t60_task.md [Status: Has children, ...]      t60_1_task.md [Status: Ready, ...]
+         highlight 60: NEXT:walk#60|1|stale  (the trail's next is a parent; the pick is its Ready child)
+(a)      SNAPSHOT:checkout|e92ef8f7a67a8cf5|baselines/e92ef8f7a67a8cf5.txt|2|0   SNAPSHOTS:2|0   RECHECK:same
+         ASSIGNED:c2|checkout|9 ... DIRECTION:checkout|unchanged|8   (rev and fields equal the step-1 state)
+         DIRECTION:checkout|updated|13 (paired)   DIRECTION:payments|created|14   RANKED:checkout|1|15   RANKED:payments|2|16
+         after the TUI's refresh: REFRESH_DIRECTION:checkout|unknown->current|applied|
+(b)      move c5 payments->checkout, payments dropped: no assign line; checkout re-snapshotted without c5;
+         DIRECTION:checkout|updated|25; payments block, members and rank unchanged
+(b')     checkout dropped instead: payments re-snapshotted with c5; DIRECTION:payments|updated|26; checkout block unchanged
+(c)      RECHECK_REASON:payments|member_closed|1|c4   RECHECK:changed|1   exit 1   nothing written; then re-read, snapshot, RECHECK:same, DIRECTION:payments|updated|28
+(d)      >d checkout: DIRECTION:checkout|updated|29; payments rev 28 -> 28, both ranks kept
+(h)      rank-only swap: RANKED:payments|1|30 RANKED:checkout|2|31; baselines 6 -> 6 (no snapshot)
+(f)      empty order without --clear: exit 2; with --clear: UNRANKED:checkout|32 UNRANKED:payments|33
+(j)      >w checkout after c2 closed: draft and summary disagree after the re-read -> no situation call;
+         >d checkout: DIRECTION:checkout|updated|37 (one --with-situation call; summary and text agree)
+         race: a second session's pair, then `situation payments --expect-rev 35` -> STALE:payments|40, the pair intact
+(l)      a second shell writes checkout's situation text after the confirmation; ASSIGNED:c6|checkout|39
+         DIRECTION:checkout|unchanged|38; block rev 38 == printed rev, but the situation text differs from the
+         step-1 state -> no direction-set; the assignment stays
+(k)      256 ids + --highlight-total=257: accepted; 257 ids: refused; a 513-character slug: refused, left out: accepted
+```
+
+In (c) the operator's script took one digest from a directory listing instead of the `SNAPSHOT:` line; the refusal shown is the real one for that proposal. Prose fixed because of the walk: the `PATH:` / `ADVISORY:` / `LANDED:` / `RELEASED:` / `SUPERSEDED:` / `TRAIL:` / `FRESHNESS:` / `SUMMARY:` lines were unexplained; `RECHECK_SAME:` was not named; the digest's source and how to spot a parent's children were not stated; the picker's listing was missing from the "never in a summary" rule.
+
+### Post-phase evidence: docs_current_state_check
+
+A grep of the added website lines for a Directions tab, a request key for `>d` or `z` on a direction found none. The docs review found one level finding on `workflows/sitrep.md` (two status tokens quoted as code on an intermediate page), reworded. `check_links.py --build`: SWEEP: PASSED; `check_screenshots.py`: PASSED.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-27 11:40)
+- **Requested by user:** five review findings on the skill text: the confirmation showed only a "text rewritten" marker; a partial or failed membership scan could erase a saved trail link; a parent's Ready child was named without its own trail evidence; unversioned (older-format) blocks and block-less directions have no rev to compare; `>p` repeated the whole-project membership scan per direction.
+- **Changes made:** the confirmation carries each replaced situation text in full; a saved link is removed only on a complete scan with no `UNKNOWN:` ref and no `IN_TRAIL:` line for it, otherwise every saved link is kept; a child (and a `(by …)` task) gets its own `membership` + `critical-path` before it is named; step 1 documents the two rev-less cases (`absent`); `>p` runs `membership` once for all ranked directions. Goldens regenerated.
+- **Files affected:** `.claude/skills/aitask-sitrep/SKILL.md.j2`, `tests/golden/skills/aitask-sitrep/SKILL-{default,fast,remote}-claude.md`
+- **Evidence:** the format-3 case was reproduced on a copy of `tests/fixtures/sitrep/store_v3` (`DIRECTION:sitrep|-|…`, heading `#### sitrep` followed directly by its text). NOT exercised in a walk: an unreadable saved trail (a partial scan), and a child blocked in a later wave than its parent; both rules are prose only.
+
+### Change Request 2 (2026-11-27 12:05)
+- **Requested by user:** rule 3 of the eligibility rule let the picker's verdict alone stand on "no linked trail" without a complete negative membership result for the candidate.
+- **Changes made:** the picker-only fallback needs the candidate's own `NO_TRAIL:` line. With `UNKNOWN:` and no `NEXT:` line from a trail that was read, the task is not named and the pick is reported as not verifiable. Goldens regenerated.
+- **Files affected:** `.claude/skills/aitask-sitrep/SKILL.md.j2`, the three goldens
+- **Evidence (scratch project, a second trail `art:trail-kids`: wave 1 `t52` as `hard_prerequisite`, wave 2 the Ready child `t60_1`):**
+
+```
+manifest of the trail broken:
+UNKNOWN:walk#60_1|art:trail-kids did not load
+UNKNOWN:walk#70|art:trail-kids did not load
+MEMBERSHIP:in=0|none=0|unknown=2|scan=partial|art:trail-kids did not load     -> t60_1 is not named as a pick
+manifest restored:
+IN_TRAIL:walk#60_1|art:trail-kids|2|Kids trail
+HIGHLIGHT:walk#60_1|2|open|blocked|1|Ready|-
+BLOCKED_BY:walk#60_1|walk#52|1|wave|open|-                                     -> blocked; its parent's NEXT: said nothing about it
+```
+
+  The same run shows a partial scan reporting no `IN_TRAIL:` line for a trail that does hold the task, which is the case the "keep saved links" rule of Change Request 1 covers.
