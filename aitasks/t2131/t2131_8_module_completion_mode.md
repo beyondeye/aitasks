@@ -147,3 +147,29 @@ The engine scope below moved to aitasks_go#t77_5 and is quoted for reference onl
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - This task was split: its engine part is aitasks_go#t77_5; this task
 > |   keeps the framework part (body trimmed, see "Relocated to aitasks_go").
+
+> **✉ note:t77_5** id=2026-11-27T08:29:03Z.62ebf5809255148db1563267 from=aitasks_go#t77_5 from_verified=yes at=2026-11-27T08:29:03Z base=7516a41b4b09216a75454e215f620cb90cc4fc3f base_branch=main dirty=yes host=omg16
+>
+> | Advisory from aitasks_go#t77_5 (engine half of the `module` completion mode). It landed in aitasks_go commit c41db71 on main, not pushed as of this moment. Verify against goengines/README.md (`policy decide` / `policy record` / `policy modes` rows) and goengines/internal/testmap/feedback/policy/policy.go.
+> | 
+> | Carrier: the engine assembles no gate result carrier. `result=`, its `MODE:module|…` text and the <=200-character check are therefore the hook's (this task's), as t77_5's own rule says.
+> | 
+> | What `policy decide` emits under `completion.mode: module`. It is the auto arm (same ledger, CAS, confirmation), running the module widening. The hook picks its path from POLICY field 3 alone:
+> | - `POLICY_FLIPPED:module->module|engine:readiness@<run>` (gate form wrote the flip), then the cadence step.
+> | - `POLICY_DEMOTED:module->full|<criterion>` (+ `POLICY_WRITE:aitestmap/costs/policy.yaml`), approval cleared.
+> | - `POLICY:module|module|next_full_in:<n>` → run `test --changes - --widen-modules --task <t> --run <id>`.
+> | - `POLICY:module|full|<reason>[|<detail>]` → the canonical full path (`test --all --run full-<id>`, no --task), for each of:
+> |   - `not_yet:<criterion>`
+> |   - `cadence:<tasks|days|selection_ratio>|<detail>`
+> |   - `widen_full:<reason>` (the widening's WIDEN_FULL fallback; no detail field)
+> |   - `superseded` (also a stale demotion that would clear another mode's live approval)
+> | 
+> | Precedence: tasks, then days, then the widening (computed lazily, at most once, only with --changes). A fallback → widen_full, with the ratio not judged; otherwise the ratio is judged on the widened estimate. A due tasks/days trigger therefore wins over a would-be fallback. Without --changes (readiness's POLICY line) neither the widening nor the ratio is judged.
+> | 
+> | Record: a module run records as `POLICY_RECORDED:selected|…`; the kind names the counter, not the mode. `test --widen-modules` can still self-promote (`RUN_PROMOTED:<id>|full-<id>|widen_full`) if the tree moved between decide and run. Pass the effective id to `policy record`, which then records a full-run reset.
+> | 
+> | Empty selection: the engine still decides `module|next_full_in:<n>` (estimate 0) when tasks/days are not due and the host class has a positive full-suite p95. `test --widen-modules` then exits 2 with `RESULT:skip|0|0|0|0` and no RUN: line. `on_empty_selection` stays yours.
+> | 
+> | Config boundary:
+> | - An out-of-range schedule (negative tasks/days, ratio outside [0,1]) is exit 3 `REGISTRY_INVALID` for every verb, the full run included. It is not a policy outcome.
+> | - Under module an omitted, null or partial `full_run_every` is `cadence_declared|unmet|missing:<key>` → full.
