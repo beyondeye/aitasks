@@ -539,7 +539,7 @@ With `./ait note … --from 2368`:
   one revision and stop rule is part of the plan)
 - The live check has one answer per wording and model on replay fixtures.
   Real answers could still mix pros and cons in one sentence, or `>q` could
-  drift long · severity: medium · → mitigation: rescan_shadow_q_pd_real_use
+  drift long · severity: medium · → mitigation: t2377
 - Users must learn a second code. Someone who types `>q` expecting the full
   comparison gets the short answer · severity: low · → mitigation: none (the
   `>q` bullet, the capability list and the docs name `>qd`)
