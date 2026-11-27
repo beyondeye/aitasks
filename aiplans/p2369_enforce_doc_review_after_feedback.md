@@ -999,3 +999,69 @@ Runs after step 13 and before the Step 8 approval prompt.
 ### Planned mitigations
 - timing: post-phase | name: dogfood_review_round | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: judgement-dependent doc set; prose-only enforcement | desc: Run the new review round and commit check with the real helper on this task's own documentation pages and record the transcript in the plan
 - timing: after | name: manual_verify_doc_review_loop | type: manual_verification | priority: medium | effort: medium | inline_risk: medium | added_complexity: medium | addresses: prose-only enforcement; Step 8 wording on the commit path | desc: In a fresh session on a real docs task, forward a shadow concern and type feedback, then check the re-review and the refusal to commit a stale documentation revision
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-27 11:40)
+- **Requested by user:** four forwarded review concerns on the implementation (COMMITTED label trusted for newer edits; a claim-finding count accepted with no findings; deletion evidence bound to the word `head`; hashes following symlinks).
+- **Changes made:** `doc-review.md` has the agent check a `COMMITTED:` page's working-tree state and account for a newer edit before including it; `--claims findings:N` now needs exactly N entries in `--claim-findings-file` (new `claim_findings` entry field, counted in unresolved/open, reachable by `dispose`); `PRIOR_SPEC` names content (`blob:<id>` / `snapshot:<sha>` / `none`) and `deleted_current` rechecks it; a symbolic link is `unreadable` for pages, snapshots and basis files.
+- **Files affected:** `.aitask-scripts/lib/doc_review_record.py`, `.aitask-scripts/aitask_doc_review.sh`, `.claude/skills/task-workflow/doc-review.md` (+ golden and the three remote prerenders), `tests/test_doc_review_record.sh`, `tests/test_doc_review_step8_contract.sh`, `aidocs/framework/doc_review_record.md`, `website/content/docs/skills/aitask-pick/documentation-review.md`.
+- **Concern resolutions:** all four verified against the code and fixed — (1) fixed in `doc-review.md` set derivation and stated on the site page and in the design record; (2) fixed in the helper, with refusal `claim_findings_mismatch`; (3) fixed in `prior_of` / `page_state`; (4) fixed in `file_state`. Each has regression cases in `tests/test_doc_review_record.sh`.
+
+### Change Request 2 (2026-11-27 12:30)
+- **Requested by user:** two forwarded concerns — the claims on `aidocs/codeagents/codex_questions.md` were checked against the live `aitask_gate.sh`, which carries another session's hunks and is not the file a private-index commit would land; and a clean `git status` does not show that a `COMMITTED:` page is still this task's (another task may have committed a later version).
+- **Changes made:** new read-only verb `since-task-commit` (compares the working tree with the last commit tagged `(t<id>)` that touched the path and names later commits); `doc-review.md` uses it for every `COMMITTED:` page. The `aitask_gate.sh` candidate (HEAD + this task's four hunks, sha256 `0c85058127a2…`) was built outside the tree and the page's facts were checked against it.
+- **Files affected:** `.aitask-scripts/lib/doc_review_record.py`, `.aitask-scripts/aitask_doc_review.sh`, `.claude/skills/task-workflow/doc-review.md` (+ golden, three remote prerenders), `tests/test_doc_review_record.sh`, `tests/test_doc_review_step8_contract.sh`, `aidocs/framework/doc_review_record.md`, `website/content/docs/skills/aitask-pick/documentation-review.md`.
+- **Concern resolutions:** (1) fixed — facts verified against the candidate file: it differs from the live file by 25 lines, none mentioning `commit-outcome`; `cmd_commit_outcome` and every `commit-outcome` line are identical in both; the page's recorded basis is now `approval.py` and `commit.py`, and the commit step rebuilds the candidate and requires the same sha256. (2) fixed in the helper and the procedure, with a regression case where another task's commit leaves `git status` clean.
+
+### Change Request 3 (2026-11-27 13:00)
+- **Requested by user:** one forwarded concern — `since-task-commit` used `git diff --quiet`, which ignores untracked files, so a page the task's commit deleted and another task recreated untracked read `SINCE:same`.
+- **Changes made:** the verb now compares content (the blob at the task's commit against `git hash-object` of the working-tree file; absent on both sides is equal; a symlink is `unknown`).
+- **Files affected:** `.aitask-scripts/lib/doc_review_record.py`, `tests/test_doc_review_record.sh`, `aidocs/framework/doc_review_record.md`.
+- **Concern resolutions:** fixed, with the untracked-recreation regression case and a control showing `git diff --quiet` misses it.
+
+## Final Implementation Notes
+- **Actual work done:** New helper `.aitask-scripts/aitask_doc_review.sh` + `lib/doc_review_record.py` (review record: page/guide/claim-basis evidence, eight page states, presented scope, decision verb `guard`, plus `begin`, `snapshot`, `digest`, `stamp`, `stamp-claims`, `dispose`, `prior`, `since-task-commit`, `stamp-deleted`, `budget`); new procedure `task-workflow/doc-review.md` wired into Step 8 (review round before every prompt, commit check, guarded code commit, feedback rules); evidence mode in `aitask-docs-review`; `docs_updated` gate step 3b records the reported evidence; read-only `aitask_gate.sh commit-outcome` verb (`aitask_questions/approval.py`); guarded `commit-approved` in `.agents/skills/codex_tool_mapping.md`; whitelist at the 5 touchpoints; goldens and the three committed remote prerenders; tests `test_doc_review_record.sh` (311), `test_doc_review_step8_contract.sh` (134), extended `test_docs_review_contract.sh`, `test_gate_codex_approvals.sh` (section 16), `test_skill_render_task_workflow.sh`; docs: new site page `skills/aitask-pick/documentation-review.md`, edits to three site pages, new `aidocs/framework/doc_review_record.md`, paragraph in `aidocs/codeagents/codex_questions.md`.
+- **Deviations from plan:** (1) A dedicated site page was added instead of only editing three pages: the pick skill already keeps such behaviour detail on sub-pages. (2) Plan step 10's stale prerender dirt had been committed by t2365 (`a1272d518`) meanwhile; render(HEAD) in an isolated worktree equalled the tree, so the re-render carries only this task's change. (3) `PRIOR_SPEC` is content-based (`blob:<id>` / `snapshot:<sha>` / `none`) and pipe-free, not `head|…`; `stamp-claims` takes `--claim-findings-file` (not `--add-unresolved-file`); a symlink is `unreadable`; `since-task-commit` was added — all from review rounds (see Post-Review Changes). (4) `commit-outcome` answers `other|conflict` (not `none`) for another task id on a claimed occurrence, matching the plan's own outcome table. (5) The Codex mapping's guard-failure sentence contains the negated phrase the plan both prescribed and banned; the contract test bans only the asserting forms. (6) `CLAUDE.md` not edited (dirty from another session); no pointer line was added there. (7) Dogfood step: after the further edit the reviewed bytes were restored instead of re-reviewed, which is the same evidence; real re-reviews happened in rounds 2-4.
+- **Issues encountered:** `.aitask-scripts/aitask_gate.sh` gained two unrelated hunks from another session during this task; the code commit takes only this task's four hunks through a private index (candidate sha256 `0c85058127a2fa6b8becbdf5bc7a3bd2264f6b1e91f61a93313f89a103a85d95`). The attribution helper marked four files as this task's that another session was editing (plan-named paths); two were documentation pages and were excluded on the user's answer.
+- **Key decisions:** evidence is always a frozen copy (guide, review procedure, page snapshot, claim basis) verified at the stamp; only an `applied` receipt is exempt from the guard; the gate stamps `claims=not-run`; the helper never scans the tree, the caller passes the set.
+- **Documentation review:** 6 pages, all `current`, no open finding. `skills/aitask-pick/documentation-review.md` level=ok prose=ok reader=not-run(not-beginner) claims=ok; `skills/aitask-pick/_index.md` level=findings:1 prose=ok reader=subagent claims=ok; `skills/aitask-docs-review.md` level=findings:1 prose=ok reader=not-run(not-beginner) claims=ok; `skills/aitask-gate-docs-updated.md` level=ok prose=findings:1 reader=not-run(not-beginner) claims=ok; `aidocs/framework/doc_review_record.md` and `aidocs/codeagents/codex_questions.md` level=findings:1 reader=not-run(untagged) claims=ok. Unresolved, all left as is: four findings in text that predates this task (reader= table on an intermediate page; bold/em-dash prose on the gate page; main-concept `_index.md` carrying keys, internal paths and undefined terms; its two Codex notes disagreeing) and the missing depth field on the two aidocs pages (aidocs pages carry no frontmatter). Fresh-reader tests used: 2 of 3. Excluded on the user's answer: `aidocs/framework/shell_conventions.md`, `aidocs/framework/skill_authoring_conventions.md` (another session's edits).
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_change_surface.sh:445 — a path is labelled COMMITTED: for any earlier task-tagged commit even when another task later committed, edited or (untracked) recreated it, and TASK: for a plan-cited path another session edited; consumers other than Step 8 (the docs_updated gate step 2, the shadow scope helper) still trust both labels`
+- **Dogfood transcript (post-phase mitigation `dogfood_review_round`), helper output verbatim:**
+
+```
+## commit check
+OPEN_FINDINGS:0
+SCOPE:same
+SET:current
+## guard
+OPEN_FINDINGS:0
+SCOPE:same
+SET:current
+COMMIT_PATH:presented|website/content/docs/skills/aitask-pick/documentation-review.md
+GUARD:clean
+exit=0
+## after a further edit: status
+PAGE:changed|website/content/docs/skills/aitask-pick/documentation-review.md
+OPEN_FINDINGS:0
+SCOPE:same
+SET:stale
+## after a further edit: guard
+PAGE:changed|website/content/docs/skills/aitask-pick/documentation-review.md
+OPEN_FINDINGS:0
+SCOPE:same
+SET:stale
+COMMIT_PATH:presented|website/content/docs/skills/aitask-pick/documentation-review.md
+GUARD:blocked|set_stale:changed:website/content/docs/skills/aitask-pick/documentation-review.md
+exit=1
+## reviewed bytes restored: guard
+OPEN_FINDINGS:0
+SCOPE:same
+SET:current
+COMMIT_PATH:presented|website/content/docs/skills/aitask-pick/documentation-review.md
+GUARD:clean
+exit=0
+```
+
+- **Acceptance walk-through:** (b) forwarded concerns drove `## Applying feedback to documentation` in this very session (Change Requests 1-3: each concern verified against the code, fixed on the owning page, resolution reported, changed pages re-reviewed). (a) typed feedback was NOT exercised live here — every round arrived as forwarded concerns; that path is covered by the procedure text and its contract check (`P_both_feedback_paths`, `W_feedback_rules_referenced`) and is left to the `manual_verify_doc_review_loop` follow-up. (c) old gate stamp + doc edit → `changed`: `tests/test_doc_review_record.sh` section 2 and "gate reuse". (d) no documentation → empty scope presented, guard clean, one commit: section 8c. (e) deletion-only → `SET:current` via `stamp-deleted`, committed through the guarded git form: sections 4 and 8d. (f) unparseable config → `SET:unverifiable`, guard blocked: sections 6 and 8. (g) gate-reviewed page finished by `stamp-claims` with `snapshots/` deleted: section 5b. (h) page deleted by an earlier commit resolves through `prior`: section 4. (i) tracked page edited between the early check and the final guard → status 1, nothing staged, no commit: section 8.
