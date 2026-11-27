@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2179
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-27 08:23
-updated_at: 2026-11-27 08:51
+updated_at: 2026-11-27 10:36
 ---
 
 ## Origin
@@ -38,3 +39,8 @@ The same review also noted that the token and cost thresholds only compare usage
 Move the batch lock into the harness: take it in `_experiment()` (or in `Budget.recover()` when a journal is given) and hold it for the command's lifetime, then drop the runner's own `BatchLock` in favour of it. Reuse the lock-file name the runner already uses, which `aidocs/benchmarks/shadow_q/.gitignore` already ignores. Keep the existing tests `test_second_runner_is_refused_while_the_lock_is_held` and `test_cap_and_pending_reservations_survive_a_restart` in `tests/test_shadow_q_harness.py` green, and add one that runs two harness commands against one batch.
 
 Relevant to t2179_2 (the main run) and t2187, which are the paid users of the harness commands.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-27T08:36:37Z status=pass attempt=1 type=human
