@@ -13,8 +13,9 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 anchor: 2258
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-27 00:46
-updated_at: 2026-11-27 01:04
+updated_at: 2026-11-27 14:41
 ---
 
 ## Origin
@@ -47,3 +48,8 @@ Found while fact-checking moved docs claims against the code in t2258_10 (archiv
 ## Suggested fix
 
 Split by area if useful: (1) web-merge skill stop paths (skip Step 6 on GATE_PENDING / VERIFICATION_*; skip the 3d commit when the merge is a no-op; complete the Abort repair text) — then update the two docs pages; (2) pickweb profile resolution order vs data-branch init, and its stale schema text; (3) the cross-repo CLI help/messages and the unenforced `--project` allow-list. Skill changes start in `.claude/skills/` and need follow-up ports to the other agent trees.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-27T12:41:03Z status=pass attempt=1 type=human
