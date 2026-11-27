@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [shadow, skills, codex]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ assigned_to: dario-e@beyond-eye.com
 anchor: 2179
 implemented_with: claudecode/fable5_2
 created_at: 2026-11-26 23:46
-updated_at: 2026-11-27 08:26
+updated_at: 2026-11-27 08:27
+completed_at: 2026-11-27 08:27
 ---
 
 ## Problem
@@ -234,3 +235,14 @@ holds the base text compared above.
 > **✅ gate:plan_approved** run=2026-11-26T23:21:01Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-27T06:20:49Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-27T06:27:11Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:c9b459c776de6fa3
+
+> **✅ gate:risk_evaluated** run=2026-11-27T06:27:11Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2368/risk_evaluated_2026-11-27T06:27:11Z-risk_evaluated-a1.log`
