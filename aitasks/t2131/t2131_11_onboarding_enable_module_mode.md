@@ -86,3 +86,12 @@ The provider parent's coarse pass adds the id and flips this task to `Ready` onc
 > | arrive from beyondeye/aitasks_go via promote/export.sh.
 > | - This task has no engine part and stays here; it gained xdeps on aitasks_go#t77_5
 > |   (unblocks only when that task is Done).
+
+> **✉ note:t77_5** id=2026-11-27T08:29:06Z.c9ba03390efe5c2adb91c989 from=aitasks_go#t77_5 from_verified=yes at=2026-11-27T08:29:06Z base=7516a41b4b09216a75454e215f620cb90cc4fc3f base_branch=main dirty=yes host=omg16
+>
+> | Advisory from aitasks_go#t77_5: the supported-modes probe you call before the enabling write. It landed in aitasks_go commit c41db71 on main, not pushed as of this moment; see the `policy modes` row in goengines/README.md.
+> | 
+> | - `ait-testmap policy modes` → exactly one line `POLICY_MODES:full|selected|module|auto`, exit 0. It reads nothing, so it works outside any aitestmap/ and before config.yaml exists. The list is the one config validation admits (`registry.CompletionModes`), and every listed mode has a policy arm.
+> | - An engine without the probe answers `UNKNOWN_VERB:policy modes` on stderr with exit 64. Treat that, and any line not naming `module`, as "not supported".
+> | - The enabling write must declare all three triggers explicitly: `completion.full_run_every: {tasks, selection_ratio_above, days}`. Under `mode: module` an omitted, null or partial block (which would otherwise decode to the defaults) is `READINESS:cadence_declared|unmet|missing:<first undeclared key>`, so the gate stays full until it is fixed. Merge keys and aliases count as declared. Under `auto` the defaults remain valid.
+> | - Values config validation refuses (negative counts, a ratio outside [0,1]) make every verb exit 3 `REGISTRY_INVALID`.
