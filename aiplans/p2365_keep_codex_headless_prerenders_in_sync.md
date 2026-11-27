@@ -560,3 +560,82 @@ delivery (staging only, unchanged).
 ### Planned mitigations
 - timing: post-phase | name: adversarial_baseline_cases | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — protection classifier / baseline feed | desc: Add deleted-file, staged-rename and symlink/dir-destination cases to the preservation tests
 - timing: after | name: prune_retired_codex_staging | type: bug | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — stale staging dirs (advisory: the exact manifest already stops them being installed) | desc: Make install_codex_staging mirror the tarball's rendered dirs so aitasks/metadata/codex_skills/ does not accumulate retired prerenders
+
+## Final Implementation Notes
+
+- **Actual work done:**
+  - Step 0: folded t1154 (`b86a74339`). Rendered the remote prerenders in a scratch clone, compared them with the shared tree (working copy and index: every file equal to the render, nothing staged), then committed the 11 missing or stale files plus the `.gitignore` negations (`a1272d518`).
+  - Step 0b: pinned the parity profiles under `tests/fixtures/skills/profiles/` (`dfafd6c6c`). Gate: a fresh clone of `dfafd6c6c` with seed profiles passed the existing `aitask_skill_verify.sh` before `release.yml` was touched.
+  - New `lib/headless_prerenders.sh`: dir list, manifest validation, ignore-independent classifier (`ait_manifest_changes`, strict/bootstrap/nogit/unverified modes), and `sync_codex_headless_prerenders` (staging verified against the manifest hash, no-link checks, atomic no-follow publish with the manifest mode).
+  - New `aitask_headless_manifest.sh` (`<sha256> <mode> <path>`) and `aitask_release_verify.sh`. `release.yml` runs the verifier and writes `seed/headless_prerenders.txt` before packaging.
+  - `lib/data_symlinks.sh`: `AIT_DATA_BRANCH_NAME`, `ait_expected_data_dir` (now shared with `ait_link_worktree_data`), `ait_data_dir_for_checkout`, `ait_resolve_data_root`.
+  - Setup wiring: snapshot classification before the bootstrap return, the sync in `setup_codex_agent`, the `setup_codex_cli` skip of rendered dirs plus manifest-owned mapping, `_ait_prerender_negation_rules` / `upgrade_prerender_gitignore_rules`, and the refresh skipping shipped dirs and profiles.
+  - install.sh wiring: classification before extraction, the manifest store, then the gitignore upgrade and the sync on every install before `commit_installed_files`.
+- **Deviations from plan:**
+  1. install.sh carries **no copy** of the classifier. It extracts the release's own `lib/headless_prerenders.sh` from the tarball into its temp dir and runs it in a subshell before extraction, so install and setup cannot drift. C1's parity holds by construction, and W1 asserts there is no copy.
+  2. `report_preserved_headless_paths` is folded into the sync's own output (summary line, preserved list, staging issues).
+  3. The protected list also names a linked or non-directory **ancestor itself**. A bootstrap commit-all would otherwise sweep a user's symlinked skill dir into the first framework commit (found while writing B2).
+  4. A path in `HEAD` but not in the index (the source of a staged `git mv`) is classified `staged`. Before this it read as absent and clean, and the sync would have recreated it (found while writing the post-phase case).
+  5. `git check-ignore` rejects `--literal-pathspecs` (exit 128), so the classifier calls it plainly (found in the flow-2 probe).
+  6. The plan's "ordinary directory inside the primary" control for a linked checkout is rejected earlier, by the canonical-target identity check (`foreign-data-link`). The own-toplevel check is exercised by a primary whose `.aitask-data` is an ordinary directory (`data-not-worktree-root`, with `--is-inside-work-tree` shown true there).
+  7. `release.yml` passes `AIT_PYTHON="$(command -v python)"`: `python_resolve.sh` tests `-x`, so a bare `python` only works by falling through to `python3`.
+  8. The source-on-startup rule: `tests/lib/test_scaffold.sh` copies the new lib and the baseline list in `shell_conventions.md` names it. `tests/test_init_data.sh` failed 88 times without it.
+- **Issues encountered:** see deviations 3-5 and 8.
+- **Key decisions:** user scope decisions recorded in the Design section (always deliver; Codex-only installer copy changes; no automatic recovery of already-dirty checkouts).
+- **Verification results:**
+  - Flow 1 (fresh install, before setup): all 46 Codex files byte-equal, no `.codex/`, no `.opencode/skills`, and a clone of the user's first commit carries the set (I0).
+  - Flow 2 (first setup): untouched installer output lands in the first framework commit (B1). Divergent, staged, ignored, linked and mode-only files keep their bytes and index state, stay out of it, and are reported (B2).
+  - Flow 3 (branch mode): the upgrade reads staging through `aitasks -> .aitask-data/aitasks`, the main upgrade commit holds the exact set, both trees are clean, and a repeat upgrade makes no commit in either (DB1). A linked task checkout is accepted and delivers on its branch. Eight data-root negative controls refuse.
+  - `tests/test_headless_prerender_delivery.sh` passed 181/181 at first review, and 221/221 (222/222 with `AIT_ATOMIC_PORTABLE_MV=1`) after Change Requests 1-3 below (RV1 included: a clean clone passes `aitask_release_verify.sh` and writes the same manifest; a commit dropping a closure file fails with `(missing)` and writes none).
+  - Pre-fix control (HEAD's install.sh and framework): the U1 scenario left `aitask-pickrem-remote-codex-/SKILL.md` modified after the upgrade (the reported `DIRTY_TREE`), `task-workflow-remote-codex-/` and `ait-git-remote-codex-/` were absent from `HEAD`, and the mapping stayed stale. In the P1 scenario the old refresh rewrote a user's ignored local render. Both pass with the change.
+  - Regressions green: codex_entrypoints_tool_mapping 43, install_upgrade_dirty_baseline, release_tarball 20, skill_verify 29, skill_render pickrem/pickweb, setup_git 736, gitignore_data_symlinks 182, seed_manifest_drift 44, init_data 148, skill_parity 86, setup_help_flag 23, setup_hooks_only 56, setup_pip_install_guards, data_branch_setup 580, test_shell_startup_closure.py 9. The live-repo `aitask_skill_verify.sh` is OK.
+- **Upstream defects identified:**
+  - `.aitask-scripts/aitask_setup.sh:5275-5281 — setup_opencode copies only SKILL.md of every staged aitask-* dir, so the rendered aitask-pickrem-remote-/aitask-pickweb-remote- prerenders are half-installed (no task-workflow-remote-/ait-git-remote- closure) and opencode_tool_mapping.md is overwritten unconditionally — the OpenCode twin of this task's Codex defect`
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-27 10:40)
+- **Requested by user:** four confirmed review findings.
+  1. `install.sh`'s plain-`cp` manifest store followed a destination symlink.
+  2. A rejected stored-manifest lookup re-enabled the legacy refresh and the mapping copy.
+  3. An assume-unchanged or skip-worktree flag hid a tracked edit from the strict classifier.
+  4. The release fixture left out `tests/`, so RV1 skipped the parity stage.
+- **Changes made:**
+  1. Manifest store: the seed-phase `cp` is gone. After sourcing setup, install.sh calls `ait_headless_store_manifest`, which verifies the data root, checks every component beneath it, refuses a directory, and renames into place without following a link (`_ait_headless_rename_nofollow`, now shared with the publish step).
+  2. Rejected lookup: `ait_headless_stored_manifest` now returns 0 (found), 1 (genuinely absent: legacy behaviour) or 2 (rejected, reason in `AIT_HEADLESS_MANIFEST_ERR`). On a rejection, `setup_codex_cli` skips the mapping copy, `setup_codex_agent` delivers nothing and warns, and the refresh keeps off the static committed set (`ait_headless_static_shipped_dirs`).
+  3. Index flags: an index entry not tagged `H` by `git ls-files -v` (assume-unchanged, skip-worktree, unmerged, or flags unreadable) is protected as `index-flag`.
+  4. Release fixture: `hr_build_release_checkout` includes `tests/`. RV1 asserts the parity test and the pinned profiles are present, so `aitask_skill_verify.sh` runs its parity stage there.
+  - The metadata-writer inventory now pins `ait_headless_store_manifest` as "caller commits".
+- **Tests added:**
+  - C1: assume-unchanged and skip-worktree fixtures, with a precondition that `git diff` is blind to them.
+  - IF1: both flags survive an upgrade and are reported.
+  - ML1: the link's target is untouched, the destination becomes the release manifest, and a foreign `aitasks` link refuses the store.
+  - DB1 rejected lookup: the data worktree is on the wrong branch, and an edited tracked remote skill and an edited mapping both survive setup's Codex part, which reports `data root: data-wrong-branch`.
+  - Result: 199/199. Regressions green: codex_entrypoints 43, install_upgrade_dirty_baseline, init_data 148, setup_git 736, data_branch_setup 580. The inventory test's only failure is another session's untracked `doc_review_record.py`.
+- **Files affected:** `.aitask-scripts/lib/headless_prerenders.sh`, `.aitask-scripts/aitask_setup.sh`, `install.sh`, `tests/lib/headless_release_fixture.sh`, `tests/test_headless_prerender_delivery.sh`, `tests/test_metadata_writer_inventory.py`.
+
+### Change Request 2 (2026-11-27 11:20)
+- **Requested by user:** two confirmed findings.
+  1. `snapshot_pre_setup_dirty` built the headless baseline only on a successful lookup. With a rejected (malformed) manifest in bootstrap, commit-all swept a local skill edit into the first setup commit.
+  2. The portable no-follow rename removed a destination link before `mv`, so a failing `mv` lost the link.
+- **Changes made:**
+  1. On a rejected lookup (rc 2), the snapshot protects every path `ait_headless_static_protect` lists: tracked or untracked files under the framework's static `.agents/skills/` prerender dirs, the mapping, and a dir replaced by a link. These are reason `unverified`, unioned into the baseline in every mode, so nothing in the committed Codex set is judged pristine without a trusted list.
+  2. `_ait_headless_rename_nofollow`'s portable path refuses a link or directory at the destination instead of deleting it first; `mv -T` stays the single-operation path.
+- **Tests added:**
+  - B3: bootstrap with a malformed stored manifest and an edited delivered file. The edited path and every other shipped Codex file stay out of the first setup commit, the edit is kept, and the rejection is reported.
+  - ML1 portable: with `AIT_ATOMIC_PORTABLE_MV=1` the store refuses a link destination, the link and its target survive, and no temp file is left.
+  - Result: 210/210. Regressions green: codex_entrypoints 43, setup_git 736, init_data 148, data_branch_setup 580, install_upgrade_dirty_baseline.
+- **Files affected:** `.aitask-scripts/lib/headless_prerenders.sh`, `.aitask-scripts/aitask_setup.sh`, `tests/test_headless_prerender_delivery.sh`.
+
+### Change Request 3 (2026-11-27 12:05)
+- **Requested by user:** two confirmed findings.
+  1. The rejected-manifest fallback was a separate `ls-files` scan. It missed a symlink at `.agents/skills` (committed by the bootstrap) and a staged removal absent from both the index and the worktree (a failing `git add`).
+  2. ML1 assumed `mv -T` and asserted replacement, while the portable path correctly refuses it.
+- **Changes made:**
+  1. The scan (`ait_headless_static_protect`) is removed. On a rejected lookup the snapshot sets `AIT_SETUP_HEADLESS_REJECTED=1`. `commit_framework_files` then passes its own candidate list through `ait_headless_rejected_scope_filter`, which keeps out every changed path at, below or above a static Codex prerender dir or the mapping: linked ancestors and staged removals included. Unrelated framework files still commit.
+  2. ML1's integration assertion depends on the supported rename (`mv -T`, unless `AIT_ATOMIC_PORTABLE_MV` is set): replaced versus kept and reported.
+- **Tests added:**
+  - B4: a symlinked `.agents/skills` under a rejected manifest. VERSION is committed, the link is not, and the link is kept.
+  - B5: a staged removal under a rejected manifest. There is no failing `git add`, VERSION is committed, and the removal stays staged and uncommitted.
+  - Result: 221/221, and 222/222 with `AIT_ATOMIC_PORTABLE_MV=1` (every publish through the portable fallback). Regressions green.
+- **Files affected:** `.aitask-scripts/lib/headless_prerenders.sh`, `.aitask-scripts/aitask_setup.sh`, `tests/test_headless_prerender_delivery.sh`.
