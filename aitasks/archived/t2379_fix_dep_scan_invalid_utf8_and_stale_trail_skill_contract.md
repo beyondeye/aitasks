@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [trails]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2175
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-27 08:48
-updated_at: 2026-11-27 10:27
+updated_at: 2026-11-27 12:16
+completed_at: 2026-11-27 12:16
 ---
 
 ## Origin
@@ -45,3 +46,14 @@ Catch `UnicodeDecodeError` next to `OSError` in `_read_facts` and in the `scan` 
 > **✅ gate:plan_approved** run=2026-11-27T08:27:03Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-27T09:55:59Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-27T10:16:08Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:6ed2d9207c9471ce
+
+> **✅ gate:risk_evaluated** run=2026-11-27T10:16:08Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2379/risk_evaluated_2026-11-27T10:16:08Z-risk_evaluated-a1.log`
