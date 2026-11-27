@@ -1,5 +1,7 @@
 ---
 priority: low
+risk_code_health: low
+risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
@@ -15,7 +17,7 @@ anchor: 2363
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-27 10:37
-updated_at: 2026-11-27 12:22
+updated_at: 2026-11-27 12:23
 ---
 
 ## Origin
@@ -38,3 +40,5 @@ Decide whether the badge should draw at all. Restoring it (e.g. `Content.styled(
 <!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
 
 > **✅ gate:plan_approved** run=2026-11-27T10:22:59Z status=pass attempt=1 type=human
+
+> **✅ gate:review_approved** run=2026-11-27T12:38:45Z status=pass attempt=1 type=human
