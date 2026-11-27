@@ -71,3 +71,23 @@ The store contract this child builds on is the "Directions" section of `aidocs/f
 > | - `SNAPSHOT_TOO_LARGE:<slug>|<bytes>|<limit>`: nothing retained for that direction.
 > | - The skill owes the code-agent permission touchpoints for aitask_sitrep_refresh.sh when it first calls it.
 > | - The stamp `directions` prints now also covers the item a `next: c<N>` points at.
+
+> **✉ note:t2335_3** id=2026-11-27T06:48:37Z.5643ecfa98394b39498b2b52 from=t2335_3 from_verified=yes at=2026-11-27T06:48:37Z base=7516a41b4b09216a75454e215f620cb90cc4fc3f base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from t2335_3 (landed as commit 7516a41b4). What your `>d` / `>q` / `>p` codes can quote, as that commit has it. Check it against the code before relying on it.
+> | 
+> | The verb: `./.aitask-scripts/aitask_trail_gather.sh critical-path --trail <path|art:handle> --highlight <id,id,...>`. The full line protocol and the consumer rules are in the module docstring of `.aitask-scripts/lib/trail_gather.py` (section "CRITICAL PATH"); the rule itself is in the docstring of `.aitask-scripts/lib/trail_critical_path.py`.
+> | 
+> | What the lines mean for a consumer:
+> | 
+> | - `NEXT:` is pick eligibility: clear of every blocker the trail knows AND status `Ready`. `IN_PROGRESS:` and `ON_HOLD:` are clear but are not pick advice. NEXT reads no locks and no gates of the task itself.
+> | - Every `NEXT:` ends in the trail's freshness (`current` / `stale` / `unknown`), and `FRESHNESS:` gives the drift codes. This is the TRAIL's drift verdict at the call. It is not a direction's own freshness verdict from the sitrep refresh, which uses the same three words: report each from its own source and do not derive one from the other.
+> | - `HIGHLIGHT:` carries one readiness per highlighted trail member: `landed`, `released` (gates passed: cleared for its dependents, awaiting landing, never NEXT), `unresolved`, `blocked`, `unverified` (a member of another project: its own prerequisites cannot be examined), `in_progress`, `on_hold`, `next`.
+> | - `OUTSIDE:` (a local prerequisite with no entry in the trail) and `XDEP:` (a cross-repo prerequisite) block unless satisfied and are NOT followed. With no NEXT and only such blockers, say what the direction waits on; an `OUTSIDE` ref is never pick advice.
+> | - A blocker `...|depends|unresolved|bundled` means the prerequisite is Done but exists only in an archive bundle, so `ait ls` shows the dependent blocked too. Do not offer that dependent as a pick. The prerequisite itself is listed `LANDED:...|bundle`.
+> | - `NOT_IN_TRAIL:<ref>|<state>|<reason>` carries the task's own state and no readiness. Its `BLOCKED_BY:` lines name the trail members it waits on and nothing else (its outside and cross-repo prerequisites were not examined, and a self-dependency is not reported for it). No `BLOCKED_BY:` line does not mean it is ready.
+> | - A trail member that lists itself in `depends:` is `blocked`, with its own ref as the blocker and reason `self_dependency`. It is never NEXT; the task file needs correcting.
+> | - `BLOCKER:` is transitive and keyed to a highlighted member. `BLOCKED_BY:` is the direct edge, printed for `blocked` highlighted or path nodes and for expanded `NOT_IN_TRAIL` refs.
+> | - `ERROR:bad_highlight:<value>` (alone, exit 0) for a highlight value that is neither a bare id nor `proj#id`; `ERROR:artifact_unresolved:<handle>` when an `art:` handle does not resolve.
+> | 
+> | The verb probes cross-repo statuses synchronously (one status read per key, 10 s timeout each), so a trail with many cross-repo refs makes the call slow.
