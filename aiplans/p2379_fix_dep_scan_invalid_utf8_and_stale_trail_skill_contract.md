@@ -150,3 +150,132 @@ worktree); plan via `aitask_task_commit.sh`; archive per Step 9.
 
 ### Goal-achievement risk: low
 None identified.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-27 11:25)
+- **Requested by user:** (1) the (g) OWNER:none pin had dropped "explicit" to
+  dodge the template's line wrap, so replacing "explicit" with "automatic" in
+  all three goldens left 303/303 green; keep the full phrase and normalize the
+  line break. (2) The `deps-blocking-scan` help and implementation comment did
+  not say where the evaluation boundary is (only `OSError` is isolated; other
+  evaluation exceptions propagate).
+- **Changes made:** (1) `tests/test_trail_skill_contract.sh` (g) now asserts
+  "an explicit owner choice is REQUIRED before any create" against the golden
+  with every whitespace run folded to one space (`tr -s '[:space:]' ' '`).
+  Negative control: the real test file, run from a scratch copy of `tests/`
+  with "an explicit" → "an automatic" in all three goldens → 3 failures (the
+  three owner-handoff assertions), 300 passed; unmutated copy 303/0.
+  (2) `aitask_gate.sh` comment and command help now say: unreadable file (I/O
+  error or not UTF-8) or an `OSError` during evaluation → `UNVERIFIED` row;
+  any other exception while evaluating a readable file (e.g. a gate-witness
+  decode error) ends the scan without `SCAN_OK`.
+- **Files affected:** tests/test_trail_skill_contract.sh, .aitask-scripts/aitask_gate.sh
+- **Concern resolutions:** no item touched a documentation page (the website
+  claim names only unreadable files, which stays accurate).
+
+### Change Request 2 (2026-11-27 11:50)
+- **Requested by user:** (a) `git commit -- <paths>` takes the whole worktree
+  file, so t2369's four uncommitted hunks in `aitask_gate.sh` would ride along;
+  commit only t2379's changes, built and verified in isolation, keeping the
+  doc guard. (b) A CAS on `main` followed by a blind `git reset -- <paths>`
+  can unstage a concurrent session's `git add` of the same paths.
+- **Changes made (integration procedure only, no source change):**
+  `aitask_gate.sh` for the commit = HEAD + only t2379's two regions (verified:
+  HEAD→mine = those 2 hunks; mine→live = exactly t2369's 4 hunks). Isolated
+  worktree at 799b584a with only the six t2379 files: parity 44/44, trail
+  contract 303/0, ls / xdeps / deps-unblock / witness-parity suites green. The
+  commit is made in that worktree behind the doc guard, then integrated by a
+  script that holds git's `index.lock` (O_EXCL) for the whole step: refuse if
+  any of the six index entries is no longer its base blob, CAS
+  `update-ref main <new> <base>`, write only those six entries into a copy of
+  the locked index and rename it over `index`. Scratch-repo tests: clean case
+  integrates and leaves the other session's hunk unstaged; concurrent `git add`
+  → `REFUSED:index_entry_changed`, staged entry and `main` untouched; held lock
+  → `REFUSED:index_locked`; moved branch → `REFUSED:branch_moved`, index
+  untouched, lock released.
+- **Files affected:** none (commit procedure).
+
+### Change Request 3 (2026-11-27 12:05)
+- **Requested by user:** (a) the integration helper compared only blob ids, so
+  a staged mode-only change (same blob) was accepted and overwritten; compare
+  the full stage-0 entry. (b) It advanced `main` before writing the prepared
+  index, so a failed copy left `main` advanced and the index at base.
+- **Changes made (integration procedure only):** each path must have exactly
+  one `git ls-files -s` line identical to `<mode> <blob> 0<TAB><path>` from the
+  base tree (multiple stages, missing entry, mode or blob change → refuse).
+  The prepared index is copied INTO the held `index.lock` before `update-ref`;
+  after the CAS only the rename remains, and a failed rename reports
+  `PARTIAL:` (exit 4) keeping the prepared lock as the recovery
+  (`mv -f index.lock index`). Scratch tests: pure mode-only stage
+  (100644→100755, same blob) refused and preserved; content stage refused and
+  preserved; held lock refused; moved branch refused, index untouched;
+  injected prepare failure → nothing changed, lock released; injected rename
+  failure → `PARTIAL:`, recovery `mv` yields the clean end state.
+- **Files affected:** none (commit procedure).
+
+### Change Request 4 (2026-11-27 12:15)
+- **Requested by user:** `main` advanced to 251595ebb (t2369 landed), so the
+  isolated worktree's base 799b584a3 is stale and the CAS would refuse;
+  refresh the commit procedure — a standard guarded, path-scoped commit from
+  current `main` is sufficient after a final diff check.
+- **Verified:** HEAD→live of `aitask_gate.sh` is exactly the two reviewed
+  hunks (hunk text identical to the isolated worktree's); 251595ebb touched
+  none of the other five t2379 files, whose live content is byte-identical to
+  the reviewed versions; nothing is staged on the six paths. Re-run in an
+  isolated worktree at 251595ebb + the six live files: parity OK, trail
+  contract, ls display, xdeps, boardcol, deps-unblock, witness parity green.
+- **Changes made:** the commit uses the standard guarded
+  `git commit -F - -- <six paths>` from `main`; the temp-worktree /
+  index-lock integration helper is dropped (no longer needed). Scratch
+  worktree removed.
+- **Files affected:** none (commit procedure).
+
+## Final Implementation Notes
+- **Actual work done:** `dep_resolution.py` — `_read_facts` treats
+  `UnicodeDecodeError` like `OSError` (→ `None` → `<id> (UNRESOLVED)`);
+  `scan()` split into a read block (`OSError` / `UnicodeDecodeError` →
+  stderr + `UNVERIFIED\t<path>`) and a prime/classify block (`OSError` only →
+  same; any other evaluation exception propagates, no `SCAN_OK`); new
+  `_UNVERIFIED` constant + docstring. `aitask_ls.sh` — collects `UNVERIFIED`
+  rows into `dep_scan_unverified`, `is_dep_unverified` lookup checked first and
+  independently of `depends_key_present`, `mark_deps_unverified` shared with
+  the scan-failed branch. `aitask_gate.sh` — row kind and the `OSError`
+  boundary documented in the implementation comment and the
+  `deps-blocking-scan` help. `test_local_dep_parity.py` — `InvalidUtf8Tests`
+  (4 tests: core, scan, real `ait ls` with the bad byte in the body and inside
+  the `depends` key, catch-scope). `test_trail_skill_contract.sh` — (g) pins
+  the full "an explicit owner choice is REQUIRED before any create" on a
+  whitespace-folded golden; (j) pins
+  "Always pass `--owner <owner> --allow-archived-owner`".
+  `website/content/docs/commands/task-management.md` — Details paragraph
+  covers an unreadable dependency and an unreadable task.
+- **Deviations from plan:** added the website doc sentence (the page already
+  documented the `[unverified]` / `(UNRESOLVED)` states this change extends);
+  the scope test patches `classify_text` keyed on the one readable task text
+  that declares `[999]` instead of tracking opened paths.
+- **Issues encountered:** controls, all run by hand on the real code:
+  (a) unmodified code → 3 errors (`UnicodeDecodeError`) + 1 failure (t412
+  listed Ready even pre-fix: the whole-scan failure only marks tasks whose
+  `depends:` key bash can read); (b) scanner fixed but `ait ls` not yet
+  reading `UNVERIFIED` → t410 listed `Ready` (the review's fail-open,
+  reproduced); (c) broad decode catch around prime/classify → scope test fails
+  ("UnicodeDecodeError not raised"); (d) `UNVERIFIED` gated on
+  `depends_key_present` → t412 listed `Ready`. Trail (g): the real test file run
+  from a scratch copy with "an explicit" → "an automatic" in all three goldens
+  fails the 3 owner-handoff assertions. Commit isolation: `aitask_gate.sh`
+  carried t2369's uncommitted hunks during review; resolved when t2369 landed
+  (251595ebb) — HEAD→live is then exactly the reviewed hunks, verified in an
+  isolated worktree before the standard path-scoped commit.
+- **Key decisions:** an unreadable task file lists as
+  `Blocked (by depends:) [unverified]` even when it declares no dependencies
+  (its dependency state is unknown; fail-closed). `facts()` / `classify()`
+  keep their two-state contract (unreadable dependency = `UNRESOLVED`).
+  The trail skill lost no rule — t1989 (`af9f27ae7`) reworded it; the test was
+  stale.
+- **Documentation review:** `website/content/docs/commands/task-management.md`
+  — level=ok, prose=ok, reader=not-run(not-beginner), claims=ok (basis:
+  `lib/dep_resolution.py`, `aitask_ls.sh`), 0 unresolved. Three `aidocs/`
+  pages of the concurrent t2369 session excluded by the user.
+- **Upstream defects identified:**
+  - `.aitask-scripts/monitor/monitor_core.py:7111 — TaskInfoCache._resolve reads the task file with Path.read_text() and does not catch UnicodeDecodeError, so get_task_info() (minimonitor task picker) raises on a task file that is not valid UTF-8 (probed: t410 with a 0xff byte raises; its dependent t411 resolves 410 as UNRESOLVABLE correctly)`
