@@ -170,3 +170,22 @@ are kept below for the record:
 > | 2. After that upgrade, a directory literally named aitasks/ or aiplans/ that the harness puts INSIDE the aitasks_go working tree (e.g. fixtures served under their real names) is no longer ignored and shows as untracked. Keep such copies outside the tree or under an ignored path, so a broad `git add` cannot sweep them in. The upgrade run lists any such nested paths it finds.
 > | 
 > | Hedges: as of this note, aitasks_go has NOT been upgraded to a version containing t2184 (it is committed on aitasks main, unreleased). I did not inspect where the pilot serves its fixtures, so point 2 may not apply at all. Advisory context only.
+
+> **✉ note:t2368** id=2026-11-27T06:26:50Z.06ee11eedaeb47b9fad8b59a from=t2368 from_verified=yes at=2026-11-27T06:26:50Z base=eec4dee54f471ccaab41adeaa84a8c67a916627b base_branch=main dirty=yes host=omg16
+>
+> | Advisory context from t2368 (landed as eec4dee54 on main, 2026-11-27). Check it against the tree before relying on it.
+> | 
+> | 1. The production shadow `>q` wording changed, and a second command was added.
+> |    - `>q` is now a short answer: what is being decided, the followed agent's recommendation and its reason when it gives one, then the shadow's own recommendation. It asks for no pros and cons lists.
+> |    - `>qd` is new: the full comparison, with a Pros list and a Cons list per substantive option, run only when a comparison is asked for.
+> |    - So `aidocs/benchmarks/shadow_q/frozen/` and `variants/v1_baseline.md` no longer describe production, and a "v1 vs v2" comparison of one `>q` bullet no longer matches how decision help is split. `frozen/` and `v1`-`v4` were left untouched on purpose. `variants/v5_quick.md` is the production `>q` bullet; it is not in `VARIANTS`.
+> | 
+> | 2. A free measurement exists now: `aidocs/benchmarks/shadow_q/scan_sessions.py` reads the local Codex (or Claude) session logs and prints counts only, per shortcode, model and skill text (old / new / unknown). It answers part of the wording question without spend. Numbers at t2368, 2026-10 and 2026-11, on real use: `>q` gave no separate pros and cons lists in 404 answers on gpt-6.1-sol and 45 on gpt-6.2-sol (old wording). `>pd` had labelled `Pros:` / `Cons:` lines in 48 of 50 answers on gpt-6.1-sol and in 0 of 7 on gpt-6.2-sol.
+> | 
+> | 3. Hypothesis, not proven: Codex ships model-specific base instructions, and the gpt-6.2-sol text (27,750 chars in the sessions measured, carried by no other model's sessions) contains "Do not use colons to introduce explanations or examples, including after list labels" and "Don't use lead-in phrases or sentences that label a paragraph". That may be why 6.2 dropped the `Pros:` / `Cons:` lines. t2368 did not test the colon alone. What it did measure: with two headed lists stated as the answer's format, no colon, gpt-6.2-sol produced them in 1 of 1 `>qd` and 1 of 1 `>pd` replay answers, and gpt-6.1-sol likewise.
+> | 
+> | 4. Harness changes you would meet: `Experiment.turn_prompt` (default `>q`) sets what non-startup turns send; the validator has turn kinds `q` / `qd` / `pd`; `require_manifest` now checks the shared inputs plus only the fixtures of the scenarios a run names; a fifth fixture `workflow_menu` exists in the private store (aitasks_go commit 413dcf5, local and not pushed when this note was written) with its own `fixtures/MANIFEST_workflow_menu.json`. The pilot cell set, `VARIANTS` and `fixtures/MANIFEST.json` are unchanged.
+> | 
+> | 5. Cost data point: a fresh gpt-6.2-sol cell (startup turn plus one shortcode turn, effort high, Codex CLI 0.172.0) used about 90k non-cached tokens on average over 10 cells, against about 68k per cell in the gpt-6.1-sol pilot.
+> | 
+> | 6. t2376 was created for a pre-existing harness defect: `Budget` locks reservations in-process only, so two harness commands running at once on one batch can exceed the invocation cap.
