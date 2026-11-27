@@ -11,8 +11,9 @@ active_gates_profile: fast
 active_gates_digest: 4a36c12bb96d.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
+implemented_with: claudecode/opus5_5
 created_at: 2026-11-27 01:43
-updated_at: 2026-11-27 08:03
+updated_at: 2026-11-27 14:16
 ---
 
 ## Origin
@@ -46,3 +47,8 @@ the rows, then drop the second probe in `_server_is_gone` (keep the
 "transport is not absence" rule: only tmux's own no-server answer counts).
 Add a test with a gateway stub whose first listing says no server and whose
 second would succeed.
+
+## Gate Runs
+<!-- Appended by the gate framework. Do not edit by hand; use `./.aitask-scripts/aitask_gate.sh append` for corrections. -->
+
+> **✅ gate:plan_approved** run=2026-11-27T12:16:30Z status=pass attempt=1 type=human
