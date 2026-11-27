@@ -384,3 +384,162 @@ rule, or the lock, be bypassed. Those are closed by the batch-name identity chec
 (resolved journal path == lexical path, `st_nlink == 1`).
 
 Each fix has its own test and pre-fix control.
+
+## Implementation progress
+
+- [x] Step 1: harness.py. Added `batch_journal()`, `BatchBusy`, `BatchLock`, `RUNNER_BATCHES`, the
+  `@_batch_locked` decorator on smoke/pilot/judge/rejudge, and the `_experiment()` lock guard.
+- [x] Step 2: adhoc_live_check.py. Its lock classes are now re-exports of the harness's. `cmd_run`
+  refuses an invalid or aliased journal before taking the lock.
+- [x] Step 3: tests. `TestBatchLock` adds 6 tests; the suite has 118 tests, all green.
+  `test_shadow_scan_sessions.py`: 31 tests, green.
+- [x] Step 4: README "Budget across processes" paragraph.
+
+Deviations:
+- Alias refusals print `RUN_REFUSED:batch '<b>': <path> is an alias of <target>` and
+  `… is hard-linked (<n> links)`. Only a name that fails the pattern prints
+  `RUN_REFUSED:invalid batch name <repr>`. The decorator prints the `ValueError` text verbatim.
+- A hard link makes **both** names refused, because both journals then have `st_nlink == 2`.
+  The test pins this.
+
+Pre-fix controls (driver: `mutants.py` in the session scratchpad; each mutant is a full copy of
+`shadow_q/` plus the test file, mirroring the repo layout; a probe confirmed `H`/`A` imported
+from the copy). Results:
+
+| mutant | result |
+|---|---|
+| unmutated copy | rc=0, all 6 pass (positive control) |
+| `@_batch_locked` removed from `cmd_smoke` | red: two-commands test, "raised instead of refusing: RuntimeError('_experiment() needs the batch lock…')" |
+| lock taken after `recover()` | red: two-commands test, recovery spy `[…/b/budget_journal.jsonl] != []` |
+| `RUNNER_BATCHES` check removed | red: cap-switch test, recovery spy `[…/t2368/budget_journal.jsonl] != []` |
+| name validation removed | red: batch-name test, recovery spy `[…/outside/x/budget_journal.jsonl] != []` |
+| lock open with `O_TRUNC` | red: batch-name test, `'' != 'keep\n'` |
+| lock open without `O_NOFOLLOW` | red: batch-name test, `BatchBusy not raised` |
+| containment-only identity check | red: alias test (`foo -> t2368` recovered), runner-alias test (`make_budget reached`) |
+| runner `batch_journal` unhandled | red: runner-alias test, the `ValueError` escapes `cmd_run` |
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-27 10:05)
+- **Requested by user:** two review concerns, both verified as valid.
+  1. Runner ownership compared the raw batch name case-sensitively. On a case-insensitive
+     filesystem, `T2368` names t2368's directory and would get past the 24-call ownership rule.
+  2. `batch_journal()` let lookup errors escape from `resolve()` / `lstat()`, for example
+     `NotADirectoryError` for a file where the batch directory should be, or a symlink loop.
+     Both entry points catch only `ValueError`.
+- **Changes made:**
+  1. `BATCH_NAME_RE` is now lowercase ASCII only (`[a-z0-9][a-z0-9._-]*`). Valid names are
+     already case-folded, so two valid names can never fold onto one directory, on any
+     filesystem. This is testable on Linux, unlike a samefile check.
+  2. `batch_journal()` translates `OSError` / `RuntimeError` from the lookup into
+     `ValueError("batch '<b>': cannot look up <path>: <exc>")`, so both entry points refuse with
+     `RUN_REFUSED`.
+  3. New test `test_case_aliases_and_lookup_failures_are_refused`. It checks that every
+     `RUNNER_BATCHES` key meets the name rule. It checks that `T2368`, `Pilot` and `B` are
+     refused by every paid command, with zero recoveries and t2368's journal untouched. It
+     checks that a regular file named as a batch and a symlink loop are refused by every paid
+     command, and that the runner refuses a regular file at `runs/t2368` without reaching
+     `make_budget`.
+  4. README: the name rule, the reason for lowercase, and the lookup-failure refusal.
+- **Pre-fix controls added:** a case-insensitive name regex fails on the new test's recovery
+  spy (`…/T2368/budget_journal.jsonl` recovered). Lookup errors that escape fail with
+  `[Errno 20] Not a directory`. All 10 mutants are red, and the unmutated copy is green.
+- **Files affected:** `aidocs/benchmarks/shadow_q/harness.py`, `aidocs/benchmarks/shadow_q/README.md`,
+  `tests/test_shadow_q_harness.py`
+- **Concern resolutions:** README name-rule claim fixed (the paragraph was re-reviewed and stamped).
+- **Results:** 119/119 harness tests and 31/31 scan tests pass.
+
+### Change Request 2 (2026-11-27 10:40)
+- **Requested by user:** two review concerns, both verified as valid.
+  1. On FAT, a spelling with trailing dots (`t2368.`) names t2368's directory. The lowercase rule
+     still admitted it, and ownership compared the raw name.
+  2. A journal symlinked to itself survives non-strict `resolve()` with its spelling unchanged,
+     and `lstat` sees one link. Validation therefore passed, and recovery hit an uncaught ELOOP.
+- **Changes made:**
+  1. Ownership is matched by on-disk identity. New `runner_owner()` compares the batch
+     directory's `(st_dev, st_ino)` with every owned batch's directory. The decorator calls it
+     after `BatchLock` (which created the directory), before the command body. The raw-name
+     check stays as the first, file-free refusal. Name-based rules alone kept leaking
+     (case, then trailing dots), so identity is the general fix.
+  2. The name rule must also end in a letter or digit:
+     `[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?`.
+  3. `batch_journal()` now `lstat`s the batch directory (it must be a directory) and the
+     journal (it must be a regular file, with one link). A self-linked journal, a FIFO, and a
+     symlinked batch directory are refused as "is not a directory" / "is not a regular file".
+  4. Tests:
+     - new `test_ownership_holds_on_a_folding_volume` runs on a real case-folding tmpfs (casefold
+       mount plus `chattr +F`, in `unshare -rm`). It skips with a reason when the platform has
+       none, and the probe runs no code under test. It asserts that the volume really folds
+       (`T2368` and `t2368` have the same stat), so the test can never pass vacuously. The real
+       name rule refuses `T2368`. With the name rule widened, standing in for a folding the rule
+       does not foresee, every paid command is refused by identity, with zero recoveries.
+     - The refusal tests gained trailing-dot and trailing-separator names, a self-linked
+       journal, a FIFO journal, a 300-character name (ENAMETOOLONG) and an unsearchable
+       directory (EACCES, skipped as root), plus a self-linked journal for the runner.
+- **Pre-fix controls:** 13 mutants, all red; the unmutated copy is green. New:
+  `no_identity_ownership` → the folding test's recovery spy; `trailing_dot_names` → recovered
+  `t2368./…`; `no_regular_file_check` → "ValueError not raised" / "make_budget reached". Changed
+  failing assertion, still red: `no_runner_batch_check` is now caught by the identity check (the
+  lock file gets created). `containment_only` is caught by the directory-type check.
+  `lookup_errors_escape` needed the ENAMETOOLONG/EACCES cases to stay red.
+- **Files affected:** `aidocs/benchmarks/shadow_q/harness.py`, `aidocs/benchmarks/shadow_q/README.md`,
+  `tests/test_shadow_q_harness.py`
+- **Concern resolutions:** README name rule and alias list rewritten, re-reviewed and stamped.
+- **Results:** 120/120 harness tests and 31/31 scan tests pass.
+
+### Change Request 3 (2026-11-27 11:00)
+- **Requested by user:** one low-severity concern, verified as valid. `runner_owner` followed the
+  reserved directory with `os.stat`. A self-linked `runs/t2368` raised ELOOP and refused a healthy
+  batch while checking an unrelated directory.
+- **Changes made:** `runner_owner` uses `lstat` for both the batch directory and the owned entries.
+  An owned entry that is not a plain directory has its own inode, so it matches no batch
+  directory. `batch_journal` refuses such an entry to the runner too, so no runner spends from
+  its target. A genuine lookup failure is still a `ValueError` refusal. An explicit `S_ISDIR`
+  skip was tried and dropped: its mutant stayed green, because `lstat` inode equality already
+  implies it. New test `test_an_unusable_owned_entry_does_not_block_other_batches` makes
+  `runs/t2368` a self-symlink, a symlink to `foo`, and a regular file. In each case
+  `pilot --batch b` and `pilot --batch foo` get past every refusal: the recovery spy records them.
+- **Pre-fix controls:** `owner_check_follows` (`os.stat` again) → red on the new test. All 14
+  mutants are red, and the unmutated copy is green.
+- **Files affected:** `aidocs/benchmarks/shadow_q/harness.py`, `tests/test_shadow_q_harness.py`
+- **Concern resolutions:** README unchanged; claims re-checked against the new `harness.py`
+  (`stamp-claims`).
+- **Results:** 121/121 harness tests and 31/31 scan tests pass.
+
+## Final Implementation Notes
+- **Actual work done:** the harness now owns the per-batch `flock` (`BatchLock`, `BatchBusy`). Every
+  paid command (`smoke` / `pilot` / `judge` / `rejudge`) holds it for its whole run through
+  `@_batch_locked`, and `_experiment()` refuses to run without it. The runner
+  (`adhoc_live_check.py`) re-exports the harness's lock classes, so one lock covers both tools.
+  `batch_journal()` makes the batch name the journal's one identity. It requires a lowercase ASCII
+  name that starts and ends with a letter or digit, a resolved path equal to the lexical one, a
+  plain batch directory, and a regular journal file with one link, and it turns every lookup
+  error into a `ValueError` refusal. Runner-owned batches (`RUNNER_BATCHES`, `t2368` → cap 24) are
+  refused by name before any file is created, and by on-disk directory identity (`lstat` device
+  and inode) once the lock exists. The README has a "Budget across processes" paragraph.
+- **Deviations from plan:** three review rounds widened the alias rules beyond the approved plan.
+  The rounds added, in order: lowercase-only names and lookup-error translation (CR1); trailing-dot
+  rejection, identity-based ownership, and the directory and regular-file type checks (CR2); and
+  `lstat`-based owner matching (CR3). An explicit `S_ISDIR` skip in `runner_owner` was dropped as
+  redundant, because its mutant stayed green. The alias refusal messages are `… is an alias of …`,
+  `… is not a directory`, `… is not a regular file`, `… is hard-linked (<n> links)` and
+  `… cannot look up …`. Only a name that fails the pattern prints `invalid batch name`.
+- **Issues encountered:** the new type checks made the lookup-error translation unreachable from
+  the existing tests (its mutant went green). ENAMETOOLONG and EACCES cases restored coverage. A
+  mutant anchor broke when the decorator was restructured and was re-anchored. A test's embedded
+  child script had a doubled-backslash escape, which was fixed.
+- **Key decisions:**
+  - The lock belongs to the command, not to `Budget.recover()`, so one process can still hold two
+    `Budget`s, as the restart test does.
+  - Runner-owned batches are refused outright rather than pinning a cap in the journal; the
+    existing t2368 journal has no pin.
+  - Ownership is matched by on-disk identity, because name rules alone kept leaking across
+    folding filesystems.
+  - The folding regression test uses a real case-folding tmpfs inside `unshare -rm`. It is gated
+    on a capability probe that runs no code under test, and it asserts the volume really folds.
+- **Documentation review:** `aidocs/benchmarks/shadow_q/README.md` got level=findings:1,
+  prose=ok, reader=not-run(untagged), claims=ok, on its final snapshot, with claims re-checked
+  after CR3. Unresolved finding: the page has no `depth` frontmatter. It was left as is because
+  no page under `aidocs/` sets `depth`. One claim was corrected during review: the batch-name
+  start rule.
+- **Upstream defects identified:** None
