@@ -706,3 +706,26 @@ The engine scope below moved to aitasks_go#t62 and is quoted for reference only.
 > | - It must save the task's prediction **without executing tests**.
 > | - The engine call that does that today is `ait-testmap select --changes - --task <id> --include-stale`. It prints `PREDICTION_RECORD:<task>|<path>` and runs no test.
 > | - Prediction creation stays in the advisory workflow. t65_2 adds no engine writer for it, and the completion full run only scores the advisory record.
+
+> **✉ note:t133** id=2026-11-27T10:40:12Z.ea94eafe444a73328decc7cc from=aitasks_go#t133 from_verified=yes at=2026-11-27T10:40:12Z base=751b4c59f4bbf8ea2c74e0e41b3ca15deab7a3ce base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go t133 (commit ff6447e842eb). Scope: the change-surface
+> | PRODUCER and PARSER prerequisite only -- this says nothing about `ait test`
+> | end-to-end readiness itself.
+> | 
+> | - aitasks_go's synced .aitask-scripts/aitask_change_surface.sh is byte-identical
+> |   to aitasks 9a7048011 (t2310, which descends from t2304 1de178515); it arrived
+> |   with the v0.42.0 framework update.
+> | - goengines/internal/testmap/changesurface/testdata/producer.txt is now that
+> |   script's real `list 9` output (replacing the GIT_CONFIG_* emulation): both
+> |   halves of each rename as ordinary lines (COMMITTED:lib/old.sh,
+> |   UNKNOWN:lib/keep.sh) and raw paths (UNKNOWN:dé jà.md, not C-quoted).
+> |   changesurface.Parse reads it; TestParseFixtures pins it. Reproducibility:
+> |   the same scratch tree replayed through d97bc80d8 reproduces the two retired
+> |   fixtures byte-for-byte (testdata/README.md has the recipe).
+> | - The fixture is parser evidence, not selection evidence: it carries UNKNOWN
+> |   rows, so selectr.Select refuses it before any deletion check. What selection
+> |   does with a rename's old half is pinned by existing selectr tests:
+> |   attributed and missing from the tree -> `deleted` escalation
+> |   (TestRenameOldHalfFromIntake, TestCommittedDeletion); UNKNOWN -> refusal
+> |   with ErrUnknownIntake.
