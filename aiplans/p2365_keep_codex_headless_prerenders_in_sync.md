@@ -555,11 +555,12 @@ delivery (staging only, unchanged).
 ### Goal-achievement risk: low
 - Always-deliver adds inert `.agents/skills/` files (and, on upgrade, commits them) in projects that never use Codex; a user may read that as unwanted · severity: low · → mitigation: none (explicit scope decision; config stays opt-in; reported in the upgrade summary line)
 - An already-dirty checkout is preserved and reported, not converged (intended scope) · severity: low · → mitigation: none
+- `aitasks/metadata/codex_skills/` is never pruned, so retired prerender dirs accumulate in staging (no longer installed: the sync reads only the exact manifest) · severity: low · → mitigation: t2382
 - Step 0 lands files left uncommitted in the shared tree; a foreign hand edit among them would be overwritten or committed under this task · severity: low · → mitigation: none (rendering happens in a scratch clone of committed sources, and the shared tree is written only after its current bytes are proven to be HEAD's or the render's)
 
 ### Planned mitigations
 - timing: post-phase | name: adversarial_baseline_cases | type: test | priority: high | effort: low | inline_risk: low | added_complexity: low | addresses: code-health — protection classifier / baseline feed | desc: Add deleted-file, staged-rename and symlink/dir-destination cases to the preservation tests
-- timing: after | name: prune_retired_codex_staging | type: bug | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — stale staging dirs (advisory: the exact manifest already stops them being installed) | desc: Make install_codex_staging mirror the tarball's rendered dirs so aitasks/metadata/codex_skills/ does not accumulate retired prerenders
+- timing: after | name: prune_retired_codex_staging | type: bug | priority: low | effort: medium | inline_risk: medium | added_complexity: medium | addresses: goal-achievement — stale staging dirs (advisory: the exact manifest already stops them being installed) | desc: Make install_codex_staging mirror the tarball's rendered dirs so aitasks/metadata/codex_skills/ does not accumulate retired prerenders | created: t2382
 
 ## Final Implementation Notes
 
