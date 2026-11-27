@@ -5,7 +5,7 @@ risk_goal_achievement: low
 effort: low
 depends: []
 issue_type: bug
-status: Implementing
+status: Done
 labels: [tui, execution_profiles]
 gates: [risk_evaluated]
 active_gates: [risk_evaluated]
@@ -17,7 +17,8 @@ anchor: 2363
 followup_kind: upstream_defect
 implemented_with: claudecode/opus5_5
 created_at: 2026-11-27 01:18
-updated_at: 2026-11-27 08:37
+updated_at: 2026-11-27 10:37
+completed_at: 2026-11-27 10:37
 ---
 
 ## Origin
@@ -42,3 +43,14 @@ Wrap `self.key`, `self.value` (and the subordinate form's `self.value`) in `rich
 > **✅ gate:plan_approved** run=2026-11-27T06:37:30Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-27T08:34:23Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-27T08:37:39Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:2eeafb364c94147e
+
+> **✅ gate:risk_evaluated** run=2026-11-27T08:37:39Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2371/risk_evaluated_2026-11-27T08:37:39Z-risk_evaluated-a1.log`
