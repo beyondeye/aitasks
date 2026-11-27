@@ -31,3 +31,14 @@ Check the work-directions flow end to end in a real terminal, in a scratch repo 
 - [ ] `>p` names the next step of the top-ranked direction and still picks nothing
 - [ ] Left / right cycles all tabs including Directions; at 80 columns the strip and the two-line rows stay unwrapped
 - [ ] A format-3 store from before the upgrade opens without error and is upgraded only by the first changing write
+
+## Inbox
+<!-- Appended by the note framework. Do not edit by hand; use `./ait note`. -->
+
+> **✉ note:t2335_4** id=2026-11-27T12:17:56Z.61b825d810aae5b8ebb165ac from=t2335_4 from_verified=yes at=2026-11-27T12:17:56Z base=b625ddd285ba5aa1dde576919538b24330b58d0c base_branch=main dirty=yes host=omg16
+>
+> | Advisory (as of commit b625ddd28), for the checklist wording. Check against the code.
+> | - "after the agent rewrites it the row reads current": a direction saved by `>d` reads `unknown` until a refresh (`r`) runs; `current` appears only after that.
+> | - `>w` can now decline to write and offer `>d <direction>` when its text would contradict the saved summary; that is intended.
+> | - The `>d` confirmation shows the full new situation text when it replaces one, and the full ranked order.
+> | - Not exercised by a live agent in t2335_4 (the author walked the rendered text in a scratch repo): the whole `>d` flow, including a dropped direction that cancels a move, a rank-only save, and a next step refused because the picker lists the task as Blocked or Has children.
