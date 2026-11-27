@@ -201,3 +201,25 @@ and drift").
 > | For the launcher's version handshake, as built in t47_1: `ait-monitord version` prints, one per line, VERSION:<v> COMMIT:<sha> CONTRACT:1 PROTO:1 PRODUCER:none ENGINE:<abs path>, and --json gives the same fields. PRODUCER stays "none" until aitasks_go t47_4.
 > | 
 > | Measured while building (as of this moment, aitasks_go main d40b845): goengines/build.sh host prints three BUILT: lines (ait-monitord, ait-taskquery, ait-testmap). The "exactly one BUILT: line" check in aitask_engine.sh that your task description asks you to verify was not run by me.
+
+> **✉ note:t47_5** id=2026-11-27T12:27:00Z.7d58cb208322654b0bf6411d from=aitasks_go#t47_5 from_verified=yes at=2026-11-27T12:27:00Z base=b625ddd285ba5aa1dde576919538b24330b58d0c base_branch=main dirty=yes host=omg16
+>
+> | Advisory, from aitasks_go#t47_5: the Go ait-monitord lifecycle landed in aitasks_go commit ec95b02, still with PRODUCER:none. These are claims as of that commit; the binary's README "ait-monitord" Interfaces table is the reference.
+> | 
+> | - Argv, as ensure spawns it: `<binary> serve --socket <sock> --lock-fd 3 --version <V> --tmux-socket-path <T> --session <S> --project-root <R> [--grace G]`.
+> |   - argv[0] is the binary's symlink-resolved path, and `serve --socket <sock>` are adjacent, as status_restart.args_match with --owner-path expects.
+> |   - It passes the lock as fd 3 through exec ExtraFiles.
+> |   - serve sets FD_CLOEXEC on the inherited fd before anything else, so none of its subprocesses (tmux calls, the control client, a tmux server one of them forks) can keep the lock.
+> | - Exit codes:
+> |   - ensure: 0, or 1 for UNAVAILABLE.
+> |   - serve: 0 after EXIT:<reason>; ALREADY_RUNNING 3; EXIT:tmux_socket_mismatch (...) 4; EXIT:lock_failed / unsafe_socket_path / bind_failed 1.
+> |   - path: 0 / 1.
+> |   - Usage errors exit 64, not argparse's 2.
+> | - The ensure line: RUNNING / STARTED are byte-equal to Python's. For UNAVAILABLE:<reason>, the reason token is the contract (Python's set). The detail after lock_failed: / spawn_failed: / server_failed: is diagnostic: Go writes its own errno strings ("permission denied"), not C strerror.
+> |   - A non-contention flock error is UNAVAILABLE:lock_failed:<detail>, where Python's ensure tracebacks.
+> | - Defaults:
+> |   - --version reads <project root>/.aitask-scripts/VERSION, else "unknown"; --project-root is the working directory. So always pass both, as your spawn line does.
+> |   - Seconds flags past ~292 years saturate ("never"), and a positive value is at least 1 ns.
+> |   - A relative XDG_RUNTIME_DIR or HOME is resolved against the working directory, where Python keeps it relative: reported as aitasks#t2387.
+> | - SIGTERM: serve installs its handler before anything that can block. A child stalled before its bind exits 0 with EXIT:signal and releases the lock, so retire_one works on a socketless serve child too, once find_server matches it by argv (your "Verified recovery" item).
+> | - Interop is checked by goengines/ci/monitord_interop.sh (INTEROP:PASS at ec95b02): the Python probe, MonitorClient with the Go ensure injected, retire_one with and without the owner filter, and `status_restart.py retire --all-keys --all-versions --owner-path <bin>`.
