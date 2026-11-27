@@ -3,13 +3,14 @@ priority: medium
 effort: low
 depends: []
 issue_type: bug
-status: Ready
+status: Folded
 labels: [skills, opencode]
 gates: [risk_evaluated]
+folded_into: 2365
 anchor: 1150
 followup_kind: upstream_defect
 created_at: 2026-07-15 18:32
-updated_at: 2026-08-13 23:06
+updated_at: 2026-11-27 08:25
 boardidx: 146432
 ---
 
