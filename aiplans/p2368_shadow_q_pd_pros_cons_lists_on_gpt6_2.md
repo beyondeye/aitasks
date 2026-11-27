@@ -545,7 +545,7 @@ With `./ait note … --from 2368`:
   `>q` bullet, the capability list and the docs name `>qd`)
 
 ### Planned mitigations
-- timing: after | name: rescan_shadow_q_pd_real_use | type: test | priority: medium | effort: low | inline_risk: high | added_complexity: low | addresses: one answer per wording and model on replay fixtures; real answers could still mix pros and cons or >q could drift long | desc: Some days after t2368 lands, re-run aidocs/benchmarks/shadow_q/scan_sessions.py on real shadow sessions, record the numbers for >q, >qd and >pd on gpt-6.2-sol as two samples split by the skill text each session read (old / new, with n for each, same matcher), read how >q answers on workflow menus and >qd answers look, and report >px / >t and Claude counts
+- timing: after | name: rescan_shadow_q_pd_real_use | type: test | priority: medium | effort: low | inline_risk: high | added_complexity: low | addresses: one answer per wording and model on replay fixtures; real answers could still mix pros and cons or >q could drift long | desc: Some days after t2368 lands, re-run aidocs/benchmarks/shadow_q/scan_sessions.py on real shadow sessions, record the numbers for >q, >qd and >pd on gpt-6.2-sol as two samples split by the skill text each session read (old / new, with n for each, same matcher), read how >q answers on workflow menus and >qd answers look, and report >px / >t and Claude counts | created: t2377
 
 ## Post-Review Changes
 
