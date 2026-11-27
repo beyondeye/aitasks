@@ -5,7 +5,7 @@ risk_goal_achievement: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Implementing
+status: Done
 labels: [doc_quality, workflow, skills]
 active_gates: [risk_evaluated]
 active_gates_filtered: []
@@ -17,6 +17,7 @@ anchor: 2258
 implemented_with: claudecode/fable5_2
 created_at: 2026-11-26 23:57
 updated_at: 2026-11-27 11:21
+completed_at: 2026-11-27 11:21
 ---
 
 ## Problem
@@ -56,3 +57,14 @@ A documentation task follows the configured guide from the initial edit through 
 > **✅ gate:plan_approved** run=2026-11-27T07:02:08Z status=pass attempt=1 type=human
 
 > **✅ gate:review_approved** run=2026-11-27T09:19:38Z status=pass attempt=1 type=human
+
+> **🔄 gate:risk_evaluated** run=2026-11-27T09:21:37Z-risk_evaluated-a1 status=running attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Note: stuckhash:a18800e27aa6869e
+
+> **✅ gate:risk_evaluated** run=2026-11-27T09:21:37Z-risk_evaluated-a1 status=pass attempt=1 type=machine
+>
+> Verifier: `aitask-gate-risk`
+> Result: risk evaluated (## Risk section + both levels present)
+> Log: `.aitask-gates/2369/risk_evaluated_2026-11-27T09:21:37Z-risk_evaluated-a1.log`
