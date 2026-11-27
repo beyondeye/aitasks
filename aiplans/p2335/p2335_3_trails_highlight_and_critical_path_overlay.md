@@ -966,6 +966,193 @@ belongs to t2335_6).
 - timing: post-phase | name: board_render_parity_test | type: test | priority: medium | effort: low | inline_risk: low | added_complexity: low | addresses: shared-renderer risk to the board (code-health) | desc: board By-Trail cards unchanged without a highlight, and the board has no highlight entry point
 - timing: before | name: critical_path_rule_review | type: chore | priority: medium | effort: low | inline_risk: medium | added_complexity: low | addresses: critical-path interpretation (goal-achievement) | desc: review the critical-path rule and advice contract in the t2335_3 plan (classification-aware wave edges, live depends authoritative with superseded saved edges, the released state, cross-repo readiness via the xdep rule, NEXT as pick eligibility (status Ready) with `in_progress` / `on_hold` beside it, the readiness enum including `unverified` for foreign members, outside prerequisites not followed, verified-Done-only clearance, freshness qualifiers, slug vs title) against how t2335_4's skill will quote it, and record the confirmed rule or the corrections in the t2335_3 plan before implementation | created: t2367
 
+## Final Implementation Notes
+
+- **Actual work done:** Everything in "Implementation" §1–§8, plus the pre-phase and both
+  post-phase mitigations.
+  - `lib/dep_resolution.py`: `lookup()` (tri-state `FOUND` / `UNREADABLE` / `ABSENT`,
+    precedence-strict), `_dir_state()`, the `Lookup` record; `_index_entries()` factored out of
+    `_index_for` so both readers share the filename rule. `facts()` / `classify*()` / `scan` /
+    `_dir_identity` behave as before (pinned).
+  - `lib/archive_iter.py`: `find_bundled_markdown_by_id()` — the bundle half of
+    `find_archived_markdown_by_id`, moved out; the combined lookup calls it.
+  - `lib/trail_critical_path.py` (new, pure): the rule, `TaskState`, `CriticalPath`,
+    `canonical_ref`, `trail_refs`, `trail_remote_keys` / `remote_keys`, `waves_by_ref`.
+  - `lib/trail_task_states.py` (new): the one local resolver (two passes, bundle read then
+    precedence recheck).
+  - `lib/trail_overlay.py` (new, pure): card marker text, banner segments and shedding.
+  - `lib/trail_gather.py` + `aitask_trail_gather.sh`: the `critical-path` verb, its line protocol
+    and the consumer contract in the module docstring; `--trail art:<handle>` resolved for it too.
+  - `lib/agent_launch_utils.py`: the highlight request grammar (`parse_trails_request`,
+    `TrailsRequest`), title encoding, the `@aitask_trails_highlight` capability,
+    `launch_or_focus_trails(…, highlight=, direction=, title=)`.
+  - `board/board_trail_view.py`: `TrailEntryView.overlay`, `TrailOverlayCardMixin` (marker line,
+    heavy idle border, in-place `apply_overlay`), `trail_xdep_refs` as a wrapper of the shared key
+    set, three CSS rules.
+  - `board/board_trail_screen.py`: `TrailSession` overlay fields, `_invalidate_overlay`, the states
+    worker and its callback, `_compute_trail_overlay`, `_refresh_trail_overlay`,
+    `_start_xdep_for_new_overlay_keys`, overlay attachment in `_build_active_trail_lanes`.
+  - `board/trails_app.py`: `--highlight` / `--highlight-total` / `--highlight-direction` /
+    `--highlight-title`, the mailbox form, `_pending_overlay` / `_held_overlay`,
+    `TrailOverlayBar`, the `h` clear key, the `★` tab mark.
+  - Docs: `aidocs/framework/tui_conventions.md` (overlay contract), the trails reference
+    ("Task highlight", keys, tabs, launch rows) and how-to pages. `check_links.py --build`: PASSED.
+- **Pre-phase result (baseline_trails_suites):** recorded on `main` at `7b727d6b2` before the
+  changes: 887 passed, 0 failed (the eleven listed modules); `test_trails_focus_mailbox_live.py`
+  9 passed. One caveat: the `dep_resolution.py` edit (adding `lookup()`; existing functions
+  untouched) was saved while that run was still in flight. Every module had been imported at
+  collection time and all 887 tests passed, so the recorded baseline is "all green" either way.
+- **Post-phase results:** `OverlayRequestOrderTests` (16 tests: orders a–m of the plan plus a
+  reloaded document, a replaced highlight and the mailbox form) and `ByTrailNoOverlayTests` (the
+  board's cards label for label and border for border through `r`, a re-render and the in-place
+  path, with a positive control). Mutation check in an isolated copy: 12 of 13 guard mutants are
+  killed (generation guard, invalidation on task reload and on document change, the `r` probe,
+  the pending set, the setter's cancellation, superseded request, in-place update, plain request,
+  board label, unknown-freshness, capability order). The survivor weakens the session-identity
+  check and has no observable effect: a late result is written to the closed session object and
+  never reaches the reopened one, which `test_close_and_reopen_while_a_result_is_pending` asserts.
+- **Deviations from plan:**
+  - The overlay's text (`overlay_for_entry`, the banner) is in `lib/trail_overlay.py`, not in
+    `board_trail_view.py`. The board package's single-home test requires every name defined in
+    the view to be re-exported by `aitask_board.py`; keeping only the widget half in the view
+    limits that to two names (`TrailOverlayCardMixin`, `_overlay_label`), added to the board's
+    re-export import. That one import line is the only change to `aitask_board.py`.
+  - `_pending_trail_focus` stays a 3-tuple (an existing test pins its shape); the overlay part of
+    a held request lives beside it in `_held_overlay`, set and cleared with it.
+  - `Lookup` also carries the parsed frontmatter (`metadata`), so the resolver does not read the
+    file twice.
+  - Two more fail-closed states in the resolver: a loose archived file whose status is not Done is
+    `unresolved:archived_not_done`, and an `xdeps:` that is not a list is
+    `unresolved:malformed_xdeps`.
+  - A `depends:` token that is not a task id becomes a pseudo-ref (`<project>#?<sanitized>`) with
+    state `unresolved:bad_dep_token`; it is reported as an `OUTSIDE` blocker.
+  - Advisory predecessors that are Done are left out of the advisory set (they need no attention).
+  - `BLOCKER:` lines also list a highlighted member's blocked cross-repo prerequisites, with via
+    `xdep`; an empty probe result is printed as `UNREACHABLE`.
+  - A highlight with neither a direction nor a title labels its cards `★ highlighted`.
+  - With an older receiver the cut / dropped-slug warnings are not added to the "cannot highlight"
+    warning: they describe a highlight that is not shown at all.
+  - `remote_keys` is `trail_remote_keys(doc, xdep_pairs_of, local_project)` with two thin
+    callers (the TUI over manager tasks, the CLI over resolved states).
+- **Issues encountered:**
+  - A slice replacement during the edit removed `build_trail_lanes` and the helpers below it from
+    `board_trail_view.py`; the block was restored verbatim from `HEAD` and the diff re-read
+    (deletions are now only the old `trail_xdep_refs` body and the two card class lines).
+  - The existing mailbox tests patch the tmux-facing stamp functions by name. The two new ones
+    (`mark_trails_highlight` / `unmark_trails_highlight`) were not in `_PaneStore.patches`, so one
+    run of the suite could have called the real tmux for the pane ids the tests use. The helper
+    now patches them; the real server was checked twice and carried no stray stamp.
+  - A worker result can land between a re-render and the mount of its cards. The cards therefore
+    read their view when they compose, and `_refresh_trail_overlay` updates the views of the
+    render in progress before the mounted cards.
+- **Key decisions:**
+  - NEXT is pick eligibility on both surfaces; the readiness function is total and asserted.
+  - `reason=bundle` is set in one place only, for a copy the bundle-only reader returned while
+    every higher location was absent before and after the read.
+  - One cross-repo probe path (the session's full worker); a partial probe was not added.
+  - Results are bound to the session object and a unique stamp; advice is dropped on every input
+    change rather than patched.
+  - `--opt=value` tokens on the cold path; verified against a real tmux server that each value
+    arrives as one argument (a title with spaces, `$(id)` and a leading `-`) and that `#` in a
+    project-qualified id is not expanded when read back from the pane option.
+- **Upstream defects identified:**
+  - `.aitask-scripts/lib/dep_resolution.py:562-568 — _read_facts (and the open() in scan) catch OSError only; a task file with invalid UTF-8 raises UnicodeDecodeError out of facts()/scan, so the blocking scan dies with a traceback and no SCAN_OK`
+  - `tests/test_trail_skill_contract.sh:134 — expects the phrases 'explicit owner choice is REQUIRED' and 'Always pass --owner <id>' that the aitask-trail skill no longer contains: 6 failures across the default/fast/remote variants, with the skill files unmodified`
+- **Notes for sibling tasks:**
+  - **t2335_4 (skill):** quote `aitask_trail_gather.sh critical-path --trail art:<handle>
+    --highlight <ids>`; the protocol and the consumer rules are in the `trail_gather.py` module
+    docstring ("CRITICAL PATH"). NEXT = pick eligibility; `IN_PROGRESS` / `ON_HOLD` are not picks;
+    every NEXT carries the trail's freshness; `OUTSIDE` / `XDEP` are not followed; `NOT_IN_TRAIL`
+    has no readiness; a `…|unresolved|bundled` blocker means "Done but bundled, `ait ls` blocks
+    it too". The verb probes cross-repo statuses synchronously (10 s per ref).
+  - **t2335_5 (TUI tab):** `launch_or_focus_trails(session, root, handle, task_id=None,
+    highlight=[ids], direction=<slug>, title=<title>)` returns `(ok, warning_or_error)`; warnings
+    are `"; "`-joined. More than 256 ids are cut (first 256 in caller order, the total sent); a
+    slug over 512 characters is left out with a warning; an invalid slug or title is an error
+    before any tmux call; an older running receiver or project opens the trail and says so.
+  - The pure pieces are reusable without a TUI: `trail_critical_path.critical_path` +
+    `trail_task_states.resolve_for_trail` + `trail_overlay` for the words.
+
+## Post-Review Changes
+
+### Change Request 1 (2026-11-27 03:30)
+- **Requested by user:** five review concerns, each verified against the code before it was
+  addressed. (1, high) `critical-path` computed its advice from one read of the trail file and its
+  freshness from a second read through `cmd_drift`, so a file replaced in between gave a name and
+  advice from one document and a freshness from another. (2, medium) a task listing itself in
+  `depends:` was NEXT with zero blockers, while `LocalDepResolver` blocks it. (3, medium) the
+  `ARCHIVED_DIR` override reached only the bundle reader; the loose lookup still read
+  `<tasks>/archived`. (4, medium) a foreign prerequisite named only in saved dependencies (no trail
+  card, nobody's xdep) was never probed, so a foreign member read as blocked by an unchecked
+  prerequisite. (5, low, follow-up) `lookup()` listed its directories again for every task.
+- **Changes made:**
+  1. `cmd_drift` is now load + `drift_for_doc(doc, out)`; `trail_freshness(doc)` takes the loaded
+     document, and `cmd_critical_path` passes the one it read. The trail file is read once.
+  2. A self-dependency is kept as a direct blocker of its own task
+     (`…|depends|unresolved|self_dependency`), not followed; the task is `blocked`, never NEXT. It
+     is listed in `BLOCKER:` / `BLOCKED_BY:` and stated in both docstrings.
+  3. `LocalDepResolver(…, archived_dir=)` (default unchanged); `trail_task_states` gives the
+     configured directory to the resolver and reads bundles from the resolver's own
+     `archived_dir`, so both reads use one location.
+  4. `trail_remote_keys` also returns the foreign refs in members' `snapshot.depends` and in the
+     `from` of `hard_depends` relations. It is the one key set, so the CLI verb and the TUI's xdep
+     worker both probe them. Their own dependencies are not followed.
+  5. Done here instead of as a follow-up: `lookup(…, listings=)` reuses each directory's listing
+     (and its error) within one resolution pass; the precedence recheck after a bundle read passes
+     no listings and reads the tree afresh. The task file is still read on every call.
+- **Tests added:** file replaced between the two operations (one load, identical output, with a
+  control that the replacement is another, stale document); `drift` ≡ `drift_for_doc`;
+  self-dependency in the pure tests, in the verb and against the picker's verdict; the
+  `ARCHIVED_DIR` override in the resolver (loose, child, bundle, unreadable, default not read) and
+  in the verb next to `drift`; the widened key set in the pure tests, the verb and a TUI parity
+  test; one listing per directory per pass, an error held for the pass, a fresh listing for the
+  recheck.
+- **Files affected:** `.aitask-scripts/lib/trail_gather.py`, `lib/trail_critical_path.py`,
+  `lib/trail_task_states.py`, `lib/dep_resolution.py`, `tests/test_trail_gather.py`,
+  `tests/test_trail_critical_path.py`, `tests/test_trail_task_states.py`,
+  `tests/test_trails_app.py`.
+
+### Change Request 2 (2026-11-27 04:30)
+
+- **Requested by user:** three concerns from the second review, all verified as valid.
+  1. (high) The per-pass listing reuse could hide a higher-precedence active copy: an active
+     `Ready` copy that appeared after the active directory was listed lost to the loose archived
+     `Done` copy, and its dependent read NEXT.
+  2. (medium) For a highlighted task outside the trail, the self-dependency branch ran before the
+     membership filter, so `BLOCKED_BY` named the outside task as its own blocker. The contract
+     limits those records to trail members.
+  3. (low, follow-up) The shared probe wrapper added the saved foreign prerequisites to ordinary
+     Board and Trails views, where no card and no advice reads the result.
+- **Changes made:**
+  1. `LocalDepResolver.lookup(…, listings=)` accepts from reused listings only what they cannot
+     get wrong: a hit in the first location, an error, or absence everywhere (which the caller
+     rechecks afresh after the bundle read). A hit in a lower location (a loose archived copy), and
+     a listed file that has since gone, are each answered by one fresh walk of the chain.
+  2. In `critical_path`'s `expand`, the membership filter runs first for a non-member highlight,
+     so its self-dependency produces no record. Members keep the `self_dependency` diagnostic. Both
+     docstrings say so.
+  3. Done here instead of as a follow-up: `trail_remote_keys(…, saved_prerequisites=)` and
+     `trail_xdep_refs(…, advice=)`. A session's key set comes from one helper,
+     `_session_xdep_refs`, which asks for the saved prerequisites only when the session has a
+     highlight. Putting a highlight on a tab (`_consume_pending_overlay`) starts the existing full
+     worker when one of the added keys is unchecked (`_start_xdep_for_overlay`, the per-session
+     half of the `r` path). The CLI verb always uses the full set. Still one probe path.
+- **Tests added:** an active copy (readable, and unparseable) appearing right after the active
+  directory's first listing, with a control where nothing appears; a listed active file archived
+  mid-pass; the fresh walk a loose archived hit costs; an outside highlight with a
+  self-dependency in the pure tests and in the verb; the card-only versus advice key set in
+  `trail_xdep_refs`; a TUI test that a tab without a highlight does not probe the saved
+  prerequisite and that a highlight arriving on it does, with CLI parity.
+- **Verification:** 925 passed (lib, gather, writer, board trail suites), 188 passed
+  (`tests/test_trails_app.py`, `tests/test_trails_focus_mailbox_live.py`), link check and the
+  lib-import guard pass.
+- **Files affected:** `.aitask-scripts/lib/dep_resolution.py`, `lib/trail_critical_path.py`,
+  `lib/trail_gather.py`, `lib/trail_task_states.py`, `board/board_trail_view.py`,
+  `board/board_trail_screen.py`, `board/trails_app.py`, `aidocs/framework/tui_conventions.md`,
+  `website/content/docs/tuis/trails/reference.md`, `tests/test_trail_task_states.py`,
+  `tests/test_trail_critical_path.py`, `tests/test_trail_gather.py`,
+  `tests/test_board_bytrail_view.py`, `tests/test_trails_app.py`.
+
 ## Step 9 (Post-Implementation)
 
 Commit code and plan separately per the workflow, then Step 9: archival of t2335_3 via the standard
