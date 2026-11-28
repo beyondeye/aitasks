@@ -13,7 +13,7 @@ active_gates_digest: 5892c63ff1b4.681bafac2cb9.d73bba2fc21f
 assigned_to: dario-e@beyond-eye.com
 followup_kind: upstream_defect
 created_at: 2026-11-27 08:40
-updated_at: 2026-11-27 10:23
+updated_at: 2026-11-28 18:39
 ---
 
 ## Origin
