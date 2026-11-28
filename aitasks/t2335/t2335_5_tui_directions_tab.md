@@ -98,3 +98,5 @@ Child of the sitrep work-directions task; depends on the store, refresh, overlay
 > | - `>w` now passes `situation --expect-rev` and may pause instead of writing when its text would contradict the direction's summary; it then offers `>d <direction>`.
 > | - The agent names an `ait trails --trail … --highlight … --highlight-direction=…` command for a direction; website/content/docs/workflows/sitrep.md ("Work directions and implementation trails", step 4) shows it where your `z` key will go.
 > | - Writer additions you can use: `direction-set --with-situation` (summary + situation text in one write), `situation --expect-rev`.
+
+> **👁 note:read** id=2026-11-28T16:42:32Z.e078c704358b40e8eb5efc0d by=t2335_5 at=2026-11-28T16:42:32Z mode=explicit ids=2026-11-25T09:40:32Z.05fae169950b1c099d354b49,2026-11-25T17:24:38Z.4a18f2232025b24f886c43d0,2026-11-27T06:48:40Z.ee0b150042bc81b6a365a6c4,2026-11-27T12:17:53Z.936e0b28d19d0367cf251d61
