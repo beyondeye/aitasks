@@ -3,11 +3,12 @@ priority: medium
 effort: medium
 depends: []
 issue_type: enhancement
-status: Ready
+status: Implementing
 labels: [task_workflow, execution_profiles, skills, doc_review]
 gates: [risk_evaluated]
+assigned_to: dario-e@beyond-eye.com
 created_at: 2026-11-27 14:37
-updated_at: 2026-11-27 14:37
+updated_at: 2026-11-28 18:41
 ---
 
 ## Goal
